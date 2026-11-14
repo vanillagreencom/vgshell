@@ -631,7 +631,7 @@ function rebootPackages(hook, changes, kernel, mounted) {
 // The `rebootNotice` status value for the reboot-notice system step STEP,
 // { state, reason } as capability `system` lends it, or null: hidden
 // while the CachyOS hook is absent or before the first probe, else the
-// persistent CachyOS notice choice for package updates outside VGS and
+// persistent CachyOS notice choice for package updates and
 // the action that changes it, `vgsOnly` or `both`.
 function rebootNoticeValue(step) {
     var state = step ? step.state : "unknown";
@@ -669,11 +669,10 @@ function rebootNoticeRequested(request, value) {
     return value !== null && value !== undefined && typeof value.action === "string" && request === value.action;
 }
 
-// Only the first visit that still needs a decision opens the plugin's
-// offer. Closing it alone leaves the next visit eligible; either explicit
-// choice is remembered in the additive plugin setting, with no old format.
-function offerRebootNotice(step, viewed, answered, visited) {
-    return !!step && step.state === "needed" && viewed === true && answered !== true && visited !== true;
+// A needed hook with no saved answer offers the choice before Update
+// everything, and on the first Settings page visit.
+function offerRebootNotice(step, answered) {
+    return !!step && step.state === "needed" && answered !== true;
 }
 
 // ---- What the bar widget and the window draw --------------------------------
@@ -940,7 +939,7 @@ function tuiRequest(action, source) {
 // The line a refused request leaves in the window, "" for `ok` and for the
 // answers `check` gives, `started` and `queued`.
 function replyLine(reply) {
-    if (reply === "ok" || reply === "started" || reply === "queued" || /^refused: tui=\S+ reason=busy$/.test(reply)) return "";
+    if (reply === "ok" || reply === "started" || reply === "queued" || reply === "busy" || /^refused: tui=\S+ reason=busy$/.test(reply)) return "";
     if (/reason=launcher-missing/.test(reply)) return "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.";
     return "VGS could not open the update action. Try again.";
 }

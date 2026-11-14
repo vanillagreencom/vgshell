@@ -541,9 +541,9 @@ function verifyView(logic) {
   ];
   for (const [request, value, want] of requestRows) assert.equal(logic.rebootNoticeRequested(request, value), want, "reboot notice request: " + request + " " + JSON.stringify(value));
   for (const state of [undefined, "needed", "absent", "ready", "denied", "unknown"]) {
-    for (const viewed of [false, true]) for (const answered of [false, true]) for (const visited of [false, true]) {
-      assert.equal(logic.offerRebootNotice(state === undefined ? undefined : { state }, viewed, answered, visited),
-        state === "needed" && viewed && !answered && !visited, "offer state: " + JSON.stringify([state, viewed, answered, visited]));
+    for (const answered of [false, true]) {
+      assert.equal(logic.offerRebootNotice(state === undefined ? undefined : { state }, answered),
+        state === "needed" && !answered, "offer state: " + JSON.stringify([state, answered]));
     }
   }
   verifyNoticeOwner(logic);
@@ -690,7 +690,7 @@ const controls = [
   ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],
   ["a notice without a change offers no choice", 'if (value === null || value === undefined || typeof value.action !== "string") return [];', 'if (value === null || value === undefined) return [];'],
   ["a request names the offered change", "&& request === value.action;", "&& request !== \"\";"],
-  ["only a needed unanswered visit offers restart notices", 'step.state === "needed" && viewed === true && answered !== true && visited !== true', 'viewed === true'],
+  ["only a needed unanswered choice offers restart notices", 'step.state === "needed" && answered !== true', 'answered !== true'],
   ["an outcome names how the run ended", "RUN_ENDINGS.indexOf(value.ended) < 0 ||", ""],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];

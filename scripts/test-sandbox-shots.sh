@@ -2373,7 +2373,6 @@ probe() {
     observation) expect "$label" "$want_fixture" ipc smoke "$label" ;;
     wrapped-*) "operation_${kind#wrapped-}" dark fixture ;;
     settings-empty) expect "$label" "$want_fixture" settings_empty ;;
-    updates-action) expect "$label" "$want_fixture" updates_action ;;
     outdated-notice) expect "$label" "$want_fixture" outdated_notice_back ;;
     preview-drawn) expect "$label" "$want_fixture" preview_drawn ;;
     displays) expect "$label" "$want_fixture" displays_outputs_applied ;;
@@ -2397,7 +2396,7 @@ def prepare(text, name):
     start = text.index("# Ledger records are JSON tuples")
     boundary.write_text(text[start:text.index("if [[ ${1:-} == --check-desktop-pair", start)])
     readers = root / (name + "-readers.sh")
-    names = ("settings_empty", "updates_action", "outdated_notice_back", "preview_drawn",
+    names = ("settings_empty", "outdated_notice_back", "preview_drawn",
              "displays_output_taken", "displays_outputs_applied")
     blocks = []
     for owner in names:
@@ -2537,7 +2536,6 @@ def suite(text, name):
     # unavailable required dependency cannot seal or match that omission.
     for kind, got, want, faults in (
         ("settings-empty", "absent", "shown", ("ipc",)),
-        ("updates-action", "[0,0,1,1]", "shown", ("ipc", "scroll")),
         ("outdated-notice", '{"notices":{"shown":null}}', "back", ("ipc", "recorded", "key-idle", "layers")),
         ("preview-drawn", "", "True", ("tmux",)),
         ("displays", "[]", "5120x2880@-1440,-620 scale=2 transform=1",

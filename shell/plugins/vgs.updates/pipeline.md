@@ -6,7 +6,7 @@ Read when changing update execution or source admission. The [manifest](manifest
 
 One lock protects the update run. A busy run leaves the active run's log intact. Low disk space and snapshot failure warn without refusing the update.
 
-The plan and effective package configurations precede the snapshot and Updates' credential session. A missing AUR helper reviews its fetched clone before building it. Its credentials end before Updates starts its session.
+The plan precedes the snapshot and Updates' credential session. Package steps keep the system's and helper's own configuration. A missing AUR helper reviews its fetched clone before building it. Its credentials end before Updates starts its session.
 
 A snapshot precedes package replacement when a configured tool and elevation route are available. Update all reads what pacman, the AUR and each file source have pending through the package owner's check; another primary's system step always runs, since only pacman's check is known to read fresh package lists. A run that replaces no package takes no snapshot and asks no password. In Update all, the system step runs whenever another package step runs, since each of those needs the system upgrade first. The pipeline drops its shared sudo session before the AUR phase. That phase uses its own credential guard and drops any cached credential on completion, failure or interruption.
 
@@ -28,10 +28,10 @@ The [package-review contract](../../../docs/architecture/commands-are-data.md#pa
 
 A supported custom AUR command uses the same reviewed argv. An unsupported command requires explicit continuation with unavailable review; a No reads as a declined step. yay retains its own review menus.
 
-Updates owns source order, snapshots, hook masking, results, orphan decisions and reboot decisions. The common package owner supplies agent detection, review settings, prompts and verdict parsing.
+Updates owns source order, snapshots, results, orphan decisions and reboot decisions. The common package owner supplies agent detection, review settings, prompts and verdict parsing. The reboot-notice system step alone changes CachyOS's hook policy.
 
 ## Completion
 
-The pipeline's reboot decision reads changed packages and the core's running-kernel and compositor checks. Choosing reboot follows the core power route so Jarvis can save work. The pipeline does not hold the system awake.
+The pipeline asks about reboot only for packages this run changed that the reboot rules name. An unread check warns once and adds a non-failed result line. Choosing Reboot runs `vgshell power reboot`, which calls `systemctl reboot` immediately; it does not ask Jarvis to save work first. The shell restart follows the reboot question when a VGS package changed, unless Reboot succeeded. The pipeline records its end before the question and updates that record if the shell restart fails. The pipeline does not hold the system awake.
 
 The service observes completed TUI runs and checks again under [its cadence rules](developer.md#cadence). Source failures remain failures even when later sources succeed.

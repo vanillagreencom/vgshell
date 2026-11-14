@@ -56,6 +56,9 @@ Item {
     readonly property string rebootRequest: shell === null || typeof shell.settings.rebootNotice !== "string" ? "" : shell.settings.rebootNotice
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     property bool rebootOfferVisited: false
+    property bool updateAfterRebootNotice: false
+    // Another Update press must wait for the setup terminal to end.
+    property bool rebootSetupRunning: false
     // The AUR command setting, which decides what the VGS row says installs
     // a new release package (UpdatesLogic.publishedNote).
     readonly property string aurCommand: shell === null || typeof shell.settings.aurCommand !== "string" ? "" : shell.settings.aurCommand
@@ -103,7 +106,18 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
+        shell.shortcut.register("update-all", "Update everything", () => {
+            const reply = root.updateAll();
+            if (reply !== "ok") root.showUpdateRefusal(reply);
+        });
         shell.ipc.handle("check", arg => root.requestCheck(arg === "run" ? "run" : "ipc"));
+        shell.ipc.handle("update-all", () => root.updateAll());
+        shell.ipc.handle("reboot-notice-answer", choice => root.answerRebootNotice(choice));
+        shell.ipc.handle("reboot-notice-dismissed", () => {
+            const reply = root.answerRebootNotice("");
+            if (reply !== "ok") root.showUpdateRefusal(reply);
+            return reply;
+        });
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
         // handleChoice reports only the user's Settings press, never a
         // config edit or reload (plugin API, status.handleChoice).
@@ -122,15 +136,66 @@ Item {
     }
 
     function offerRebootNotice() {
-        if (shell === null) return;
+        if (shell === null || updateAfterRebootNotice) return;
         if (!pageViewed || !rebootStep || rebootStep.state !== "needed") {
             shell.surfaces.hide("panel");
             return;
         }
-        if (!Logic.offerRebootNotice(rebootStep, pageViewed, shell.settings.rebootNoticeAnswered, rebootOfferVisited)) return;
+        if (rebootOfferVisited || !Logic.offerRebootNotice(rebootStep, shell.settings.rebootNoticeAnswered)) return;
         const reply = shell.surfaces.summon("panel", "{}");
         if (reply === "ok") rebootOfferVisited = true;
         else console.warn("updates: reboot offer " + reply);
+    }
+
+    function runAll() {
+        const request = Logic.tuiRequest("all");
+        return shell.tui.run(request.name, request.args);
+    }
+
+    function updateAll() {
+        if (rebootSetupRunning) return "busy";
+        updateAfterRebootNotice = true;
+        if (!Logic.offerRebootNotice(rebootStep, shell.settings.rebootNoticeAnswered)) return finishUpdateOffer();
+        return shell.surfaces.summon("panel", "{}");
+    }
+
+    function finishUpdateOffer() {
+        const reply = runAll();
+        if (reply === "ok") updateAfterRebootNotice = false;
+        return reply;
+    }
+
+    function showUpdateRefusal(reply) {
+        const problem = Logic.replyLine(reply);
+        if (problem === "") return;
+        const shown = shell.surfaces.summon("window", JSON.stringify({ problem }));
+        if (shown !== "ok") console.warn("updates: window " + shown);
+    }
+
+    function answerRebootNotice(choice) {
+        if (choice !== "" && choice !== "both" && choice !== "vgsOnly") return "refused: reboot-notice=choice";
+        const setup = choice === "vgsOnly" && Logic.rebootNoticeRequested(choice, shell.status.values.rebootNotice);
+        if (choice !== "") {
+            const stored = shell.configure.set("rebootNoticeAnswered", true);
+            if (stored !== "ok") return stored;
+        }
+        if (setup) {
+            // status.act's done is released with its asking instance (plugin
+            // API). The service outlives the hidden panel and Updates window,
+            // so the update starts only after the setup terminal ends.
+            const update = updateAfterRebootNotice;
+            rebootSetupRunning = true;
+            const reply = shell.status.act("rebootNotice", undefined, undefined, () => {
+                root.rebootSetupRunning = false;
+                if (!update) return;
+                const launched = root.finishUpdateOffer();
+                if (launched !== "ok") root.showUpdateRefusal(launched);
+            });
+            if (reply !== "ok") rebootSetupRunning = false;
+            return reply;
+        }
+        if (updateAfterRebootNotice) return finishUpdateOffer();
+        return "ok";
     }
 
     // The core's `core/system` run shows its root commands and asks before

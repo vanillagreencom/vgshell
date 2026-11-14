@@ -517,7 +517,7 @@ CORE_WATCH_MASK = (
 # from pacman, outside the user's session, and cannot reach the running
 # shell.
 LOCK_WATCH_MASK = IN_DELETE | IN_MOVED_FROM
-# One pacman-conf read: a bound on a stalled program, not a latency budget.
+# Python perf_counter_ns over pacman-conf DBPath, home/CachyOS 2026-11-14 n=200: min/p50/p99/max 2.632/3.261/4.676/5.574 ms, first 4.553 ms; keep 5 s for stalls, not a latency budget.
 PACKAGE_CONF_SECONDS = 5
 
 

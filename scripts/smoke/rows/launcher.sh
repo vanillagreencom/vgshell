@@ -6,7 +6,8 @@
 # row. A picker answers
 # through two files under the sandbox's runtime directory, read here. The
 # Packages holds Install, Update and Remove while vgs.updates is enabled.
-# Those rows open floating TUIs, read back from the stand-in terminal
+# Install and Remove open floating TUIs; Update uses the service's gated
+# shortcut to open its full-update TUI, read back from the stand-in terminal
 # scripts/smoke/rows/tui.sh left. The Settings category
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
@@ -486,19 +487,19 @@ expect_poll "the direct payload opens the system menu" '"system"' read_launcher 
 type_keys -k Escape || fail "sending Escape for the direct payload control failed"
 expect_poll "Escape closes a direct payload menu" 0 layer_count vgs:overlay
 
-# pick_tui LABEL: in the open list, move the cursor to the tui row LABEL
+# launcher_pick_row KIND LABEL: in the open list, move to that row
 # and press Return. The pointer rests over the list, which opens and
 # animates under it, so Qt delivers the rows hover with no motion; the
 # launcher must not read that as a pointer taking the cursor.
-pick_tui() {
-  local index n keys=()
-  index="$(row_index tui "$1")" || { fail "the launcher's rows are unreadable for $1"; return 1; }
-  [[ $index =~ ^[0-9]+$ ]] || { fail "no tui row $1 to pick: $index"; return 1; }
+launcher_pick_row() {
+  local kind="$1" label="$2" index n keys=()
+  index="$(row_index "$kind" "$label")" || { fail "the launcher's rows are unreadable for $label"; return 1; }
+  [[ $index =~ ^[0-9]+$ ]] || { fail "no $kind row $label to pick: $index"; return 1; }
   for ((n = 0; n < index; n++)); do keys+=(-k Down); done
-  if ((index > 0)); then type_keys "${keys[@]}" || { fail "moving to $1 failed"; return 1; }; fi
-  expect_poll "the cursor rests on $1" "$index" read_launcher selectedIndex
-  expect "the resting pointer took no row before $1" false ipc smoke readShownDescendant overlay vgs.launcher ListCursor armed
-  type_keys -k Return || fail "sending Return on $1 failed"
+  if ((index > 0)); then type_keys "${keys[@]}" || { fail "moving to $label failed"; return 1; }; fi
+  expect_poll "the cursor rests on $label" "$index" read_launcher selectedIndex
+  expect "the resting pointer took no row before $label" false ipc smoke readShownDescendant overlay vgs.launcher ListCursor armed
+  type_keys -k Return || fail "sending Return on $label failed"
 }
 update_words() {
   local update_snapshot="$1"
@@ -529,7 +530,7 @@ for row in "Install|install|Install packages" "Remove|remove|Remove packages"; d
   IFS='|' read -r label verb title <<<"$row"
   forget_record
   packages_menu "$label"
-  pick_tui "$label"
+  launcher_pick_row tui "$label"
   expect_poll "$label hands the terminal the core's vgshell pkg $verb" "$(core_words "core/pkg-$verb" "$title" org.vgs.tui pkg "$verb")" recorded
   expect_poll "$label closes the launcher" 0 layer_count vgs:overlay
   expect_run_end "the $verb picker's run ends" "core/pkg-$verb"
@@ -571,7 +572,7 @@ launcher_install_absent() {
 forget_record
 hold_runs
 packages_menu "held Install"
-pick_tui Install
+launcher_pick_row tui Install
 expect_poll "held Install hands the terminal the core's vgshell pkg install" "$(core_words core/pkg-install "Install packages" org.vgs.tui pkg install)" recorded
 expect_poll "the held install picker stays live" busy key_idle core/pkg-install
 expect_poll "held Install closes the launcher" 0 layer_count vgs:overlay
@@ -587,7 +588,7 @@ expect_poll "another client takes focus before busy Install" '["org.example.laun
 launcher_other_address="$(launcher_client org.example.launcher-other Other)" || return 1
 expect "the owned other client is active before busy Install" True launcher_active_client "$launcher_other_address" org.example.launcher-other Other
 packages_menu "busy Install"
-pick_tui Install
+launcher_pick_row tui Install
 expect_poll "busy Install closes the launcher" 0 layer_count vgs:overlay
 expect "busy Install is not logged as a launcher refusal" 0 log_lines 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=busy'
 expect_poll "busy Install focuses the same held picker" focused-held launcher_held_install_focused
@@ -606,8 +607,9 @@ updates_revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p[
 updates_snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$updates_revision"
 forget_record
 packages_menu "Update"
-expect "the Packages menu lists its terminal actions" '["Install", "Update", "Remove"]' tui_labels
-pick_tui Update
+expect "the Packages menu lists its terminal actions" '["Install", "Remove"]' tui_labels
+expect "the Packages Update uses the service shortcut" True launcher_has_row shortcut Update
+launcher_pick_row shortcut Update
 expect_poll "Update hands the terminal the updates plugin's Update script" "$(update_words "$updates_snapshot")" recorded
 expect_poll "Update closes the launcher" 0 layer_count vgs:overlay
 expect_run_end "the Update run ends" vgs.updates/update
@@ -673,11 +675,11 @@ expect_poll "vgs.updates is built for launcher-missing" True record_exists vgs.u
 cp -- "$sandbox/vgshell-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expected_errors+=('tui: refused: tui=core/pkg-install reason=launcher-missing' 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=launcher-missing')
 packages_menu "Install without a terminal"
-pick_tui Install
+launcher_pick_row tui Install
 expect_poll "the launch that answered ok closed the launcher" 0 layer_count vgs:overlay
 expect_poll "the launch that found no terminal leaves the launcher state missing" '"missing"' lent tui.launcher
 packages_menu "Install refused"
-pick_tui Install
+launcher_pick_row tui Install
 expect_poll "the launcher-missing answer shows as a notice" True setup_notice
 expect_log "the launcher logs the refused TUI" 1 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=launcher-missing'
 expect "the refused row leaves the launcher open" 1 layer_count vgs:overlay

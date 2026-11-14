@@ -200,8 +200,7 @@
 # state and the tab's warning reading. It is taken only when named;
 # updates is the Updates
 # page with every tool it requires found or stood in and no Setup tab: its
-# Settings tab, then Details with its Actions row, which holds Update
-# everything, taken only when named; clone-voice is the
+# Settings tab, then Details, taken only when named; clone-voice is the
 # Jarvis page's Settings and Details tabs at their Local voice sections,
 # over a ready Large local voice, with the Cloned voice
 # off and not set up, with the clone setup's floating terminal at its first
@@ -271,6 +270,8 @@
 # --info ID:KEY[,ID:KEY...]. --click PANE follows its page link in light
 # mode and checks the System pane. The Updates Reboot notice field gets
 # a CachyOS hook in the fake system tree so its choices are shown.
+# reboot-notice, taken only when named, opens the unanswered Reboot notices
+# panel over the Updates Settings page with the hook needed.
 # plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
@@ -668,7 +669,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-side) baseline_side="${2:-}"; shift 2 ;;
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
-    restart-owed|font-rewrite) scenes+=("$1"); shift ;;
+    restart-owed|font-rewrite|reboot-notice) scenes+=("$1"); shift ;;
     jarvis-restart) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
     warden-states) scenes+=("$1"); shift ;;
@@ -865,6 +866,7 @@ scene_ships() {
     jarvis-setup|jarvis-home-repair|jarvis-fleet|jarvis-home|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
+    reboot-notice) [[ $manager_scene == settings ]] && ships_plugin vgs.updates ;;
     ai-usage|ai-usage-states|ai-usage-hide) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     add-widget) ships_plugin vgs.bar && [[ -f $tree/shell/plugins/vgs.bar/AddWidget.qml ]] ;;
@@ -2380,6 +2382,10 @@ scene_info-dialog() { # MODE
     IFS=$'\t' read -r section label text <<<"$entry"
     expect "Settings opens $pair" ok ipc shell summon "$settings_kind" vgs.settings "{\"plugin\":\"$id\"}"
     expect_poll "Settings shows $pair" "\"$id\"" settings_page
+    if [[ $pair == vgs.updates:rebootNotice ]]; then
+      shots_baseline_safety expect "the reboot notice Info fixture is unanswered" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
+      shots_baseline_safety expect "the choice panel hides before its Info popup" ok ipc shell hide panel vgs.updates
+    fi
     scope=SettingField
     if [[ $section == status ]]; then
       page_status "$id" "$key"
@@ -2388,7 +2394,7 @@ scene_info-dialog() { # MODE
     tab="$(settings_tab_text)" || { fail "the $pair tab is unreadable"; continue; }
     expect_poll "Settings shows $pair on $tab" "\"$id/$tab\"" ipc smoke readInstance "$settings_kind" vgs.settings shownPage
     settings_press --type InfoButton "About $label" "$scope" "$label" || { fail "the click on $pair info failed"; continue; }
-    expect_poll "$pair info opens" shown info_link_shown "$text"
+    shots_baseline_safety expect_poll "$pair info opens" shown info_link_shown "$text"
     park_pointer
     take "info-$1-$id-$key"
     info_close_click "$label" || fail "the $pair info Close failed"
@@ -2562,8 +2568,7 @@ scene_setup-tab() { # MODE
 }
 
 # The Updates page with every tool it requires found: its tab strip holds
-# Settings and Details alone, since the Update everything screen carries no
-# setup mark, and Details draws that screen in its Actions row. Each
+# Settings and Details alone. Each
 # requirement command the shell does not find, optional ones included,
 # since any tool not present gives the page its Setup tab, is stood in by
 # a stand-in no step runs: the service reads the planted snapshot
@@ -2572,19 +2577,17 @@ scene_setup-tab() { # MODE
 # with no snapshot, and turning it on then would start a check.
 updates_requirement_standins=()
 updates_tabs() { ipc smoke itemValues "$settings_kind" vgs.settings TabPages model | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v[0]["model"]) if len(v) == 1 else "tabs=%d" % len(v))'; }
-# updates_action: `shown` while Details draws Update everything in its
-# Actions row inside the page's scroll area, `hidden` while it is out of
-# view, `absent` while no Actions row holds it.
-updates_action() {
-  local box area
-  box="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings Field Actions RowAction "Update everything")" || return 1
-  [[ $box == \[* ]] || { echo absent; return 0; }
-  area="$(settings_scroll)" || return
-  [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 0; }
-  python3 -c 'import json,sys
-b, bar = json.loads(sys.argv[1]), json.loads(sys.argv[2])["bar"]
-print("shown" if b[1] >= bar[1] and b[1] + b[3] <= bar[1] + bar[3] else "hidden")' "$box" "$area"
+scene_reboot-notice() { # MODE
+  shots_baseline_safety expect "Settings opens for the reboot notice" ok ipc shell summon "$settings_kind" vgs.settings '{"plugin":"vgs.updates"}'
+  shots_baseline_safety expect "the reboot notice fixture is unanswered" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
+  shots_baseline_safety expect "the reboot notice panel opens for capture" ok ipc shell summon panel vgs.updates '{}'
+  shots_baseline_safety expect_poll "the unanswered reboot notice opens" '""' ipc smoke readInstance panel vgs.updates problem
+  take "reboot-notice-$1"
+  record_item "reboot-notice-$1" "$(ipc smoke instanceGeometry panel vgs.updates)"
+  settings_close
+  expect_poll "the reboot notice closes with Settings" absent ipc smoke readInstance panel vgs.updates problem
 }
+
 scene_updates() { # MODE
   local command commands at
   updates_requirement_standins=()
@@ -2612,7 +2615,6 @@ scene_updates() { # MODE
   [[ $at == "["* ]] || fail "the Updates Details tab did not scroll to its top: ${at:-no reply}"
   park_pointer
   expect_poll "the Updates page draws no Setup tab before its Details shot" '["Settings", "Details"]' updates_tabs
-  expect_poll "the Updates Actions row shows Update everything before its Details shot" shown updates_action
   take "updates-$1-details"
   settings_close
   expect "the updates service ran no check" False updates_checking
@@ -3770,6 +3772,7 @@ updates_window() {
 }
 updates_pending() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("pending"))'; }
 updates_checking() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("checking"))'; }
+shots_reboot_action() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; v=json.load(sys.stdin).get("rebootNotice"); print(v.get("action", "unavailable") if isinstance(v,dict) else "unavailable")'; }
 # updates_snapshot_plant: the updates snapshot fixture as the service's
 # status cache, checked now, so the service runs no check while it is
 # younger than the interval.
@@ -12036,6 +12039,17 @@ shots_vsys_title='1 group is near the memory threshold'
 for scene in "${setups[@]}"; do
   case $scene in
     gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab|capture-notifications) ;;
+    reboot-notice)
+      devices_ready reboot-notice-shot || exit 77
+      devices_system_tree >/dev/null || exit 1
+      mkdir -p -- "$devices_system_root/usr/share/libalpm/hooks"
+      : >"$devices_system_root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
+      updates_snapshot_plant
+      tree_rescan "the planted reboot notice hook is scanned"
+      expect "Updates enables for the reboot notice" ok ipc shell setPluginEnabled vgs.updates true
+      expect_poll "Updates reports its planted snapshot" 6 updates_pending
+      shots_baseline_safety expect_poll "the planted hook needs the reboot notice choice" vgsOnly shots_reboot_action
+      close_notices ;;
     info-dialog)
       # Use the existing popup readers and pointer helpers from their rows.
       eval "$(sed -n '/^info_link_shown() {/p; /^info_link_click() {/,/^}/p' "$checkout/scripts/smoke/rows/settings.sh")"
@@ -12047,8 +12061,10 @@ for scene in "${setups[@]}"; do
           mkdir -p -- "$devices_system_root/usr/share/libalpm/hooks"
           : >"$devices_system_root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
           updates_snapshot_plant
+          tree_rescan "the Info popup's reboot notice hook is scanned"
           expect "Updates enables for its Reboot notice info" ok ipc shell setPluginEnabled vgs.updates true
           expect_poll "Updates reports its planted snapshot" 6 updates_pending
+          shots_baseline_safety expect_poll "the Info popup's hook needs a choice" vgsOnly shots_reboot_action
           close_notices
         fi
       done

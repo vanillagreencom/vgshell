@@ -19,4 +19,4 @@ Open Plugins > Updates to change the check interval, icon visibility and update 
 
 Package review settings in the Updates window opens System Settings > General > Packages, where you choose how AI reviews packages.
 
-On CachyOS, Reboot notice controls whether CachyOS also shows restart notices for updates outside VGS. VGS asks once after an update that needs a restart with either choice.
+On CachyOS, the Reboot notices choice controls whether CachyOS shows reboot notices after package updates, including updates through VGS. With either choice, VGS asks about reboot only when that run changed a package that needs it.

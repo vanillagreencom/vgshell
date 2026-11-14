@@ -10,7 +10,7 @@ import "UpdatesLogic.js" as Logic
 // spinner while a check runs (UpdatesLogic.widgetView decides). The
 // `hideWhenCurrent` setting hides it only while the last check succeeded
 // and nothing waits. A left click opens or closes the Updates window; a
-// middle click opens the `update` TUI for every source. The tooltip lists
+// middle click asks the service to update every source. The tooltip lists
 // each source's count and when the last check ran, in the shell's one
 // wording of a past moment (Timestamp). It is one BarItem, the pending
 // count drawn as its corner badge.
@@ -41,11 +41,9 @@ BarWidget {
         return reply;
     }
 
-    // Open the TUI that updates every source; answers the capability's
-    // reply.
+    // Ask the service to offer the choice and update every source.
     function updateAll() {
-        const request = Logic.tuiRequest("all");
-        const reply = shell.tui.run(request.name, request.args);
+        const reply = shell.ipc.call("update-all", "");
         if (reply !== "ok") console.warn("updates widget: " + reply);
         return reply;
     }
@@ -63,7 +61,7 @@ BarWidget {
         tooltipDetails: widget.tip.details
         onClicked: widget.toggle()
 
-        // keyboard-path: the window's Update everything button runs the same TUI as the middle click
+        // keyboard-path: the window's Update everything button uses the same service gate
         // pointer-cursor-exempt: it adds the middle click to the Button it sits in, whose own PointerCursor shows the hand
         TapHandler {
             acceptedButtons: Qt.MiddleButton

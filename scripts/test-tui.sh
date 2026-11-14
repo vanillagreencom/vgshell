@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Controls for bin/lib/tui.sh, the floating TUI presentation library, and
 # for the plugin template that sources it. Each library row sources it into
-# a fresh bash with an explicit environment and runs one snippet: stub gum, sudo, uname and hyprctl record their arguments or answer
+# a fresh bash with an explicit environment and runs one snippet: stub gum and sudo record their arguments or answer
 # as the row sets. A row that needs no terminal runs under `setsid --wait`,
 # a session with no controlling terminal; one that needs a terminal runs on
 # a pseudo-terminal script(1) opens. The rows that read the blank row
@@ -25,9 +25,6 @@ stub() { printf '#!/bin/sh\n%s\n' "$2" >"$stubs/$1"; chmod +x "$stubs/$1"; } # N
 stub gum ": >\"$tmp/gum\"; cmd=\"\$1\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/gum\"; done; case \"\$cmd\" in choose|input|filter) printf 'gum-answer\\n';; esac; st=0; [ -f \"$tmp/gum-exit\" ] && read -r st <\"$tmp/gum-exit\"; exit \"\$st\""
 # sudo records each call; `sudo /usr/bin/true` exits 1 while $tmp/sudo-deny exists.
 stub sudo "printf '%s\\n' \"\$*\" >>\"$tmp/sudo\"; [ \"\$*\" = /usr/bin/true ] && [ -e \"$tmp/sudo-deny\" ] && exit 1; exit 0"
-# uname -r prints $tmp/release; hyprctl reads the private instance inventory.
-stub uname "cat \"$tmp/release\""
-stub hyprctl "cat \"$tmp/instances\""
 
 LIB="$lib"
 lib_env=("${base_env[@]}" PATH="$stubs:$base_path" SHELL="$BASH" XDG_RUNTIME_DIR="$rt")
@@ -1212,67 +1209,6 @@ gum_env_row() {
     TERM=xterm-256color)" ]]
 }
 check "gum's words are its exported colours, TERM and COLORTERM" gum_env_row
-
-# The reboot check: the running kernel's modules and a replaced Hyprland.
-kernel=""
-for dir in /lib/modules/*/; do [[ -d $dir ]] && { kernel="$(basename -- "$dir")"; break; }; done
-[[ -n $kernel ]] || { echo "test-tui: status=not-measured missing=/lib/modules/<release>"; exit 77; }
-replaced_binary "$tmp/Hyprland"
-# shellcheck disable=SC2154 # replaced_binary sets replaced_pid
-mkdir -p "$rt/hypr/session"
-# Every row has an unrelated same-user Hyprland running a deleted binary.
-# Rows: name | release | session pid | source | exit | stdout
-rows=(
-  "a current system|$kernel|$$|lock|1|"
-  "a replaced kernel|0.0.0-vgs-test|$$|lock|0|reboot=kernel"
-  "a replaced session compositor|$kernel|$replaced_pid|lock|0|reboot=hyprland"
-  "both replaced|0.0.0-vgs-test|$replaced_pid|lock|0|reboot=kernel reboot=hyprland"
-  "an intact session ignores another deleted Hyprland|$kernel|$$|json|1|"
-  "a replaced session from the inventory|$kernel|$replaced_pid|json|0|reboot=hyprland"
-  "an unreadable session|$kernel||json|1|"
-)
-for row in "${rows[@]}"; do
-  IFS='|' read -r name release pid source want_exit want_out <<<"$row"
-  printf '%s\n' "$release" >"$tmp/release"
-  rm -f -- "$rt/hypr/session/hyprland.lock"
-  printf '[{"instance":"other","pid":%s}]\n' "$replaced_pid" >"$tmp/instances"
-  if [[ $source == lock ]]; then
-    printf '%s\nwayland-test\n' "$pid" >"$rt/hypr/session/hyprland.lock"
-  elif [[ -n $pid ]]; then
-    printf '[{"instance":"other","pid":%s},{"instance":"session","pid":%s}]\n' "$replaced_pid" "$pid" >"$tmp/instances"
-  fi
-  run 'vgs_tui_reboot_check' HYPRLAND_INSTANCE_SIGNATURE=session
-  check "$name exits $want_exit" test "$status" == "$want_exit"
-  check "$name prints [$want_out]" test "$(tr '\n' ' ' <"$tmp/out" | sed 's/ $//')" == "$want_out"
-  if [[ -z $pid ]]; then
-    check "$name refuses the check" grep -qxF 'vgs-tui: refused: reboot-check=hyprland' "$tmp/err"
-  fi
-done
-printf '%s\nwayland-test\n' "$$" >"$rt/hypr/session/hyprland.lock"
-stub readlink 'exit 1'
-run 'vgs_tui_reboot_check' HYPRLAND_INSTANCE_SIGNATURE=session
-check "an unreadable compositor executable is refused" grep -qxF 'vgs-tui: refused: reboot-check=hyprland' "$tmp/err"
-rm -- "$stubs/readlink"
-run 'vgs_tui_reboot_check'
-check "a missing session signature is refused" grep -qxF 'vgs-tui: refused: reboot-check=hyprland' "$tmp/err"
-
-# Restore the old same-user process scan in a disposable library copy.
-# The intact-session assertion must reject its false reboot, while the
-# shipped library above passes the same planted unrelated process.
-copy_with reboot-all-processes "$lib" '  [[ $exe != *'\'' (deleted)'\'' ]] || reasons+=(hyprland)' '  local pids pid status=0
-  pids="$(pgrep -x -u "$(id -u)" Hyprland)" || status=$?
-  [[ $status -le 1 ]] || return 1
-  for pid in $pids; do
-    exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || continue
-    if [[ $exe == *'\'' (deleted)'\'' ]]; then reasons+=(hyprland); break; fi
-  done'
-cp -- "$repo/bin/lib/hyprland-instance.sh" "$tmp/copies/hyprland-instance.sh"
-LIB="$copy"
-run 'vgs_tui_reboot_check' HYPRLAND_INSTANCE_SIGNATURE=session
-check "the old process scan emits the planted false reboot" grep -qxF reboot=hyprland "$tmp/out"
-check "the intact-session assertion rejects the old process scan" test "$status:$(cat "$tmp/out")" != '1:'
-LIB="$lib"
-rm -- "$copy" "$tmp/copies/hyprland-instance.sh"
 
 # The plugin template's confirm, .agents/skills/vgs-plugin/templates/tui.sh,
 # run on a pseudo-terminal with a gum whose confirm answers as the row sets

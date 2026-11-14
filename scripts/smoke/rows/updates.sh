@@ -26,7 +26,7 @@
 # probe run per check however often it is read, a failing source named and
 # kept, a list past the status ceiling cut with its count kept, a request
 # during a check queued once, a TUI run's end starting one check, the
-# pipeline listed in the launcher's Update group, and only
+# update scripts kept off the direct TUI list, and only
 # the VGS rows where no manager is detected. The control is a bar widget
 # that runs the check itself: on two bars it probes twice for one check.
 #
@@ -62,7 +62,9 @@
 # choice of the notice in place hands the terminal nothing, its control,
 # and VGS only hands it the core's `system apply reboot-notice`, which the
 # stand-in terminal replaces with `true`; the service clears the setting
-# after each choice.
+# after each choice. Update everything while unanswered opens the offer
+# without a run. Keep and dismissal start the update; VGS only starts it
+# after the held setup terminal ends. A saved answer starts it directly.
 # inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
@@ -193,7 +195,7 @@ expect_poll "the scan's theme follow ends before the first check" idle theme_idl
 expect "enabling the updates service is allowed" ok ipc shell setPluginEnabled vgs.updates true
 expect_poll "the updates service is built" True record_exists vgs.updates
 updates_tui_rows() { ipc shell listTuis | py_reply 'import json,sys; print(json.dumps(sorted([r["key"], r["group"]] for r in json.load(sys.stdin) if r["plugin"] == "vgs.updates")))'; }
-expect "the pipeline is listed in the Update group and the one-source TUI is not listed" '[["vgs.updates/finish", "Smoke"], ["vgs.updates/update", "Update"]]' updates_tui_rows
+expect "update scripts stay private to the service gate" '[["vgs.updates/finish", "Smoke"]]' updates_tui_rows
 expect_poll "the first check publishes every source vgshell reports" \
   '[["pacman", 2, null], ["aur", 1, null], ["flatpak", 1, null], ["mise", 1, null], ["vgs", 1, null], ["plugins", 1, null], ["themes", 0, null]]' updates_sources
 expect "pending sums every source" 7 updates_field pending
@@ -221,6 +223,14 @@ updates_reboot_held() { python3 -c 'import json,sys; print(json.dumps(next((r.ge
 updates_reboot_action() { updates_field rebootNotice | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v.get("action") if isinstance(v,dict) else None))'; }
 updates_offer() { ipc smoke readInstance panel vgs.updates problem; }
 updates_answered() { python3 -c 'import json,sys; print(json.dumps(next((r.get("rebootNoticeAnswered") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.updates"), None)))' "$home/.config/vgshell/shell.json"; }
+# The script's file name and arguments after the presenter's last --.
+# Absent and partial records remain pollable states.
+launched() { recorded | py_reply 'import json,os,sys
+w=json.load(sys.stdin)
+a=w[len(w) - w[::-1].index("--"):] if "--" in w else []
+if not a: print("partial"); sys.exit()
+print(json.dumps([os.path.basename(a[0])] + a[1:]))'; }
+updates_all_running() { lent tui.runs | py_reply 'import json,sys; r=(json.load(sys.stdin) or {}).get("vgs.updates/update"); print(json.dumps(r is not None and r.get("running") is not None))'; }
 updates_visit() {
   expect "leaving Updates answers ok" ok ipc smoke invokeInstance window vgs.settings back ''
   expect "opening Updates answers ok" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
@@ -299,6 +309,53 @@ expect_poll "VGS only hands the terminal vgshell system apply with its step" \
   "$(core_words core/system "System setup" org.vgs.tui system apply reboot-notice)" recorded
 expect_poll "the service clears the VGS only choice" null updates_reboot_held
 forget_record
+
+# The Settings visit is not a prerequisite for the run-time choice.
+expect_run_end "the Settings setup ends before the run-time offer" core/system
+expect "Updates leaves Settings before the run-time offer" ok ipc smoke invokeInstance window vgs.settings back ''
+for answer in both vgsOnly dismiss; do
+  expect "the run-time offer starts unanswered for $answer" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
+  expect "the Updates window opens for $answer" ok ipc shell summon window vgs.updates '{}'
+  expect_poll "the open-time check ends before the $answer offer" idle updates_idle
+  forget_record
+  expect "Update everything asks the $answer choice" ok ipc smoke invokeInstance window vgs.updates run all
+  expect_poll "the unanswered run opens the $answer panel" '""' updates_offer
+  expect "the unanswered $answer offer starts no terminal" absent recorded
+  hold_runs
+  if [[ $answer == dismiss ]]; then
+    expect "closing the run-time offer is allowed" ok ipc shell hide panel vgs.updates
+    expect "dismissal saves no answer" false updates_answered
+  else
+    label="Keep CachyOS notices"
+    [[ $answer != vgsOnly ]] || label="Use VGS only (recommended)"
+    click_in vgs:panel panel vgs.updates Button "$label" || fail "the $answer choice was not pressed"
+    expect_poll "the $answer choice is saved" true updates_answered
+  fi
+  if [[ $answer == vgsOnly ]]; then
+    expect_poll "VGS only opens the setup terminal first" \
+      "$(core_words core/system "System setup" org.vgs.tui system apply reboot-notice)" recorded
+    expect "the held setup starts no update terminal" false updates_all_running
+    release_runs
+    expect_poll "the setup's end starts Update everything" '["update.sh"]' launched
+  else
+    expect_poll "$answer starts Update everything" '["update.sh"]' launched
+    release_runs
+  fi
+  expect_run_end "the $answer update ends" vgs.updates/update
+  expect_poll "the service is idle after $answer" idle updates_idle
+done
+expect "the direct run fixture has a saved answer" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":true}'
+expect "the answered Updates window opens" ok ipc shell summon window vgs.updates '{}'
+expect_poll "the answered window's check ends" idle updates_idle
+forget_record
+expect "answered Update everything starts directly" ok ipc smoke invokeInstance window vgs.updates run all
+expect_poll "answered Update everything launches the update" '["update.sh"]' launched
+expect "the answered run opens no offer" absent updates_offer
+expect_run_end "the answered update ends" vgs.updates/update
+expect_poll "the service is idle after the answered run" idle updates_idle
+updates_reboot_checks="$(checks)"
+forget_record
+
 # Reuse the system-steps owner's stat fixture before that later row runs:
 # it reads the sandbox's own records as root-owned. No root command runs.
 (
@@ -328,17 +385,18 @@ rm -f -- "$updates_notice_link"
 rm -f -- "${updates_notice_hook:?}"
 rescan "the planted CachyOS hook is gone"
 expect_poll "the reboot notice offers no choice once the hook is gone" '[]' updates_field rebootNotices
-expect_poll "the reboot notice rows started no check" STEADY checks_settle_at 1
+expect_poll "the remaining reboot notice rows started no check" STEADY checks_settle_at "$updates_reboot_checks"
 expect "the Settings window closes" ok ipc shell hide window vgs.settings
 
 # Open and manual requests join the active check without redundant work.
 touch "$updates_state/slow-checkupdates"
+before="$(checks)"
 expect "an on-demand check starts" started ipc vgs.updates invoke check ''
 expect "a request during the check joins it" queued ipc vgs.updates invoke check ''
 expect "a third request during the check also joins it" queued ipc vgs.updates invoke check ''
 rm -f -- "$updates_state/slow-checkupdates"
-expect_poll "the joined requests run only one check" 2 checks
-expect_poll "no redundant check follows" STEADY checks_settle_at 2
+expect_poll "the joined requests run only one check" "$((before + 1))" checks
+expect_poll "no redundant check follows" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after the joined check" idle updates_idle
 
 # A failing source is named and kept beside the others.
@@ -465,14 +523,6 @@ updates_keyboard() { # LABEL
   expect_poll "the shell reads the Updates window holding the keyboard for $1" true window_keyboard vgs.updates
   expect_poll "the open-time check ends before the next keyboard action" idle updates_idle
 }
-# The words after the presenter's `--`, the last `--` in the record: the
-# script's file name and its arguments, as JSON; `absent` before a record
-# exists, and `partial` for a record with no `--` or nothing after it.
-launched() { recorded | py_reply 'import json,os,sys
-w=json.load(sys.stdin)
-a=w[len(w) - w[::-1].index("--"):] if "--" in w else []
-if not a: print("partial"); sys.exit()
-print(json.dumps([os.path.basename(a[0])] + a[1:]))'; }
 # Click the window's control of TYPE, Button unless given, reading TEXT,
 # read the argv it launched, WANT, and wait for its run of KEY, and the
 # check its end starts, to end.

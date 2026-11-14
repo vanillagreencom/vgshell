@@ -19,8 +19,8 @@
 #      package step does, since each of those needs its upgrade first.
 #      Another primary's system step always runs, since no other primary's
 #      check reads fresh state
-#   4. effective package configurations before Updates' snapshot and
-#      credential session; the AUR review runs in the helper's later step
+#   4. install a missing AUR helper for VGS's `install-helper` step,
+#      reviewing its clone before Updates' credential session
 #   5. one sudo session, when the run replaces a package and the package
 #      layer's elevation command is sudo. That command is the one `vgshell
 #      pkg plan upgrade <primary>` names, from shell.json's
@@ -50,8 +50,7 @@
 #  12. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the table-owned upgrade or the non-table `aurCommand` words, then
 #      the reviewed `<helper> -S vgshell-git` when the status names
-#      the step `rebuild`, installing paru from its AUR recipe first for
-#      `install-helper`. When self status selects `aur-upgrade` for paru's
+#      the step `rebuild`. When self status selects `aur-upgrade` for paru's
 #      tracked devel vgshell-git, the AUR upgrade builds it and no separate
 #      rebuild runs; a run without the AUR step, an Update of VGS alone,
 #      rebuilds it. With Devel off, no tracked devel update, or yay, status
@@ -62,15 +61,15 @@
 #      dropped when the phase ends, fails or is interrupted
 #  13. pacman's orphaned packages, removed only on a yes, default no, after
 #      a system, file source or AUR upgrade
-#  14. a shell restart when a package step or the rebuild replaced the VGS
-#      package
-#  15. a check request to refresh the widget and window
-#  16. a reboot question when the run changed a package, by pacman -Q
+#  14. record the run's end
+#  15. a reboot question when the run changed a package, by pacman -Q
 #      before the first package step and after the last, that the CachyOS
 #      reboot hook names under its script's conditions
-#      (UpdatesLogic.rebootPackages through bin/facts reboot), or the
-#      kernel or the running Hyprland was replaced (tui.sh's
-#      vgs_tui_reboot_check)
+#      (UpdatesLogic.rebootPackages through bin/facts reboot)
+#  16. a shell restart when a package step or the rebuild replaced the VGS
+#      package, unless the owner chose Reboot and it succeeded, then one
+#      check request to refresh the widget and window; a successful Reboot
+#      leaves that check to the outcome writer at exit
 #  17. the result list, then the failure count and failed parts: the last
 #      output names each failed part, its cause and its next step
 #  18. the outcome file $(updates_state_dir)/outcome.json, written by
@@ -83,9 +82,12 @@
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
-# manager asks its own questions in this terminal. -y answers only the
+# manager asks its own questions in this terminal. The system and AUR
+# steps keep their own configuration; a custom command keeps any config
+# its words name. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
 # reported instead of asked, and the review's questions are still asked.
+# A printed reboot reason under -y does not prevent the shell restart.
 # No part's failure ends the run. A source step (7 to 10 and 12) that fails
 # records its cause, read from its output (_updates_cause_of), and the run
 # goes on with the next; a run with a failed step exits 1 after the reboot
@@ -100,8 +102,13 @@
 # that needs it: the system, the file rows, the snapshot, the AUR, the
 # rebuild and the orphans. An unreadable VGS status,
 # plugin, theme or orphan list skips that part, and a failed orphan removal
-# or shell restart is a failed part. A package a declined AUR transaction
-# leaves out is not retried by the VGS rebuild. A complete AUR build
+# or shell restart is a failed part. An unread reboot check warns once
+# and adds a non-failed result line. A failed reboot permits the shell
+# restart; a failed shell restart updates the already recorded end.
+# An interrupted reboot question acts as Later through the restart,
+# recheck and result list, then exits with the question's status.
+# A package a declined AUR transaction leaves out is not retried by the
+# VGS rebuild. A complete AUR build
 # failure permits the separate reviewed rebuild; the helper itself fails
 # a broken dependency. Other failed transactions still skip the rebuild.
 # A step a Ctrl-C ended ends the run with 130. Any other failing command is
@@ -230,45 +237,9 @@ _updates_run() { # ARGV...
 
 _updates_install_helper() { "$_updates_vgshell" pkg ensure-helper; }
 
-# pacman parses CLI HookDir before configured directories. A configuration
-# ending in our HookDir wins by filename while retaining every other hook.
-# alpm-hooks(5), pacman/conf.c setup_libalpm and libalpm/hook.c.
-# Resolve each effective configuration before the credential session.
-_updates_pacman_prepare() { # KEY HELPER ARGV...
-  local key="$1" helper="$2" original dirs value generated
-  shift 2
-  original="$(node "$_updates_tree/bin/lib/pkg-config.js" "$helper" "$@" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).config)')" || return 1
-  generated="$_updates_run_dir/$key.conf"
-  dirs="$(pacman-conf --config "$original" HookDir)" || return 1
-  mkdir -p -- "$_updates_run_dir/hooks"
-  [[ -L $_updates_run_dir/hooks/cachyos-reboot-required.hook ]] || ln -s -- /dev/null "$_updates_run_dir/hooks/cachyos-reboot-required.hook"
-  {
-    printf '[options]\nInclude = %s\n[options]\n' "$original"
-    while IFS= read -r value; do [[ -z $value ]] || printf 'HookDir = %s\n' "$value"; done <<<"$dirs"
-    printf 'HookDir = %s/hooks\n' "$_updates_run_dir"
-  } >"$generated"
-  chmod 600 -- "$generated"
-  _updates_package_configs["$key"]="$generated"
-}
-
-_updates_pacman_run() { # CONFIG_KEY PACKAGE_OWNER_ARGV...
-  local key="$1"
-  shift
-  if [[ $1 == "$_updates_vgshell" ]]; then
-    (cd -- "$HOME" && "$@")
-  else
-    local prepared words=()
-    prepared="$(node "$_updates_tree/bin/lib/pkg-config.js" --apply "${_updates_package_configs[$key]}" "$1" "$@")" || return 1
-    prepared="$(node -e 'for(const word of JSON.parse(process.argv[1]).argv)console.log(word)' "$prepared")" || return 1
-    mapfile -t words <<<"$prepared"
-    [[ ${#words[@]} -gt 0 && -n ${words[0]} ]] || return 1
-    (cd -- "$HOME" && "${words[@]}")
-  fi
-}
-
 _updates_custom_run() {
   "$_updates_vgshell" pkg review-custom-consent || return $?
-  _updates_pacman_run custom "$@"
+  _updates_run "$@"
 }
 
 _updates_cleanup() {
@@ -911,9 +882,9 @@ JS
 _updates_recheck() {
   local reply status polls=0 line unavailable
   : >"$_updates_run_dir/checked"
-  # restart waits for core `shell guarded`, while ServiceGate builds the
-  # plugin services after the bars. A package rescan can also replace this
-  # service. Wait for its registered check handler, not just the core PID.
+  # A package rescan can replace this service. ServiceGate builds plugin
+  # services after the bars, so wait for the registered check handler,
+  # not just the core PID.
   while :; do
     status=0
     reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check run 2>&1)" || status=$?
@@ -936,12 +907,13 @@ _updates_recheck() {
 }
 
 # Logs DIAGNOSTIC, a read the reboot question needs that failed, and warns
-# once a run that the question may leave packages out.
+# once per run. Its advisory result does not fail a package step.
 _updates_reboot_unread() { # DIAGNOSTIC
   _updates_diagnostic "$1"
   [[ $_updates_reboot_warned == 0 ]] || return 0
   _updates_reboot_warned=1
-  vgs_tui_warn "Could not check which updates need a reboot."
+  vgs_tui_warn "VGS could not check whether a restart is needed."
+  _updates_results+=("VGS could not check whether a restart is needed.")
 }
 
 # Sets _updates_core to the packages of CHANGES, `upgrade <name>` and
@@ -952,19 +924,29 @@ _updates_reboot_unread() { # DIAGNOSTIC
 # _updates_reboot_unread, and a failed judgement leaves the list empty, so
 # the run still ends with its result.
 _updates_reboot_packages() { # CHANGE...
-  local root hook=- mounts="" facts key value status=0
+  local root hook=- mounts="" facts key value status=0 unread=0
   _updates_core=()
-  if root="$(pacman-conf RootDir)"; then
+  if root="$(pacman-conf RootDir 2>&1)"; then
     [[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"
   else
     _updates_reboot_unread "updates: reboot-hook=unread exit=$?"
+    _updates_diagnostic "$root"
+    unread=1
   fi
-  mounts="$(findmnt -rno FSTYPE)" || { _updates_reboot_unread "updates: mounts=unread exit=$?"; mounts=""; }
+  if mounts="$(findmnt -rno FSTYPE 2>&1)"; then
+    :
+  else
+    _updates_reboot_unread "updates: mounts=unread exit=$?"
+    _updates_diagnostic "$mounts"
+    unread=1
+  fi
+  [[ $unread == 0 ]] || return 0
   facts="$({
     printf '%s\n' "$@"
     while read -r value; do [[ -z $value ]] || printf 'mounted %s\n' "$value"; done <<<"$mounts"
-  } | _updates_facts reboot "$hook" /proc/version)" || status=$?
+  } | _updates_facts reboot "$hook" /proc/version 2>&1)" || status=$?
   if [[ $status -ne 0 ]]; then
+    _updates_diagnostic "$facts"
     _updates_reboot_unread "updates: reboot-packages=failed exit=$status"
     return 0
   fi
@@ -974,28 +956,16 @@ _updates_reboot_packages() { # CHANGE...
 }
 
 # The reboot question, one confirmation, default Later: CORE are the
-# packages _updates_reboot_packages kept of those the run changed, and
-# tui.sh's check adds a replaced kernel or running Hyprland. Under -y the
-# reasons are printed instead.
+# packages _updates_reboot_packages kept of those the run changed.
+# Under -y the reasons are printed instead. Only a successful Reboot
+# sets _updates_rebooted, so Later and a failed reboot permit a restart.
+# A question interrupted by gum returns its status for finalization.
 _updates_reboot() { # CORE...
-  local out status=0 reason reasons=() names=""
+  local status=0 reason reasons=() names=""
   if [[ $# -gt 0 ]]; then
     for reason; do names+="${names:+, }$reason"; done
     reasons+=("The run updated $names, which $([[ $# -eq 1 ]] && echo takes || echo take) effect after a reboot.")
   fi
-  out="$(vgs_tui_reboot_check)" || status=$?
-  case "$status" in
-    0)
-      while read -r reason; do
-        case "$reason" in
-          reboot=kernel) reasons+=("The kernel was updated.") ;;
-          reboot=hyprland) reasons+=("Hyprland was updated.") ;;
-        esac
-      done <<<"$out"
-      ;;
-    1) ;;
-    *) _updates_diagnostic "updates: reboot-check=failed exit=$status"; vgs_tui_warn "Could not check whether a reboot is needed." ;;
-  esac
   [[ ${#reasons[@]} -gt 0 ]] || return 0
   if [[ $_updates_yes == 1 ]]; then
     printf '%s Reboot when you are ready.\n' "${reasons[*]}"
@@ -1004,9 +974,15 @@ _updates_reboot() { # CORE...
   status=0
   vgs_tui_confirm "${reasons[*]} Reboot now?" --affirmative=Reboot --negative=Later --default=false || status=$?
   case "$status" in
-    0) "$_updates_vgshell" power reboot ;;
+    0)
+      if "$_updates_vgshell" power reboot; then
+        _updates_rebooted=1
+      else
+        _updates_diagnostic "updates: reboot=failed exit=$?"
+        vgs_tui_warn "VGS could not reboot. Restart the computer when you are ready."
+      fi ;;
     1) echo "Reboot later to run the updated system." ;;
-    *) exit "$status" ;;
+    *) return "$status" ;;
   esac
 }
 
@@ -1052,7 +1028,7 @@ _updates_main() {
   # now running, whether a reboot read warned, and the file a failed source
   # step's output is cut into: one file, since the lock holds one run at a
   # time.
-  _updates_results=() _updates_failed_parts=() _updates_failed_first="" _updates_part_now="" _updates_reboot_warned=0
+  _updates_results=() _updates_failed_parts=() _updates_failed_first="" _updates_part_now="" _updates_reboot_warned=0 _updates_rebooted=0
   _updates_cause_file="$state/.step-output"
   trap '_updates_failed $?' ERR
 
@@ -1352,13 +1328,6 @@ _updates_main() {
       aur_blocked="paru could not be installed"
     fi
   fi
-  # Keep effective configurations outside the credential session.
-  declare -gA _updates_package_configs=()
-  if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then _updates_pacman_prepare pacman pacman; fi
-  if [[ -z $aur_blocked ]] && { [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; } && [[ -n $aur_binary ]]; then
-    _updates_pacman_prepare aur "$aur_binary"
-  fi
-  if [[ ${#aur_command[@]} -gt 0 ]]; then _updates_pacman_prepare custom "${aur_command[0]}" "${aur_command[@]}"; fi
   local rebuild_run="$rebuild"
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
@@ -1403,13 +1372,14 @@ _updates_main() {
   local -A installed=()
   local listed=0
   if [[ $primary == pacman && $replaces == 1 ]]; then
-    if out="$(pacman -Q)"; then
+    if out="$(pacman -Q 2>&1)"; then
       listed=1
       while read -r name value; do
         [[ -z $name ]] || installed[$name]="$value"
       done <<<"$out"
     else
       _updates_reboot_unread "updates: installed=unread when=before"
+      _updates_diagnostic "$out"
     fi
   fi
   if _updates_in vgs "${run[@]}" && [[ $vgs_step == self ]]; then
@@ -1429,11 +1399,7 @@ _updates_main() {
           _updates_results+=("${labels[$id]} skipped. ${system_blocked^}, and these packages install against it.")
           continue
         fi
-        if [[ $id == pacman ]]; then
-          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" --config "${_updates_package_configs[pacman]}"
-        else
-          _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id"
-        fi
+        _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id"
         if [[ $id == "$primary" ]]; then
           case "$_updates_outcome" in
             failed) system_blocked="the system upgrade failed" ;;
@@ -1466,16 +1432,22 @@ _updates_main() {
       _updates_part "AUR packages"
       if [[ ${#aur_command[@]} -gt 0 ]]; then
         vgs_tui_step "Updating AUR packages"
-        local custom_json custom_mode
+        local custom_json custom_mode custom_config custom_config_args=()
         custom_json="$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${aur_command[@]}")"
         custom_mode="$("$_updates_vgshell" pkg review-custom-mode "$custom_json")"
         if [[ $custom_mode == table ]]; then
-          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[custom]}" "${aur_ignore[@]}"
+          # customMode recognizes the table command after stripping its
+          # --config. Keep that command's effective configuration in the
+          # reviewed run rather than silently taking the helper's default.
+          custom_config="$(node "$_updates_tree/bin/lib/pkg-config.js" "${aur_command[0]}" "${aur_command[@]}" |
+            node -e 'const answer=JSON.parse(require("fs").readFileSync(0,"utf8")); if(answer.explicit)process.stdout.write(answer.config)')"
+          [[ -z $custom_config ]] || custom_config_args=(--config "$custom_config")
+          _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${custom_config_args[@]}" "${aur_ignore[@]}"
         else
           _updates_source aur AUR _updates_custom_run "${aur_command[@]}"
         fi
       else
-        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[aur]}" "${aur_ignore[@]}"
+        _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${aur_ignore[@]}"
       fi
       # Never retry a declined or unread transaction. A complete build
       # failure allows the separate reviewed rebuild without a dependency
@@ -1494,7 +1466,7 @@ _updates_main() {
     fi
     if [[ $rebuild_run == 1 ]]; then
       vgs_tui_step "Rebuilding the VGS package"
-      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run reinstall --manager aur --config "${_updates_package_configs[aur]}" vgshell-git
+      _updates_source vgshell-git "VGS package" "$_updates_vgshell" pkg run reinstall --manager aur vgshell-git
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
@@ -1504,7 +1476,7 @@ _updates_main() {
   local changes=()
   _updates_core=()
   if [[ $listed == 1 ]]; then
-    if out="$(pacman -Q)"; then
+    if out="$(pacman -Q 2>&1)"; then
       while read -r name value; do
         if [[ -z $name ]]; then continue
         elif [[ -z ${installed[$name]+set} ]]; then changes+=("install $name")
@@ -1513,6 +1485,7 @@ _updates_main() {
       done <<<"$out"
     else
       _updates_reboot_unread "updates: installed=unread when=after"
+      _updates_diagnostic "$out"
     fi
   fi
   if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi
@@ -1524,26 +1497,33 @@ _updates_main() {
       _updates_orphans
     fi
   fi
-  if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
+  rm -f -- "${_updates_cause_file:?}"
+  local ended=finished
+  if [[ ${#_updates_failed_parts[@]} -gt 0 ]]; then ended=failed; fi
+  # The question and recheck can be interrupted after the package work
+  # ends; neither interruption changes the run's recorded outcome.
+  if [[ $ended == failed ]]; then _updates_ended failed "$_updates_failed_first"; else _updates_ended finished ""; fi
+  local reboot_status=0
+  _updates_reboot "${_updates_core[@]}" || reboot_status=$?
+  if [[ $_updates_rebooted == 0 && -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
     _updates_part "Shell restart"
     vgs_tui_step "Restarting the shell on the updated VGS"
     "$_updates_vgshell" restart || {
       _updates_diagnostic "updates: restart=failed exit=$?"
-      _updates_fail "Shell restart" "Shell restart failed. Next: save your work and restart the computer."
-      vgs_tui_warn "Shell restart failed."
+      _updates_fail "Shell restart" "VGS could not restart. Restart the computer when you are ready."
+      vgs_tui_warn "VGS could not restart. Restart the computer when you are ready."
+      ended=failed
+      _updates_ended failed "$_updates_failed_first"
     }
   fi
-  rm -f -- "${_updates_cause_file:?}"
-  local ended=finished
-  if [[ ${#_updates_failed_parts[@]} -gt 0 ]]; then ended=failed; fi
-  # The end is recorded before the check, which can wait a minute for the
-  # shell: a window closed in that wait keeps the run's own outcome.
-  if [[ $ended == failed ]]; then _updates_ended failed "$_updates_failed_first"; else _updates_ended finished ""; fi
-  _updates_recheck
-  _updates_reboot "${_updates_core[@]}"
-  # Keep the result after the restart, recheck and reboot output so the
-  # failed parts remain in view.
+  # The replacement service must own the check and its run-end
+  # suppression. After Reboot succeeds, the EXIT writer asks it instead.
+  if [[ $_updates_rebooted == 0 ]]; then
+    _updates_recheck
+  fi
+  # Keep the failed parts in view after all end-of-run output.
   _updates_result_list
+  [[ $reboot_status == 0 ]] || exit "$reboot_status"
   [[ $ended == finished ]] || exit 1
 }
 

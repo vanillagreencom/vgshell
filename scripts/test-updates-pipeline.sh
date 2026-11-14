@@ -10,8 +10,9 @@
 # vgshell. Every stand-in appends its name and arguments to one calls file, so
 # a row reads the order of every step and its argv. No row reaches a real
 # vgshell, package manager, sudo, doas, snapshot tool or live session. The reboot
-# rows stand a copied `sleep` in for Hyprland and remove its file while it
-# runs, so /proc names its executable deleted. The stand-in pacman-conf
+# row stands a copied `sleep` in for an earlier Hyprland upgrade and removes
+# its file while it runs, so /proc names its executable deleted. That old
+# condition must not ask about reboot in a plugins-only run. The stand-in pacman-conf
 # names a RootDir in the fixture, where a reboot row puts the CachyOS
 # reboot hook, and the stand-in findmnt names the mounted file systems.
 #
@@ -27,15 +28,11 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 for tool in script flock; do
   command -v "$tool" >/dev/null || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
 done
-kernel=""
-for dir in /lib/modules/*/; do [[ -d $dir ]] && { kernel="$(basename -- "$dir")"; break; }; done
-[[ -n $kernel ]] || { echo "test-updates-pipeline: status=not-measured missing=/lib/modules/<release>"; exit 77; }
-
 plugin="$tmp/plugin"
 cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
 mkdir -p "$tree/bin/lib" "$tree/shell/Commons" "$tree/shell/Core"
-cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
 cp -- "$repo/bin/lib/self.js" "$repo/bin/lib/engine.js" "$repo/bin/lib/owned-group.py" "$repo/bin/lib/pkg-review.js" "$tree/bin/lib/"
 cp -- "$repo/bin/vgshell-pkg" "$tree/bin/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
@@ -47,14 +44,6 @@ cat >>"$tree/bin/lib/qml-library.js" <<'JS'
 const shippedLoad = module.exports.load;
 module.exports.load = function(file, modules) {
   const library = shippedLoad(file, modules);
-  if (process.env.FIX && require("node:fs").existsSync(process.env.FIX + "/transaction") && library.rebootPackages) {
-    const rebootPackages = library.rebootPackages;
-    library.rebootPackages = function(...args) {
-      const result = rebootPackages(...args);
-      for (const name of result) require("node:fs").appendFileSync(process.env.CALLS, "reboot-package " + name + "\n");
-      return result;
-    };
-  }
   if (process.env.UPDATES_TEST_SECONDARY === "1" && path.basename(file) === "UpdatesLogic.js") {
     const assert = require("node:assert/strict");
     const reason = "helper-missing=checkupdates";
@@ -133,7 +122,8 @@ stub() { # DIR NAME BODY
 # `restart` while $FIX/fail-restart does and `power reboot` while
 # $FIX/fail-reboot does. `ipc call ... check` leaves $FIX/ended-at-check when the run had
 # recorded its end, and $FIX/outcome-at-check when the outcome file was
-# written, before it was asked.
+# written, before it was asked. With $FIX/check-on-terminal it prints a
+# marker on the terminal so the reboot row can read the final output order.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
 # `pkg check --json --source <id>` answers $FIX/check-<id>.json, else one
@@ -176,10 +166,7 @@ case "$1 $2" in
     printf "%s\n" "$d" >"$FIX/current-run"
     printf "%s\n" "$d" ;;
   "pkg review-custom-mode")
-    if [ -e "$FIX/devel-status" ]; then
-      exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3"
-    fi
-    echo unknown ;;
+    exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3" ;;
   "pkg review-custom-consent")
     [ ! -e "$FIX/fail-consume" ] || exit 3
     [ ! -e "$FIX/decline-consent" ] || { printf "vgshell: refused: declined=review-unavailable\nThe AUR packages were not updated.\n" >&2; exit 1; } ;;
@@ -237,6 +224,7 @@ case "$1 $2" in
         d="$(cat "$FIX/current-run")"
         [ ! -e "$d/ended" ] || : >"$FIX/ended-at-check"
         [ ! -e "$XDG_STATE_HOME/vgshell/updates/outcome.json" ] || : >"$FIX/outcome-at-check"
+        [ ! -e "$FIX/check-on-terminal" ] || printf "updates-test: recheck\n" >/dev/tty
         if [ -e "$FIX/real-ipc" ]; then exec "$FIX/real-ipc" "$@"; fi
         if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
         echo started ;;
@@ -257,6 +245,10 @@ stub "$stubs" gum 'case "$1" in
   confirm)
     for q; do :; done
     case "$q" in "Start the update?"*) f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
+    if [ "$f" = reboot ]; then
+      d="$(cat "$FIX/current-run")"
+      [ ! -e "$d/ended" ] || : >"$FIX/ended-at-reboot"
+    fi
     st=0; [ ! -e "$FIX/answer-$f" ] || read -r st <"$FIX/answer-$f"; exit "$st" ;;
   choose)
     st=0; [ ! -e "$FIX/review-choice-exit" ] || read -r st <"$FIX/review-choice-exit"
@@ -305,13 +297,15 @@ stub "$snapper_dir" snapper 'case "$*" in
 esac'
 # pacman -Q answers $FIX/installed, and from its second answer on
 # $FIX/installed-after when that exists, and fails while
-# $FIX/fail-pacman-q exists; pacman -Q NAME answers NAME's line of
+# $FIX/fail-pacman-q exists, or only after the first read while
+# $FIX/fail-pacman-q-after exists; pacman -Q NAME answers NAME's line of
 # $FIX/installed.
 stub "$stubs" pacman 'case "$1" in
   --config) shift 2; [ "$1" != -Qmq ] || { [ ! -e "$FIX/foreign" ] || cat "$FIX/foreign"; exit 0; }; exit 1 ;;
   -Sl) cat "$FIX/sl-$2" ;;
   -Q)
     [ ! -e "$FIX/fail-pacman-q" ] || [ -n "${2:-}" ] || exit 1
+    [ ! -e "$FIX/fail-pacman-q-after" ] || [ ! -e "$FIX/installed-asked" ] || [ -n "${2:-}" ] || exit 1
     if [ -n "${2:-}" ]; then
       while read -r n v; do [ "$n" != "$2" ] || { echo "$n $v"; exit 0; }; done <"$FIX/installed"
       exit 1
@@ -323,9 +317,7 @@ stub "$stubs" pacman 'case "$1" in
   *) [ -e "$FIX/orphans" ] || exit 1; cat "$FIX/orphans" ;;
 esac'
 stub "$stubs" pacman-conf 'if [ "$1" = --config ]; then
-  [ ! -e "$FIX/fail-hookdirs" ] || exit 1
-  printf "%s\n" "$2" >>"$FIX/config-sources"
-  printf "%s\n" "$FIX/hooks"
+  [ "$3" != DBPath ] || echo "$FIX/db/"
   exit 0
 fi
 case "$1 ${3:-}" in
@@ -353,7 +345,6 @@ exec "${0%/*}/../tools/sleep" "$@"'
 stub "$stubs" pikaur ''
 stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail"; printf "  Avail\n%s\n" "$a"'
 stub "$stubs" hyprctl 'exit 1'
-stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
 # findmnt lists the mounted file system types in $FIX/fstypes, none when
 # it is absent, and fails while $FIX/fail-findmnt exists.
@@ -480,7 +471,7 @@ HOOK
 
 # pipeline SCRIPT ARG...: the plugin copy $PLUGIN, else $plugin, runs
 # tui/SCRIPT on a pseudo-terminal; its output in $tmp/out, the exit status
-# in $status, and the calls, but for the free-space and reboot probes and
+# in $status, and the calls, but for the free-space probes and
 # the plan box, in $tmp/seq. PIPE_PATH puts a directory before the stubs.
 pipeline() {
   local script_path="${PLUGIN:-$plugin}/tui/$1" bound=()
@@ -492,8 +483,8 @@ pipeline() {
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
     "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
+    sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
@@ -665,7 +656,7 @@ row_failed_end() {
     echo 1 >"$fix/answer-reboot"
     PIPE_COLUMNS="$columns" pipeline update.sh
     assert "two failed parts keep the failure exit" test "$status" == 1
-    assert "two failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check run"
+    assert "two failed parts recheck after the shell restart" none_before "vgshell ipc call vgs.updates invoke check run" "vgshell restart"
     assert "the final block wraps sentences and aligns every line at $columns columns" python3 - "$tmp/out" "$columns" <<'PY'
 import pathlib
 import re
@@ -893,8 +884,9 @@ row_cause_output() {
   assert "an unknown AUR result skips the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
   assert "an unknown AUR result names why the VGS package was skipped" result_has "VGS package skipped. VGS could not read the AUR result."
 }
-# A read the reboot question needs that fails stays in the developer log
-# and warns once.
+# A read the reboot question needs that fails stays in the developer log.
+# The owner sees the item's sentence once as a warning and once in the
+# result list, where it is advisory rather than a failed package part.
 row_reboot_unread() {
   reset_fix
   reboot_hook
@@ -903,13 +895,21 @@ row_reboot_unread() {
   pipeline update.sh
   assert "a failed RootDir read stays in the developer log" diag_has "updates: reboot-hook=unread exit=1"
   assert "a failed mounts read stays in the developer log" diag_has "updates: mounts=unread exit=1"
-  assert "two failed reboot reads warn once" test "$(grep -cF "Could not check which updates need a reboot." "$tmp/out")" == 1
+  assert "two failed reboot reads warn once and add one result" test "$(grep -cF "VGS could not check whether a restart is needed." "$tmp/out")" == 2
+  assert "an unread reboot check stands in the result list" result_has "VGS could not check whether a restart is needed."
   assert "a failed reboot read leaves the run successful" test "$status" == 0
-  reset_fix
-  touch "$fix/fail-pacman-q"
-  pipeline update.sh
-  assert "a failed package list stays in the developer log" diag_has "updates: installed=unread when=before"
-  assert "a failed package list warns" out_has "Could not check which updates need a reboot."
+  local fault when
+  for fault in fail-pacman-q fail-pacman-q-after; do
+    reset_fix
+    touch "$fix/$fault"
+    when=before
+    [[ $fault != fail-pacman-q-after ]] || when=after
+    pipeline update.sh
+    assert "the failed $when package list stays in diagnostics" diag_has "updates: installed=unread when=$when"
+    assert "the failed $when package list warns once and adds one result" test "$(grep -cF "VGS could not check whether a restart is needed." "$tmp/out")" == 2
+    assert "the failed $when package list has a non-failed result" result_has "VGS could not check whether a restart is needed."
+    assert "the failed $when package list leaves the run successful" test "$status" == 0
+  done
 }
 # A command that fails outside the sources ends the run: the ERR trap
 # prints the result list so far and the recovery message. Before the first
@@ -949,18 +949,74 @@ row_interrupted() {
 row_reboot() {
   reset_fix
   printf '%s\nwayland-test\n' "$hyprland_pid" >"$rt/hypr/session/hyprland.lock"
-  pipeline update.sh
-  assert "a replaced Hyprland asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
-  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check run" "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
-  assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "vgshell power reboot"
-  touch "$fix/fail-reboot"
-  pipeline update.sh
-  assert "a failed reboot keeps the finished run's outcome" json_is "$outcome" 'd == {"ended": "finished", "text": ""}'
-  rm -f -- "${fix:?}/fail-reboot"
-  echo 1 >"$fix/answer-reboot"
-  pipeline update.sh
-  assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
-  assert "a no asks for no power action" no_call "vgshell power "
+  assert "the earlier Hyprland upgrade has the old deleted-executable condition" test "$(readlink -- "/proc/$hyprland_pid/exe")" == "$tmp/Hyprland (deleted)"
+  pipeline update-source.sh plugins
+  assert "plugins alone after the earlier Hyprland upgrade ask no reboot question" no_call "gum confirm --affirmative=Reboot"
+  assert "plugins alone change no package" no_call "vgshell pkg run"
+  assert "plugins alone still update their pending plugin" has_call "vgshell plugin update acme.one"
+  # One changed kernel and VGS package, with the owner's end choices.
+  local choice expected args
+  for choice in reboot later failed-reboot yes failed-restart interrupted failed-question interrupted-restart; do
+    reset_fix
+    reboot_hook
+    touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/check-on-terminal"
+    printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
+    args=()
+    expected=0
+    case "$choice" in
+      later) echo 1 >"$fix/answer-reboot" ;;
+      failed-reboot) touch "$fix/fail-reboot" ;;
+      yes) args=(-y) ;;
+      failed-restart) echo 1 >"$fix/answer-reboot"; touch "$fix/fail-restart"; expected=1 ;;
+      interrupted) echo 130 >"$fix/answer-reboot"; expected=130 ;;
+      failed-question) echo 2 >"$fix/answer-reboot"; expected=2 ;;
+      interrupted-restart) echo 130 >"$fix/answer-reboot"; touch "$fix/fail-restart"; expected=130 ;;
+    esac
+    pipeline update.sh "${args[@]}"
+    assert "$choice retains the run's exit" test "$status" == "$expected"
+    assert "$choice asks one recheck" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
+    if [[ $choice == yes ]]; then
+      assert "-y prints the changed kernel reason" out_has "The run updated linux, which takes effect after a reboot."
+      assert "-y asks no reboot question" no_call "gum confirm --affirmative=Reboot"
+    else
+      assert "$choice records the run's end before the reboot question" test -e "$fix/ended-at-reboot"
+      assert "$choice asks the reboot question before any shell restart" none_before "vgshell restart" "gum confirm --affirmative=Reboot"
+    fi
+    case "$choice" in
+      reboot|failed-reboot) assert "$choice runs reboot on the owner's press" has_call "vgshell power reboot" ;;
+      *) assert "$choice takes no power action" no_call "vgshell power " ;;
+    esac
+    if [[ $choice == reboot ]]; then
+      assert "a successful Reboot starts no shell restart" no_call "vgshell restart"
+      assert "a successful Reboot leaves the recheck to the outcome writer" test -e "$fix/outcome-at-check"
+    else
+      assert "$choice is followed by the shell restart" has_call "vgshell restart"
+      assert "$choice rechecks only after the shell restart" none_before "vgshell ipc call vgs.updates invoke check run" "vgshell restart"
+      assert "$choice rechecks before the outcome writer" test ! -e "$fix/outcome-at-check"
+    fi
+    assert "$choice keeps one result list in the end order" python3 - "$tmp/out" "$choice" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+assert text.count("Update result") == 1, "result list must appear once"
+assert text.count("updates-test: recheck") == 1, "recheck must appear once"
+result = text.index("Update result")
+recheck = text.index("updates-test: recheck")
+if sys.argv[2] == "reboot":
+    assert result < recheck, "successful Reboot leaves recheck to EXIT"
+else:
+    assert recheck < result, "result list must follow recheck"
+    assert text.index("Restarting the shell on the updated VGS") < recheck, "recheck must follow restart"
+PY
+    if [[ $choice == failed-restart || $choice == interrupted-restart ]]; then
+      assert "a restart failure after the recorded end is a failed result" result_has "VGS could not restart. Restart the computer when you are ready."
+      assert "a restart failure replaces the finished outcome" json_is "$outcome" \
+        'd == {"ended": "failed", "text": "VGS could not restart. Restart the computer when you are ready."}'
+    else
+      assert "$choice keeps the finished run's outcome" json_is "$outcome" 'd == {"ended": "finished", "text": ""}'
+    fi
+  done
 }
 # The run's own upgrade list, pacman -Q before the first package step and
 # after the last, judged by the CachyOS reboot hook's targets and its
@@ -974,7 +1030,7 @@ row_reboot_core() {
   assert "the installed packages are read before the first package step" before "pacman -Q" "vgshell pkg run upgrade --manager pacman"
   assert "the installed packages are read again after the last" before "vgshell pkg run upgrade --manager aur" "pacman -Q"
   assert "the hook is read under pacman's RootDir" has_call "pacman-conf RootDir"
-  assert "a reboot asked after an upgraded kernel reboots on a yes" test "$(tail -n 1 "$tmp/seq")" == "vgshell power reboot"
+  assert "a reboot asked after an upgraded kernel reboots on a yes, then rechecks at exit" seq_tail_is "vgshell power reboot" "vgshell ipc call vgs.updates invoke check run"
   reset_fix
   reboot_hook
   printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfirefox 130-1\n' >"$fix/installed"
@@ -1017,6 +1073,9 @@ row_reboot_core() {
   assert "an unreadable hook is logged" diag_has "updates: reboot-packages=failed exit=1"
   assert "an unreadable hook leaves the run successful" test "$status" == 0
   assert "an unreadable hook asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  assert "an unreadable facts judgement warns once and adds one result" test "$(grep -cF "VGS could not check whether a restart is needed." "$tmp/out")" == 2
+  assert "an unreadable facts judgement stands in the result list" result_has "VGS could not check whether a restart is needed."
+  assert "an unreadable facts judgement exposes no raw key" out_lacks "updates-facts: refused:"
 }
 row_orphans() {
   reset_fix
@@ -1041,7 +1100,7 @@ row_orphans() {
   assert "an unreadable plugin list is a skipped part" result_has "Plugins skipped. VGS could not check them for updates. Update again later."
   assert "an unreadable plugin list shows as unchecked in the plan box" out_has "Plugins: could not check for updates"
   assert "a failed orphan removal is a failed part" result_has "Orphaned packages failed. VGS could not remove them."
-  assert "a failed shell restart is a failed part" result_has "Shell restart failed. Next: save your work and restart the computer."
+  assert "a failed shell restart is a failed part" result_has "VGS could not restart. Restart the computer when you are ready."
   assert "failed removal and restart end the run with 1" test "$status" == 1
   reset_fix
   printf 'cli11\ncmake\nvulkan-headers\nttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
@@ -1146,7 +1205,7 @@ row_recheck_failure() {
   pipeline update-source.sh flatpak
   assert "a refused recheck leaves a successful run successful" test "$status" == 0
   assert "a refused recheck is kept in diagnostics" diag_has "updates: recheck=failed exit=8 reply=refused: ipc=check reason=test"
-  assert "a refused recheck still reaches the reboot check" grep -qxF "uname -r" "$calls"
+  assert "a refused recheck still reaches the final results" result_has "Flatpak installed."
 }
 # A package transaction replaces the command tree. The restarted core is
 # ready before its Updates service, as ServiceGate permits. The first call
@@ -1820,8 +1879,8 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
+    sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed
@@ -1855,128 +1914,43 @@ row_log() {
   assert "the log TUI refuses an argument" test "$status:$(first_line)" == "2:This update request is invalid. Open Updates and try again."
 }
 
-# The transaction stand-in reads the emitted configuration and resolves
-# same-name hooks from its directories. It emits a notice only when that
-# lookup retains the distribution hook. The production reboot judge still
-# reads the real fixture hook through bin/facts, independent of this stand-in.
-transaction_fixture() {
-  mkdir -p "$fix/hooks"
-  printf 'unrelated\n' >"$fix/hooks/other.hook"
-  printf 'notice\n' >"$fix/hooks/cachyos-reboot-required.hook"
-  cat >"$fix/transaction" <<'JS'
-#!/usr/bin/env node
-const fs = require('node:fs');
-const path = require('node:path');
-const [step, ...args] = process.argv.slice(2);
-const fix = process.env.FIX;
-const at = args.indexOf('--config');
-const config = at === -1 ? null : args[at + 1];
-const calls = line => fs.appendFileSync(process.env.CALLS, line + '\n');
-let dirs = [path.join(fix, 'hooks')];
-if (config !== null) {
-    const text = fs.readFileSync(config, 'utf8');
-    fs.appendFileSync(path.join(fix, 'generated'), text);
-    fs.appendFileSync(path.join(fix, 'scratch'), path.dirname(config) + '\n');
-    dirs = text.split('\n').filter(line => line.startsWith('HookDir = ')).map(line => line.slice(10));
-    if (dirs[0] !== path.join(fix, 'hooks')) process.exit(17);
-    if ((fs.statSync(path.dirname(config)).mode & 0o777) !== 0o700) process.exit(18);
-}
-const hooks = new Map();
-for (const dir of dirs) for (const name of fs.readdirSync(dir)) hooks.set(name, path.join(dir, name));
-for (const [name, file] of hooks) {
-    if (fs.lstatSync(file).isSymbolicLink() && fs.readlinkSync(file) === '/dev/null') continue;
-    calls(name === 'cachyos-reboot-required.hook' ? 'notification reboot' : 'hook ' + name);
-}
-calls('transaction-ended ' + step);
-JS
-  chmod +x "$fix/transaction"
-}
-row_reboot_deferred() {
-  reset_fix
-  reboot_hook
-  transaction_fixture
-  settings "" false false
-  printf 'linux 6.1-1\nmesa 24.2-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
-  pipeline update.sh
-  assert "masked transactions finish successfully" test "$status" == 0
-  assert "no package transaction sends an early reboot notice" no_call 'notification reboot'
-  assert "custom hooks still run" has_call 'hook other.hook'
-  assert "the final question waits for the AUR transaction" none_before 'gum confirm --affirmative=Reboot' 'transaction-ended aur'
-  assert "the original hook still identifies the changed mesa package" has_call 'reboot-package mesa'
-  assert "the changed package still produces a final reboot question" grep -q '^gum confirm --affirmative=Reboot ' "$tmp/seq"
-  local scratch
-  while IFS= read -r scratch; do
-    assert "a completed transaction removes its private config" test ! -e "$scratch"
-  done <"$fix/scratch"
-  "${base_env[@]}" PATH="$stubs:$tools" FIX="$fix" CALLS="$calls" "$fix/transaction" outside
-  assert "outside VGS retains the reboot notification" grep -qxF 'notification reboot' "$calls"
-}
+# Read the pipeline's argv at the package-owner boundary, without config
+# filters. Helper configuration resolution belongs to the package owner's
+# existing rows; Updates must inject none except a table custom command's
+# own explicit path, which customMode strips while recognizing its words.
 row_helper_configs() {
-  local helper mode
-  for helper in paru yay; do
-    for mode in automatic custom rebuild; do
-      reset_fix
-      transaction_fixture
-      printf '[options]\n' >"$fix/selected.conf"
-      if [[ $helper == paru ]]; then
-        printf '[options]\nInclude = %s/paru-include\n[bin]\nPacmanConf = ignored-program\n' "$fix" >"$tmp/home/.config/paru/paru.conf"
-        printf 'PacmanConf = %s/selected.conf\n' "$fix" >"$fix/paru-include"
-      fi
-      if [[ $helper == yay ]]; then
-        mkdir -p "$fix/yay-bin"
-        stub "$fix/yay-bin" yay 'if [ "$1" = --show ] && [ "$2" = --currentconfig ]; then
-          [ ! -e "$FIX/fail-yay-config" ] || exit 6
-          printf "{\"pacmanconf\":\"%s/selected.conf\"}\n" "$FIX"; exit 0
-        fi
-        [ "$1" != --print ] || exit 98
-        [ ! -e "$FIX/transaction" ] || "$FIX/transaction" yay "$@"'
-        PIPE_PATH="$fix/yay-bin"
-      fi
-      printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"%s"}],"sources":[]}\n' "$helper" >"$fix/detect.json"
-      case $mode in
-        custom) settings "$helper -Sua --config=$fix/explicit.conf" false false ;;
-        rebuild) self_json package '"vgshell-git"' rebuild; settings "" false false ;;
-        *) settings "" false false ;;
-      esac
-      pipeline update.sh
-      assert "$helper $mode finishes successfully" test "$status" == 0
-      local expected="$fix/selected.conf"
-      [[ $mode != custom ]] || expected="$fix/explicit.conf"
-      assert "$helper $mode retains its source config" grep -qxF "$expected" "$fix/config-sources"
-      assert "$helper $mode includes that same source config" grep -qxF "Include = $expected" "$fix/generated"
-      assert "$helper $mode remains masked" no_call 'notification reboot'
-      if [[ $helper:$mode == yay:automatic ]]; then
-        touch "$fix/fail-yay-config"
-        pipeline update-source.sh aur
-        assert "a failed yay settings read fails the run" test "$status" == 1
-        assert "a failed yay settings read runs no AUR transaction" no_call 'vgshell pkg run upgrade --manager aur'
-      fi
-      unset PIPE_PATH
-    done
-  done
-  local stopped want scratch
-  for stopped in fail-pacman interrupt-pacman fail-aur interrupt-aur; do
+  local mode
+  for mode in automatic custom-table custom-words rebuild; do
     reset_fix
-    transaction_fixture
-    touch "$fix/$stopped"
+    # Inspect the run while its package step is active, before cleanup can
+    # hide a generated hook folder or configuration.
+    cat >"$fix/transaction" <<'SH'
+#!/bin/sh
+run="$(cat "$FIX/current-run")" || exit 1
+[ ! -e "$run/hooks" ] || exit 17
+for file in "$run"/*.conf; do [ ! -e "$file" ] || exit 18; done
+SH
+    chmod +x "$fix/transaction"
+    case "$mode" in
+      custom-table) settings "paru -Sua --config=$fix/explicit.conf" false ;;
+      custom-words) settings "paru -Sua --devel --config=$fix/explicit.conf" false ;;
+      rebuild) self_json package '"vgshell-git"' rebuild ;;
+    esac
     pipeline update.sh
-    want=1
-    [[ $stopped != interrupt-* ]] || want=130
-    assert "$stopped retains the step result" test "$status" == "$want"
-    while IFS= read -r scratch; do
-      assert "$stopped removes scratch after the step ends" test ! -e "$scratch"
-    done <"$fix/scratch"
+    assert "$mode finishes with no run-owned hook directory or config" test "$status" == 0
+    assert "$mode leaves the system configuration to pacman" has_call "vgshell pkg run upgrade --manager pacman"
+    case "$mode" in
+      custom-table)
+        assert "table custom words keep their explicit config in the reviewed run" has_call "vgshell pkg run upgrade --manager aur --config $fix/explicit.conf" ;;
+      custom-words)
+        assert "non-table custom words run with their own config unchanged" has_call "paru -Sua --devel --config=$fix/explicit.conf" ;;
+      *)
+        assert "$mode leaves AUR configuration to the helper" has_call "vgshell pkg run upgrade --manager aur"
+        if [[ $mode == rebuild ]]; then
+          assert "the VGS rebuild keeps the helper's own configuration" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
+        fi ;;
+    esac
   done
-  reset_fix
-  : >"$fix/fail-hookdirs"
-  pipeline update.sh
-  assert "an unreadable hook configuration runs no system transaction" no_call 'vgshell pkg run upgrade --manager pacman'
-  assert "an unreadable hook configuration fails the run" test "$status" == 1
-  reset_fix
-  printf '[options]\nInclude = %s/missing\n' "$fix" >"$tmp/home/.config/paru/paru.conf"
-  pipeline update-source.sh aur
-  assert "an unreadable paru include runs no transaction" no_call 'vgshell pkg run upgrade --manager aur'
-  assert "an unreadable paru include fails the run" test "$status" == 1
 }
 
 row_facts_plain() {
@@ -2036,7 +2010,7 @@ if [[ $# -gt 0 ]]; then
 fi
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -2111,7 +2085,10 @@ control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replac
 control rebuild-by-package '[[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
 control release-aur-command-unread '&& $aur_here == 1 ]]; then vgs_reason=package-manager' '&& false ]]; then vgs_reason=package-manager' row_vgs_step
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
-control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
+control no-reboot-question '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
+control reboot-from-earlier-upgrade '  _updates_reboot "${_updates_core[@]}"' '  _updates_reboot Hyprland' row_reboot
+control reboot-still-restarts '        _updates_rebooted=1' '        :' row_reboot
+control custom-config-lost 'custom_config_args=(--config "$custom_config")' 'custom_config_args=()' row_helper_configs
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck' '  :' row_reboot
 control recheck-before-service 'local reply status polls=0' 'local reply status polls=300' row_recheck_replaced_tree
@@ -2128,7 +2105,6 @@ control scan-line-cause '      if [[ $line =~ $_updates_scan_line ]]; then' '   
 control answer-unread '$rest =~ $_updates_answer && $rest != *[Yy]*' '-z ${rest//[[:space:]]/}' row_answer
 control question-tail-ignored 'own="${tail:-$held}"' 'own="$held"' row_cause
 control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
-control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot_deferred
 control answered-question-kept '[[ $rest =~ $_updates_answer ]] || line="$rest"' ':' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
 control builds-after-failed-system '            failed) system_blocked="the system upgrade failed" ;;' '            failed) ;;' row_system_failed
@@ -2164,7 +2140,8 @@ control test-error-as-fault '    elif [[ $block == 0 ]] && [[ $line =~ $_updates
 control cached-block-sticky '    elif [[ $line =~ ^::\  || $line =~ ^($_updates_package-[^[:space:]-]+-[^[:space:]-]+):\ parsing\ pkg\ list\.\.\.$ ]]; then block=0' '' row_aur_rebuild_stopped
 control stop-cause-unnamed '_updates_cause="$tested failed its own tests." _updates_next="update again to retry it without tests."' ':' row_aur_rebuild_stopped
 control others-installed-unsaid '[[ $others == 0 ]] || _updates_cause+=" The other AUR packages installed."' ':' row_aur_rebuild_stopped
-control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a reboot."' '  :' row_reboot_unread
+control reboot-read-silent '  vgs_tui_warn "VGS could not check whether a restart is needed."' '  :' row_reboot_unread
+control reboot-read-result-missing '  _updates_results+=("VGS could not check whether a restart is needed.")' '  :' row_reboot_unread
 control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
 control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_cause
 control failure-exits-0 '  [[ $ended == finished ]] || exit 1' '  :' row_failure
@@ -2178,7 +2155,7 @@ control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_r
 control reboot-ignores-hook '[[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"' ':' row_reboot_core
 control reboot-ignores-targets '&& targetsMatch(trigger.targets, change.name);' ';' row_reboot_core UpdatesLogic.js
 control reboot-ignores-mounts "printf 'mounted %s\\n' \"\$value\"" ':' row_reboot_core
-control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version)"' row_reboot_core
+control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version 2>&1)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version 2>&1)"' row_reboot_core
 control reboot-new-as-upgrade 'then changes+=("install $name")' 'then changes+=("upgrade $name")' row_reboot_core
 control orphans-default-yes 'orphaned package(s)?" --default=false || status=$?' 'orphaned package(s)?" || status=$?' row_orphans
 control log-clobbers 'vgs_tui_log --build-progress "$_updates_log" "$UPDATES_LOG_PART"' 'vgs_tui_log --build-progress "$_updates_log" "$_updates_log"' row_busy

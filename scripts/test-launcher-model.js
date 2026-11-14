@@ -82,7 +82,6 @@ const PACKAGES = { id: "packages", plugin: "acme.packages", label: "Packages", i
 const PACKAGE_INSTALL = { id: "packages.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" };
 const PACKAGE_UPDATE_GROUP = { id: "packages.update", plugin: "acme.packages", label: "Update", icon: "refresh-cw", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "Update" };
 const PACKAGE_REMOVE = { id: "packages.remove", plugin: "acme.packages", label: "Remove", icon: "package", aliases: ["uninstall"], description: "", shortcut: "", provider: "", tui: "core/pkg-remove", tuiGroup: "" };
-const VGS_UPDATE = { key: "vgs.updates/update", plugin: "vgs.updates", name: "update", title: "Update everything", label: "Update everything", icon: "refresh-cw", group: "Update" };
 
 // Payloads the judge refuses: [label, text, the start of the error].
 const PAYLOAD_REFUSED = [
@@ -229,10 +228,10 @@ function verify(model, menu = shippedMenu) {
     const realUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, ["vgs.updates"], {}).rows;
     const realPackages = model.mergeMenuSources(shipped.entries, [], model.pluginEntries(realUpdatesRows));
     assert.equal(realPackages.ok, true, realPackages.error);
-    const realResolved = model.resolveTuiRows(realPackages.items, realPackages.itemOrder, CORE_ENTRIES.concat([VGS_UPDATE]));
+    const realResolved = model.resolveTuiRows(realPackages.items, realPackages.itemOrder, CORE_ENTRIES);
     same(model.menuRows(realResolved, realPackages.itemOrder, "root", []).map(r => [r.kind, r.label]), [["menu", "Apps"], ["menu", "System"], ["menu", "Tools"], ["menu", "Packages"]], "vgs.updates adds the Packages category");
-    same(model.menuRows(realResolved, realPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["shortcut", "Package review settings"], ["tui", "Install"], ["tui", "Update"], ["tui", "Remove"]], "package review joins the Updates package rows");
-    same(["packages.install", "packages.update", "packages.remove"].map(id => realResolved[id].tuiKey), ["core/pkg-install", "vgs.updates/update", "core/pkg-remove"], "package rows open their declared TUIs");
+    same(model.menuRows(realResolved, realPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["shortcut", "Package review settings"], ["tui", "Install"], ["shortcut", "Update"], ["tui", "Remove"]], "package review joins the Updates package rows");
+    same(["packages.install", "packages.update", "packages.remove"].map(id => realResolved[id].kind === "shortcut" ? realResolved[id].shortcut : realResolved[id].tuiKey), ["core/pkg-install", "vgs.updates:update-all", "core/pkg-remove"], "full updates use the service gate while install and remove keep their TUIs");
     const noUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, [], {}).rows;
     const noUpdatesPackages = model.mergeMenuSources(shipped.entries, [], model.pluginEntries(noUpdatesRows));
     same(model.menuRows(noUpdatesPackages.items, noUpdatesPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["shortcut", "Package review settings"]], "package review remains reachable with Updates disabled");

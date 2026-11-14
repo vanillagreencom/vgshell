@@ -13,12 +13,14 @@ import "UpdatesLogic.js" as Logic
 // Package review settings, which opens the Packages page, so
 // the link takes no height from the sources. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
-// service's `check` through the plugin's own IPC, and every update and the
-// log open the plugin's floating TUIs (UpdatesLogic.tuiRequest). The
+// service's `check` through the plugin's own IPC. Update everything asks
+// that service to offer the reboot-notice choice before its TUI; a source
+// update and the log open their TUIs directly (UpdatesLogic.tuiRequest). The
 // window asks to be `size.panel.lg` wide and `size.panel.maxHeight` tall,
 // or the room its screen leaves when that is less, and the sources scroll
 // in whatever size Hyprland gives it after. An Escape nothing here takes
-// goes on to the window host, which closes the window. It takes no payload.
+// goes on to the window host, which closes the window. A payload may carry
+// the refusal from a setup terminal's attempt to start the update.
 FocusScope {
     id: root
 
@@ -42,6 +44,8 @@ FocusScope {
     function open(payloadJson) {
         problem = "";
         refresh();
+        const payload = JSON.parse(payloadJson);
+        if (typeof payload.problem === "string") problem = payload.problem;
     }
     function close() {}
 
@@ -49,7 +53,7 @@ FocusScope {
     // answers the capability's reply.
     function run(action, source) {
         const request = Logic.tuiRequest(action, source);
-        const reply = answered(shell.tui.run(request.name, request.args));
+        const reply = answered(action === "all" ? shell.ipc.call("update-all", "") : shell.tui.run(request.name, request.args));
         // Hiding destroys this summoned instance; finish its reply first.
         if (reply === "ok" && action !== "log") shell.surfaces.hide("window");
         return reply;
