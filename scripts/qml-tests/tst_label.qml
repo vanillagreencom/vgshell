@@ -59,6 +59,15 @@ Item {
     Field { id: pair; label: "Agents running"; inline: true; width: 300; y: 190; Label { id: pairValue; role: "value"; text: "3" } }
     Component { id: lastLineLabel; Label { width: 100 } }
     Component { id: lastLineMetrics; FontMetrics {} }
+    Component { id: sideLabel; Label { width: 300; role: "button"; wrapMode: Text.Wrap } }
+    Component {
+        id: sideContextOwner
+        Item {
+            property Component factory: Component {
+                Label { text: "New"; width: 300; role: "button" }
+            }
+        }
+    }
 
     TestCase {
         name: "label"
@@ -73,6 +82,94 @@ Item {
                 for (let y = 0; y < img.height; y++)
                     if (img.red(x, y) > 128) n++;
             return n;
+        }
+
+        // Vertical readers and changing text/fonts do no side work until
+        // a known side is requested. Both side readers then share one
+        // live measure; unknown sides retain their box-edge contract.
+        function test_side_metrics_wait_for_a_side_read_data() {
+            return [
+                { tag: "start first", text: "New", first: "start", known: true },
+                { tag: "end first", text: "Save", first: "end", known: true },
+                { tag: "empty", text: "", first: "end", known: false },
+                { tag: "wrapped", text: "two words wrap around", first: "start", known: false, width: 45 },
+                { tag: "centred", text: "New", first: "end", known: false, align: Text.AlignHCenter },
+                { tag: "right aligned", text: "New", first: "start", known: false, align: Text.AlignRight }
+            ];
+        }
+        function test_side_metrics_wait_for_a_side_read(data) {
+            const label = createTemporaryObject(sideLabel, root, {
+                text: data.text, width: data.width === undefined ? 300 : data.width,
+                horizontalAlignment: data.align === undefined ? Text.AlignLeft : data.align
+            });
+            if (data.width !== undefined) tryVerify(() => label.lineCount > 1);
+            else if (data.text !== "") tryCompare(label, "lineCount", 1);
+            compare(label.sideHolder.metrics, null, "creation without a side reader");
+            Theme.inkAbove(label);
+            Theme.inkBelow(label);
+            compare(label.sideHolder.metrics, null, "vertical readers request no side work");
+            label.font.pixelSize = 20;
+            if (data.text !== "") label.text += "W";
+            if (data.width !== undefined) tryVerify(() => label.lineCount > 1);
+            compare(label.sideHolder.metrics, null, "unread font/text changes request no side work");
+            const preference = label.font.hintingPreference;
+            if (data.first === "start") Theme.inkStart(label);
+            else Theme.inkEnd(label);
+            if (!data.known) {
+                compare(Theme.inkStart(label), 0);
+                compare(Theme.inkEnd(label), label.width);
+                compare(label.sideHolder.metrics, null, "unknown sides build no measure");
+                label.text = "New";
+                label.width = 300;
+                label.horizontalAlignment = Text.AlignLeft;
+                tryCompare(label, "lineCount", 1);
+            }
+            const end = Theme.inkEnd(label);
+            verify(end > Theme.inkStart(label));
+            const measure = label.sideHolder.metrics;
+            verify(measure !== null, "the first known side builds its measure");
+            compare(label.font.hintingPreference, preference, "measuring never changes the drawing font");
+            label.text = "WWWWWW";
+            tryVerify(() => Theme.inkEnd(label) > end, 1000, "the measured side follows text");
+            const textEnd = Theme.inkEnd(label);
+            label.font.pixelSize = 30;
+            tryVerify(() => Theme.inkEnd(label) > textEnd, 1000, "the measured side follows the font");
+            compare(label.sideHolder.metrics, measure, "both sides and input changes reuse the same measure");
+            label.horizontalAlignment = Text.AlignRight;
+            compare(Theme.inkStart(label), 0);
+            compare(Theme.inkEnd(label), label.width);
+        }
+
+        function test_side_readers_ignore_a_destroyed_label_context() {
+            const parent = createTemporaryQmlObject("import QtQuick; Item {}", root);
+            const label = createTemporaryObject(sideLabel, parent, { text: "New" });
+            verify(Theme.inkEnd(label) > 0);
+            parent.destroy();
+            tryVerify(() => label.visible === undefined, 1000);
+            compare(Theme.inkStart(label), 0);
+            compare(Theme.inkEnd(label), 0);
+        }
+
+        // A factory's context can leave while the Label belongs to a
+        // different live parent. Both first-read and already-read sides
+        // remain data-readable without looking up a dead QML method.
+        function test_a_side_read_survives_its_creation_context_data() {
+            return [{ tag: "first read after context leaves", readFirst: false },
+                { tag: "measure already owned", readFirst: true }];
+        }
+        function test_a_side_read_survives_its_creation_context(data) {
+            const owner = createTemporaryObject(sideContextOwner, root);
+            const label = owner.factory.createObject(root);
+            tryCompare(label, "lineCount", 1);
+            const before = data.readFirst ? [Theme.inkStart(label), Theme.inkEnd(label)] : null;
+            owner.destroy();
+            tryVerify(() => owner.parent === undefined, 1000);
+            verify(label.visible && label.width > 0);
+            const after = [Theme.inkStart(label), Theme.inkEnd(label)];
+            verify(after[1] > after[0]);
+            verify(label.sideHolder.metrics !== null);
+            if (before !== null) compare(after, before);
+            label.destroy();
         }
 
         function test_role_sets_every_font_property() {

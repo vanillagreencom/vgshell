@@ -406,18 +406,22 @@ var TOKENS = {
     },
 
     // The rhythm every one-line control follows: a button, a text field, a
-    // select and a segmented control are `size.control.md` tall. A button
-    // and a segment use `control.paddingX`; a field and select use their
-    // optical inset. `control.gap` stands between an icon and its text.
-    // `sm` and `lg` hold the same two for a button of that size. The
-    // values are Radix Themes' button sizes 1, 2 and 3 on the 4 px unit.
+    // select and a segmented control are `size.control.md` tall. A segment
+    // uses `control.paddingX`; a field and select use their optical inset.
+    // `control.gap` stands between an icon and its text. `sm` and `lg` hold
+    // the same two for a button of that size. The values are Radix Themes'
+    // button sizes 1, 2 and 3 on the 4 px unit.
     control: {
         minWidth: step(4),
         maxWidth: step(120),
         paddingX: step(3),
         gap: step(2),
         sm: { paddingX: step(2), gap: step(1) },
-        lg: { paddingX: step(4), gap: step(3) }
+        lg: {
+            // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
+            paddingX: step(4),
+            gap: step(3)
+        }
     },
 
     // The rhythm of a row that holds controls: a list item, a menu item and
@@ -544,14 +548,30 @@ var TOKENS = {
     button: {
         radius: length("{radius.md}"),
         border: length("{border.thin}"),
+        // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
         paddingX: length("{control.paddingX}"),
         gap: length("{control.gap}"),
-        // Per size: the side padding, the icon-to-text gap and the icon.
-        // `md` is the button's own `paddingX` and `gap`.
+        // Per size: the icon-to-text gap and the icon. `md` is the
+        // button's own `gap`.
         size: {
-            sm: { paddingX: length("{control.sm.paddingX}"), gap: length("{control.sm.gap}"), icon: length("{icon.size.sm}") },
-            md: { paddingX: length("{button.paddingX}"), gap: length("{button.gap}"), icon: length("{icon.size.md}") },
-            lg: { paddingX: length("{control.lg.paddingX}"), gap: length("{control.lg.gap}"), icon: length("{icon.size.md}") }
+            sm: {
+                // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
+                paddingX: length("{control.sm.paddingX}"),
+                gap: length("{control.sm.gap}"),
+                icon: length("{icon.size.sm}")
+            },
+            md: {
+                // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
+                paddingX: length("{button.paddingX}"),
+                gap: length("{button.gap}"),
+                icon: length("{icon.size.md}")
+            },
+            lg: {
+                // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
+                paddingX: length("{control.lg.paddingX}"),
+                gap: length("{control.lg.gap}"),
+                icon: length("{icon.size.md}")
+            }
         },
         variant: {
             primary: variant("button.variant.primary", "{color.accent}", 700, "palette.foreground", "palette.background"),

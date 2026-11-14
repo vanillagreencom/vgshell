@@ -9,7 +9,10 @@ import "LineBreak.js" as LineBreak
 // a variable font moves on the axis alone and a static family on the
 // weight alone. Letter spacing is stated in em and set in pixels here.
 // `lineBox` is the role's font-size multiple, floored at the font's own
-// line box rounded up to a whole pixel. `halfLeading` is the extra line space above and below each
+// line box rounded up to a whole pixel. `inkStart` and `inkEnd` declare
+// one shared side measure to Theme's readers: a one-line, left-aligned
+// label's glyph bounds, or its box edges otherwise.
+// `halfLeading` is the extra line space above and below each
 // fixed line. `capCentre` is the first line's capital centre from the
 // label top. `opticalWidth` removes the tracking Qt adds after the last
 // glyph. `topForCapCenter()` gives the top that puts the capital centre on
@@ -123,6 +126,15 @@ Text {
         if (singleLineInk === null) return capTop();
         return baselineOffset + singleLineInk.y;
     }
+
+    // Stored declarations remain readable when the creation context dies
+    // before this QObject. Theme materializes their shared measure only
+    // on a side read, in its own live context, with this Label as parent.
+    // No side FontMetrics, font copy or bounds evaluation at construction:
+    // Qt 6.11.2, VGS-2466 tmp/tst_side_cost.qml.
+    readonly property var sideHolder: ({ source: root, metrics: null })
+    readonly property var inkStart: sideHolder
+    readonly property var inkEnd: sideHolder
 
     function lastBaseline() {
         const lines = Math.max(1, lineCount);

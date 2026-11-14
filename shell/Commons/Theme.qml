@@ -279,14 +279,82 @@ Singleton {
 
     // How far right of its left edge an item's drawn content ends, so a
     // FormRow opens its label's explainer past the control it draws. An
-    // item that declares `inkEnd`, such as a `Switch`, answers for
-    // itself, and a Loader where its item does; any other item draws to
-    // its right edge.
+    // item that declares an `inkEnd` value, such as a `Switch`, or a
+    // side measure, such as a `Label`, answers for itself, and a Loader where its
+    // item does; any other item draws to its right edge.
     function inkEnd(item) {
-        if (item === null || item === undefined) return 0;
-        if (typeof item.inkEnd === "number") return item.inkEnd;
+        if (item === null || item === undefined || item.visible === undefined) return 0;
+        const end = item.inkEnd;
+        if (typeof end === "number") return end;
+        if (end !== null && typeof end === "object" && end.source === item) {
+            const ink = labelSideInk(end);
+            return ink === null ? item.width : (ink.x + ink.width) * end.metrics.scale;
+        }
         if (item instanceof Loader) return item.item instanceof Item ? item.item.x + inkEnd(item.item) : 0;
         return item.width;
+    }
+
+    // How far right of its left edge an item's drawn content starts, the
+    // counterpart of inkEnd, so a Button measures its side gaps to ink. An
+    // item that declares an `inkStart` value or side measure, such as a `Label`,
+    // answers for itself; any other item draws from its left edge.
+    function inkStart(item) {
+        if (item === null || item === undefined || item.visible === undefined) return 0;
+        const start = item.inkStart;
+        if (typeof start === "number") return start;
+        if (start !== null && typeof start === "object" && start.source === item) {
+            const ink = labelSideInk(start);
+            return ink === null ? 0 : ink.x * start.metrics.scale;
+        }
+        return 0;
+    }
+
+    function labelSideKnown(item) {
+        return item.text !== "" && item.lineCount <= 1 && item.effectiveHorizontalAlignment === Text.AlignLeft;
+    }
+
+    // Keep declarations as data, not QML methods: a Label's creation
+    // context can die while its QObject remains visible (inkBelow).
+    // The child belongs to that Label; its definition and bindings use
+    // Theme's live context. A plain holder notifies no binding while the
+    // first read creates the child. Component delays its instance:
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language/
+    function labelSideInk(measure) {
+        if (!labelSideKnown(measure.source)) return null;
+        if (measure.metrics === null) measure.metrics = labelSideComponent.createObject(measure.source, { target: measure.source });
+        return measure.metrics.ink;
+    }
+
+    Component {
+        id: labelSideComponent
+        FontMetrics {
+            id: sideMetrics
+            required property Item target
+            readonly property int probeSize: 256
+            readonly property real scale: target.font.pixelSize / probeSize
+            // Native-size tightBoundingRect rounds glyph bounds even
+            // without hinting. At 256 px, tracking/spacing scaled alike,
+            // VGS-2466 tmp/tst_side_metrics.qml on Qt 6.11.2 measured
+            // New/Save/Set up sides within 0.44 px at 12/20 px, where
+            // native-size New's end missed drawn ink by 1.82 px.
+            readonly property var ink: {
+                if (!root.labelSideKnown(target)) return null;
+                void font;
+                return tightBoundingRect(target.typography.uppercase ? target.text.toUpperCase() : target.text);
+            }
+            font: {
+                const attributes = Object.assign({}, target.font, {
+                    pixelSize: probeSize,
+                    letterSpacing: target.font.letterSpacing / scale,
+                    wordSpacing: target.font.wordSpacing / scale,
+                    hintingPreference: Font.PreferNoHinting
+                });
+                // Qt.font applies pointSize after pixelSize when both exist;
+                // copy properties, never mutate the borrowed font value.
+                delete attributes.pointSize;
+                return Qt.font(attributes);
+            }
+        }
     }
 
     // How far below its top edge an item's drawn content starts, the

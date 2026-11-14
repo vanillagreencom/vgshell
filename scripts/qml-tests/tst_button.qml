@@ -13,7 +13,8 @@ import qs.Unit
 // maximum, an unknown variant, and a theme
 // change that moves the fill and keeps the text readable. An icon
 // button's tooltip opens under it, or to its right when its side says so,
-// the theme's gap away.
+// the theme's gap away. A button's content ink stands as far from the
+// border on all four sides, read from its drawn pixels.
 Item {
     id: root
     width: 300
@@ -53,7 +54,7 @@ Item {
     Button { id: centred; text: "Wide"; variant: "secondary"; x: 100; y: 520; width: 180; centerContent: true }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
 
-    TestCase {
+    UnitCase {
         name: "button"
         when: windowShown
 
@@ -141,20 +142,18 @@ Item {
             compare(toggle.checked, false);
         }
 
-        // Each size draws its own height, padding, gap and icon, Radix
-        // Themes' button sizes 1, 2 and 3 on the 4 px unit.
+        // Each size draws its own height, gap and icon, Radix Themes'
+        // button sizes 1, 2 and 3 on the 4 px unit.
         function test_each_size_draws_its_rhythm_data() {
             return [
-                { tag: "sm", height: 24, pad: 8, gap: 4, icon: 14 },
-                { tag: "md", height: 32, pad: 12, gap: 8, icon: 16 },
-                { tag: "lg", height: 40, pad: 16, gap: 12, icon: 16 }
+                { tag: "sm", height: 24, gap: 4, icon: 14 },
+                { tag: "md", height: 32, gap: 8, icon: 16 },
+                { tag: "lg", height: 40, gap: 12, icon: 16 }
             ];
         }
         function test_each_size_draws_its_rhythm(data) {
             const button = data.tag === "sm" ? small : data.tag === "lg" ? large : Qt.createQmlObject("import qs.Ui\nButton { text: \"Medium\"; iconName: \"check\" }", root);
             tryCompare(button, "height", data.height);
-            compare(button.leftPadding, data.pad);
-            compare(button.rightPadding, data.pad);
             const row = button.contentItem;
             compare(row.children[0].size, data.icon);
             tryVerify(() => row.children[1].x - (row.children[0].x + row.children[0].width) === data.gap, 1000, "gap " + (row.children[1].x - row.children[0].width));
@@ -174,13 +173,9 @@ Item {
         }
 
         // The ring follows the button's own corner under a rounded theme,
-        // inset with the primary button's contrast ring, and the side
-        // padding grows until the label clears the round end.
-        function test_rounded_button_clears_its_corner_and_rings_it() {
+        // inset with the primary button's contrast ring.
+        function test_rounded_button_rings_its_corner() {
             compare(UnitTheme.override({ button: { radius: 4096 } }), "ok");
-            const want = Inset.controlPadding(Theme.button.size.sm.paddingX, 4096, small.height, small.implicitContentHeight, Theme.space.xs);
-            verify(want > Theme.button.size.sm.paddingX, "the sm pill's label needs more than its pad: " + want);
-            tryCompare(small, "leftPadding", want);
             const ring = small.background.children[small.background.children.length - 1];
             compare(ring.radius, 4096 - Theme.focusRing.offset);
         }
@@ -307,14 +302,12 @@ Item {
                                          ["#e6e8ee", lookButton.tokens.foreground],
                                          ["#4fd1c5", Theme.focusRing.color]])
                 verify(String(Qt.color(want)) !== String(Qt.color(token)), "the look colour " + want + " differs from the token it replaces");
-            for (const [want, token] of [[26, Theme.size.control.sm], [26, Theme.size.control.md], [13, Theme.button.radius], [13, lookButton.sizeTokens.paddingX]])
+            for (const [want, token] of [[26, Theme.size.control.sm], [26, Theme.size.control.md], [13, Theme.button.radius], [13, lookButton.inkGap]])
                 verify(want !== token, "the look metric " + want + " differs from the token it replaces");
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(lookButton, "hovered", false);
             compare(lookButton.height, 26);
             compare(lookButton.background.radius, 13);
-            compare(lookButton.leftPadding, 13);
-            compare(lookButton.rightPadding, 13);
             tryVerify(() => String(lookButton.background.color) === String(Qt.color("#1a2b3c")), 1000, "rest fill " + lookButton.background.color);
             same(lookButton.background.border.color, "#4d5e6f", "border");
             same(label.color, "#e6e8ee", "rest ink");
@@ -343,17 +336,95 @@ Item {
             const labelOf = button => button.contentItem.children.find(child => child.role === "button");
             for (const button of [wide, centred])
                 verify(button.width > button.implicitWidth, "the button is wider than its content needs: " + button.width + " against " + button.implicitWidth);
-            compare(labelOf(wide).mapToItem(wide, 0, 0).x, wide.sidePadding, "a wide button's content starts at its side padding");
+            compare(labelOf(wide).mapToItem(wide, 0, 0).x, wide.startPadding, "a wide button's content starts at its side padding");
             const box = labelOf(centred).mapToItem(centred, 0, 0, labelOf(centred).width, labelOf(centred).height);
             verify(Math.abs(box.x + box.width / 2 - centred.width / 2) <= 1, "the label's middle at " + (box.x + box.width / 2) + " stands on the button's, " + centred.width / 2);
             compare(box.x, Math.floor(box.x), "the label starts on a whole pixel");
-            compare(centred.leftPadding, centred.rightPadding);
             centred.width = centred.implicitWidth;
             try {
-                compare(centred.leftPadding, centred.sidePadding, "a button sized by its content keeps its side padding");
+                compare(centred.leftPadding, centred.startPadding, "a button sized by its content keeps its side padding");
             } finally {
                 centred.width = 180;
             }
+        }
+
+        // The gaps from the border's inner edge to the content's drawn ink,
+        // [left, top, right, bottom], to a fraction of a pixel: the button
+        // against itself with its content hidden, a partly inked edge pixel
+        // counted by its share of the strongest ink, as tst_feedback reads
+        // a box's ink. Opacity keeps the content's geometry:
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#opacity-prop
+        function inkGaps(button) {
+            verify(renderedFrame(button));
+            const drawn = grabImage(button);
+            button.contentItem.opacity = 0;
+            verify(renderedFrame(button));
+            const bare = grabImage(button);
+            const columns = [], rows = [];
+            let strongest = 0;
+            for (let x = 0; x < drawn.width; x++)
+                for (let y = 0; y < drawn.height; y++) {
+                    const d = Math.abs(drawn.red(x, y) - bare.red(x, y)) + Math.abs(drawn.green(x, y) - bare.green(x, y)) + Math.abs(drawn.blue(x, y) - bare.blue(x, y));
+                    columns[x] = Math.max(columns[x] || 0, d);
+                    rows[y] = Math.max(rows[y] || 0, d);
+                    strongest = Math.max(strongest, d);
+                }
+            verify(strongest > 0, "the content draws ink");
+            const inked = table => table.map((d, i) => [i, d / strongest]).filter(pair => pair[1] > 0.1);
+            const xs = inked(columns), ys = inked(rows);
+            const [left, leftShare] = xs[0], [right, rightShare] = xs[xs.length - 1];
+            const [top, topShare] = ys[0], [bottom, bottomShare] = ys[ys.length - 1];
+            const border = Theme.button.border;
+            return [left + 1 - leftShare - border, top + 1 - topShare - border, button.width - right - rightShare - border, button.height - bottom - bottomShare - border];
+        }
+
+        // The content's ink, icon or letter, stands as far from the border
+        // on all four sides, at each size, with text alone and with a
+        // leading icon, at the shipped text size and a larger one. Under a
+        // rounded corner the sides keep the corner's clearing, which adds
+        // side space at sm alone, and left still equals right. A look's own
+        // height, corner and side gap go through the same measure: its
+        // sides follow the gap it hands. The native-size ink coverage
+        // must agree within the layout rule's 1 px.
+        function test_button_draws_equal_ink_gaps_data() {
+            const rows = [];
+            for (const font of [{ name: "shipped", size: 0 }, { name: "larger text", size: 20 }])
+                for (const size of ["sm", "md", "lg"])
+                    for (const icon of ["", "circle-plus"])
+                        rows.push({ tag: size + (icon === "" ? "" : " with icon") + " at " + font.name, size: size, icon: icon, font: font.size });
+            // The Automations header's shipped action ends in W, whose
+            // native-size metric overstates the drawn right edge.
+            rows.push({ tag: "sm New with plus", text: "New", size: "sm", icon: "plus", font: 0 });
+            for (const size of ["sm", "md", "lg"])
+                rows.push({ tag: size + " rounded", size: size, icon: "", font: 0, rounded: true, clears: size === "sm" });
+            rows.push({ tag: "a look's own form", size: "md", icon: "", font: 0, look: [13, 20] });
+            return rows;
+        }
+
+        function test_button_draws_equal_ink_gaps(data) {
+            const tokens = { motion: { scale: 0 } };
+            if (data.font !== 0) tokens.font = { size: data.font };
+            if (data.rounded === true) tokens.button = { radius: 4096 };
+            compare(UnitTheme.override(tokens), "ok");
+            const looks = data.look === undefined ? [null] : data.look;
+            const sides = [];
+            for (const [index, pad] of looks.entries()) {
+                const look = pad === null ? "" : "variant: 'secondary'; controlHeight: 26; paddingX: " + pad + "; radius: 13; restFill: '#1a2b3c'; textColor: '#e6e8ee'; ";
+                const text = data.text === undefined ? "Set up" : data.text;
+                const button = createTemporaryQmlObject("import qs.Ui; Button { x: 170; y: " + (10 + 50 * index) + "; text: '" + text + "'; size: '" + data.size + "'; iconName: '" + data.icon + "'; " + look + "}", root);
+                const gaps = inkGaps(button);
+                const [left, top, right, bottom] = gaps;
+                const what = data.tag + (pad === null ? "" : " " + pad) + " gaps " + gaps.map(gap => gap.toFixed(2)).join(",");
+                console.log("button-ink: " + what);
+                verify(Math.abs(left - right) <= 1, what + ": left equals right");
+                if (data.clears === true)
+                    verify(left > Math.max(top, bottom) + 1, what + ": the corner adds side space");
+                else if (pad === null)
+                    verify(Math.max(...gaps) - Math.min(...gaps) <= 1, what + ": the four gaps agree");
+                sides.push(left);
+            }
+            if (looks.length === 2)
+                fuzzyCompare(sides[1] - sides[0], looks[1] - looks[0], 0.5, "the look's sides follow its gap: " + sides);
         }
 
         // A caller that binds a button's width owns that allocation, as

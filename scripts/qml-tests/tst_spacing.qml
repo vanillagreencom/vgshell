@@ -5,8 +5,8 @@ import qs.Ui
 import qs.Unit
 
 // The spacing rhythm, read from drawn components: Button, TextField,
-// Select and SegmentedControl stand `size.control.md` tall with their text
-// `control.paddingX` from the edge; ListItem and MenuItem start their
+// Select and SegmentedControl stand `size.control.md` tall, a segment's
+// text `control.paddingX` from the edge; ListItem and MenuItem start their
 // content `row.paddingX` in; Field starts at `field.paddingX`, zero by
 // default so a container owns its edge. Controls share `control.gap`;
 // ListItem owns its larger icon gap and Badge its smaller chip gap. A theme that moves the shared token
@@ -174,8 +174,6 @@ Item {
             same(() => input.height, height, "text field height");
             same(() => select.height, height, "select height");
             same(() => segmented.height, height, "segmented height");
-            same(() => button.leftPadding, pad, "button padding");
-            same(() => button.contentItem.x, pad, "button text x");
             same(() => input.leftPadding, Theme.textField.paddingX, "text field padding");
             same(() => select.contentItem.x, Theme.textField.paddingX, "select text x");
             same(() => segment(0).contentItem.x, pad, "segment text x");
