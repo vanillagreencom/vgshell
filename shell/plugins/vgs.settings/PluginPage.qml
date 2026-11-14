@@ -108,6 +108,7 @@ FocusScope {
         return Steps.featureRow(field, row).length > 0;
     }
     function placed(field) {
+        if (field.reference) return true;
         return row.schema[field.key].underKey === undefined && !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
             && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
     }
@@ -115,7 +116,14 @@ FocusScope {
         return row === null ? null : row.fieldRows.find(field => field.key === key) || null;
     }
     function underKey(shortcut) {
-        return row === null ? [] : row.fieldRows.filter(field => row.schema[field.key].underKey === shortcut).map(field => field.key);
+        return row === null ? [] : row.fieldRows.filter(field => !field.reference && row.schema[field.key].underKey === shortcut).map(field => field.key);
+    }
+    // What the editor of field KEY reads when it holds an idle stage's
+    // time, as the core lends it, else null (ChoiceField `idleField`).
+    function idleFieldOf(key) {
+        const field = fieldRow(key);
+        if (field === null || field.idleStage === "") return null;
+        return row.idleFields.find(idle => idle.stage === field.idleStage) || null;
     }
     readonly property var fields: row === null ? [] : row.fieldRows.filter(field => field.section === "" && placed(field)).map(field => field.key)
     readonly property var sections: {
@@ -270,19 +278,25 @@ FocusScope {
         onAside: page.press(asideAction, entry)
     }
 
+    // One field row: SettingField, or IdleTimeField for a row whose field
+    // holds an idle stage's time (PluginLogic.fieldRows `idleStage`), the
+    // plugin's own or, as a `reference`, another owner's, which `idleField`
+    // holds as the core lends it (the manager row's `idleFields`).
     component ChoiceField: Column {
         id: choiceField
-        property alias pluginId: editor.pluginId
-        property alias key: editor.key
+        property string pluginId: ""
+        property string key: ""
         // The key a page reference names the row by (revealField).
         readonly property string fieldKey: key
-        property alias spec: editor.spec
-        property alias value: editor.value
-        property alias choices: editor.choices
-        property alias groups: editor.groups
-        property alias problem: editor.problem
-        property alias editable: editor.editable
-        property alias edits: editor.edits
+        property var spec: ({})
+        property var value
+        property var choices: []
+        property var groups: []
+        property string problem: ""
+        property bool editable: true
+        property var edits: null
+        property var idleField: null
+        property bool reference: false
         // A key/value row: the row under it stands by ink (Field).
         readonly property bool keyValueRow: true
         // Whether the row's last shown line ends in sub-text, which takes
@@ -299,15 +313,48 @@ FocusScope {
         signal previewWanted(var value)
         spacing: Theme.stack.row
         bottomPadding: Theme.subTextRoom(choiceField.subText, Positioner.index, Positioner.isLastItem, parent)
-        SettingField {
+        // The editor stands as its field does: a key/value row whose
+        // last line may be sub-text (FormRow `rowAbove`, Theme.subTextRoom).
+        Loader {
             id: editor
+            readonly property bool subText: item !== null && item.subText === true
+            readonly property bool keyValueRow: item !== null && item.keyValueRow === true
             width: parent.width
-            onApply: value => choiceField.apply(value)
-            onOpenLink: link => choiceField.openLink(link)
-            onOpenPage: (id, tab) => choiceField.openPage(id, tab)
-            onChoicesWanted: choiceField.choicesWanted()
-            onAddWanted: choiceField.addWanted()
-            onPreviewWanted: value => choiceField.previewWanted(value)
+            sourceComponent: choiceField.idleField === null ? settingEditor : idleEditor
+        }
+        Component {
+            id: settingEditor
+            SettingField {
+                width: editor.width
+                pluginId: choiceField.pluginId
+                key: choiceField.key
+                spec: choiceField.spec
+                value: choiceField.value
+                choices: choiceField.choices
+                groups: choiceField.groups
+                problem: choiceField.problem
+                editable: choiceField.editable
+                edits: choiceField.edits
+                onApply: value => choiceField.apply(value)
+                onOpenLink: link => choiceField.openLink(link)
+                onOpenPage: (id, tab) => choiceField.openPage(id, tab)
+                onChoicesWanted: choiceField.choicesWanted()
+                onAddWanted: choiceField.addWanted()
+                onPreviewWanted: value => choiceField.previewWanted(value)
+            }
+        }
+        Component {
+            id: idleEditor
+            IdleTimeField {
+                width: editor.width
+                field: choiceField.idleField
+                reference: choiceField.reference
+                problem: choiceField.problem
+                editable: choiceField.editable
+                onApply: value => choiceField.apply(value)
+                onHintLinkActivated: choiceField.openLink(field.spec.link)
+                onPageActivated: (id, tab) => choiceField.openPage(id, tab)
+            }
         }
         ChoiceExtras {
             width: parent.width
@@ -447,6 +494,14 @@ FocusScope {
             }
             for (const child of item.children) found.push(child);
         }
+    }
+
+    // Write VALUE to the page's field KEY: its own setting through the
+    // manager, or, for a reference row, IDLE's stage time through the
+    // manager's stage write, whose refusal the row shows.
+    function writeField(key, idle, value) {
+        if (!fieldRow(key).reference) return panel.writeSetting(row.id, key, value);
+        return panel.writeIdleSetting(row.id, key, idle, value);
     }
 
     // Write every unsaved edit; answers whether none is left.
@@ -651,14 +706,16 @@ FocusScope {
                                 width: switches.width
                                 pluginId: page.row.id
                                 key: modelData
-                                spec: page.row.schema[modelData]
-                                value: page.row.settings[modelData]
+                                reference: page.fieldRow(modelData).reference
+                                idleField: page.idleFieldOf(modelData)
+                                spec: reference ? ({}) : page.row.schema[modelData]
+                                value: reference ? undefined : page.row.settings[modelData]
                                 choices: page.row.settingChoices[modelData] || []
                                 groups: page.fieldRow(modelData).groups
-                                problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
-                                editable: page.editable
+                                problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
+                                editable: page.editable || reference
                                 edits: unsaved
-                                onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                 onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                 onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
@@ -715,14 +772,16 @@ FocusScope {
                                     width: section.width
                                     pluginId: page.row.id
                                     key: modelData
-                                    spec: page.row.schema[modelData]
-                                    value: page.row.settings[modelData]
+                                    reference: page.fieldRow(modelData).reference
+                                    idleField: page.idleFieldOf(modelData)
+                                    spec: reference ? ({}) : page.row.schema[modelData]
+                                    value: reference ? undefined : page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
                                     groups: page.fieldRow(modelData).groups
-                                    problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
-                                    editable: page.editable
+                                    problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
+                                    editable: page.editable || reference
                                     edits: unsaved
-                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                    onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
                                     onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                     onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)

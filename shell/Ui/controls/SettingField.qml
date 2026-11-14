@@ -1,20 +1,20 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
 // Enums of at most three options use SegmentedControl because each choice
 // fits in one row. Larger enums and status-fed strings use Select. Both
-// draw an enum option's label and write its value. String
-// and number presets use Select. A string's separator makes its presets
-// independently checked menu entries that keep their joined string value.
-// When custom values are allowed, Custom…
-// follows the presets or the published choices, and a configured value no
-// row holds shows under it; for a status-fed string "" is the unset value,
-// never a custom one. A custom datetime string validates before it writes.
-// A bounded number uses Slider, and a unit makes its value read as a
-// quantity. A status-fed select whose entry declares `addChoice` ends its
+// draw an enum option's label and write its value. String presets use
+// Select. A string's separator makes its presets independently checked
+// menu entries that keep their joined string value. When custom values
+// are allowed, Custom… follows the presets or the published choices, and
+// a configured value no row holds shows under it; for a status-fed string
+// "" is the unset value, never a custom one. A custom datetime string
+// validates before it writes. A number is the shared number editor's
+// (NumberSettingField), and an idle stage's time the page draws with
+// IdleTimeField, which composes it. A status-fed select whose entry
+// declares `addChoice` ends its
 // list with that entry, led by the plus mark, which asks the page to open
 // the plugin's screen that adds an offer and stores nothing; one that
 // declares `preview` draws a speaker button beside each offer, which asks
@@ -69,7 +69,7 @@ Column {
     // The custom editor appeared and waits to be brought into view.
     property bool revealPending: false
     readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
-    readonly property bool bounded: spec.type === "number" && spec.min !== undefined && spec.max !== undefined
+    readonly property bool numeric: spec.type === "number"
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
     readonly property bool multiple: spec.separator !== undefined
     readonly property var selectedTokens: multiple && heldText !== "" ? heldText.split(spec.separator) : []
@@ -79,7 +79,8 @@ Column {
     readonly property int optionIndex: spec.type === "enum" ? spec.options.findIndex(option => option.value === value) : -1
     readonly property bool allowCustom: (hasPresets || statusFed) && spec.allowCustom === true
     readonly property int selectedOfferIndex: offerIndex(value)
-    readonly property bool customVisible: allowCustom && (customChosen || (multiple ? !knownSelection : selectedOfferIndex < 0 && !(statusFed && value === "")))
+    readonly property bool customVisible: numeric ? numberLoader.item !== null && numberLoader.item.customVisible
+        : allowCustom && (customChosen || (multiple ? !knownSelection : selectedOfferIndex < 0 && !(statusFed && value === "")))
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: spec.description !== undefined ? String(spec.description) : ""
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
@@ -87,10 +88,11 @@ Column {
     readonly property string linkText: spec.link !== undefined ? spec.link.text : ""
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)
-    readonly property bool edited: editing(loader.item) || editing(customLoader.item)
+    readonly property bool edited: editing(loader.item) || editing(customLoader.item) || editing(numberLoader.item)
     // Whether the field ends in a description or an error line, which
     // takes the room under it a Field takes (Theme.subTextRoom).
-    readonly property bool subText: (customVisible ? customField : groupOptions.length > 0 && groupRow.item !== null ? groupRow.item : primary).subText
+    readonly property bool subText: numeric ? numberLoader.item !== null && numberLoader.item.subText
+        : (customVisible ? customField : groupOptions.length > 0 && groupRow.item !== null ? groupRow.item : primary).subText
     // A key/value row: the row under it stands by ink (Field).
     readonly property bool keyValueRow: true
     signal apply(var value)
@@ -113,13 +115,15 @@ Column {
 
     Component.onCompleted: {
         rebuildPresetModel();
-        revealPending = customVisible;
+        revealPending = customVisible && !numeric;
     }
     Component.onDestruction: if (edits !== null) edits.forget(root)
     onEditedChanged: if (edits !== null) edits.track(root)
     // A read-only field and a hidden custom row hold no edit.
     onEditableChanged: if (!editable) discard()
+    // The number editor reveals and reverts its own custom row.
     onCustomVisibleChanged: {
+        if (numeric) return;
         if (customVisible) {
             revealPending = true;
         }
@@ -153,28 +157,15 @@ Column {
     }
 
     function rebuildPresetModel() {
-        if (!root.hasPresets) {
-            presetModel = [];
-            return;
-        }
-        const out = [];
-        for (const preset of root.spec.presets) {
-            out.push({ label: SettingValues.presetText(root.spec, preset, v => Qt.formatDateTime(Time.now, v)), value: preset.value, custom: false });
-        }
-        if (root.allowCustom) out.push({ label: "Custom…", value: root.value, custom: true });
-        presetModel = out;
+        presetModel = root.hasPresets && !root.numeric ? SettingValues.presetRows(root.spec, root.allowCustom, v => Qt.formatDateTime(Time.now, v)) : [];
     }
 
     function sameValue(a, b) { return a === b; }
     // The row of the presets or the published choices that holds `v`, or -1.
     function offerIndex(v) {
         if (statusFed) return choices.findIndex(option => sameValue(option.value, v));
-        if (!hasPresets) return -1;
-        for (let i = 0; i < spec.presets.length; i++)
-            if (sameValue(spec.presets[i].value, v)) return i;
-        return -1;
+        return SettingValues.presetIndex(spec, v);
     }
-    function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
 
     // Only the clicked token changes. Unknown tokens and their order survive.
     function togglePreset(token) {
@@ -188,7 +179,7 @@ Column {
     function chooseCustom() {
         if (!editable || customChosen) return;
         customChosen = true;
-        if (!bounded && customLoader.item !== null && !editing(customLoader.item)) customLoader.item.prefill();
+        if (customLoader.item !== null && !editing(customLoader.item)) customLoader.item.prefill();
     }
 
     function openDescriptionLink() { openLink(spec.link); }
@@ -209,24 +200,46 @@ Column {
     function editing(editor) { return editor !== null && editor.edited === true; }
     function save() {
         for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.save();
+        if (editing(numberLoader.item)) numberLoader.item.save();
     }
     function discard() {
         for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.revert();
+        if (editing(numberLoader.item)) numberLoader.item.discard();
     }
     // Write the text of `input`. The manager's rows come back before
     // `apply` returns, so the value is the typed one exactly when the write
     // was accepted; the editor then shows what the configuration holds, and
     // the set hears of the write.
     function commit(input) {
-        const typed = spec.type === "number" ? (input.text.trim() === "" ? NaN : Number(input.text)) : input.text;
+        const typed = input.text;
         apply(typed);
         if (!sameValue(typed, value)) return;
         input.text = heldText;
         if (edits !== null) edits.wrote();
     }
 
+    // A number: the shared editor, which the page's set hears of through
+    // `wrote`.
+    Loader {
+        id: numberLoader
+        width: root.width
+        active: root.numeric
+        sourceComponent: NumberSettingField {
+            width: numberLoader.width
+            spec: root.spec
+            value: root.value
+            editable: root.editable
+            problem: root.problem
+            onApply: value => root.apply(value)
+            onWrote: if (root.edits !== null) root.edits.wrote()
+            onHintLinkActivated: root.openDescriptionLink()
+            onPageActivated: (page, tab) => root.openDescriptionPage(page, tab)
+        }
+    }
+
     Field {
         id: primary
+        visible: !root.numeric
         width: root.width
         label: root.labelText
         info: root.infoText
@@ -242,13 +255,13 @@ Column {
         Loader {
             id: loader
             width: parent.width
-            sourceComponent: root.spec.type === "boolean" ? toggle
+            sourceComponent: root.numeric ? null
+                : root.spec.type === "boolean" ? toggle
                 : root.groups.length > 0 ? groupedSegments
                 : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.multiple ? multipleChoice
                 : root.hasPresets ? presetChoice
-                : root.bounded ? slider
                 : text
         }
     }
@@ -303,7 +316,7 @@ Column {
     Field {
         id: customField
         width: root.width
-        visible: root.customVisible
+        visible: root.customVisible && !root.numeric
         label: ""
         hint: root.hintText
         hintLink: root.linkText
@@ -315,36 +328,17 @@ Column {
         Loader {
             id: customLoader
             width: parent.width
-            active: root.allowCustom
-            sourceComponent: root.spec.type === "number" && root.bounded ? slider : customText
+            active: root.allowCustom && !root.numeric
+            sourceComponent: customText
         }
     }
 
-    // The text field of both text editors of `field`, a SettingField: it
-    // keeps what is typed until it is saved. It shows the field's
-    // `heldText` at first and again whenever that changes, and no binding
-    // holds the text, so a draft outlives every other change. `edited`
-    // says the text is not the held one, `revert()` and Escape put the
-    // held one back, and Enter saves the field.
-    component DraftField: TextField {
-        id: draft
-        required property Item field
-        readonly property bool edited: text !== field.heldText
-        function revert() { text = field.heldText; }
-        readOnly: !field.editable
-        escapeReverts: true
-        committedText: field.heldText
-        onAccepted: field.save()
-        Component.onCompleted: text = field.heldText
-        Connections {
-            target: draft.field
-            function onHeldTextChanged() { draft.text = draft.field.heldText; }
-        }
-    }
-
+    // Both text editors keep what is typed until it is saved, through the
+    // number editor's draft field, which reads this field's `heldText`,
+    // `editable` and save().
     Component {
         id: text
-        DraftField {
+        NumberSettingField.DraftField {
             id: input
             function save() { root.commit(input); }
             field: root
@@ -372,7 +366,7 @@ Column {
                 if (preset !== undefined) input.text = String(preset.value);
             }
 
-            DraftField {
+            NumberSettingField.DraftField {
                 id: input
                 field: root
                 error: custom.problemText !== ""
@@ -565,52 +559,6 @@ Column {
                 }
                 root.customChosen = false;
                 if (chosen.value !== root.value) root.apply(chosen.value);
-            }
-        }
-    }
-
-    Component {
-        id: slider
-        Item {
-            id: sliderRow
-            width: parent.width
-            implicitHeight: Math.max(bar.implicitHeight, shown.implicitHeight)
-
-            // The slider and its value centre in the row: the lower of
-            // their drawn bottoms ends it (Theme.inkBelow), the higher of
-            // their drawn tops starts it (Theme.inkAbove).
-            readonly property real inkBelow: height - Math.max(bar.y + bar.height - bar.inkBelow, shown.y + shown.height - shown.inkBelow)
-            readonly property real inkAbove: Math.min(bar.y + bar.inkAbove, shown.y + shown.inkAbove)
-
-            function commit() {
-                const wanted = bar.value;
-                bar.value = Qt.binding(() => root.value);
-                if (wanted !== root.value) root.apply(wanted);
-            }
-
-            Slider {
-                id: bar
-                width: parent.width - shown.width - Theme.field.labelGap
-                anchors.verticalCenter: parent.verticalCenter
-                from: root.spec.min
-                to: root.spec.max
-                stepSize: root.spec.step === undefined ? 0 : root.spec.step
-                snapMode: root.spec.step === undefined ? T.Slider.NoSnap : T.Slider.SnapAlways
-                value: root.value
-                enabled: root.editable
-                onPressedChanged: if (!pressed) sliderRow.commit()
-                onMoved: if (!pressed) sliderRow.commit()
-            }
-            Label { id: minProbe; visible: false; role: "label"; text: root.displayNumber(root.spec.min) }
-            Label { id: maxProbe; visible: false; role: "label"; text: root.displayNumber(root.spec.max) }
-            Label {
-                id: shown
-                role: "label"
-                text: root.displayNumber(bar.value)
-                width: Math.max(implicitWidth, minProbe.implicitWidth, maxProbe.implicitWidth, Theme.size.control.lg)
-                horizontalAlignment: Text.AlignRight
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
             }
         }
     }

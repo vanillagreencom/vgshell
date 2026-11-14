@@ -24,7 +24,7 @@ cases = [
     ('reset-variants', 'KeyboardControls.qml', 'root.shell.configure.unset("variants")', '"ok"', 'test_system_layout_unsets_both_values'),
     ('reset-layouts', 'KeyboardControls.qml', 'root.shell.configure.unset("layouts")', '"ok"', 'test_system_layout_unsets_both_values'),
     ('modifier-save', 'KeyboardControls.qml', 'onApply: value => root.setValue("options", value)', 'onApply: value => {}', 'test_modifier_preset_and_custom_commit'),
-    ('modifier-blur', 'Ui/controls/SettingField.qml', '        onAccepted: field.save()', '        onEditingFinished: field.save()', 'test_modifier_preset_and_custom_commit'),
+    ('modifier-blur', 'Ui/controls/NumberSettingField.qml', '        onAccepted: field.save()', '        onEditingFinished: field.save()', 'test_modifier_preset_and_custom_commit'),
     ('pane-modifier-footer', 'Pane.qml', 'readonly property Item footer: controls.footer', 'readonly property Item footer: null', 'test_modifier_footer_owns_draft_actions'),
     ('panel-modifier-footer', 'Panel.qml', 'footer: controls.footer', 'footer: []', 'test_modifier_footer_owns_draft_actions'),
     ('widget-snapshot', 'Widget.qml', 'shell.status.revision', '(shell.status.values, shell.status.revision)', 'test_status_ignores_other_plugins_and_keeps_models'),

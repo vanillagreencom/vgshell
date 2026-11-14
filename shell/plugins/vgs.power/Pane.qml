@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -10,7 +11,11 @@ import qs.Ui
 // draws; the idle timeline, one row per stage of the core's record
 // (`shell.idle.stages`, D109) in its order, each with its time and a page
 // reference to the field that sets it, built from the record's `plugin` and
-// `setting`, and the record's `before` verdict as the row's warning; then
+// `setting`, and the record's `before` verdict as the row's warning. A
+// stage of the manifest's `idleSettingRows`, the lock, draws its owner's
+// editor instead (`shell.idleSettings`, IdleTimeField), in its place in
+// the order whether its owner is on, off or absent, and writes through
+// it; then
 // this plugin's own settings, one section per schema group in manifest
 // order, each field drawn while its `shownWhen` presence reads present, as
 // the Settings page draws it, with its info, and written through
@@ -27,6 +32,13 @@ FocusScope {
     property var shell: null
     property string problem: ""
     readonly property var stages: shell === null ? [] : shell.idle.stages
+    readonly property var editors: shell === null ? [] : shell.idleSettings.fields
+    // The timeline's stages in order: each one the record holds or the pane
+    // edits. Each row reads its record entry and editor by stage, so a
+    // change of a time keeps every row and its control in place.
+    readonly property var timelineStages: Object.keys(stageText).filter(stage => stageRowOf(stage) !== null || editorOf(stage) !== null)
+    // The last refusal of a timeline editor's write, by stage.
+    property var editorProblems: ({})
     readonly property var schema: shell === null ? ({}) : shell.manifest.schema
     readonly property var presence: shell === null ? ({}) : shell.status.values
     readonly property var settingChoices: shell === null ? ({}) : (shell.manager.plugins.find(plugin => plugin.id === shell.manifest.id)?.settingChoices ?? ({}))
@@ -59,8 +71,8 @@ FocusScope {
     readonly property Item initialFocus: content
 
     // Each stage's row label, what it does as a verb for its own row, and
-    // as a clause for a row it fires before. The record holds no other
-    // stage (PluginLogic.IDLE_STAGES).
+    // as a clause for a row it fires before, in the record's order. The
+    // record holds no other stage (PluginLogic.IDLE_STAGES).
     readonly property var stageText: ({
         dim: { label: "Dim", verb: "Dims", clause: "the displays dim" },
         screensaver: { label: "Screensaver", verb: "Starts", clause: "the screensaver starts" },
@@ -86,6 +98,15 @@ FocusScope {
         for (const link of PageReference.references(info).links)
             if (link.page === shell.manifest.id) out = out.replace(link.reference, () => link.words);
         return out;
+    }
+
+    // STAGE's entry of the core's record, or null.
+    function stageRowOf(stage) {
+        return stages.find(entry => entry.stage === stage) || null;
+    }
+    // STAGE's editor (`shell.idleSettings.fields`), or null.
+    function editorOf(stage) {
+        return editors.find(entry => entry.stage === stage) || null;
     }
 
     function timeReference(stage) {
@@ -139,6 +160,20 @@ FocusScope {
         return reply;
     }
 
+    // Writes SECONDS as FIELD's stage time through the stage's owner,
+    // keeping a refusal for the row.
+    function writeStage(field, seconds) {
+        const reply = shell.idleSettings.set(field.stage, seconds, field.identity);
+        const next = Object.assign({}, editorProblems);
+        if (reply === "ok") delete next[field.stage];
+        else {
+            next[field.stage] = Reply.line(reply, shell.manager.plugins);
+            console.warn("power pane: idle setting " + field.stage + " " + reply);
+        }
+        editorProblems = next;
+        return reply;
+    }
+
     function allowWake() {
         const reply = shell.status.act("wakeSources");
         problem = reply === "ok" ? "" : "VGS could not open wake source setup.";
@@ -185,25 +220,54 @@ FocusScope {
             title: "Idle timeline"
             description: stayAwake.awake.active ? "Paused while Stay awake is on. Each time counts from your last input." : "Each time counts from your last input. Select a time to change it."
 
+            // A ScriptModel of stage names keeps each row while the record
+            // and the editors are replaced whole on every change.
             Repeater {
-                model: root.stages
+                model: ScriptModel { values: root.timelineStages }
 
-                FormRow {
-                    required property var modelData
+                Loader {
+                    id: stageRow
+                    required property string modelData
+                    readonly property var row: root.stageRowOf(modelData)
+                    readonly property var field: root.editorOf(modelData)
+                    // The row stands by ink as the row it holds does: a
+                    // key/value row under another one reads this Loader as
+                    // its row above (FormRow `rowAbove`).
+                    readonly property bool keyValueRow: item !== null && item.keyValueRow === true
                     width: timeline.width
-                    label: root.stageText[modelData.stage].label
-                    warning: root.beforeText(modelData)
+                    sourceComponent: field === null ? timeRow : editorRow
 
-                    LinkText {
-                        role: "value"
-                        text: root.timeReference(modelData)
-                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                    Component {
+                        id: timeRow
+                        FormRow {
+                            width: stageRow.width
+                            label: root.stageText[stageRow.modelData].label
+                            warning: stageRow.row === null ? "" : root.beforeText(stageRow.row)
+
+                            LinkText {
+                                role: "value"
+                                text: stageRow.row === null ? "" : root.timeReference(stageRow.row)
+                                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                            }
+                        }
+                    }
+
+                    Component {
+                        id: editorRow
+                        IdleTimeField {
+                            width: stageRow.width
+                            field: stageRow.field
+                            warning: stageRow.row === null ? "" : root.beforeText(stageRow.row)
+                            problem: root.editorProblems[stageRow.modelData] ?? ""
+                            onApply: value => root.writeStage(field, value)
+                            onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                        }
                     }
                 }
             }
 
             Label {
-                visible: root.stages.length === 0
+                visible: root.timelineStages.length === 0
                 width: timeline.width
                 role: "hint"
                 text: "Nothing happens when you stop using the computer."

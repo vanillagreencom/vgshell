@@ -8525,13 +8525,17 @@ power_shot_pane() { # MODE
   tree_rescan "a scan drops the idle stage owner fixtures"
 }
 # The timeline rows Power's section draws and how many of them warn.
+# A stage the pane edits in place, the lock in a tree with the shared
+# Lock after editor, draws an IdleTimeField in place of its link.
 power_shot_timeline() {
-  local stages
+  local stages editors
   stages="$(ipc smoke readInstance window vgs.power stages)" || return
+  editors="$(ipc smoke itemValues window vgs.power IdleTimeField warning)" || return
   ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
 rows = [r for r in json.load(sys.stdin) if "](page:" in r["text"]]
+editors = json.loads(sys.argv[2])
 stages = json.loads(sys.argv[1])
-print("complete" if stages and len(rows) == len(stages) else "incomplete", sum(r["parent.parent.warning"] != "" for r in rows))' "$stages"
+print("complete" if stages and len(rows) + len(editors) == len(stages) else "incomplete", sum(r["parent.parent.warning"] != "" for r in rows) + sum(e["warning"] != "" for e in editors))' "$stages" "$editors"
 }
 power_shot_install() {
   local box

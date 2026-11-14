@@ -26,6 +26,7 @@
     "configure",
     "hyprland",
     "idle",
+    "idleSettings",
     "ipc",
     "manager",
     "notify",
@@ -41,12 +42,14 @@
     "compositor": ["service"],
     "hyprland": ["pane"],
     "idle": ["service", "pane"],
+    "idleSettings": ["pane"],
     "manager": ["pane"],
     "session": ["service"],
     "system": ["service"],
     "tui": ["pane"]
   },
   "idleStages": { "displayOff": { "seconds": "displayOffSeconds" }, "sleep": { "seconds": "sleepAfterSeconds" } },
+  "idleSettingRows": ["lock"],
   "systemSteps": ["disk-sleep", "wake-sources"],
   "defaultSection": "right",
   "pane": {

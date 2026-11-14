@@ -58,8 +58,8 @@ Item {
         watchIdle();
         publishAll();
     }
-    onIdleEnabledChanged: { watchIdle(); publishLockOrder(); }
-    onIdleSecondsChanged: { watchIdle(); publishLockOrder(); }
+    onIdleEnabledChanged: watchIdle()
+    onIdleSecondsChanged: watchIdle()
     onRequirementsRevisionChanged: {
         refreshEffects();
         if (Logic.retryArtAfterScan(art, artProblem) && !artConvert.running) Qt.callLater(root.updateArt);
@@ -68,7 +68,6 @@ Item {
     onArtChanged: updateArt()
     onArtProblemChanged: publishArt()
     onArtInUseChanged: publishArtFile()
-    onStagesChanged: publishLockOrder()
     onStageOwnerChanged: watchIdle()
     Component.onDestruction: stopArtConversion(false)
 
@@ -216,7 +215,6 @@ Item {
         publishState();
         publishArt();
         publishArtFile();
-        publishLockOrder();
     }
 
     function publishState() {
@@ -229,28 +227,6 @@ Item {
 
     function publishArtFile() {
         publish("artFile", artInUse);
-    }
-
-    function publishLockOrder() {
-        if (shell === null) return;
-        const stages = shell.idle.stages;
-        const lock = stages.find(row => row.stage === "lock");
-        const screensaver = stages.find(row => row.stage === "screensaver");
-        if (lock === undefined) {
-            publish("lockOrder", null);
-            return;
-        }
-        const seconds = lock.seconds;
-        if (seconds <= 0) {
-            publish("lockOrder", { tone: "warning", text: "Lock is off" });
-            return;
-        }
-        if (screensaver === undefined || screensaver.seconds === 0) {
-            publish("lockOrder", { tone: "info", text: "Idle start is off" });
-            return;
-        }
-        // The core owns stage order; equal times are not a before verdict.
-        publish("lockOrder", { tone: lock.before.includes("screensaver") ? "warning" : "ok", text: "Lock follows at " + seconds + " s" });
     }
 
     function refreshEffects() {

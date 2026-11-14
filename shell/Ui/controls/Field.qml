@@ -59,6 +59,9 @@ Column {
     property string labelTooltip: ""
     property string error: ""
     property string hintLink: ""
+    // "warning" draws the hint in the warning colour, a reading the user
+    // should act on, such as a stage that fires before an earlier one.
+    property string hintTone: ""
     property var lines: []
     property var output: []
     property bool inline: Theme.field.inline
@@ -219,7 +222,7 @@ Column {
             role: "hint"
             text: root.error !== "" ? root.error : root.hint
             link: root.error !== "" ? "" : root.hintLink
-            color: root.error !== "" ? Theme.color.danger : Theme.text.hint.color
+            color: root.error !== "" ? Theme.color.danger : root.hintTone === "warning" ? Theme.color.warning : Theme.text.hint.color
             x: controlRow.valueX
             y: hintSlot.shift + hintSlot.textTop + hintSlot.linesHeight
             width: parent.width - x

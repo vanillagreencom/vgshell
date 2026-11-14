@@ -152,7 +152,7 @@ EXEMPT = (
     ("status", "*", "folderProperty"),  # A row property identifier, never prose.
     ("schema", "*", "underKey"),  # A declared shortcut identifier, never prose.
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
-    ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("unplacedSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",),
+    ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("unplacedSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",), ("idleSettingRows",),
     ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "addChoice", "tui"), ("schema", "*", "preview"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "setup"), ("status", "*", "setting"), ("status", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"), ("status", "*", "link", "url"),

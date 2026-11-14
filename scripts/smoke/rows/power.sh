@@ -45,8 +45,22 @@
 # owner fixtures built at run time, acme.power-dim and acme.power-away,
 # one row per stage of the core's record in its order with its default
 # time and a page reference to the field that sets it, which a real click
-# opens in Settings at that field; no row warns until the lock is set
-# below the screensaver, and then the lock row alone does; the section
+# opens in Settings at that field, save the lock, whose row is the lock
+# owner's Lock after editor with the screensaver's time offered as
+# Immediately; it warns once the lock is set below the screensaver and no
+# other row does; Immediately picked by keys stores the screensaver's time
+# in the lock owner's row, which the owner's page and Screensaver's
+# reference row read, a write through Screensaver's row reaches the
+# timeline, a later screensaver time moves only the offer, a field drawn
+# before its owner's manifest changed is refused as stale, and an owner
+# turned off keeps the row locked with its write refused; with the
+# fixtures gone and the shipped lock on, a custom time and Never picked
+# by keys in each of the lock's three editors, the timeline row, Lock's
+# own page and Screensaver's Lock after row, read the same on the other
+# two and in the saved file, and a value past the lock's maximum and a
+# write the read-only file refuses, through the pane's and the Settings
+# page's routes, each draw the shared error under the row and change no
+# saved byte or plugin setting; the section
 # draws Power's display field and four battery fields with the profiles
 # service, and no install offer for it; a click on an On battery segment
 # and Down and Return in Low battery alert's list store the value picked
@@ -134,7 +148,7 @@
 # lending record clear. Its controls, acme.power-noend,
 # acme.power-nocritical and acme.power-writes, are
 # power_stay_awake_controls' too.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* bin/lib/dbus_wire.py
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/NumberSettingField.qml shell/Ui/controls/IdleTimeField.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.screensaver/manifest.json shell/Commons/Reply.js bin/lib/dbus_wire.py
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -233,8 +247,11 @@ print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"]
 # the mounted pane, top to bottom: the SegmentedControls of When charging
 # and On battery, or the Selects of Low and Critical battery alert.
 # power_pane_choices TYPE: each shown TYPE's current index in the section's
-# settings groups, Stay awake's list left out.
-power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible,Accessible.name | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] != "Stay awake for"]))'; }
+# settings groups. Stay awake's list and the timeline's Lock after list,
+# the lock owner's, carry no label of Power's schema, so they are left out.
+power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible,Accessible.name | py_reply 'import json,sys
+labels = {entry["label"] for entry in json.load(open(sys.argv[1]))["schema"].values()}
+print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] in labels]))' "$repo/shell/plugins/vgs.power/manifest.json"; }
 power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
 
 # The message kind (ValueSourceRow) of Power's Key press wake and Pointer
@@ -284,11 +301,31 @@ DISPLAY_WAKE
 # page's scroll area, so the reveal goes through it. The section takes the
 # keys a moment after its window maps, and its scroll area then reveals
 # the focused item, the section's content from its top
-# (ScrollArea.revealFocus), so the reveal waits for the keys first.
+# (ScrollArea.revealFocus), so the reveal waits for the keys first. A
+# reveal that scrolls the section moves the target before the window draws
+# it there, and a click sent at once left Sleep action's list closed
+# (VGS-2098, after the Lock after row pushed it below the fold), so the
+# click waits for the window's next frame (windowFrames, Qt's frameSwapped).
 power_pane_pick() {
   expect_poll "Power's section holds the keys before a pick" true ipc smoke activeFocusIn window vgs.power
-  power_revealed "$(ipc smoke revealScopedText window vgs.system Field "$1" "$2" "$3")" || { echo "power_pane_pick: $2 $3 in $1 is not revealed" >&2; return 1; }
-  click_scoped_in "window:System Settings" window vgs.power Field "$1" "$2" "$3"
+  power_field_pick "System Settings" vgs.system vgs.power "$@"
+}
+# power_field_pick TITLE WINDOW ID FIELD TYPE TEXT: power_pane_pick for the
+# window TITLE, WINDOW's instance, which holds the scroll area, and ID's,
+# which holds the field: Settings' page is both.
+power_field_pick() {
+  local frames now
+  frames="$(ipc smoke windowFrames window "$2")" || return 1
+  power_revealed "$(ipc smoke revealScopedText window "$2" Field "$4" "$5" "$6")" || { echo "power_field_pick: $5 $6 in $4 is not revealed" >&2; return 1; }
+  smoke_poll_tries 50 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    now="$(ipc smoke windowFrames window "$2")" || return 1
+    [[ $now =~ ^[0-9]+$ && $frames =~ ^[0-9]+$ ]] || { echo "power_field_pick: window frames unreadable: $frames $now" >&2; return 1; }
+    (( now > frames )) && break
+    sleep 0.05
+  done
+  (( now > frames )) || { echo "power_field_pick: the window drew no frame after the reveal" >&2; return 1; }
+  click_scoped_in "window:$1" window "$3" Field "$4" "$5" "$6"
 }
 power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo yes || echo no; }
 # The declared status identifies the Field without pinning its copy.
@@ -308,6 +345,104 @@ power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import 
 # FormRow holding its LinkText in its control slot.
 power_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
 print(json.dumps([[r["text"], r["parent.parent.warning"] != ""] for r in json.load(sys.stdin) if "](page:" in r["text"]]))'; }
+# power_lock_editor HOST ID: each Lock after editor the surface draws, as
+# [value, the warning it reads, the Immediately time, the owner's reason,
+# the owner]; Settings draws one per page row of the lock stage.
+power_lock_editor() { ipc smoke itemValues "$1" "$2" IdleTimeField value,warning,field.immediately,field.reason,field.plugin,field.stage | py_reply 'import json,sys
+print(json.dumps([[r["value"], r["warning"], r["field.immediately"], r["field.reason"], r["field.plugin"]] for r in json.load(sys.stdin) if r["field.stage"] == "lock"]))'; }
+# power_lock_owner HOST ID: each Lock after editor as [value, the owner's
+# reason, the owner], whatever another screensaver stage owner offers.
+power_lock_owner() { ipc smoke itemValues "$1" "$2" IdleTimeField value,field.reason,field.plugin,field.stage | py_reply 'import json,sys
+print(json.dumps([[r["value"], r["field.reason"], r["field.plugin"]] for r in json.load(sys.stdin) if r["field.stage"] == "lock"]))'; }
+# The text the timeline's Lock after list reads, and whether it is locked.
+power_lock_list() { ipc smoke itemValues window vgs.power Select currentText,lock.locked,Accessible.name | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["Accessible.name"] == r["currentText"]]
+print(json.dumps([[r["currentText"], r["lock.locked"]] for r in rows]))'; }
+# power_saved_setting ID KEY: plugin ID's KEY as the saved file holds it,
+# null when unset.
+power_saved_setting() { python3 - "$home/.config/vgshell/shell.json" "$1" "$2" <<'PY_SAVED'
+import json, sys
+rows = [r for r in json.load(open(sys.argv[1])).get("plugins", []) if r.get("id") == sys.argv[2]]
+print(json.dumps(rows[0].get(sys.argv[3])) if rows and sys.argv[3] in rows[0] else "null")
+PY_SAVED
+}
+# power_lock_field HOST ID: the Lock after editor's field as the core lent
+# it, for a write through the surface's own route.
+power_lock_field() { ipc smoke itemValues "$1" "$2" IdleTimeField field | py_reply 'import json,sys
+print(json.dumps([r["field"] for r in json.load(sys.stdin) if r["field"]["stage"] == "lock"][0]))'; }
+power_lock_identity_changed() { [[ $(power_lock_field window vgs.power) != "$power_lock_pane_field" ]] && echo yes || echo no; }
+# power_lock_problem HOST ID: each Lock after editor as [value, the error
+# line it draws].
+power_lock_problem() { ipc smoke itemValues "$1" "$2" IdleTimeField value,problem,field.stage | py_reply 'import json,sys
+print(json.dumps([[r["value"], r["problem"]] for r in json.load(sys.stdin) if r["field.stage"] == "lock"]))'; }
+# power_lock_problem_want SECONDS REPLY: power_lock_problem's reading of one
+# editor at SECONDS that draws the line the shared mapper (Reply.line) gives
+# REPLY, as both the Settings page and Power's pane map a refusal.
+power_lock_problem_want() {
+  local line
+  line="$(node -e 'const { load } = require(process.argv[1]); console.log(load(process.argv[2]).line(process.argv[3]));' "$repo/bin/lib/qml-library.js" "$repo/shell/Commons/Reply.js" "$2")" || return 1
+  python3 -c 'import json,sys; print(json.dumps([[int(sys.argv[1]), sys.argv[2]]]))' "$1" "$line"
+}
+# power_unwritable REPLY: "keyed" for the refusal of a write the disk refused
+# to hold, else REPLY.
+power_unwritable() { [[ $1 == "refused: user-config=unwritable path=$home/.config/vgshell/shell.json error="?* ]] && echo keyed || printf '%s\n' "$1"; }
+# Every plugin's effective settings as the Settings window lists them, so
+# a refused write is seen to change no owner's setting in memory either.
+power_all_settings() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; print(json.dumps({r["id"]: r.get("settings", {}) for r in json.load(sys.stdin)}, sort_keys=True))'; }
+power_list_open_in() { ipc smoke itemValues window "$1" Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
+# power_lock_choose TITLE WINDOW ID SHOWN KEY...: open the Lock after list,
+# reading SHOWN, of ID in window TITLE (power_field_pick) and type each KEY
+# (a wtype -k name) and Return in it.
+power_lock_choose() {
+  local title="$1" window="$2" id="$3" shown="$4" key keys=()
+  shift 4
+  for key in "$@"; do keys+=(-k "$key"); done
+  power_field_pick "$title" "$window" "$id" "Lock after" Select "$shown" || { fail "the click on $id's Lock after list failed"; return 0; }
+  expect_poll "$id's Lock after list opens" True power_list_open_in "$id"
+  type_keys "${keys[@]}" -k Return || { fail "typing in $id's Lock after list failed"; return 0; }
+  expect_poll "Return closes $id's Lock after list" False power_list_open_in "$id"
+}
+# power_lock_custom ID KEY...: Tab from the Lock after list of ID to the
+# custom row's slider, which Custom… shows under it, and type each KEY on it.
+# Each Tab waits for the keys to move, so none is sent past the slider.
+power_lock_custom() {
+  local id="$1" focus next key keys=()
+  shift
+  for key in "$@"; do keys+=(-k "$key"); done
+  focus="$(ipc smoke activeFocusItem window "$id")" || { fail "the keys in $id are unreadable"; return 0; }
+  for _ in 1 2 3 4 5 6; do
+    [[ $focus == '["Slider",'* ]] && break
+    type_keys -k Tab || { fail "typing Tab in $id failed"; return 0; }
+    smoke_poll_tries 50 1
+    for _ in $(seq 1 "$smoke_poll_n"); do
+      next="$(ipc smoke activeFocusItem window "$id")" || { fail "the keys in $id are unreadable"; return 0; }
+      [[ $next != "$focus" ]] && break
+      sleep 0.05
+    done
+    focus="$next"
+  done
+  [[ $focus == '["Slider",'* ]] || { fail "Tab from $id's Lock after list reached no custom slider: $focus"; return 0; }
+  type_keys "${keys[@]}" || fail "typing on $id's custom Lock after slider failed"
+}
+# power_lock_drawn HOST ID: power_lock_owner's readings, each once, so it
+# reads one entry exactly when every editor the surface draws agrees.
+power_lock_drawn() { ipc smoke itemValues "$1" "$2" IdleTimeField value,field.reason,field.plugin,field.stage | py_reply 'import json,sys
+rows = {json.dumps([r["value"], r["field.reason"], r["field.plugin"]]) for r in json.load(sys.stdin) if r["field.stage"] == "lock"}
+print(json.dumps([json.loads(r) for r in sorted(rows)]))'; }
+# power_lock_seen WHAT SECONDS: after WHAT, SECONDS is the lock's time on
+# Power's timeline, Lock's own page, Screensaver's Lock after row and in the
+# saved file. It leaves Settings on Screensaver's page.
+power_lock_seen() {
+  local want="[[$2, \"\", \"vgs.lock\"]]"
+  expect_poll "$1: the timeline reads $2" "$want" power_lock_drawn window vgs.power
+  expect "$1: Settings opens on Lock's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
+  expect_poll "$1: Settings shows Lock's Lock after field" '"vgs.lock" "idleLockSeconds"' power_settings_reveal
+  expect_poll "$1: Lock's page reads $2" "$want" power_lock_drawn window vgs.settings
+  expect "$1: Settings opens on Screensaver's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.screensaver","tab":"Settings/stage:lock"}'
+  expect_poll "$1: Settings shows Screensaver's Lock after row" '"vgs.screensaver" "stage:lock"' power_settings_reveal
+  expect_poll "$1: Screensaver's row reads $2" "$want" power_lock_drawn window vgs.settings
+  expect_poll "$1: the saved file holds $2" "$2" power_saved_setting vgs.lock idleLockSeconds
+}
 power_settings_reveal() { echo "$(ipc smoke readInstance window vgs.settings page) $(ipc smoke readDescendant window vgs.settings PluginPage revealing)"; }
 power_battery_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("battery")))'; }
 power_hold_next_set() {
@@ -988,6 +1123,88 @@ power_stay_awake_controls() {
   power_move_away "$power_writes_dir"
 }
 
+# The shipped lock's one Lock after time, edited from each of its three
+# editors: Power's timeline row, Lock's own page and Screensaver's
+# reference row. Each picks a custom time and Never as a user does, and the
+# other two and the saved file read it. Then a value the owner refuses and
+# a write the disk refuses, through the pane's idleSettings route and the
+# Settings page's manager route, each draw the shared error under the row,
+# report no success and change no setting. Power is on, with no
+# screensaver stage owner on, so no Immediately is offered; times stay at
+# 300 seconds or more, or Never, so the idle lock never fires here.
+power_lock_shared() {
+  local config="$home/.config/vgshell/shell.json" field reply settings
+  cp -- "$config" "$sandbox/power-lock-config.json"
+  # The lock's before-sleep helper never starts: its setting is off before
+  # the lock is enabled. The saved file returns below.
+  jq '.plugins = ((.plugins // [] | map(select(.id != "vgs.lock"))) + [{"id":"vgs.lock","lockBeforeSleep":false}])' "$config" >"$config.power-lock"
+  mv -T -- "$config.power-lock" "$config"
+  expect "Settings opens on Lock's page for the shared edits" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
+  expect_poll "the disabled lock reads its test inputs before it is enabled" '[300, false]' power_idle_lock_inputs
+  expect "the lock enables for the shared edits" ok ipc shell setPluginEnabled vgs.lock true
+  expect "Settings hides before the timeline's edits" ok ipc shell hide window vgs.settings
+  expect "System Settings opens on Power's section for the shared edits" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "Power's section is mounted for the shared edits" '["vgs.power"]' window_panes
+  expect_poll "the timeline's Lock after row is the lock's at its default, with no Immediately" '[[300, "", 0, "", "vgs.lock"]]' power_lock_editor window vgs.power
+
+  # The list reads Never, the seven presets and Custom…, in that order.
+  power_lock_choose "System Settings" vgs.system vgs.power "5 minutes" Down Down Down Down Down
+  power_lock_custom vgs.power Up
+  power_lock_seen "a custom time on the timeline" 330
+  expect "Settings hides before the timeline's Never" ok ipc shell hide window vgs.settings
+  power_lock_choose "System Settings" vgs.system vgs.power "Custom…" Up Up Up Up Up Up Up Up
+  power_lock_seen "Never on the timeline" 0
+
+  expect "Settings opens on Lock's page for its custom time" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
+  expect_poll "Settings shows Lock's field for its custom time" '"vgs.lock" "idleLockSeconds"' power_settings_reveal
+  power_lock_choose Plugins vgs.settings vgs.settings Never Down Down Down Down Down Down Down Down
+  power_lock_custom vgs.settings End
+  power_lock_seen "a custom time on Lock's page" 86400
+  expect "Settings opens on Lock's page for its Never" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
+  expect_poll "Settings shows Lock's field for its Never" '"vgs.lock" "idleLockSeconds"' power_settings_reveal
+  power_lock_choose Plugins vgs.settings vgs.settings "Custom…" Up Up Up Up Up Up Up Up
+  power_lock_seen "Never on Lock's page" 0
+
+  power_lock_choose Plugins vgs.settings vgs.settings Never Down Down Down Down Down Down Down Down
+  power_lock_custom vgs.settings End Down
+  power_lock_seen "a custom time on Screensaver's row" 86370
+  power_lock_choose Plugins vgs.settings vgs.settings "Custom…" Up Up Up Up Up Up Up Up
+  power_lock_seen "Never on Screensaver's row" 0
+
+  # Refusals: Settings stays on Screensaver's page. Each refused write
+  # leaves the saved bytes and every plugin's settings as they were.
+  cp -- "$config" "$sandbox/power-lock-refused.json"
+  settings="$(power_all_settings)" || { fail "power: the settings before the refused writes are unreadable"; settings=unreadable; }
+  field="$(power_lock_field window vgs.power)"
+  expect "the timeline's write of a time past the lock's maximum is refused by its owner" "refused: setting=idleLockSeconds want=at-most:86400" ipc smoke invokeInstanceArgs window vgs.power writeStage "{\"args\":[$field,90000]}"
+  expect_poll "the timeline's row draws the shared error and keeps Never" "$(power_lock_problem_want 0 "refused: setting=idleLockSeconds want=at-most:86400")" power_lock_problem window vgs.power
+  field="$(power_lock_field window vgs.settings)"
+  expect "Screensaver's write of a time past the lock's maximum is refused by its owner" "refused: setting=idleLockSeconds want=at-most:86400" ipc smoke invokeInstanceArgs window vgs.settings writeIdleSetting "{\"args\":[\"vgs.screensaver\",\"stage:lock\",$field,90000]}"
+  expect_poll "Screensaver's row draws the shared error and keeps Never" "$(power_lock_problem_want 0 "refused: setting=idleLockSeconds want=at-most:86400")" power_lock_problem window vgs.settings
+  expect "the refused values leave the saved file's bytes" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/power-lock-refused.json" "$config"
+  expect "the refused values change no plugin's settings" "$settings" power_all_settings
+  expected_errors+=('config: user file not written at ')
+  chmod 444 -- "$config"
+  field="$(power_lock_field window vgs.power)"
+  reply="$(ipc smoke invokeInstanceArgs window vgs.power writeStage "{\"args\":[$field,600]}")" || reply="power: the timeline's write did not answer"
+  expect "the timeline's write the disk refuses answers the unwritable refusal" keyed power_unwritable "$reply"
+  expect_poll "the timeline's row draws the shared error for the disk's refusal and keeps Never" "$(power_lock_problem_want 0 "$reply")" power_lock_problem window vgs.power
+  field="$(power_lock_field window vgs.settings)"
+  reply="$(ipc smoke invokeInstanceArgs window vgs.settings writeIdleSetting "{\"args\":[\"vgs.screensaver\",\"stage:lock\",$field,900]}")" || reply="power: Screensaver's write did not answer"
+  expect "Screensaver's write the disk refuses answers the unwritable refusal" keyed power_unwritable "$reply"
+  expect_poll "Screensaver's row draws the shared error for the disk's refusal and keeps Never" "$(power_lock_problem_want 0 "$reply")" power_lock_problem window vgs.settings
+  chmod 644 -- "$config"
+  expect "the refused disk writes leave the saved file's bytes" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/power-lock-refused.json" "$config"
+  expect "the refused disk writes change no plugin's settings" "$settings" power_all_settings
+
+  expect "the lock disables after the shared edits" ok ipc shell setPluginEnabled vgs.lock false
+  cp -- "$sandbox/power-lock-config.json" "$config.power-lock"
+  mv -T -- "$config.power-lock" "$config"
+  expect_poll "the shell reads the lock's saved settings back" '[300, true]' power_idle_lock_inputs
+  expect "Settings hides after the shared edits" ok ipc shell hide window vgs.settings
+  expect "System Settings hides after the shared edits" ok ipc shell hide window vgs.system
+}
+
 power_main() {
   devices_ready power || return 0
   power_display_read || fail "power: display-power requests unread from shell/Core/Dispatch.js"
@@ -1132,8 +1349,9 @@ EOF_STAND
   expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
   power_display_wake_check
-  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
-  expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
+  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
+  expect_poll "the timeline reads each other stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
+  expect_poll "the lock row is the lock owner's Lock after editor at its default, offering the screensaver's time" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
   expect_poll "with a battery and the profiles service the section draws Power's four battery fields" "$power_battery_keys" power_pane_fields
   expect "with the profiles service present the section offers no install" no power_install_shown
   expect_poll "with no rotational disk the pane draws no Disk sleep row" 0 power_disk_drawn
@@ -1198,14 +1416,62 @@ EOF_STAND
     mv -T -- "$power_hdparm_saved/hdparm" "$shell_host_path/hdparm"
     rmdir -- "$power_hdparm_saved"
   fi
-  power_revealed "$(ipc smoke revealText window vgs.system LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)")" || fail "the pane did not reveal the lock row's time"
-  click_in "window:System Settings" window vgs.power LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)" || fail "the click on the lock row's time failed"
-  expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
+  power_revealed "$(ipc smoke revealText window vgs.system LinkText "[After 150 seconds](page:acme.power-away/Settings/saverAfter)")" || fail "the pane did not reveal the screensaver row's time"
+  click_in "window:System Settings" window vgs.power LinkText "[After 150 seconds](page:acme.power-away/Settings/saverAfter)" || fail "the click on the screensaver row's time failed"
+  expect_poll "the screensaver row's link opens Settings at its owner's field" '"acme.power-away" "saverAfter"' power_settings_reveal
+  expect_poll "the owner's own page draws the same Lock after time" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.settings
   expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
-  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]' power_timeline
+  expect_poll "with the lock set below the screensaver no other row warns" "$power_timeline_defaults" power_timeline
+  expect_poll "and the Lock after row warns in its hint" '[[120, "Locks before the screensaver starts", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
-  expect_poll "the lock's default time clears the warning" "$power_timeline_defaults" power_timeline
+  expect_poll "the lock's default time clears the warning" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
+  # Shared writes: Immediately picked by keys in the timeline's list stores
+  # the screensaver's time in the lock owner's setting, which its own
+  # Settings page and the Screensaver page then read.
+  expect_poll "the Lock after list reads the default and is not locked" '[["5 minutes", false]]' power_lock_list
+  power_pane_pick "Lock after" Select "5 minutes" || fail "the click on the Lock after list failed"
+  expect_poll "the Lock after list opens" True power_pane_list_open
+  type_keys -k Up -k Up -k Return || fail "typing Up, Up and Return in the Lock after list failed"
+  expect_poll "Return closes the Lock after list" False power_pane_list_open
+  expect_poll "Immediately stores the screensaver's 150 seconds in the lock owner's row" 150 power_saved_setting acme.power-away lockAfter
+  expect_poll "the list reads Immediately with its time" '[["Immediately (150 seconds)", false]]' power_lock_list
+  expect "Settings opens on Screensaver's Lock after row" ok ipc shell summon window vgs.settings '{"plugin":"vgs.screensaver","tab":"Settings/stage:lock"}'
+  expect_poll "the reference opens Screensaver's page at its Lock after row" '"vgs.screensaver" "stage:lock"' power_settings_reveal
+  expect_poll "Screensaver's page reads the same time from the lock owner" '[[150, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.settings
+  power_lock_settings_field="$(power_lock_field window vgs.settings)"
+  expect "Screensaver's row writes 10 minutes through the stage write" ok ipc smoke invokeInstanceArgs window vgs.settings writeIdleSetting "{\"args\":[\"vgs.screensaver\",\"stage:lock\",$power_lock_settings_field,600]}"
+  expect_poll "the lock owner's row holds 600" 600 power_saved_setting acme.power-away lockAfter
+  expect_poll "the timeline reads the time Screensaver's row wrote" '[[600, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
+  expect "Settings hides after the shared write" ok ipc shell hide window vgs.settings
+  # The screensaver's own time changing leaves the lock's saved time alone.
+  power_stage_setting "$home/.config/vgshell/shell.json" saverAfter 300
+  expect_poll "a later screensaver time moves the Immediately offer only" '[[600, "", 300, "", "acme.power-away"]]' power_lock_editor window vgs.power
+  expect "the lock owner's row still holds 600" 600 power_saved_setting acme.power-away lockAfter
+  power_stage_setting "$home/.config/vgshell/shell.json" saverAfter null
+  # A field drawn before its owner's manifest changed is stale: its write
+  # is refused and changes nothing.
+  power_lock_pane_field="$(power_lock_field window vgs.power)"
+  python3 - "$home/.config/vgshell/plugins/acme.power-away/manifest.json" <<'PY_REVISE'
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["description"] = manifest["description"] + ", revised"
+json.dump(manifest, open(path, "w"))
+PY_REVISE
+  rescan "rescan after revising the lock owner's manifest answers ok"
+  expect_poll "the revised owner lends a new identity" yes power_lock_identity_changed
+  expect "a write of the field drawn before the revision is refused as stale" "refused: idle-setting=lock reason=stale" ipc smoke invokeInstanceArgs window vgs.power writeStage "{\"args\":[$power_lock_pane_field,60]}"
+  expect "the stale write changed nothing" 600 power_saved_setting acme.power-away lockAfter
+  # An owner that is off keeps the row, locked with its reason, and its
+  # write is refused.
+  expect "turning the lock owner off is allowed" ok ipc shell setPluginEnabled acme.power-away false
+  expect_poll "the Lock after row stays with the owner off" '[[600, "off", "acme.power-away"]]' power_lock_owner window vgs.power
+  expect_poll "and its list is locked" '[["10 minutes", true]]' power_lock_list
+  expect "a write with the owner off is refused" "refused: idle-setting=lock owner=acme.power-away reason=off" ipc smoke invokeInstanceArgs window vgs.power writeStage "{\"args\":[$(power_lock_field window vgs.power),60]}"
+  expect "turning the lock owner on again is allowed" ok ipc shell setPluginEnabled acme.power-away true
+  power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
+  expect_poll "the lock owner's default time returns" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
   # The section's own writes: a segment and a list entry, each picked as a
   # user picks it, then the segment back, so the battery profile the later
   # bar picks are judged against is the one the panel stored.
@@ -1231,6 +1497,7 @@ EOF_STAND
   power_move_away "$power_dim_dir"
   power_move_away "$power_away_dir"
   rescan "rescan after removing the stage owner fixtures answers ok"
+  power_lock_shared
 
   expect "Settings opens on Power's Settings tab" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "with a battery Settings draws Power's four battery fields" "$power_battery_keys" power_battery_fields

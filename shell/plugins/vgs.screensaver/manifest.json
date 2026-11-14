@@ -12,6 +12,7 @@
   "capabilities": ["configure", "cover", "idle", "ipc", "requirements", "session", "shortcut", "status"],
   "capabilityKinds": { "configure": ["service"], "cover": ["service"] },
   "idleStages": { "screensaver": { "seconds": "idleSeconds", "enabled": "idleEnabled" } },
+  "idleSettingRows": ["lock"],
   "requirements": [
     { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "install": "on-request", "purpose": "Animates the screensaver text art" },
     { "command": "magick", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Converts an image into screensaver text art" },
@@ -75,7 +76,6 @@
     "state": { "type": "state", "label": "Screensaver" },
     "art": { "type": "state", "label": "Art" },
     "artFile": { "type": "data", "label": "Art in use" },
-    "lockOrder": { "type": "state", "label": "Lock order" },
     "effects": { "type": "choices", "label": "Effects", "hidden": true }
   },
   "hyprland": {

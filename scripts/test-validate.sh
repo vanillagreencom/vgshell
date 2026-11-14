@@ -2413,7 +2413,7 @@ core_observation_case() { # CASE
     alias)
       plant "$d/shell/Core/HyprlandLayer.qml" 'Logic.clone({})' 'Logic.clone({ changed: true })' ;;
     unobserved|direct|computed|refinement-failed)
-      plant "$d/shell/Core/PluginLogic.js" 'function fieldRows(schema, status) {' $'function fieldRows(schema, status) {\n    schema = schema || {};' ;;
+      plant "$d/shell/Core/PluginLogic.js" 'function fieldRows(schema, status, idleStagesDeclared, idleSettingRows) {' $'function fieldRows(schema, status, idleStagesDeclared, idleSettingRows) {\n    schema = schema || {};' ;;
     observed)
       plant "$d/shell/Core/PluginLogic.js" 'return value !== null && typeof value === "object" && !Array.isArray(value);' 'return value !== null && !Array.isArray(value) && typeof value === "object";' ;;
     callback)

@@ -85,6 +85,10 @@ Scope {
     readonly property bool stageCanFire: stageRecord.stages.some(row => row.seconds > 0)
     onStageCanFireChanged: answerer.follow()
 
+    // What an editor of each stage's time reads, PluginLogic.idleSettingFields'
+    // answer: the plugin manager's rows and capability idleSettings lend it.
+    readonly property var settingFields: Logic.idleSettingFields(Registry.manifests, Registry.enabledIds, Config.effective, stageRecord.stages)
+
     // `stages` is the core's read-only idle stage record (D056, D109): a
     // frozen list, replaced whole when a manifest or the configuration
     // changes, so a binding that reads it follows it.
@@ -95,6 +99,31 @@ Scope {
             stayAwake: (seconds, onEnd) => root.stayAwake(ctx, seconds, onEnd),
             get stages() { return root.stageRecord.stages; }
         });
+    }
+
+    // Capability idleSettings: `fields`, the editors of the stages GRANTED,
+    // the manifest's `idleSettingRows`, in that order, bindable, and `set`,
+    // which writes one through setSetting and CHOOSE.
+    function settingsProvider(granted, choose) {
+        return Object.freeze({
+            get fields() { return granted.map(stage => root.settingFields[stage]); },
+            set: (stage, seconds, identity) => root.setSetting(granted, stage, seconds, identity, choose)
+        });
+    }
+
+    // Writes SECONDS as STAGE's time for a page lent the stages GRANTED,
+    // which drew the field of IDENTITY, through CHOOSE, the plugin manager's
+    // choice of the owner's setting (Capabilities.managerChoose), so its page,
+    // Lock's own included, and the owner hear one route. It resolves the
+    // owner at the press and writes nothing for the value the setting
+    // holds. The reply is one keyed line: `ok` once the file holds it, or
+    // the refusal.
+    function setSetting(granted, stage, seconds, identity, choose) {
+        const fields = Logic.idleSettingFields(Registry.manifests, Registry.enabledIds, Config.effective, currentStages());
+        const refusal = Logic.idleSettingRefusal(fields, granted, stage, identity);
+        if (refusal !== "") return refusal;
+        const field = fields[stage];
+        return seconds === field.value ? "ok" : choose(field.plugin, field.setting, seconds);
     }
 
     // The record as the configuration holds it now. A handler of the

@@ -135,8 +135,9 @@ power_stop_mocks() {
 # 150 s (vgs.screensaver) and lock at 300 s (vgs.lock), and run nothing,
 # each service an empty item, so the core's stage record holds the stages
 # and no watch starts. acme.power-dim owns the dim, acme.power-away the
-# screensaver and the lock. Both go under PLUGINS; the caller rescans,
-# enables them and removes them.
+# screensaver and the lock, whose time offers the shipped lock's kind of
+# list. Both go under PLUGINS; the caller rescans, enables them and
+# removes them.
 power_stage_owners() { # PLUGINS
   power_stage_owner "$1/acme.power-dim" '{ "schemaVersion": 1, "id": "acme.power-dim", "name": "Dim Owner", "version": "0.1.0", "author": "acme", "description": "smoke fixture that declares the dim stage",
   "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["idle"],
@@ -150,7 +151,8 @@ power_stage_owners() { # PLUGINS
   "schema": {
     "saverOn": { "type": "boolean", "label": "Start the screensaver" },
     "saverAfter": { "type": "number", "label": "Screensaver after", "min": 0, "max": 3600, "step": 30, "unit": "seconds" },
-    "lockAfter": { "type": "number", "label": "Lock after", "min": 0, "max": 3600, "step": 30, "unit": "seconds" } } }'
+    "lockAfter": { "type": "number", "label": "Lock after", "min": 0, "max": 3600, "step": 30, "unit": "seconds", "allowCustom": true,
+      "presets": [{ "value": 0, "label": "Never" }, { "value": 60 }, { "value": 300 }, { "value": 600 }] } } }'
 }
 power_stage_owner() { # DIR MANIFEST
   mkdir -p -- "$1"

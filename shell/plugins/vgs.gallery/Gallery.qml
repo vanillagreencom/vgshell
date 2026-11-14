@@ -372,6 +372,28 @@ Item {
                 // SavedSlider beside its reading; a release keeps the value.
                 // Its slider is the Slider whose focus example stands below.
                 SavedSlider { id: savedSample; property real kept: 12; width: parent.width; from: 0; to: 32; shown: kept; formatValue: value => Math.round(value) + " px"; onSaved: value => savedSample.kept = value }
+                // NumberSettingField: presets with Custom… and its slider
+                // row, a bounded number's slider, and a read-only field.
+                // A choice writes the sample's value.
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    NumberSettingField { id: presetNumber; width: parent.width; spec: ({ type: "number", label: "Refresh", description: "How often it checks", min: 1, max: 600, step: 1, unit: "seconds", allowCustom: true, presets: [{ value: 60 }, { value: 300 }] }); value: 90; onApply: value => presetNumber.value = value }
+                    NumberSettingField { id: sliderNumber; width: parent.width; spec: ({ type: "number", label: "Frame rate", min: 1, max: 120, step: 1 }); value: 30; onApply: value => sliderNumber.value = value }
+                    NumberSettingField { width: parent.width; editable: false; spec: ({ type: "number", label: "Read-only", unit: "%", presets: [{ value: 20 }, { value: 50 }] }); value: 20 }
+                }
+                // IdleTimeField: Immediately held, a time with the warning
+                // of a stage that fires early, an owner that is off and no
+                // owner, each from a field as the core lends it.
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    readonly property var lockSpec: ({ type: "number", label: "Lock after", min: 0, max: 86400, step: 30, unit: "seconds", allowCustom: true, presets: [{ value: 0, label: "Never" }, { value: 60 }, { value: 300 }, { value: 600 }] })
+                    IdleTimeField { id: idleSample; width: parent.width; field: ({ stage: "lock", plugin: "acme.lock", name: "Lock", setting: "after", spec: parent.lockSpec, value: 150, reason: "", immediately: 150, identity: "" }); onApply: value => idleSample.field = Object.assign({}, idleSample.field, { value: value }) }
+                    IdleTimeField { width: parent.width; warning: "Locks before the screensaver starts"; field: ({ stage: "lock", plugin: "acme.lock", name: "Lock", setting: "after", spec: parent.lockSpec, value: 60, reason: "", immediately: 150, identity: "" }) }
+                    IdleTimeField { width: parent.width; field: ({ stage: "lock", plugin: "acme.lock", name: "Lock", setting: "after", spec: parent.lockSpec, value: 300, reason: "off", immediately: 0, identity: "" }) }
+                    IdleTimeField { width: parent.width; field: ({ stage: "lock", plugin: "", name: "", setting: "", spec: null, value: null, reason: "none", immediately: 0, identity: "" }) }
+                }
 
                 }
                 Section {

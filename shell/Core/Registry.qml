@@ -608,7 +608,11 @@ Singleton {
     // monitor rules (buildRefusal), each failed build of one of its kinds,
     // once per cause, then each problem the Hyprland layer reports for it,
     // then each of its launcher rows another plugin listed first, then each
-    // of its idle stages skipped. It reads no plugin status, since this
+    // of its idle stages skipped. `idleFields` holds what the editor of each
+    // field row with an `idleStage` reads (IdleRegistry.settingFields): a
+    // reference row's, another owner's, and an own row's while the stage's
+    // resolved owner is this plugin. An own row of a stage another declarer
+    // owns has none, so its page draws it from its own settings. It reads no plugin status, since this
     // binding re-runs on every change of an input whether or not anything
     // reads it, and status writes come every few seconds: managerRows
     // joins the status on read.
@@ -620,6 +624,7 @@ Singleton {
         const problems = hyprlandProblems;
         const menuConflicts = menu.conflicts;
         const idleProblems = Capabilities.idleProblems;
+        const idleFields = Capabilities.idleSettingFields;
         const holder = panesHolderId();
         return Object.keys(current).sort().map(id => {
             const m = current[id];
@@ -658,6 +663,7 @@ Singleton {
                 builtins: Plugins.widgetBuiltinRows(id),
                 schema: m.schema,
                 fieldRows: m.fieldRows,
+                idleFields: m.fieldRows.filter(field => field.idleStage !== "" && (field.reference || idleFields[field.idleStage].plugin === id)).map(field => idleFields[field.idleStage]),
                 settings: settings,
                 binds: Logic.bindRows(config, m, descriptions),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,

@@ -83,6 +83,69 @@ function presetText(entry, preset, formatDate) {
     return String(preset.value);
 }
 
+// The rows a select of SPEC's presets offers: each { label, value },
+// presetText's label, then Custom… as { label, custom: true } when
+// ALLOW_CUSTOM holds. A spec a view's model handed on holds its presets as
+// a list Array.isArray refuses (a Repeater's modelData), so the list
+// methods are called on it.
+function presetRows(spec, allowCustom, formatDate) {
+    var out = Array.prototype.map.call(spec.presets, function (preset) { return { label: presetText(spec, preset, formatDate), value: preset.value, custom: false }; });
+    if (allowCustom) out.push({ label: "Custom…", custom: true });
+    return out;
+}
+
+// The index of SPEC's first preset that holds VALUE, or -1.
+function presetIndex(spec, value) {
+    if (spec.presets === undefined) return -1;
+    for (var i = 0; i < spec.presets.length; i++)
+        if (spec.presets[i].value === value) return i;
+    return -1;
+}
+
+// A number field's typed text as the value it writes: NaN for a blank
+// text, which the setting's judge refuses as no number.
+function typedNumber(text) {
+    return text.trim() === "" ? NaN : Number(text);
+}
+
+// What each stage's editor says beside its time: `label`, its label while
+// no plugin owns it, `owner`, the clause that names what its owner does,
+// for a field whose owner is off or absent, and,
+// for a stage that offers Immediately (PluginLogic.IDLE_STAGE_WITH),
+// `immediately`, the hint while the choice holds, and `snapshot`, the
+// dialog that explains it.
+var IDLE_STAGE_TEXT = {
+    dim: { label: "Dim after", owner: "dims the displays" },
+    screensaver: { label: "Start after", owner: "starts a screensaver" },
+    lock: {
+        label: "Lock after",
+        owner: "locks the screen",
+        immediately: "Locks when the screensaver starts",
+        snapshot: "Immediately sets this time to the screensaver's start time. The lock time does not change when you change the screensaver's time later. Choose Immediately again to use the new time."
+    },
+    displayOff: { label: "Turn displays off after", owner: "turns the displays off" },
+    sleep: { label: "Sleep after", owner: "puts the computer to sleep" }
+};
+
+// FIELD's schema entry as its idle time editor offers it
+// (PluginLogic.idleSettingFields): while FIELD.immediately holds a time,
+// "Immediately (<time>)" holds it, after the presets at 0 and in place of
+// a preset of the same time, so it is the choice that reads that time. A
+// spec with no presets offers none. Nothing stores the choice: it is the
+// time it holds.
+function idleTimeSpec(field) {
+    var spec = field.spec;
+    if (field.immediately <= 0 || spec.presets === undefined) return spec;
+    var out = {};
+    Object.keys(spec).forEach(function (key) { out[key] = spec[key]; });
+    var kept = Array.prototype.filter.call(spec.presets, function (preset) { return preset.value !== field.immediately; });
+    var never = kept.filter(function (preset) { return preset.value === 0; });
+    var times = kept.filter(function (preset) { return preset.value !== 0; });
+    var words = spec.unit === undefined ? String(field.immediately) : quantityText(field.immediately, spec.unit);
+    out.presets = never.concat([{ value: field.immediately, label: "Immediately (" + words + ")" }], times);
+    return out;
+}
+
 // The number of UTF-8 bytes that encode `text`. A lone surrogate counts as
 // the three bytes of its replacement character.
 function utf8Bytes(text) {

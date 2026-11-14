@@ -58,6 +58,9 @@ const CASES = [
     ["build failed: service: refused: capability=notifications held-by=acme.other", /Another plugin uses this feature/],
     ["refused: capability=lock held-by=acme.other", /Another plugin uses this feature/],
     ["refused: hyprland.monitors=acme.example held-by=acme.other", /Another plugin sets the display rules/],
+    ["refused: idle-setting=lock reason=stale", /changed on another page/],
+    ["refused: idle-setting=lock owner=vgs.lock reason=off", /Turn on the plugin that locks the screen to change this time/],
+    ["refused: idle-setting=lock owner=none", /No plugin that locks the screen is installed/],
     ...["unknown", "undrawn"].map(reason => [`refused: page-target=Settings/home reason=${reason}`, /names a row this page does not show/]),
     ["refused: preview=voice reason=none", /cannot play a preview now/],
     ["refused: add-choice=voiceAccount reason=undeclared", /no longer offers that entry/],
@@ -191,7 +194,7 @@ function windowContext(logic, source) {
         return found[0][0];
     });
     const logs = [];
-    const ctx = { Reply: logic, replies: {}, writing: null, notice: "", shell: { manager: {} }, console: { warn: line => logs.push(line) } };
+    const ctx = { Reply: logic, replies: {}, writing: null, notice: "", plugins: [], shell: { manager: {} }, console: { warn: line => logs.push(line) } };
     ctx.root = ctx;
     vm.createContext(ctx);
     vm.runInContext(functions.join("\n"), ctx);
@@ -448,6 +451,8 @@ verifyWriter(writerSource);
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 fs.mkdirSync(path.join(temp, "Commons"));
+// A mutant of Reply.js imports SettingValues.js beside it, as the shell does.
+fs.symlinkSync(path.join(path.dirname(file), "SettingValues.js"), path.join(temp, "Commons", "SettingValues.js"));
 let controls = 0;
 try {
     const paneRoute = '        if (row !== null && row.kinds.indexOf("pane") !== -1 && tab !== "Settings/Keys") return openPane(id);\n';
@@ -487,7 +492,7 @@ try {
         controls++;
     }
     for (const [needle, replacement] of [
-        ["next[step] = Reply.line(reply);", "next[step] = reply;"],
+        ["next[step] = Reply.line(reply, plugins);", "next[step] = reply;"],
         ["notice = Reply.line(reply);", 'notice = Reply.isOk(reply) ? "" : reply;'],
         ['root.keep(step, result.ok ? "ok" : "refused: secret write failed " + result.reason);', 'root.keep(step, "ok");'],
         ['return "tui:" + name;', 'return name;'],

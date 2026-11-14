@@ -1,4 +1,5 @@
 .pragma library
+.import "SettingValues.js" as SettingValues
 
 // The one judge of a manager or surface reply: `ok`, or `ok <detail>` such
 // as `ok hidden=<ids>`, is success; every other reply is a refusal to show.
@@ -49,6 +50,9 @@ var MESSAGES = [
     [/^refused: secret write failed locked$/, "The key store is locked. Unlock it and try again."],
     [/^(?:build failed: [^:]+: )?refused: capability=\S+ held-by=\S+$/, "Another plugin uses this feature. Turn off that plugin before you turn on this one."],
     [/^refused: hyprland\.monitors=\S+ held-by=\S+$/, "Another plugin sets the display rules. Turn off that plugin to use this one."],
+    [/^refused: idle-setting=\S+ reason=stale$/, "This time changed on another page. Choose it again."],
+    [/^refused: idle-setting=(\S+) owner=(\S+) reason=off$/, idleOwnerOff],
+    [/^refused: idle-setting=(\S+) owner=none$/, function (match) { return "No plugin that " + SettingValues.IDLE_STAGE_TEXT[match[1]].owner + " is installed."; }],
     [/^refused: page-target=\S+ reason=(?:unknown|undrawn)$/, "This link names a row this page does not show."],
     [/^refused: preview=\S+ reason=none$/, "This plugin cannot play a preview now. Turn it on and try again."],
     [/^refused: add-choice=\S+ reason=undeclared$/, "This list no longer offers that entry. Close Plugins and open it again."],
@@ -75,6 +79,13 @@ function shortcutProblem(match, plugins, shortcutText) {
     const cause = holder === undefined ? "Another plugin uses this shortcut" + (key === "" ? "" : ": " + key)
         : holder.name + " already uses " + (key === "" ? "this shortcut" : key);
     return cause + ". Change this shortcut in [Settings/Keys](page:" + match[2] + "/Settings/Keys).";
+}
+
+// An idle time's owner is off: the words its field reads (IdleTimeField),
+// with the owner's name from the manager inventory, else what it does.
+function idleOwnerOff(match, plugins) {
+    const owner = (plugins || []).find(function (plugin) { return plugin.id === match[2]; });
+    return "Turn on " + (owner === undefined ? "the plugin that " + SettingValues.IDLE_STAGE_TEXT[match[1]].owner : owner.name) + " to change this time.";
 }
 
 function line(reply, plugins, shortcutText) {

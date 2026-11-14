@@ -17,7 +17,7 @@ Lock protects your session with your password. The lock screen uses your theme a
 
 | Setting | What it changes |
 | --- | --- |
-| Lock when inactive | Time without input before the session locks. Never turns it off. |
+| Lock after | Time without input before the session locks. Never turns it off. Immediately, offered while the screensaver starts after inactivity, sets the screensaver's start time. The Screensaver page and System Settings → Power edit the same time. |
 | Lock before sleep | Whether the computer waits for the lock before it sleeps. |
 | Temporary unlock | Allows any application running as you to request temporary desktop access without a password. Off by default. |
 

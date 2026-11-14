@@ -310,7 +310,7 @@ FocusScope {
         const next = Object.assign({}, replies);
         if (Reply.isOk(reply)) delete next[step];
         else {
-            next[step] = Reply.line(reply);
+            next[step] = Reply.line(reply, plugins);
             console.warn("settings: " + step + " " + reply);
         }
         replies = next;
@@ -422,6 +422,14 @@ FocusScope {
     // it (PluginStatus.handleChoice); a refusal reads at the page head.
     function writeSetting(id, key, value) {
         return keep(id, shell.manager.setSetting(id, key, value));
+    }
+
+    // Write VALUE as the time of FIELD, an idle stage another plugin owns
+    // that plugin `id`'s page draws as its row KEY (PluginLogic.fieldRows
+    // `reference`), through the manager's stage write; its refusal is
+    // kept under the row.
+    function writeIdleSetting(id, key, field, value) {
+        return keep(stepKey(id, key), shell.manager.setIdleSetting(field.stage, value, field.identity));
     }
 
     // Open the screen the Add entry of plugin `id`'s field `key` names,

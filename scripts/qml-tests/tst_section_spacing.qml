@@ -347,6 +347,12 @@ Item {
 
         function rowOf(id) {
             const m = manifest(id);
+            // The fields an idle stage's rows draw with, as the core lends
+            // them to the manager row.
+            const normal = PluginLogic.validateManifest(m, "").manifest;
+            const manifests = {};
+            manifests[id] = normal;
+            const idle = PluginLogic.idleSettingFields(manifests, [id], { version: 6, plugins: [] }, []);
             const settings = {};
             // A bounded number with no default draws its slider at its minimum.
             for (const key of Object.keys(m.schema)) settings[key] = m.schema[key].default !== undefined ? m.schema[key].default : m.schema[key].min;
@@ -356,7 +362,8 @@ Item {
                 builtins: [], kinds: m.kinds, capabilities: m.capabilities, schema: m.schema, settings: settings,
                 settingChoices: ({}), status: [], withheldFields: PluginLogic.withheldFields(m, {}, settings),
                 secretLabel: "", tuis: [], opens: "", paneHolder: "",
-                binds: [], requirements: [], errors: [], fieldRows: PluginLogic.validateManifest(m, "").manifest.fieldRows
+                binds: [], requirements: [], errors: [], fieldRows: normal.fieldRows,
+                idleFields: normal.fieldRows.filter(field => field.idleStage !== "").map(field => idle[field.idleStage])
             };
         }
 
@@ -490,7 +497,7 @@ Item {
             const img = grabImage(root);
             if (data.id === "vgs.capture") {
                 const choice = descendants(page).find(item => item.key === "constantFrameRate"
-                    && item.children.some(child => child instanceof SettingField));
+                    && item.children.some(child => child instanceof Loader && child.item instanceof SettingField));
                 verify(choice !== undefined && choice.subText, "the described capture field ends in sub-text");
                 compare(choice.bottomPadding, Math.max(0, Theme.stack.group - choice.parent.spacing),
                     "the described capture field leaves the group room under its description");

@@ -36,7 +36,7 @@
   "schema": {
     "idleLockSeconds": {
       "type": "number",
-      "label": "Lock when inactive",
+      "label": "Lock after",
       "min": 0,
       "max": 86400,
       "step": 30,

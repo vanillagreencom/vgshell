@@ -36,7 +36,7 @@ Item {
         function shell(battery) {
             return {
                 status: { values: { power: { battery: battery, profile: { available: true, active: "balanced", choices: ["power-saver", "balanced", "performance"] } } }, rows: [] },
-                idle: { stages: [] }, manifest: { id: "vgs.power", schema: {} },
+                idle: { stages: [] }, idleSettings: { fields: [] }, manifest: { id: "vgs.power", schema: {} },
                 manager: { plugins: [] }, requirements: { missing: [] },
                 hyprland: { displayWake: { keyPress: "enabled", pointerMovement: "enabled" } }
             };

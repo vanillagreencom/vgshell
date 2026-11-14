@@ -431,8 +431,8 @@ function suite(ctx, configLogic, check) {
         status: { fact: { type: "state", label: "Fact", action: { label: "Fix", tui: "fix" } }, gone: { type: "data", label: "Data" } }
     }), "/p");
     check("fieldRows: each field's stored key lists, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
-        { key: "mode", section: "Main", list: false, keyLists: ["keys"], groups: [] },
-        { key: "other", section: "", list: false, keyLists: [], groups: [] }]);
+        { key: "mode", section: "Main", list: false, keyLists: ["keys"], groups: [], idleStage: "", reference: false },
+        { key: "other", section: "", list: false, keyLists: [], groups: [], idleStage: "", reference: false }]);
     // The defects first-party manifests held before their rows were judged,
     // planted again in the shipped manifest: each is refused at its path by
     // its rule.
@@ -1373,6 +1373,104 @@ function suite(ctx, configLogic, check) {
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []]]);
     check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 6, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []]]);
+    // idleSettingRows refusals: [name, rows, the manifest's own stages,
+    // capabilities, the refusal's path, null for accepted].
+    for (const [name, rows, own, capabilities, want] of [
+        ["another owner's stage", ["lock"], { screensaver: { seconds: "after" } }, ["idle"], null],
+        ["a stage beside idleSettings", ["lock"], {}, ["idleSettings"], null],
+        ["an empty list", [], {}, [], "idleSettingRows"],
+        ["no list", "lock", {}, [], "idleSettingRows"],
+        ["a stage outside the set", ["nap"], {}, [], "idleSettingRows[0]"],
+        ["a repeated stage", ["lock", "lock"], {}, [], "idleSettingRows[1]"],
+        ["a stage the plugin owns", ["screensaver"], { screensaver: { seconds: "after" } }, ["idle"], "idleSettingRows[0]"],
+        ["idleSettings with no rows", undefined, {}, ["idleSettings"], "capability"]
+    ]) {
+        const raw = Object.assign(idleRaw(own, capabilities), rows === undefined ? {} : { idleSettingRows: rows });
+        if (Object.keys(own).length === 0) delete raw.idleStages;
+        const r = ctx.validateManifest(raw, "/p");
+        check("idleSettingRows: " + name, r.ok ? null : r.error.slice(0, want.length + 1), want === null ? null : want + " ");
+    }
+    check("idleSettingRows: a manifest without the key reads none", ctx.validateManifest(svc, "/p").manifest.idleSettingRows, []);
+    // The Settings rows of a plugin with own stages and another's: [name,
+    // own stages as { stage: [seconds key, group] }, idleSettingRows, the
+    // rows as [key, section, idleStage, reference]]. Schema keys are in
+    // stage order, then `other`.
+    for (const [name, own, rows, want] of [
+        ["after the latest earlier own stage", { dim: ["dimS", "A"], screensaver: ["saverS", "B"] }, ["lock"],
+            [["dimS", "A", "dim", false], ["saverS", "B", "screensaver", false], ["stage:lock", "B", "lock", true], ["other", "", "", false]]],
+        ["before the earliest later own stage", { displayOff: ["offS", "D"], sleep: ["sleepS", "D"] }, ["lock"],
+            [["stage:lock", "D", "lock", true], ["offS", "D", "displayOff", false], ["sleepS", "D", "sleep", false], ["other", "", "", false]]],
+        ["last with no own stage", {}, ["lock"],
+            [["other", "", "", false], ["stage:lock", "", "lock", true]]],
+        ["no reference", { lock: ["lockS", "L"] }, [],
+            [["lockS", "L", "lock", false], ["other", "", "", false]]]
+    ]) {
+        const schema = {}, settings = {}, idleStages = {};
+        for (const [stage, [key, group]] of Object.entries(own)) {
+            schema[key] = { type: "number", label: key, min: 0, group: group };
+            settings[key] = 60;
+            idleStages[stage] = { seconds: key };
+        }
+        schema.other = { type: "boolean", label: "Other" };
+        settings.other = true;
+        const raw = Object.assign({}, svc, { capabilities: ["idle"], settings: settings, schema: schema }, Object.keys(idleStages).length === 0 ? {} : { idleStages: idleStages }, rows.length === 0 ? {} : { idleSettingRows: rows });
+        const r = ctx.validateManifest(raw, "/p");
+        check("fieldRows: an idle reference " + name, r.ok ? r.manifest.fieldRows.map(row => [row.key, row.section, row.idleStage, row.reference]) : r.error, want);
+    }
+    // The editors' fields over plugins that each own the stages given, as
+    // stageOwner builds them: [name, plugins as [id, stages, enabled],
+    // config, stage, the field as [plugin, reason, setting, value,
+    // immediately]].
+    const settingFields = (plugins, config) => {
+        const manifests = Object.create(null);
+        for (const [id, stages] of plugins) manifests[id] = stageOwner(id, stages);
+        const enabled = plugins.filter(p => p[2] !== false).map(p => p[0]);
+        const cfg = config || { version: 6, plugins: [] };
+        return ctx.idleSettingFields(manifests, enabled, cfg, ctx.idleStages(manifests, enabled, cfg).stages);
+    };
+    const fieldOf = field => [field.plugin, field.reason, field.setting, field.value, field.immediately];
+    for (const [name, plugins, config, stage, want] of [
+        ["the enabled owner with Immediately at the screensaver's time", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, true] }]], null, "lock",
+            ["acme.lock", "", "lockSeconds", 300, 150]],
+        ["a stored Never keeps its 0", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, true] }]], { version: 6, plugins: [{ id: "acme.lock", lockSeconds: 0 }] }, "lock",
+            ["acme.lock", "", "lockSeconds", 0, 150]],
+        ["a screensaver turned off offers no Immediately", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, false] }]], null, "lock",
+            ["acme.lock", "", "lockSeconds", 300, 0]],
+        ["a screensaver at Never offers no Immediately", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [0] }]], null, "lock",
+            ["acme.lock", "", "lockSeconds", 300, 0]],
+        ["a screensaver that is off offers no Immediately", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150], }, false]], null, "lock",
+            ["acme.lock", "", "lockSeconds", 300, 0]],
+        ["no screensaver offers no Immediately", [["acme.lock", { lock: [300] }]], null, "lock",
+            ["acme.lock", "", "lockSeconds", 300, 0]],
+        ["a lock that is off names its owner", [["acme.lock", { lock: [300] }, false], ["acme.saver", { screensaver: [150] }]], null, "lock",
+            ["acme.lock", "off", "lockSeconds", 300, 150]],
+        ["the enabled declarer before one that is off", [["acme.a", { lock: [60] }, false], ["acme.b", { lock: [600] }]], null, "lock",
+            ["acme.b", "", "lockSeconds", 600, 0]],
+        ["no declarer", [["acme.saver", { screensaver: [150] }]], null, "lock",
+            ["", "none", "", null, 0]],
+        ["a stage with no Immediately", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150] }]], null, "screensaver",
+            ["acme.saver", "", "screensaverSeconds", 150, 0]]
+    ])
+        check("idleSettingFields: " + name, fieldOf(settingFields(plugins, config)[stage]), want);
+    const lockAndSaver = settingFields([["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150] }]]);
+    check("idleSettingFields: the answer is frozen", Object.isFrozen(lockAndSaver) && Object.isFrozen(lockAndSaver.lock) && Object.isFrozen(lockAndSaver.lock.spec), true);
+    const revised = Object.create(null);
+    revised["acme.lock"] = Object.assign({}, stageOwner("acme.lock", { lock: [300] }), { __sourceDir: "/p/acme.lock", __revision: 1 });
+    const identityAt = (manifest, revision) => ctx.idleSettingFields({ "acme.lock": Object.assign({}, manifest, { __revision: revision }) }, ["acme.lock"], { version: 6, plugins: [] }, []).lock.identity;
+    check("idleSettingFields: a new revision of the owner's manifest is a new identity", identityAt(revised["acme.lock"], 1) === identityAt(revised["acme.lock"], 2), false);
+    check("idleSettingFields: one revision keeps its identity", identityAt(revised["acme.lock"], 1), identityAt(revised["acme.lock"], 1));
+    const offLock = settingFields([["acme.lock", { lock: [300] }, false]]);
+    const noLock = settingFields([["acme.saver", { screensaver: [150] }]]);
+    for (const [name, fields, granted, stage, identity, want] of [
+        ["the drawn field of a granted stage", lockAndSaver, ["lock"], "lock", lockAndSaver.lock.identity, ""],
+        ["a stage the page was not lent", lockAndSaver, ["lock"], "screensaver", lockAndSaver.screensaver.identity, "refused: idle-setting=screensaver reason=ungranted"],
+        ["a stage outside the set", lockAndSaver, ["lock"], "nap", "", 'refused: idle-setting="nap" want=dim|screensaver|lock|displayOff|sleep'],
+        ["a stale identity", lockAndSaver, ["lock"], "lock", lockAndSaver.screensaver.identity, "refused: idle-setting=lock reason=stale"],
+        ["no identity", lockAndSaver, ["lock"], "lock", undefined, "refused: idle-setting=lock reason=stale"],
+        ["an owner that is off", offLock, ["lock"], "lock", offLock.lock.identity, "refused: idle-setting=lock owner=acme.lock reason=off"],
+        ["no owner", noLock, ["lock"], "lock", "", "refused: idle-setting=lock owner=none"]
+    ])
+        check("idleSettingRefusal: " + name, ctx.idleSettingRefusal(fields, granted, stage, identity), want);
     // The secure cover's judges. Stage rows are [stage, plugin, seconds].
     const coverStages = rows => rows.map(([stage, plugin, seconds]) => ({ stage: stage, plugin: plugin, setting: "s", seconds: seconds, before: [] }));
     const saverAndLock = coverStages([["screensaver", "acme.saver", 150], ["lock", "acme.lock", 300]]);
@@ -3359,17 +3457,30 @@ const CONTROLS = [
     ["an unplaced widget is mounted", 'out[manifest.unplacedSection].unshift({ id: id, transient: true });', 'out[manifest.unplacedSection].slice();', "unplaced mounts:"],
     ["Open routed to today's panel without an anchor", 'return { ok: true, kind: "summon", surface: kind, presentation: "window" };', 'return { ok: true, kind: "summon", surface: "panel" };', "Open route: acme.open-panel"],
     ["splitFrom refuses its own id", "raw.splitFrom === raw.id ||", "false ||", "validateManifest:"],
-    ["idleStages is a manifest key", '"schema", "idleStages", "defaultSection"', '"schema", "defaultSection"'],
+    ["idleStages is a manifest key", '"schema", "idleStages", "idleSettingRows"', '"schema", "idleSettingRows"'],
     ["idle stages need capability idle", 'if (capabilities.indexOf("idle") === -1)\n        return "idleStages needs', 'if (false)\n        return "idleStages needs'],
     ["a stage outside the set goes unjudged", "if (IDLE_STAGES.indexOf(stages[i]) === -1)", "if (false)"],
     ["a stage's time needs no min", "!(seconds.min >= 0)", "false"],
     ["a stage's enabled setting goes unjudged", "if (entry.enabled !== undefined && !(", "if (false && !("],
-    ["the record takes the enabled ids in the order given", "var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort();", "var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); });"],
+    ["the record takes the enabled ids in the order given", "ids.filter(function (id) { return hasOwn(manifests, id); }).sort().forEach(", "ids.filter(function (id) { return hasOwn(manifests, id); }).forEach("],
     ["a stage turned off keeps its time", "seconds: on ? settings[entry.seconds] : 0", "seconds: settings[entry.seconds]"],
     ["a stored time that does not fit is lent", 'if (unfit !== "") {\n                skipped(', 'if (false) {\n                skipped('],
     ["two stages at one time fire one before the other", "earlier.seconds > entry.seconds", "earlier.seconds >= entry.seconds"],
     ["a Never stage fires before later ones", "var before = entry.seconds === 0 ? [] : stages", "var before = stages"],
     ["the record is not frozen", "stages: frozenJson(idleStagesBefore(stages))", "stages: idleStagesBefore(stages)"],
+    ["idleSettingRows is no manifest key", '"idleStages", "idleSettingRows", "defaultSection"', '"idleStages", "defaultSection"'],
+    ["idleSettingRows takes a stage outside the set", 'return at + " is not one of " + IDLE_STAGES.join(", ");\n        if (rows.indexOf(rows[i]) !== i)', 'return "";\n        if (rows.indexOf(rows[i]) !== i)'],
+    ["idleSettingRows repeats a stage", "if (rows.indexOf(rows[i]) !== i)", "if (false)"],
+    ["idleSettingRows names an own stage", "if (hasOwn(idleStages, rows[i]))", "if (false)"],
+    ["idleSettings needs no rows", 'capabilities.indexOf("idleSettings") === -1 ? "" : "capability', 'true ? "" : "capability'],
+    ["a reference row goes last", "var at = beside === undefined ? rows.length : rows.indexOf(beside) + (beside === earlier ? 1 : 0);", "var at = rows.length;"],
+    ["a reference row takes no section", 'section: beside === undefined ? "" : beside.section, list: false', 'section: "", list: false'],
+    ["an owner that is off reads available", 'reason: enabled[stage] === plugin ? "" : "off"', 'reason: ""'],
+    ["a disabled declarer goes unnamed", "declared[stage] !== undefined ? declared[stage] : \"\"", "\"\""],
+    ["the identity omits the revision", "manifest.__revision === undefined ? null : manifest.__revision])", "null])"],
+    ["a stale identity writes", 'if (identity !== field.identity) return "refused: idle-setting=" + stage + " reason=stale";', ""],
+    ["an ungranted stage writes", 'if (granted.indexOf(stage) === -1) return', 'if (false) return'],
+    ["an owner that is off writes", 'if (field.reason === "off") return', 'if (false) return'],
     ["joined presets refuse a combined atom", "preset.value.indexOf(entry.separator) !== -1", "false"],
     ["manifest invokes page judge", 'if (badPlacement !== "") return { ok: false, error: badPlacement };', 'if (false) return { ok: false, error: badPlacement };'],
     ["manifest drops its page rows' judge", 'if (badRows !== "") return { ok: false, error: badRows };', 'if (false) return { ok: false, error: badRows };'],
@@ -3866,7 +3977,7 @@ const CONTROLS = [
     ["sounds is a manifest key", '"secrets", "sounds", "alwaysOn",', '"secrets", "alwaysOn",'],
     ["sounds is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "soundSettings", '],
     ["soundSettings is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "sounds", '],
-    ["dictation is a capability", '"soundSettings", "dictation"];', '"soundSettings"];'],
+    ["dictation is a capability", '"soundSettings", "dictation", "idleSettings"];', '"soundSettings", "idleSettings"];'],
     ["dictation is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes", "dictation"];'],
     ["sounds is a non-empty object", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (false)"],
     ["sounds holds an event", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (!isPlainObject(sounds))"],

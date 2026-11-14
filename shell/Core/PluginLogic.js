@@ -23,7 +23,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "cover", "handoff", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation"];
+var CAPABILITIES = ["compositor", "configure", "cover", "handoff", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation", "idleSettings"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -131,7 +131,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection", "handoffs"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "idleSettingRows", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection", "handoffs"];
 
 // The stages of the idle path in the order they are meant to fire
 // (docs/architecture/power.md). A manifest's `idleStages` names each one the
@@ -139,6 +139,12 @@ var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "v
 // Never, and `enabled`, optional, a boolean setting that turns it off.
 var IDLE_STAGES = ["dim", "screensaver", "lock", "displayOff", "sleep"];
 var IDLE_STAGE_KEYS = ["seconds", "enabled"];
+
+// The stage whose time a stage's editor offers as Immediately: the lock's
+// is the screensaver's, so Immediately locks when the screensaver starts
+// (VGS-2087). The choice stores that time, a snapshot a later change of
+// the screensaver's time leaves alone; no setting holds a follow mode.
+var IDLE_STAGE_WITH = { lock: "screensaver" };
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -4795,6 +4801,29 @@ function idleStagesError(idleStages, capabilities, schema) {
     return "";
 }
 
+// The first defect of a manifest's `idleSettingRows`, or "": absent, or a
+// non-empty list of distinct stages of IDLE_STAGES whose time the plugin's
+// Settings page also edits, none one of IDLE_STAGES, the manifest's own
+// `idleStages`, whose field the page draws already. Capability
+// idleSettings, which lends those stages' editors to the plugin's own
+// surface, needs it.
+function idleSettingRowsError(rows, idleStages, capabilities) {
+    if (rows === undefined)
+        return capabilities.indexOf("idleSettings") === -1 ? "" : "capability idleSettings needs idleSettingRows";
+    if (!Array.isArray(rows) || rows.length === 0)
+        return "idleSettingRows must be a non-empty list";
+    for (var i = 0; i < rows.length; i++) {
+        var at = "idleSettingRows[" + i + "]";
+        if (IDLE_STAGES.indexOf(rows[i]) === -1)
+            return at + " is not one of " + IDLE_STAGES.join(", ");
+        if (rows.indexOf(rows[i]) !== i)
+            return at + " repeats " + rows[i];
+        if (hasOwn(idleStages, rows[i]))
+            return at + " names " + rows[i] + ", a stage this plugin owns";
+    }
+    return "";
+}
+
 // The idle stages the enabled plugins own under CONFIG: { stages, problems }.
 // `stages` follows IDLE_STAGES, frozen, one { stage, plugin, setting,
 // seconds, before } per stage a plugin of ENABLED_IDS that MANIFESTS holds
@@ -4805,18 +4834,13 @@ function idleStagesError(idleStages, capabilities, schema) {
 // does not fit its schema entry, is one of `problems`, { plugin, error },
 // and the stage's entry is left out for the latter.
 function idleStages(manifests, enabledIds, config) {
-    var owners = Object.create(null);
     var problems = [];
     var skipped = function (stage, plugin, why) {
         problems.push({ plugin: plugin, error: "idle: stage " + stage + " of " + plugin + " skipped: " + why });
     };
-    var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort();
-    declarers.forEach(function (plugin) {
-        Object.keys(manifests[plugin].idleStages).forEach(function (stage) {
-            if (owners[stage] !== undefined) skipped(stage, plugin, "already owned by " + owners[stage]);
-            else owners[stage] = plugin;
-        });
-    });
+    var claims = idleStageOwners(manifests, enabledIds);
+    var owners = claims.owners;
+    claims.contested.forEach(function (claim) { skipped(claim.stage, claim.plugin, "already owned by " + claim.owner); });
     var stages = [];
     IDLE_STAGES.forEach(function (stage) {
         var plugin = owners[stage];
@@ -4836,6 +4860,21 @@ function idleStages(manifests, enabledIds, config) {
         stages.push({ stage: stage, plugin: plugin, setting: entry.seconds, seconds: on ? settings[entry.seconds] : 0 });
     });
     return { stages: frozenJson(idleStagesBefore(stages)), problems: problems };
+}
+
+// Each stage a plugin of IDS that MANIFESTS holds declares, owned by the
+// first such plugin by id: { owners, contested }, `owners` stage -> plugin
+// and `contested` each later declarer, { stage, plugin, owner }, in id order.
+function idleStageOwners(manifests, ids) {
+    var owners = Object.create(null);
+    var contested = [];
+    ids.filter(function (id) { return hasOwn(manifests, id); }).sort().forEach(function (plugin) {
+        Object.keys(manifests[plugin].idleStages).forEach(function (stage) {
+            if (owners[stage] !== undefined) contested.push({ stage: stage, plugin: plugin, owner: owners[stage] });
+            else owners[stage] = plugin;
+        });
+    });
+    return { owners: owners, contested: contested };
 }
 
 // The one judge of idle stage order: each of STAGES, in IDLE_STAGES order,
@@ -4869,6 +4908,65 @@ function stageRow(stages, stage) {
     for (var i = 0; i < stages.length; i++)
         if (stages[i].stage === stage) return stages[i];
     return null;
+}
+
+// What an editor of each stage's time reads, by stage of IDLE_STAGES,
+// frozen: { stage, plugin, name, setting, spec, value, reason,
+// immediately, identity }. `plugin` is the stage's owner among the plugins
+// of ENABLED_IDS, as idleStages takes it, else the first plugin of
+// MANIFESTS by id that declares it and is off, else "". `reason` is ""
+// for an enabled owner, "off" for one that is off and "none" with no
+// declarer. `setting` and `spec` are the owner's schema entry for the
+// time, and `value` its effective value under CONFIG, so every page that
+// draws it reads the one stored value; "", null and null with no owner.
+// `immediately` is the time of the stage IDLE_STAGE_WITH names in STAGES,
+// idleStages' record, when the setting takes it, else 0, which offers no
+// Immediately: the record reads 0 for a stage at Never or turned off. `identity` names the owner,
+// its setting and its manifest's source and revision, so a write asked
+// for after any of them changed is refused (idleSettingRefusal).
+function idleSettingFields(manifests, enabledIds, config, stages) {
+    var enabled = idleStageOwners(manifests, enabledIds).owners;
+    var declared = idleStageOwners(manifests, Object.keys(manifests)).owners;
+    var out = {};
+    IDLE_STAGES.forEach(function (stage) {
+        var plugin = enabled[stage] !== undefined ? enabled[stage] : declared[stage] !== undefined ? declared[stage] : "";
+        if (plugin === "") {
+            out[stage] = { stage: stage, plugin: "", name: "", setting: "", spec: null, value: null, reason: "none", immediately: 0, identity: "" };
+            return;
+        }
+        var manifest = manifests[plugin];
+        var setting = manifest.idleStages[stage].seconds;
+        var spec = manifest.schema[setting];
+        var withRow = hasOwn(IDLE_STAGE_WITH, stage) ? stageRow(stages, IDLE_STAGE_WITH[stage]) : null;
+        out[stage] = {
+            stage: stage,
+            plugin: plugin,
+            name: manifest.name,
+            setting: setting,
+            spec: spec,
+            value: settingsFor(config, manifest)[setting],
+            reason: enabled[stage] === plugin ? "" : "off",
+            immediately: withRow !== null && settingError(spec, withRow.seconds) === "" ? withRow.seconds : 0,
+            identity: JSON.stringify([plugin, setting, manifest.__sourceDir === undefined ? null : manifest.__sourceDir, manifest.__revision === undefined ? null : manifest.__revision])
+        };
+    });
+    return frozenJson(out);
+}
+
+// "" when a page lent the stages GRANTED may write STAGE's time as the
+// field of IDENTITY it drew, under FIELDS, idleSettingFields' answer at
+// the write, else its keyed refusal: a granted stage, an enabled owner
+// and the identity the field holds now. The owner's own setting route
+// judges the value (settingRefusal).
+function idleSettingRefusal(fields, granted, stage, identity) {
+    if (IDLE_STAGES.indexOf(stage) === -1)
+        return "refused: idle-setting=" + JSON.stringify(stage) + " want=" + IDLE_STAGES.join("|");
+    if (granted.indexOf(stage) === -1) return "refused: idle-setting=" + stage + " reason=ungranted";
+    var field = fields[stage];
+    if (field.reason === "none") return "refused: idle-setting=" + stage + " owner=none";
+    if (field.reason === "off") return "refused: idle-setting=" + stage + " owner=" + field.plugin + " reason=off";
+    if (identity !== field.identity) return "refused: idle-setting=" + stage + " reason=stale";
+    return "";
 }
 
 // What asked for the session lock. `idle` carries the lock stage's event
@@ -5100,7 +5198,8 @@ function formerIdClaims(manifests, sourceOf) {
 // (arrays, the latter's entries normalRequirements' shape),
 // `capabilityKinds` (an object, {} when undeclared), `settings`,
 // `schema`, `status`, `sounds` and `tui` (objects, `tui` normalTui's shape),
-// `menu` and `idleStages` (objects, {} when undeclared), `fieldRows` (fieldRows'),
+// `menu` and `idleStages` (objects, {} when undeclared), `idleSettingRows`
+// (a list, [] when undeclared), `fieldRows` (fieldRows'),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
 // options } with every bind's key normalised by ConfigLogic.hyprlandKey.
@@ -5233,6 +5332,9 @@ function validateManifest(raw, sourceDir) {
         if (badIdle !== "")
             return { ok: false, error: badIdle };
     }
+    var badIdleRows = idleSettingRowsError(raw.idleSettingRows, raw.idleStages === undefined ? {} : raw.idleStages, capabilities);
+    if (badIdleRows !== "")
+        return { ok: false, error: badIdleRows };
     if (raw.defaultSection !== undefined) {
         if (raw.kinds.indexOf("bar-widget") === -1)
             return { ok: false, error: "defaultSection needs kind bar-widget" };
@@ -5328,9 +5430,10 @@ function validateManifest(raw, sourceDir) {
     manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
     manifest.handoffs = raw.handoffs === undefined ? {} : clone(raw.handoffs);
     manifest.idleStages = raw.idleStages === undefined ? {} : clone(raw.idleStages);
+    manifest.idleSettingRows = raw.idleSettingRows === undefined ? [] : raw.idleSettingRows.slice();
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
-    manifest.fieldRows = fieldRows(manifest.schema, manifest.status);
+    manifest.fieldRows = fieldRows(manifest.schema, manifest.status, manifest.idleStages, manifest.idleSettingRows);
     var badRows = pageRowsError(manifest.fieldRows, manifest.schema, manifest.status, manifest.tui);
     if (badRows !== "") return { ok: false, error: badRows };
     if (raw.hyprland !== undefined) {
@@ -6669,13 +6772,25 @@ function setupGuideRow(manifest, readme) {
 
 // The rows a plugin's Settings page draws for SCHEMA, one per field in
 // schema order, from the normalized STATUS: { key, section, list,
-// keyLists, groups }. `section` is the field's group, "" for none, and `list`
-// whether it is a list, which draws as a section of its own. `keyLists`
-// are the stored key lists placed beside the field (pagePlacementError).
-// `groups` are an enum's option groups (groupsOf), each { name, values },
-// none for any other field.
-function fieldRows(schema, status) {
-    return Object.keys(schema).map(function (key) {
+// keyLists, groups, idleStage, reference }. `section` is the field's
+// group, "" for none, and `list` whether it is a list, which draws as a
+// section of its own. `keyLists` are the stored key lists placed beside
+// the field (pagePlacementError). `groups` are an enum's option groups
+// (groupsOf), each { name, values }, none for any other field.
+// `idleStage` is the stage of IDLE_STAGES whose time the field holds, by
+// the manifest's IDLE_STAGES_DECLARED, "" for none, so the page draws it
+// with the idle time editor. Each stage of IDLE_SETTING_ROWS adds a
+// `reference` row, keyed `stage:<stage>`, whose time another plugin owns
+// (idleSettingFields): after the own stage field of the latest earlier
+// stage, else before that of the earliest later one, in that field's
+// section, else last with no section.
+function fieldRows(schema, status, idleStagesDeclared, idleSettingRows) {
+    var declared = idleStagesDeclared === undefined ? {} : idleStagesDeclared;
+    var stageOf = function (key) {
+        var stages = Object.keys(declared).filter(function (stage) { return declared[stage].seconds === key; });
+        return stages.length === 0 ? "" : stages[0];
+    };
+    var rows = Object.keys(schema).map(function (key) {
         return {
             key: key,
             section: schema[key].underKey !== undefined ? "Keys" : schema[key].group === undefined ? "" : schema[key].group,
@@ -6683,9 +6798,24 @@ function fieldRows(schema, status) {
             keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; }),
             groups: schema[key].type !== "enum" ? [] : groupsOf(schema[key]).map(function (group) {
                 return { name: group.name, values: group.options.map(function (option) { return option.value; }) };
-            })
+            }),
+            idleStage: stageOf(key),
+            reference: false
         };
     });
+    (idleSettingRows === undefined ? [] : idleSettingRows).forEach(function (stage) {
+        var order = IDLE_STAGES.indexOf(stage);
+        var own = function (row) { return row.idleStage !== "" && !row.reference; };
+        var earlier = rows.filter(function (row) { return own(row) && IDLE_STAGES.indexOf(row.idleStage) < order; })
+            .sort(function (a, b) { return IDLE_STAGES.indexOf(b.idleStage) - IDLE_STAGES.indexOf(a.idleStage); })[0];
+        var later = rows.filter(function (row) { return own(row) && IDLE_STAGES.indexOf(row.idleStage) > order; })
+            .sort(function (a, b) { return IDLE_STAGES.indexOf(a.idleStage) - IDLE_STAGES.indexOf(b.idleStage); })[0];
+        var beside = earlier !== undefined ? earlier : later;
+        var row = { key: "stage:" + stage, section: beside === undefined ? "" : beside.section, list: false, keyLists: [], groups: [], idleStage: stage, reference: true };
+        var at = beside === undefined ? rows.length : rows.indexOf(beside) + (beside === earlier ? 1 : 0);
+        rows.splice(at, 0, row);
+    });
+    return rows;
 }
 
 // The first row a Settings page could not draw truly, of ROWS, fieldRows'
@@ -6705,6 +6835,7 @@ function pageRowsError(rows, schema, status, tui) {
         return "tui." + configuring[1] + ".entry page-row=duplicate-label: " + JSON.stringify(SettingValues.PAGE_LABELS.moreSettings) + " is drawn for " + configuring[0] + " already; list one configuration screen";
     var drawn = Object.create(null);
     for (var i = 0; i < rows.length; i++) {
+        if (rows[i].reference) continue;
         var row = rows[i], spec = schema[row.key], at = "schema." + row.key;
         var scope = row.list ? "list " + row.key : "section " + row.section;
         if (drawn[scope] === undefined) drawn[scope] = [];

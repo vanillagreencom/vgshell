@@ -13,11 +13,11 @@ Screensaver shows animated text art on each screen when the desktop is inactive.
 
 ## Setup
 
-Open Plugins > Screensaver to set the inactive time, effect, art and frame rate. Set a shortcut under Keys. For your own art, choose Custom and enter the full path of a PNG or SVG image or a text file.
+Open Plugins > Screensaver to set the inactive time, effect, art and frame rate. Lock after sets the lock's time, which the Lock page and System Settings > Power edit too. Immediately locks when the screensaver starts; it takes the start time it reads when you choose it. Set a shortcut under Keys. For your own art, choose Custom and enter the full path of a PNG or SVG image or a text file.
 
 The screensaver and lock times both count from the start of inactivity. If the session locks after inactivity, the screensaver stays visible. The first key, click or pointer movement then reveals the lock screen without typing into it. Equal times start both together.
 
-Locking the session yourself, putting the computer to sleep or turning the screens off stops the screensaver. Details shows how its inactive time relates to the lock time.
+Locking the session yourself, putting the computer to sleep or turning the screens off stops the screensaver.
 
 ## Licence
 

@@ -25,7 +25,7 @@ ss_log="$home/.local/state/vgshell/screensaver-ttfx.log"
 cp -- "$repo/scripts/smoke/fixtures/screensaver-ttfx" "$shim/ttfx"
 chmod 755 "$shim/ttfx"
 state_text() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("state",{}); print(v.get("text","missing"))'; }
-lock_order() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("lockOrder"); print("absent" if v is None else json.dumps([v.get("tone"), v.get("text")]))'; }
+lock_seconds_read() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["idleLockSeconds"])'; }
 art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("art"); print("absent" if v is None else v.get("text"))'; }
 art_setting() { python3 -c 'import json,sys; row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.screensaver"),{}); print(row.get("art",""))' "$ss_config"; }
 cover_count() { layer_count vgs:cover; }
@@ -61,17 +61,6 @@ expect_poll "screensaver service is built" True record_exists vgs.screensaver
 choices() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("effects", [])))'; }
 expect_poll "effect choices come from ttfx help" '[{"label": "Random", "value": "random"}, {"label": "planted", "value": "planted"}, {"label": "beams", "value": "beams"}]' choices
 expect_poll "the VGS logo shows no art problem" absent art_status
-expect "enabling lock for lock order status is allowed" ok ipc shell setPluginEnabled vgs.lock true
-set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
-expect "lock order reload before ok status" ok ipc shell reloadConfig
-expect_poll "lock order reads lock time as ok" '["ok", "Lock follows at 300 s"]' lock_order
-set_screensaver '{"idleEnabled": true, "idleSeconds": 301}'
-expect "lock order reload before warning status" ok ipc shell reloadConfig
-expect_poll "lock order warns when lock is before screensaver" '["warning", "Lock follows at 300 s"]' lock_order
-expect "disabling lock clears lock order" ok ipc shell setPluginEnabled vgs.lock false
-expect_poll "lock order is absent with lock disabled" absent lock_order
-set_screensaver '{"idleSeconds": 2}'
-expect "lock order reload after restore" ok ipc shell reloadConfig
 set_screensaver '{"idleEnabled": false, "idleSeconds": 2}'
 expect "idle disabled reload for idle control" ok ipc shell reloadConfig
 sleep 4
@@ -534,7 +523,7 @@ release "screensaver window mapping control"
 set_lock_seconds 5
 set_screensaver '{"idleEnabled": true, "idleSeconds": 6}'
 expect "reload for lock-before-screensaver control" ok ipc shell reloadConfig
-expect_poll "the record warns when the lock time is below the screensaver" '["warning", "Lock follows at 5 s"]' lock_order
+expect_poll "the lock reads its 5 s before the screensaver's 6 s" 5 lock_seconds_read
 idle_start "lock-before-screensaver control"
 measure_idle_order "control lock before screensaver" no
 release "screensaver lock-before-screensaver control"

@@ -56,6 +56,9 @@ Singleton {
     // Each idle stage the core skipped, { plugin, error }, for the plugin
     // manager's errors (IdleRegistry.stageRecord).
     readonly property var idleProblems: idleWatches.stageRecord.problems
+    // What an editor of each stage's time reads, for the plugin manager's
+    // rows (IdleRegistry.settingFields).
+    readonly property var idleSettingFields: idleWatches.settingFields
     readonly property bool notificationsHeld: holderIds("notifications").length > 0
     // `<plugin id>:<name>` -> the description each registered shortcut
     // carries, for the plugin manager's Keys rows.
@@ -151,6 +154,7 @@ Singleton {
             unset: key => Plugins.clearSetting(ctx.id, key)
         }),
         idle: idleWatches.provider,
+        idleSettings: ctx => idleWatches.settingsProvider(ctx.manifest.idleSettingRows, root.managerChoose),
         cover: coverPresentation.provider,
         ipc: commands.provider,
         handoff: handoffs.provider,
@@ -192,6 +196,7 @@ Singleton {
             insertWidget: (id, screen, x) => Plugins.insertWidget(id, screen, x),
             moveWidget: (id, section, index) => typeof section !== "string" ? "refused: section=" + JSON.stringify(section) + " want=string" : typeof index === "number" && Number.isInteger(index) && index >= 0 ? Plugins.moveWidget(id, section, index, null) : "refused: index=" + JSON.stringify(index) + " want=integer>=0",
             setSetting: (id, key, value) => root.managerChoose(id, key, value),
+            setIdleSetting: (stage, seconds, identity) => idleWatches.setSetting(Logic.IDLE_STAGES, stage, seconds, identity, root.managerChoose),
             setKey: (id, shortcut, key) => Plugins.setKey(id, shortcut, key),
             update: id => root.managerTui("update", id),
             remove: id => root.managerTui("remove", id),
