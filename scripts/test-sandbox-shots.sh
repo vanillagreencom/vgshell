@@ -3210,16 +3210,14 @@ for name, case, before, after in controls:
     passed, detail = run_case(source.replace(before, after), case)
     assert not passed, (name, 'control stayed green', detail)
 
-# Power's section shots over a modelled content scroll: revealText puts a
-# field a third of the way down the view, clamped, as Probe.qml's revealIn
-# does. The view is 590 px and the after section 1182 px with "Sleep after"
-# at 483, read off the VGS-2033 after run's 1920x1080 power-dark-pane frames;
-# the rows are a section two frames cover, that after section, one too tall
-# for three frames and a middle field that leaves a gap below the top frame.
-def pages_case(text, content, sleep_after):
+# Power's section shots over a modelled content scroll. The view is 590 px
+# and the after section 1182 px, read off the VGS-2033 after run's 1920x1080
+# power-dark-pane frames; the rows cover two frames, that after section,
+# and a section too tall for three frames.
+def pages_case(text, content):
     world = Path(tempfile.mkdtemp(prefix='power-pages-', dir=scratch))
     body = r'''
-height=590 content=$1 sleep_after=$2
+height=590 content=$1
 echo 0 >"$world/y"
 py_reply() { python3 -c "$@"; }
 take() { echo "$1" >>"$world/shots"; }
@@ -3227,42 +3225,40 @@ fail() { echo "$1" >>"$world/failures"; }
 expect_poll() { local label="$1" want="$2"; shift 2; [[ $("$@") == "$want" ]] || fail "$label"; }
 ipc() {
   local at
-  case "$2 ${6-}" in
-    "revealText Dim") at=0 ;;
-    "revealText Sleep after") at=$sleep_after ;;
-    "revealText Wake sources") at=$content ;;
-    "viewHolding ") printf '{"contentY": %s, "contentHeight": %s, "height": %s}\n' "$(<"$world/y")" "$content" "$height"; return ;;
+  case "$2" in
+    revealText) [[ $5 == FormRow && $6 == Dim ]] || return 1; at=0 ;;
+    setViewY) [[ $5 == 'Wake sources' ]] || return 1; at=$6 ;;
+    viewHolding) [[ $5 == 'Wake sources' ]] || return 1; printf '{"contentY": %s, "contentHeight": %s, "height": %s}\n' "$(<"$world/y")" "$content" "$height"; return ;;
     *) return 1 ;;
   esac
-  python3 -c 'import sys; at,ch,h=map(float,sys.argv[1:]); print(max(0,min(at-h/3,ch-h)))' "$at" "$content" "$height" | tee "$world/y"
+  python3 -c 'import sys; at,ch,h=map(float,sys.argv[1:]); print(max(0,min(at,ch-h)))' "$at" "$content" "$height" | tee "$world/y"
 }
 power_shot_pane_pages power-dark-pane
 '''
     runner = world / 'case.sh'
-    runner.write_text('set -euo pipefail\nworld=$3 sandbox=$3 tree=$3\nsource "$4/scripts/smoke/power-fakes.sh"\n'
+    runner.write_text('set -euo pipefail\nworld=$2 sandbox=$2 tree=$2\nsource "$3/scripts/smoke/power-fakes.sh"\n'
                       + functions(text, ('power_shot_pane_pages', 'power_shot_pane_coverage')) + '\n' + body)
-    subprocess.run([bash, str(runner), str(content), str(sleep_after), str(world), str(repo)],
+    subprocess.run([bash, str(runner), str(content), str(world), str(repo)],
                    env={'PATH': os.environ['PATH'], 'LC_ALL': 'C'}, check=True, timeout=20)
     read = lambda name: (world / name).read_text().split('\n')[:-1] if (world / name).exists() else []
     return read('shots'), bool(read('failures'))
 
 pages_rows = (
-    ('before', 1100, 483, ['power-dark-pane', 'power-dark-pane-end'], False),
-    ('after', 1182, 483, ['power-dark-pane', 'power-dark-pane-middle', 'power-dark-pane-end'], False),
-    ('too-tall', 1800, 483, ['power-dark-pane', 'power-dark-pane-middle', 'power-dark-pane-end'], True),
-    ('middle-gap', 1182, 900, ['power-dark-pane', 'power-dark-pane-middle', 'power-dark-pane-end'], True),
+    ('before', 1100, ['power-dark-pane', 'power-dark-pane-end'], False),
+    ('after', 1182, ['power-dark-pane', 'power-dark-pane-middle', 'power-dark-pane-end'], False),
+    ('too-tall', 1800, ['power-dark-pane', 'power-dark-pane-middle', 'power-dark-pane-middle-2', 'power-dark-pane-end'], False),
 )
-for name, content, sleep_after, shots, failed in pages_rows:
-    assert pages_case(source, content, sleep_after) == (shots, failed), name
+for name, content, shots, failed in pages_rows:
+    assert pages_case(source, content) == (shots, failed), name
 
 pages_controls = (
     ('end-from-top', 'after', '"end": y+h+1>=ch and y<=at+h-40', '"end": y+h+1>=ch and y<=h-40'),
-    ('next-unchecked', 'middle-gap', '"next": at<y<=at+h-40', '"next": True'),
+    ('full-height-step', 'too-tall', '"step": min(y+h-40,max(0,ch-h))', '"step": min(y+h,max(0,ch-h))'),
 )
 for name, row, before, after in pages_controls:
     assert source.count(before) == 1, name
-    _, content, sleep_after, shots, failed = next(r for r in pages_rows if r[0] == row)
-    assert pages_case(source.replace(before, after), content, sleep_after) != (shots, failed), (name, 'control stayed green')
+    _, content, shots, failed = next(r for r in pages_rows if r[0] == row)
+    assert pages_case(source.replace(before, after), content) != (shots, failed), (name, 'control stayed green')
 
 # A scan's follow uses the real judge and its applied.json, not a model of
 # package/digest rules. Dictation removes targets before its rescan; the

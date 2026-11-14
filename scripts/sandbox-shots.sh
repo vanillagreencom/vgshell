@@ -8359,13 +8359,12 @@ power_shot_pages() { # MODE SUFFIX
 # write the nmcli stand-in refuses, over a stand-in list of one wired
 # connection, and a second click, whose write the stand-in takes, turns it
 # off and clears the error.
-# NAME at the section's top, NAME-middle when a frame at its end would not
-# overlap the top frame, and NAME-end at its end; each frame overlaps the one
+# NAME at the section's top, then steps of the measured view height minus
+# 40 px, clamped to its end: NAME-middle, NAME-middle-2, ... and NAME-end.
+# "Wake sources" selects the view, not a frame. Each frame overlaps the one
 # before by at least 40 px, as page shots do, so the set shows every row.
-# "Sleep after" is the field the middle frame reveals: it sits near the
-# middle of the scroll of a section tall enough to need that frame.
 power_shot_pane_pages() { # NAME
-  local name="$1" from=0 reach first=(FormRow Dim)
+  local name="$1" from=0 reach to middle=0 frame first=(FormRow Dim)
   # The System window has separate navigation and content scroll areas.
   # Revealing a content field selects the latter without a new probe API.
   # The section's first field is Stay awake's where the tree ships it.
@@ -8373,27 +8372,34 @@ power_shot_pane_pages() { # NAME
   ipc smoke revealText window vgs.system "${first[@]}" >/dev/null || { fail "Power's section did not reveal its first field"; return; }
   expect_poll "Power's section is at its top" True power_shot_pane_coverage top 0
   take "$name"
-  reach="$(power_shot_pane_coverage reach 0)" || reach=""
-  case $reach in
-    True) ;;
-    False)
-      from="$(ipc smoke revealText window vgs.system Field "Sleep after")" || from=""
-      power_revealed "$from" || { fail "Power's section did not reveal its middle field: ${from:-no reply}"; return; }
-      expect_poll "Power's middle shot overlaps its top shot" True power_shot_pane_coverage next 0
-      take "$name-middle" ;;
-    *) fail "Power's section scroll is unreadable: ${reach:-no reply}"; return ;;
-  esac
-  ipc smoke revealText window vgs.system Field "Wake sources" >/dev/null || { fail "Power's section did not reveal its wake field"; return; }
-  expect_poll "Power's end shot reaches the section's end and overlaps the shot before" True power_shot_pane_coverage end "$from"
-  take "$name-end"
+  while :; do
+    reach="$(power_shot_pane_coverage reach "$from")" || reach=""
+    case $reach in True|False) ;; *) fail "Power's section scroll is unreadable: ${reach:-no reply}"; return ;; esac
+    to="$(power_shot_pane_coverage step "$from")" || to=""
+    power_revealed "$to" || { fail "Power's section scroll step is unreadable: ${to:-no reply}"; return; }
+    to="$(ipc smoke setViewY window vgs.system "Wake sources" "$to")" || to=""
+    power_revealed "$to" || { fail "Power's section did not scroll to its next frame: ${to:-no reply}"; return; }
+    if [[ $reach == True ]]; then
+      expect_poll "Power's end shot reaches the section's end and overlaps the shot before" True power_shot_pane_coverage end "$from"
+      take "$name-end"
+      break
+    fi
+    expect_poll "Power's frame below overlaps the shot before" True power_shot_pane_coverage next "$from"
+    middle=$((middle + 1))
+    frame="$name-middle"
+    if ((middle > 1)); then frame+="-$middle"; fi
+    take "$frame"
+    from="$to"
+  done
   ipc smoke revealText window vgs.system "${first[@]}" >/dev/null || fail "Power's section did not return to its top"
 }
 
 # Whether the section's scroll is at its top; whether a frame at its end
 # would overlap the frame at FROM (reach); whether the frame below FROM
 # overlaps it (next); or whether it is at its end and overlaps the frame at
-# FROM (end).
-power_shot_pane_coverage() { # top|reach|next|end FROM
+# FROM (end). The next position (step) uses the measured view's scroll and
+# height, clamped to its end.
+power_shot_pane_coverage() { # top|reach|next|end|step FROM
   ipc smoke viewHolding window vgs.system "Wake sources" | py_reply 'import json,sys
 d=json.load(sys.stdin)
 if not isinstance(d,dict) or not all(k in d for k in ("contentY","contentHeight","height")):
@@ -8401,7 +8407,8 @@ if not isinstance(d,dict) or not all(k in d for k in ("contentY","contentHeight"
 else:
     y,ch,h=(float(d[k]) for k in ("contentY","contentHeight","height"))
     kind,at=sys.argv[1],float(sys.argv[2])
-    print({"top": y==0, "reach": ch-h<=at+h-40, "next": at<y<=at+h-40, "end": y+h+1>=ch and y<=at+h-40}[kind])' "$1" "$2"
+    print({"top": y==0, "reach": ch-h<=at+h-40, "next": at<y<=at+h-40, "end": y+h+1>=ch and y<=at+h-40,
+           "step": min(y+h-40,max(0,ch-h))}[kind])' "$1" "$2"
 }
 
 power_shot_display_wake() { # MODE

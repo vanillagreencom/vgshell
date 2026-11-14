@@ -3430,6 +3430,13 @@ Scope {
             }
             return "no-view";
         }
+        // Sets viewHolding's view to a clamped scroll position and answers it.
+        function setViewY(hostKey: string, id: string, text: string, y: real): string {
+            const view = root.viewOf(hostKey, id, text);
+            if (typeof view === "string") return view;
+            view.contentY = Math.max(0, Math.min(y, view.contentHeight - view.height));
+            return String(view.contentY);
+        }
         // Sets the mouse buttons that drag the view viewHolding finds, so a
         // row's control gives one view Qt's left-button drag back; answers
         // the buttons it held before.
