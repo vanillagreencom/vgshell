@@ -25,6 +25,35 @@ BarWidget {
     function startWait() { wait.restart(); return "ok"; }
     function forget() { opened = ""; return "ok"; }
     function linkLine(value) { linked = value === "true"; return "ok"; }
+    // Map a plain tooltip over the stationary pointer on its own item.
+    // Compositor map-time refocus forces the first-frame input boundary,
+    // without racing a pointer move against expose (VGS-2522).
+    property int inputHoverExits: 0
+    property int inputShows: 0
+    property int inputFrames: 0
+    readonly property bool inputHovered: item.hovered
+    readonly property bool inputObserved: inputShows > 0 && (inputFrames > 0 || inputHoverExits > 0)
+    function overlap() {
+        linked = false;
+        tip.side = "belowStart";
+        tip.box = Qt.binding(() => Qt.rect(0, -item.height - Theme.tooltip.gap, item.width, item.height));
+        return "ok";
+    }
+    Connections {
+        target: item
+        function onHoveredChanged() { if (!item.hovered) root.inputHoverExits += 1; }
+    }
+    Connections {
+        target: root.tip
+        function onOpenedChanged() { if (root.tip.opened) root.inputShows += 1; }
+    }
+    // Qt queues frameSwapped from the render thread after submitting a
+    // frame. The row also captures the compositor before reading hover.
+    // https://doc.qt.io/qt-6/qml-qtquick-window.html#frameSwapped-signal
+    Connections {
+        target: root.tip.opened ? root.tip.tracker.popup.contentItem.Window.window : null
+        function onFrameSwapped() { root.inputFrames += 1; }
+    }
     function rect(target, box) { const p = target.mapToGlobal(box.x, box.y); return JSON.stringify([p.x, p.y, box.width, box.height]); }
     function itemGeometry() { return rect(item, Qt.rect(0, 0, item.width, item.height)); }
     // The link's words in the bar window's coordinates, read through the

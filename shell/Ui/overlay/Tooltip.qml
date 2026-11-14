@@ -513,6 +513,19 @@ Item {
 
             Item {
                 id: content
+                // Quickshell's proxywindow.cpp parents this item into its
+                // QQuickWindow before showing it, but defers the empty mask
+                // to expose, after the first buffer commit (VGS-2522).
+                // Qt's Window.window exposes that backer; this flag makes
+                // its first input region empty too. Later mask polish agrees.
+                // Remove when Quickshell applies masks before showing.
+                // https://doc.qt.io/qt-6/qml-qtquick-window.html#window-attached-prop
+                // https://doc.qt.io/qt-6/qt.html#WindowType-enum
+                Window.onWindowChanged: {
+                    const backer = Window.window;
+                    if (backer !== null && !root.reachable)
+                        backer.flags |= Qt.WindowTransparentForInput;
+                }
                 objectName: "tooltipContent"
                 x: sideInset.inset
                 y: sideInset.topPadding
