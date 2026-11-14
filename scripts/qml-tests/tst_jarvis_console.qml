@@ -99,7 +99,8 @@ Item {
         function test_an_open_at_an_answer_places_its_top_and_marks_it() {
             const values = root.values({});
             const session = values.detail.conversationId;
-            const long = Array(400).fill("word").join(" ");
+            // Taller than the whole console, so no view height reaches it.
+            const long = Array(800).fill("word").join(" ");
             const row = (gen, role, text, at) => ({ gen: gen, role: role, text: text, stage: "final", at: at, session: session, startedAt: 1 });
             values.conversation = [row(1, "user", "first question", 10), row(1, "assistant", "first answer", 20),
                 row(2, "user", "second question", 30), row(2, "assistant", long, 40)];
