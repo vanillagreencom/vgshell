@@ -123,7 +123,7 @@ ORCH_OWNER_ASK_LABEL = "owner-gated"
 ORCH_OVERSEER_LANES = "9"
 
 # Overseer provider order, using the shared model class at medium effort.
-ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,codex:standard:medium"
+ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,copilot:claude-opus-5.5:medium,codex:standard:medium"
 ORCH_HANDOFF_HEADROOM_PCT = "3"
 ORCH_LANE_MAX_PCT = "95"
 ORCH_LANE_CODEX_CREDIT_FLOOR = "0"
