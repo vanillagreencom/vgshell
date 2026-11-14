@@ -15,42 +15,42 @@
 #   3. the plan box, then one question unless -y. Update all reads what
 #      pacman, the AUR and each file source have pending with `vgshell pkg
 #      check`, the Updates window's own check: one with nothing pending
-#      leaves the run, except the system, which runs whenever another
-#      package step does, since each of those needs its upgrade first.
+#      leaves the run. The system runs whenever another package step does,
+#      since each of those needs its upgrade first.
 #      Another primary's system step always runs, since no other primary's
 #      check reads fresh state
-#   4. install a missing AUR helper for VGS's `install-helper` step,
-#      reviewing its clone before Updates' credential session
-#   5. one sudo session, when the run replaces a package and the package
+#   4. one sudo session, when the run replaces a package and the package
 #      layer's elevation command is sudo. That command is the one `vgshell
 #      pkg plan upgrade <primary>` names, from shell.json's
 #      `packages.elevate`, else the first of sudo, doas and run0 on PATH;
 #      doas and run0 ask as their own rules say, as bin/lib/pkg-run.sh does
-#   6. a snapshot through snapper or timeshift behind that command, before
+#   5. a snapshot through snapper or timeshift behind that command, before
 #      any step that replaces a package: the system's, a file source's, the
 #      AUR's or the vgshell-git rebuild. A run with none takes no snapshot
 #      and asks no password. None is taken when the plugin's `snapshot`
 #      setting is off, when neither tool is on PATH or when no elevation
 #      command resolves, and the plan box says which; a failed snapshot
 #      warns and the update goes on
-#   7. VGS itself: `vgshell self update` when `vgshell self status` names the
+#   6. VGS itself: `vgshell self update` when `vgshell self status` names the
 #      step `self`, a checkout or a curl install behind; a step of `none`
 #      names its reason in the plan box and runs nothing
-#   8. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
+#   7. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
 #      the session
-#   9. verified and release files, Flatpak and mise: `vgshell pkg run
+#   8. verified and release files, Flatpak and mise: `vgshell pkg run
 #      upgrade --manager verified-file|deb-file|rpm-file|flatpak|mise`; a
 #      file source replaces packages, so it takes the snapshot and the
 #      orphan step as the system step does, and Update all takes it only
 #      while its check offers one of its installed packages newer
-#  10. pacman's orphaned packages, after the system and file sources,
+#   9. pacman's orphaned packages, after the system and file sources,
 #      inside the sudo session; pacman's removal confirmation is the only
 #      question. Declared build tools stay; later AUR builds' new tools are
 #      judged at the next run
-#  11. each plugin, then each theme, behind its upstream:
+#  10. each plugin, then each theme, behind its upstream:
 #      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
-#  12. the end of the sudo session, which drops the credential
+#  11. the end of the sudo session, which drops the credential
+#  12. install a missing AUR helper for VGS's `install-helper` step,
+#      reviewing its clone after the system upgrade and Updates' session
 #  13. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the table-owned upgrade or the non-table `aurCommand` words, then
 #      the reviewed `<helper> -S vgshell-git` when the status names
@@ -90,12 +90,12 @@
 # pipeline's own start question; orphan removal is skipped and the reboot
 # decision is reported instead of asked. The review's questions still run.
 # A printed reboot reason under -y does not prevent the shell restart.
-# No part's failure ends the run. A source step (7 to 9, 11 and 13) that fails
+# No part's failure ends the run. A source step (6 to 8, 10, 12 and 13) that fails
 # records its cause, read from its output (_updates_cause_of), and the run
 # goes on with the next; a run with a failed step exits 1 after the reboot
 # question. An unread system check is a failed part. After a failed or
-# declined system step, or in Update all a system plan or check that could
-# not be read, the file sources, the AUR
+# declined system step, a system plan that cannot run, or in Update all a
+# system check that could not be read, the file sources, the AUR
 # step, the vgshell-git rebuild and the orphan removal are each skipped
 # with its result line, since they act on the system that step left; a
 # system step blocked before the run starts also takes no snapshot and
@@ -1134,7 +1134,7 @@ _updates_main() {
   fi
   # The package steps besides the system's: the AUR, a file source and the
   # VGS package. Each runs only after a successful system upgrade in this
-  # run, so Update all runs the system step for them with nothing of its own
+  # run, so the system step runs for them with nothing of its own
   # pending, and a system step that cannot run skips them
   # (system_blocked, the cause).
   local more=0 system_blocked="" system_unread=0
@@ -1142,6 +1142,9 @@ _updates_main() {
     if [[ $id == aur ]] || _updates_file_source "$id"; then more=1; fi
   done
   case "$vgs_step" in rebuild|install-helper|aur-upgrade) more=1 ;; esac
+  if [[ $mode == source && $more == 1 && -n $primary && $only != "$primary" ]]; then
+    run=("$primary" "${run[@]}")
+  fi
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes) kept+=("$id"); continue ;;
@@ -1173,7 +1176,7 @@ _updates_main() {
           plan+=("$label: could not check for updates") ;;
       esac
     else
-      [[ $mode == all ]] || _updates_refuse 1 "source=$only reason=no-plan" "$_updates_plan_text"
+      [[ $mode == all || $id != "$only" ]] || _updates_refuse 1 "source=$only reason=no-plan" "$_updates_plan_text"
       _updates_diagnostic "$label: $_updates_plan_text"; plan+=("$label: VGS cannot update this source")
       [[ $id != "$primary" ]] || system_blocked="VGS cannot update the system"
     fi
@@ -1309,25 +1312,6 @@ _updates_main() {
     _updates_fail "System packages" "System packages failed. VGS could not check them for updates. Next: update again later."
   fi
 
-  # A missing helper reviews its own clone before building it, outside
-  # Updates' credential session.
-  # Without it the AUR builds and the VGS package cannot run. Like them,
-  # it builds only when the system step can run.
-  local aur_blocked=""
-  if [[ $rebuild == 1 && $vgs_step == install-helper && -z $system_blocked ]]; then
-    vgs_tui_step "Installing paru for VGS updates"
-    _updates_source paru Paru _updates_run _updates_install_helper
-    if [[ $_updates_outcome == installed ]]; then
-      aur_binary=paru
-      vgs_step=rebuild
-    elif [[ $_updates_outcome == skipped ]]; then
-      aur_blocked="you skipped paru at its review"
-    elif [[ $_updates_outcome == unknown ]]; then
-      aur_blocked="VGS could not read whether paru was installed"
-    else
-      aur_blocked="paru could not be installed"
-    fi
-  fi
   local rebuild_run="$rebuild"
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
@@ -1338,15 +1322,13 @@ _updates_main() {
   if [[ $session == 1 ]] && ! vgs_tui_sudo_session start; then
     denied=1 session=0 snapshot_tool=""
     _updates_diagnostic "updates: sudo=refused"
-    # A failed paru install keeps its own cause. The password refusal
-    # names only the remaining parts that need credentials.
     local skipped=() skipped_text="" i
     if [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; then skipped+=("system packages"); fi
     for id in "${run[@]}"; do
       if _updates_file_source "$id"; then skipped+=("${labels[$id],,}"); fi
     done
-    if [[ -z $aur_blocked ]] && _updates_in aur "${run[@]}"; then skipped+=("AUR packages"); fi
-    if [[ -z $aur_blocked && $rebuild_run == 1 ]]; then skipped+=("the VGS package"); fi
+    if _updates_in aur "${run[@]}"; then skipped+=("AUR packages"); fi
+    if [[ $rebuild_run == 1 ]]; then skipped+=("the VGS package"); fi
     for ((i = 0; i < ${#skipped[@]}; i++)); do
       if ((i == 0)); then skipped_text="${skipped[i]}"
       elif ((i == ${#skipped[@]} - 1)); then skipped_text+=" and ${skipped[i]}"
@@ -1420,6 +1402,24 @@ _updates_main() {
   if [[ ${#themes[@]} -gt 0 ]]; then _updates_update_each theme "${themes[@]}"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi
 
+  # A missing helper reviews its own clone after the system upgrade,
+  # outside Updates' credential session. Without it the AUR builds and
+  # the VGS package cannot run.
+  local aur_blocked=""
+  if [[ $rebuild == 1 && $vgs_step == install-helper && $denied == 0 && -z $system_blocked ]]; then
+    vgs_tui_step "Installing paru for VGS updates"
+    _updates_source paru Paru _updates_run _updates_install_helper
+    if [[ $_updates_outcome == installed ]]; then
+      aur_binary=paru
+      vgs_step=rebuild
+    elif [[ $_updates_outcome == skipped ]]; then
+      aur_blocked="you skipped paru at its review"
+    elif [[ $_updates_outcome == unknown ]]; then
+      aur_blocked="VGS could not read whether paru was installed"
+    else
+      aur_blocked="paru could not be installed"
+    fi
+  fi
   [[ -z $system_blocked ]] || aur_blocked="$system_blocked, and AUR packages build against it"
   if [[ -n $aur_blocked ]]; then
     if _updates_in aur "${run[@]}"; then _updates_results+=("AUR skipped. ${aur_blocked^}."); fi

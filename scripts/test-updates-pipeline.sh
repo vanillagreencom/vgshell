@@ -779,28 +779,31 @@ ROWS
 # the system it left, the AUR, the VGS package, a file source and the
 # orphan removal, each with its result line; every other source still runs.
 row_system_failed() {
-  local fixture expected cause
-  while IFS='|' read -r fixture expected cause; do
+  local fixture expected cause source
+  while IFS='|' read -r fixture expected cause source; do
     reset_fix
     self_json package '"vgshell-git"' rebuild
     printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"},{"id":"verified-file","binary":"pacman"},{"id":"flatpak","binary":"flatpak"}],"sources":[{"id":"mise","binary":"mise"}]}\n' >"$fix/detect.json"
     if [[ $fixture == unread-pacman ]]; then check_json pacman null '"exit=1"'; else touch "$fix/$fixture"; fi
-    pipeline update.sh
+    if [[ -n $source ]]; then pipeline update-source.sh "$source"; else pipeline update.sh; fi
     assert "$fixture ends the run with $expected" test "$status" == "$expected"
     assert "$fixture runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
     assert "$fixture rebuilds no VGS package" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
     assert "$fixture installs no verified package" no_call "vgshell pkg run upgrade --manager verified-file"
     assert "$fixture removes no orphan" no_call "pacman -Qtdq"
     assert "$fixture lists the AUR skipped with its cause" result_has "AUR skipped. $cause, and AUR packages build against it."
-    assert "$fixture lists the VGS package skipped with its cause" result_has "VGS package skipped. $cause, and AUR packages build against it."
-    assert "$fixture lists the verified packages skipped with their cause" result_has "Verified packages skipped. $cause, and these packages install against it."
+    if [[ -z $source ]]; then
+      assert "$fixture lists the VGS package skipped with its cause" result_has "VGS package skipped. $cause, and AUR packages build against it."
+      assert "$fixture lists the verified packages skipped with their cause" result_has "Verified packages skipped. $cause, and these packages install against it."
+      assert "$fixture still installs a later source" result_has "mise installed."
+      assert "$fixture still updates a plugin" result_has "Plugin acme.one installed."
+    fi
     assert "$fixture lists the clean-up skipped with its cause" result_has "Orphaned packages skipped. $cause, and clean-up runs only after a system upgrade."
-    assert "$fixture still installs a later source" result_has "mise installed."
-    assert "$fixture still updates a plugin" result_has "Plugin acme.one installed."
   done <<'ROWS'
 fail-pacman|1|The system upgrade failed
 decline-pacman|0|You declined the system upgrade
 unread-pacman|1|VGS could not check the system for updates
+fail-pacman|1|The system upgrade failed|aur
 ROWS
 }
 # The terminal shows pacman's question on its own line after its whole
@@ -1637,7 +1640,7 @@ row_doas() {
 }
 # update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
-# new version, and no other package is upgraded.
+# new version. The system upgrade precedes the rebuild.
 row_vgs_only() {
   reset_fix
   self_json package '"vgshell-git"' rebuild
@@ -1647,7 +1650,7 @@ row_vgs_only() {
   assert "a VGS rebuild alone takes a snapshot before it" before "sudo snapper -c root create -c number -d VGS update" "vgshell pkg run reinstall --manager aur vgshell-git"
   assert "a VGS rebuild alone drops the credential after it" before "vgshell pkg run reinstall --manager aur vgshell-git" "sudo -k"
   assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
-  assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run upgrade' -e '^pacman -[^Q]' "$tmp/seq")" == 0
+  assert "a VGS rebuild alone upgrades the system before the rebuild" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg run reinstall --manager aur vgshell-git"
 }
 # The new helper step runs through stand-ins only. A failed install skips
 # the VGS rebuild with its cause, and the rest of the run goes on.
@@ -1657,13 +1660,20 @@ row_vgs_helper() {
   printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}\n' >"$fix/detect.json"
   pipeline update-source.sh vgs
   assert "helper success exits 0" test "$status" == 0
+  assert "helper success upgrades the system before installing paru" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg ensure-helper"
   assert "helper success installs paru before VGS" before "vgshell pkg ensure-helper" "vgshell pkg run reinstall --manager aur vgshell-git"
+  touch "$fix/fail-pacman"
+  pipeline update-source.sh vgs
+  assert "a failed system upgrade installs no helper" no_call "vgshell pkg ensure-helper"
+  assert "a failed system upgrade rebuilds no VGS package" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+  assert "a failed system upgrade skips the VGS package with its cause" result_has "VGS package skipped. The system upgrade failed, and AUR packages build against it."
+  rm -f -- "${fix:?}/fail-pacman"
   touch "$fix/fail-ensure-helper"
   pipeline update.sh
   assert "a failed helper install exits 1" test "$status" == 1
   assert "a failed helper install prevents the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
   assert "a failed helper install skips the VGS package with its cause" result_has "VGS package skipped. Paru could not be installed."
-  assert "the system step runs after a failed helper install" has_call "vgshell pkg run upgrade --manager pacman"
+  assert "the system step runs before a failed helper install" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg ensure-helper"
   # The owner's Skip at paru's own review installs nothing and fails nothing.
   rm -f -- "${fix:?}/fail-ensure-helper"
   touch "$fix/skip-ensure-helper"
@@ -1866,7 +1876,7 @@ row_source() {
     "vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg plan upgrade flatpak" \
     "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak" "vgshell ipc call vgs.updates invoke check run"
   pipeline update-source.sh aur
-  assert "the AUR alone holds no session" test "$(grep -c '^sudo /usr/bin/true' "$tmp/seq")" == 0
+  assert "the AUR alone upgrades the system before the AUR" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager aur"
   assert "the AUR alone drops the credential after it" before "vgshell pkg run upgrade --manager aur" "sudo -k"
   pipeline update-source.sh nope
   assert "an unknown source is refused" test "$status:$(head -n 1 "$tmp/out" | tr -d '\r')" == "2:This update request is invalid. Open Updates and try again."
@@ -1884,8 +1894,8 @@ row_verified_file() {
   pipeline update.sh -y
   assert "Update all runs the verified-file upgrade" has_call "vgshell pkg run upgrade --manager verified-file"
   pipeline update-source.sh verified-file
-  assert "the verified-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
-  assert "its one step is the verified-file upgrade" has_call "vgshell pkg run upgrade --manager verified-file"
+  assert "the verified-file source exits 0" test "$status" == 0
+  assert "the system upgrade precedes the verified-file upgrade" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager verified-file"
   touch "$fix/unused-file-source"
   pipeline update.sh -y
   assert "Update all leaves out a verified-file source with nothing installed" no_call "vgshell pkg plan upgrade verified-file"
@@ -1900,12 +1910,12 @@ row_release_file() {
   pipeline update.sh -y
   assert "Update all runs the deb-file upgrade" has_call "vgshell pkg run upgrade --manager deb-file"
   pipeline update-source.sh deb-file
-  assert "the deb-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
-  assert "its one step is the deb-file upgrade" has_call "vgshell pkg run upgrade --manager deb-file"
+  assert "the deb-file source exits 0" test "$status" == 0
+  assert "the system upgrade precedes the deb-file upgrade" before "vgshell pkg run upgrade --manager apt" "vgshell pkg run upgrade --manager deb-file"
   printf '{"primary":{"id":"dnf","binary":"dnf5"},"overlays":[{"id":"rpm-file","binary":"dnf5"}],"sources":[]}\n' >"$fix/detect.json"
   PIPE_PATH="$snapper_dir" pipeline update-source.sh rpm-file
-  assert "the rpm-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
-  assert "its one step is the rpm-file upgrade" has_call "vgshell pkg run upgrade --manager rpm-file"
+  assert "the rpm-file source exits 0" test "$status" == 0
+  assert "the system upgrade precedes the rpm-file upgrade" before "vgshell pkg run upgrade --manager dnf" "vgshell pkg run upgrade --manager rpm-file"
   assert "it replaces packages, so a snapshot comes first" before "sudo snapper -c root create -c number -d VGS update" "vgshell pkg run upgrade --manager rpm-file"
   printf '{"primary":{"id":"apt","binary":"apt-get"},"overlays":[{"id":"deb-file","binary":"apt-get"}],"sources":[]}\n' >"$fix/detect.json"
   touch "$fix/unused-file-source"
@@ -2132,7 +2142,6 @@ control session-without-package-step 'if [[ $replaces == 1 && $elevator == sudo 
 control system-step-when-current '          else plan+=("$label: current")' '          else kept+=("$id"); plan+=("$label: current")' row_snapshot
 control aur-without-system-step '    if [[ $id == aur ]] || _updates_file_source "$id"; then more=1; fi' '    if _updates_file_source "$id"; then more=1; fi' row_full
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
-control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
 control rebuild-by-package '[[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
 control release-aur-command-unread '&& $aur_here == 1 ]]; then vgs_reason=package-manager' '&& false ]]; then vgs_reason=package-manager' row_vgs_step
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
@@ -2228,7 +2237,6 @@ control log-closes-unread "trap 'status=\$?; [[ \$status == 0 ]] || vgs_tui_clos
 control verified-file-left-out 'for arg in verified-file deb-file rpm-file flatpak mise; do' 'for arg in deb-file rpm-file flatpak mise; do' row_verified_file
 control release-file-left-out 'for arg in verified-file deb-file rpm-file flatpak mise; do' 'for arg in verified-file flatpak mise; do' row_release_file
 control release-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      verified-file|flatpak|mise) _updates_in' row_release_file
-control release-file-no-snapshot 'if _updates_file_source "$step_source"; then upgrades=1; fi' 'if [[ $step_source == verified-file ]]; then upgrades=1; fi' row_release_file
 control release-file-unused-kept '  [[ $1 == verified-file || $1 == deb-file || $1 == rpm-file ]]' '  [[ $1 == verified-file ]]' row_release_file
 control verified-file-unused-kept '        [[ $status != 1 ]] || continue' '        :' row_verified_file
 control verified-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      deb-file|rpm-file|flatpak|mise) _updates_in' row_verified_file

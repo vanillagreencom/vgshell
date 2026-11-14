@@ -6,9 +6,9 @@ Read when changing update execution or source admission. The [manifest](manifest
 
 One lock protects the update run. A busy run leaves the active run's log intact. Low disk space and snapshot failure warn without refusing the update.
 
-The plan precedes the snapshot and Updates' credential session. Package steps keep the system's and helper's own configuration. A missing AUR helper reviews its fetched clone before building it. Its credentials end before Updates starts its session.
+The plan precedes the snapshot and Updates' credential session. Package steps keep the system's and helper's own configuration. A missing AUR helper reviews its fetched clone before building it, after the system upgrade and after Updates ends its session.
 
-A snapshot precedes package replacement when a configured tool and elevation route are available. Update all reads what pacman, the AUR and each file source have pending through the package owner's check; another primary's system step always runs, since only pacman's check is known to read fresh package lists. A run that replaces no package takes no snapshot and asks no password. In Update all, the system step runs whenever another package step runs, since each of those needs the system upgrade first. The pipeline drops its shared sudo session before the AUR phase. That phase uses its own credential guard and drops any cached credential on completion, failure or interruption.
+A snapshot precedes package replacement when a configured tool and elevation route are available. Update all reads what pacman, the AUR and each file source have pending through the package owner's check; another primary's system step always runs, since only pacman's check is known to read fresh package lists. A run that replaces no package takes no snapshot and asks no password. The system step runs whenever another package step runs, since each of those needs the system upgrade first. The pipeline drops its shared sudo session before the AUR phase. That phase uses its own credential guard and drops any cached credential on completion, failure or interruption.
 
 The pipeline takes package plans and execution from the shared package owner. Its start-confirmation option does not answer package-manager or review questions. It keeps orphaned packages and prints the reboot decision in that mode.
 
