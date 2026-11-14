@@ -697,14 +697,15 @@ var BOOTSTRAP_BUILD = ["makepkg", "-si"];
 
 // The one step that builds NAME again for manager ID's ACTION without
 // package tests: plan's step over NAME alone with the helper's SKIP_TESTS
-// words before its `--`, as plan answers. Only the AUR's named actions
-// build from a recipe, so another manager or action refuses as
+// words before its `--`, as plan answers; an upgrade's failed package is
+// built as an update of it alone. Only the AUR builds from a recipe, so
+// another manager or a removal refuses as
 // `manager=<id> action=<action> retry=unsupported`, and a helper without
 // SKIP_TESTS words as `helper=<binary> retry=unsupported`.
 function retryPlan(id, action, name, onPath, config) {
-    if (id !== "aur" || (action !== "install" && action !== "reinstall" && action !== "update"))
+    if (id !== "aur" || (action !== "install" && action !== "reinstall" && action !== "update" && action !== "upgrade"))
         return { ok: false, error: "manager=" + id + " action=" + action + " retry=unsupported" };
-    var r = plan(id, action, [name], onPath, undefined, config);
+    var r = plan(id, action === "upgrade" ? "update" : action, [name], onPath, undefined, config);
     if (!r.ok) return r;
     if (!Object.prototype.hasOwnProperty.call(SKIP_TESTS, r.plan.binary))
         return { ok: false, error: "helper=" + r.plan.binary + " retry=unsupported" };

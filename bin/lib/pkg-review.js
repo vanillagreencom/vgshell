@@ -746,30 +746,35 @@ async function reviewFiles(run, view, config, bootstrapClone = null) {
 }
 // Only VGS-published targets may take this shortcut. The full read-only
 // resolver order includes make/check dependencies before any clone is built.
-// The covered targets' package names, or null when the review stays.
+// { pending, covered }: pending the package names the step builds as VGS
+// holds them, NAMES or an upgrade's pending list from the helper's own
+// check, null when that list could not be read; covered those names, or
+// null when the review stays.
 function helperReviewCovered(action, names, ignored, config, binary) {
-    const published = publishedPackages();
-    if (published.names === null) return null;
+    const unread = { pending: null, covered: null };
     let targets = names;
     if (action === "upgrade") {
         const check = managers.checkFor("aur", binary).check;
-        if (!check) return null;
+        if (!check) return unread;
         const command = check.argv.slice();
         if (config) command.splice(1, 0, "--config", config);
         const read = query(command);
-        if (read.error || read.signal) return null;
+        if (read.error || read.signal) return unread;
         const result = managers.checkOutcome(check, read.status, read.stdout, read.stderr);
-        if (result.error) return null;
+        if (result.error) return unread;
         targets = result.packages.map(pkg => pkg.name).filter(name => !ignored.includes(name));
     }
-    if (!targets.length || targets.some(name => judge.publisher(name.split("/").pop(), true, published.names) !== "vgs")) return null;
+    const pending = targets.map(name => name.split("/").pop());
+    const published = publishedPackages();
+    if (published.names === null || !targets.length || targets.some(name => judge.publisher(name.split("/").pop(), true, published.names) !== "vgs"))
+        return { pending, covered: null };
     const command = [binary, ...(config ? ["--config", config] : []), "-Po", "--", ...targets];
     const read = query(command);
-    if (read.error || read.signal || read.status !== 0 || read.stderr) return null;
+    if (read.error || read.signal || read.status !== 0 || read.stderr) return { pending, covered: null };
     const order = managers.parseBuildOrder(read.stdout);
     const covered = order.ok && order.packages.some(pkg => pkg.origin === "AUR")
         && order.packages.filter(pkg => pkg.origin === "AUR").every(pkg => judge.publisher(pkg.name, true, published.names) === "vgs");
-    return covered ? targets.map(name => name.split("/").pop()) : null;
+    return { pending, covered: covered ? pending : null };
 }
 // paru 2.2.0 install.rs:1699 puts FileManagerFlags before the view, so
 // the launcher's call carries them as extra words after --.
@@ -788,8 +793,10 @@ function launcher(run, config) {
     return file;
 }
 // EXECUTE runs the package step; its admitted argument carries the review
-// command, the saved decline and tracking(), the devel bases the step
-// built, which bin/vgshell-pkg checks after paru --gendb.
+// command, the saved decline, tracking(), the devel bases the step built,
+// which bin/vgshell-pkg checks after paru --gendb, and pending, the
+// package names helperReviewCovered read, which name an upgrade's failed
+// package for its retry; null when unread or the review is turned off.
 async function withReview(action, manager, names, ignored = [], installs = [], config, execute) {
     const original = { names, ignored, installs, config };
     if (manager !== "aur" || action === "remove") return execute(original);
@@ -798,18 +805,19 @@ async function withReview(action, manager, names, ignored = [], installs = [], c
     const effective = effectiveConfig(config, found.binary);
     const targets = names.concat(installs).map(name => name.split("/").pop());
     const settings = settingsRead().settings;
-    const covered = settings.enabled === false ? null : helperReviewCovered(action, names.concat(installs), ignored, effective, found.binary);
+    const { pending, covered } = settings.enabled === false ? { pending: null, covered: null }
+        : helperReviewCovered(action, names.concat(installs), ignored, effective, found.binary);
     if (settings.enabled === false || covered !== null) {
         // An upgrade with the review turned off reads no pending list, so
         // it names no target to check.
         const built = covered || (action === "upgrade" ? [] : targets);
-        return execute({ ...original, skipReview: true, tracking: () => publishedTracking(built) });
+        return execute({ ...original, pending, skipReview: true, tracking: () => publishedTracking(built) });
     }
     const run = newRun();
     const reviewCommand = launcher(run, effective);
     const tracking = () => viewTracking(run);
     try {
-        let ended = await execute({ ...original, reviewCommand, skipReview: false, tracking });
+        let ended = await execute({ ...original, pending, reviewCommand, skipReview: false, tracking });
         let result = readOutcome(run);
         if (result?.kind === "skip-packages") {
             const skipped = result.skipped;
@@ -821,7 +829,7 @@ async function withReview(action, manager, names, ignored = [], installs = [], c
             for (const line of result.results) resultLine(line);
             writeJson(path.join(run, "context.json"), { attempt: 1 });
             fs.unlinkSync(path.join(run, "outcome.json"));
-            ended = await execute({ ...next, reviewCommand, skipReview: false, tracking });
+            ended = await execute({ ...next, pending, reviewCommand, skipReview: false, tracking });
             result = readOutcome(run);
         }
         return result === null ? ended : finalOutcome(manager, "paru", result, targets);

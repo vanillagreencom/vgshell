@@ -56,14 +56,16 @@ const named=(table,key)=>table&&Object.hasOwn(table,key)?table[key]:undefined;
 // paru v2.1.0 (70f66dc9) --gendb registers each installed base's git
 // sources (devel.rs:121-126,153-161,204-210). devel-world.json's untracked
 // names the bases it leaves out, as devel.rs:529-553 omits a failed lookup
-// while --gendb exits zero. This stand-in writes only this world's
-// devel.toml, never a host file.
+// while --gendb exits zero; its error, true, prints a print_error line,
+// paru v2.2.0 devel.rs:157-164's, while every base stays tracked. This stand-in writes
+// only this world's devel.toml, never a host file.
 if(name==="paru"&&args.includes("--gendb")){
  log("devel-completion",{config:effectiveConfig});
- const file=path.join(root,"devel-world.json"),untracked=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)).untracked||[]:[];
+ const file=path.join(root,"devel-world.json"),world=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{},untracked=world.untracked||[];
  const sources=Object.entries({"vgshell-git":{url:"https://example.org/vgs.git",commit:"new-vgs-commit"}}).filter(([base])=>!untracked.includes(base));
  const dir=path.join(process.env.XDG_STATE_HOME,"paru");fs.mkdirSync(dir,{recursive:true});
  fs.writeFileSync(path.join(dir,"devel.toml"),sources.map(([base,source])=>`[[${base}.repos]]\nurl = ${JSON.stringify(source.url)}\ncommit = ${JSON.stringify(source.commit)}\n`).join("\n"));
+ if(world.error)process.stderr.write("error: failed to parse srcinfo for 'other-git'\n");
  process.exit(0);
 }
 if(name==="pacman-conf"){

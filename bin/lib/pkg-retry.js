@@ -35,7 +35,9 @@ const managers = load(path.join(repo, "shell/Core/PackageManagers.js"));
 
 const CHANNEL_ENV = ["VGS_TUI_OUTCOME", "VGS_TUI_OUTCOME_PID", "VGS_TUI_RECORD_KEY", "VGS_TUI_RECORD_RUN"];
 const REQUIREMENT_KEYS = ["core/requirements-install", "core/requirements-update"];
-// The seconds a `--version` query may take.
+// The seconds a `--version` query may take. `paru --version` and
+// `makepkg --version` on cachy (paru 2.2.0, makepkg 7.1.0), 2026-11-13:
+// 4 ms and 8 ms in each of five runs; the bound leaves room for a loaded host.
 const VERSION_TIMEOUT = 10;
 
 const channel = (() => {
@@ -188,7 +190,11 @@ function retryPlan(manager, action, target, config, reviewCommand, skipReview) {
 // { status, outcome } for the run to exit with: Stop keeps STATUS, a retry
 // its own status, a cancelled question the cancel's (pkg-review.js ui). A
 // failure the classifier could not read prints
-// `vgshell: build-failure=unclassified reason=<key> [cut=<key>]`.
+// `vgshell: build-failure=unclassified reason=<key> [cut=<key>]`, and a
+// Stop prints `vgshell: build-failure=check-only answer=stop
+// package=<base>`: the build's own output ended at paru's summary, before
+// the question's lines, and that base failed only its own tests
+// (pipeline.sh _updates_cause_of).
 async function afterFailure({ dir, manager, builder, targets, status, retry }) {
     const read = evidence(dir, builder, targets, status);
     const verdict = judge.classifyInstallFailure(read.evidence);
@@ -198,11 +204,15 @@ async function afterFailure({ dir, manager, builder, targets, status, retry }) {
     const answer = await review.ui("retry", verdict.target);
     if (answer.cancelled) return { status: answer.status, outcome: { kind: "package-cancelled", manager, status: answer.status } };
     if (answer.value === "Stop") {
+        process.stderr.write("vgshell: build-failure=check-only answer=stop package=" + verdict.base + "\n");
         const held = retry.hold === undefined ? null : retry.hold(verdict.target);
         return { status, outcome: { kind: "package-check-failed", manager, helper: builder, package: verdict.target, status, retry: held } };
     }
     if (answer.value !== "Retry without tests") refuse("retry=choice-invalid");
     const again = await retry.run(verdict.target);
+    // A result line, so Updates' result list says what the outcome's
+    // testsSkipped says.
+    if (again === 0) review.resultLine(verdict.target + " installed without its tests.");
     return again === 0
         ? { status: 0, outcome: { kind: "package-installed", manager, helper: builder, package: verdict.target, testsSkipped: true } }
         : { status: again, outcome: again >= 128 ? { kind: "package-cancelled", manager, status: again }

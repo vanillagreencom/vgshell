@@ -497,7 +497,7 @@ async function run(action, manager, names, ignored, installs, config) {
     return settle(action, ended.status, ended.outcome);
 }
 
-async function runAdmitted(action, manager, { names, ignored, installs, config, reviewCommand, skipReview, tracking }) {
+async function runAdmitted(action, manager, { names, ignored, installs, config, reviewCommand, skipReview, tracking, pending }) {
     if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0))
         return { status: 0, outcome: { kind: "package-skipped", manager } };
     let r;
@@ -528,7 +528,7 @@ async function runAdmitted(action, manager, { names, ignored, installs, config, 
         if (!chosen.ok) refuse(chosen.error);
         command = chosen.command;
     }
-    const builds = command === "build" && ["install", "reinstall", "update"].includes(r.plan.action);
+    const builds = command === "build" && ["install", "reinstall", "update", "upgrade"].includes(r.plan.action);
     const dir = builds || (["install", "update"].includes(action) && pkgRetry().reporting()) ? pkgRetry().evidenceDir("run-") : null;
     try {
         const parts = buildParts(r.plan);
@@ -536,7 +536,10 @@ async function runAdmitted(action, manager, { names, ignored, installs, config, 
         let ended;
         if (status === 0) ended = { status, outcome: installed(manager, r.plan.binary) };
         else if (builds) ended = await pkgRetry().afterFailure({
-            dir, manager, builder: r.plan.binary, targets: names.concat(installs || []), status,
+            // An upgrade names no target; its failed base must be one of
+            // the pending names the review read (pkg-review.js
+            // helperReviewCovered), else it offers no retry.
+            dir, manager, builder: r.plan.binary, targets: r.plan.action === "upgrade" ? pending || [] : names.concat(installs || []), status,
             retry: {
                 hold: target => pkgRetry().hold(manager, r.plan.action, target, config),
                 run: target => runSteps(command, buildParts(pkgRetry().retryPlan(manager, r.plan.action, target, config, reviewCommand, skipReview)).steps)

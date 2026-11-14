@@ -338,6 +338,7 @@ _updates_package='[A-Za-z0-9@_+.-]+'
 # helper leave one. Also sets _updates_next for the result line's action.
 _updates_cause_of() { # FILE
   local line rest out last="" fault="" keyed=0 value="" held="" held_fault="" tail="" after="" own="" built="" package summary="" build_state=unknown transaction_fault=""
+  local makepkg_error="" unfetched=() finished=() others=0 sentence paru_summary="" tested="" block=0
   _updates_declined=0
   _updates_refused=0
   _updates_unworded=""
@@ -346,6 +347,16 @@ _updates_cause_of() { # FILE
   out="$(_updates_plain "$1")"
   while IFS= read -r line; do
     [[ ! $line =~ $_updates_refusal_question ]] || _updates_refused=1
+    # The package owner's failure keys (bin/lib/pkg-retry.js afterFailure)
+    # are for the log. A Stop at its retry question says the build's own
+    # output ended at paru's summary, so the question's lines are not the
+    # step's, and names the base that failed only its own tests.
+    if [[ $line == *'vgshell: build-failure='* ]]; then
+      if [[ -n $paru_summary && $line =~ (^|[[:space:]])vgshell:\ build-failure=check-only\ answer=stop\ package=($_updates_package)$ ]]; then
+        tested="${BASH_REMATCH[2]}" last="$paru_summary" after="$paru_summary"
+      fi
+      continue
+    fi
     if [[ $line =~ (^|[[:space:]])(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
       value="${BASH_REMATCH[3]}"
       [[ $value != declined=* ]] || _updates_declined=1
@@ -362,6 +373,7 @@ _updates_cause_of() { # FILE
       fi
       last="$line" after="$line"
       if [[ $line =~ $_updates_error_line ]]; then fault="$line"; fi
+      [[ ! $line =~ ^error:\ packages\ failed\ to\ build:\  ]] || paru_summary="$line"
     fi
   done <<<"$out"
   # makepkg's function error identifies the cause; paru's final summary
@@ -375,12 +387,33 @@ _updates_cause_of() { # FILE
     # and keep any transaction diagnostic sticky across later build errors.
     # Elevators report as COMMAND:, not error: (sudo tgetpass.c includes
     # EOF, timeout and read failures). No wording whitelist can prove success.
-    if [[ $line =~ ^error:\ failed\ to\ build:\ [A-Za-z0-9@_+.-]+-[^[:space:]-]+-[^[:space:]-]+[[:space:]]*$ ||
+    # paru prints `failed to download sources` after any failed
+    # --verifysource, an integrity check's included; it is a source that
+    # could not be downloaded only after makepkg's own download error
+    # (libmakepkg source/file.sh, local.sh and the VCS files of pacman
+    # 7.1.0, read 2026-11-13), which keeps the base for its sentence.
+    [[ ! $line =~ ^==\>\ ERROR:\  ]] || makepkg_error="$line"
+    # makepkg's build and test output can print its own error: lines.
+    # Paru's :: or parsing message ends that output even after -ofA:
+    # a cached base has Sources are ready but no Finished making
+    # (paru-check-pass.out; paru v2.2.0 install.rs:567-618).
+    # PackageReview separately refuses a base that never finished.
+    if [[ $line =~ ^==\>\ Making\ package:\  ]]; then block=1
+    elif [[ $line == '    Aborting...' || $line =~ ^==\>\ Finished\ making:\  || $line =~ ^error:\ failed\ to\ (build|download\ sources) ]]; then block=0
+    elif [[ $line =~ ^::\  || $line =~ ^($_updates_package-[^[:space:]-]+-[^[:space:]-]+):\ parsing\ pkg\ list\.\.\.$ ]]; then block=0
+    fi
+    [[ ! $line =~ ^==\>\ Finished\ making:\ ($_updates_package)\  ]] || finished+=("${BASH_REMATCH[1]}")
+    if [[ $line =~ ^error:\ failed\ to\ download\ sources\ for\ \'($_updates_package-[^[:space:]-]+-[^[:space:]-]+)\':[[:space:]]*$ &&
+          ( $makepkg_error == '==> ERROR: Failure while downloading '* || $makepkg_error == *' was not found in the build directory and is not a URL.' ) ]]; then
+      package="${BASH_REMATCH[1]}"
+      unfetched+=("${package%-*-*}")
+      [[ $build_state == transaction ]] || build_state=build
+    elif [[ $line =~ ^error:\ failed\ to\ build:\ [A-Za-z0-9@_+.-]+-[^[:space:]-]+-[^[:space:]-]+[[:space:]]*$ ||
           $line =~ ^error:\ failed\ to\ build\ \'[A-Za-z0-9@_+.-]+-[^[:space:]-]+-[^[:space:]-]+\':[[:space:]]*$ ]]; then
       [[ $build_state == transaction ]] || build_state=build
     elif [[ $line =~ ^error:\ packages\ failed\ to\ build:\ (.+)$ ]]; then
       : # The aggregate cannot turn unknown or transaction into build.
-    elif [[ $line =~ $_updates_error_line ||
+    elif [[ $block == 0 ]] && [[ $line =~ $_updates_error_line ||
             $line =~ ^[[:space:]]*(sudo|doas|run0|pacman|paru|yay):[[:space:]] ||
             $line =~ $_updates_refusal_question ]]; then
       build_state=transaction transaction_fault="$line"
@@ -461,6 +494,32 @@ _updates_cause_of() { # FILE
       *"A failure occurred in "*|*"failed to build"*)
         _updates_cause="VGS could not build ${_updates_failed_builds[*]:-the package}."
         _updates_next="wait for its maintainer to fix the package, then update again."
+        # A base whose source could not be downloaded has a sentence of its
+        # own, which already says what comes next.
+        if [[ ${#unfetched[@]} -gt 0 ]]; then
+          rest=""
+          for package in "${_updates_failed_builds[@]}"; do _updates_in "$package" "${unfetched[@]}" || rest+=" $package"; done
+          _updates_cause=""
+          if [[ -z $rest ]]; then _updates_next=""; else _updates_cause="VGS could not build${rest}."; fi
+          for package in "${unfetched[@]}"; do
+            sentence="$package failed: its source file could not be downloaded. Its maintainer must fix the package; the next update tries again."
+            _updates_cause="${_updates_cause:+$_updates_cause }$sentence"
+          done
+        fi
+        # The owner stopped at the retry its tests' failure offered, which
+        # the next update offers again.
+        if [[ -n $tested ]] && _updates_in "$tested" "${_updates_failed_builds[@]}"; then
+          _updates_cause="$tested failed its own tests." _updates_next="update again to retry it without tests."
+        fi
+        # Without --failfast, paru v2.2.0 builds each base after a failed
+        # one (src/install.rs:866-883), installs those it built once every
+        # base was tried, and only then names the failed ones (:444-451).
+        # So a complete build-only failure installed each other base that
+        # finished.
+        if [[ $_updates_build_complete == 1 ]]; then
+          for package in "${finished[@]}"; do _updates_in "$package" "${_updates_failed_builds[@]}" || others=1; done
+          [[ $others == 0 ]] || _updates_cause+=" The other AUR packages installed."
+        fi
         ;;
     esac
   fi

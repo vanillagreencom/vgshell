@@ -34,9 +34,19 @@ function evidence(name, over = {}) {
 }
 // The check-only transcript with TEXT spliced in before or after it.
 const around = (name, before, after) => ({ complete: true, text: before + transcript(name) + after });
+// NAME's transcript with the line TEXT put before its one line holding
+// NEEDLE.
+function within(name, needle, text) {
+    const lines = transcript(name).split("\n"), at = lines.findIndex(line => line.includes(needle));
+    assert.ok(at >= 0 && lines.filter(line => line.includes(needle)).length === 1, name + ": one line holds " + needle);
+    lines.splice(at, 0, text);
+    return { complete: true, text: lines.join("\n") };
+}
 const making = (base, finished) => `==> Making package: ${base} 2.0-1 (Sat 31 Oct 2026 03:24:21 PM PDT)\r\n` +
     (finished ? `==> Finished making: ${base} 2.0-1 (Sat 31 Oct 2026 03:24:22 PM PDT)\r\n` : "");
 
+// The tool versions and locale of the paru 2.2 capture, with OVER.
+const PARU_2_2 = over => Object.assign({ versions: { makepkg: "7.1.0", paru: "2.2.0" }, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8" } }, over);
 const checkOnly = target => ({ kind: "check-only", base: BASE, version: "1.0-1", target: target || BASE });
 const ordinary = reason => ({ kind: "ordinary", reason });
 const unread = reason => ({ kind: "unread", reason });
@@ -55,9 +65,11 @@ const rows = [
         ["check-pass", 0, ordinary("status=success")],
         ["multi", 1, ordinary("makepkg-errors=2")],
         ["mixed", 1, ordinary("makepkg-errors=2")],
+        // check-only fails, then a second base builds, finishes and
+        // installs at paru's batch install.
+        ["batch-install", 1, checkOnly()],
         ["retry", 0, ordinary("status=success")]
-    ].map(([name, status, want]) => ["paru 2.2 " + name,
-        evidence("paru-2.2-" + name, { versions: { makepkg: "7.1.0", paru: "2.2.0" }, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8" }, status }), want]),
+    ].map(([name, status, want]) => ["paru 2.2 " + name, evidence("paru-2.2-" + name, PARU_2_2({ status })), want]),
     ["paru check-only for a qualified target", evidence("paru-check-only", { targets: ["aur/" + BASE] }), checkOnly("aur/" + BASE)],
     ["a finished dependency base before the target", evidence("paru-check-only", { interval: around("paru-check-only", making("vgs-fixture-dependency", true), "") }), checkOnly()],
     ["English messages under LC_ALL=C despite LANGUAGE", evidence("paru-check-only", { env: { LC_ALL: "C", LANGUAGE: "de" } }), checkOnly()],
@@ -102,6 +114,10 @@ const rows = [
     ["a check failure line that check() did not start", evidence("makepkg-check-only", { interval: { complete: true, text: transcript("makepkg-check-only").replace(/^[^\n]*Starting check\(\)[^\n]*\n/m, "") } }), ordinary("phase=out-of-order")],
     ["a base that did not finish before the target", evidence("paru-check-only", { interval: around("paru-check-only", making("vgs-fixture-dependency", false), "") }), ordinary("bases=ambiguous")],
     ["a helper error before the build", evidence("paru-check-only", { interval: around("paru-check-only", "error: could not resolve a provider\r\n", "") }), ordinary("builder-errors")],
+    // A test runner's own error line, cargo test's, inside check()'s output.
+    ["a check() whose test runner prints error:", evidence("paru-2.2-check-only", PARU_2_2({ interval: within("paru-2.2-check-only", "\u001b[1m\u001b[31m==> ERROR:", "error: test failed, to rerun pass `--lib`\r") })), checkOnly()],
+    // A refused password at the batch install: sudo's own line, not paru's.
+    ["a sudo diagnostic before paru's summary", evidence("paru-2.2-batch-install", PARU_2_2({ interval: within("paru-2.2-batch-install", "error: packages failed to build:", "sudo: timed out reading password\r") })), ordinary("builder-diagnostic")],
     ["a helper line after its summary", evidence("paru-check-only", { interval: around("paru-check-only", "", "error: another transaction failed\r\n") }), ordinary("summary=mismatch")],
     ["makepkg as the builder of paru's transcript", evidence("paru-check-only", { builder: "makepkg", status: 4 }), ordinary("summary=mismatch")],
     ["a target the base does not name", evidence("paru-check-only", { targets: ["ttfx"] }), ordinary("target=unmatched")],
@@ -121,6 +137,7 @@ const config = "/home/user/.config/vgs pacman.conf";
 for (const [label, helper, action, cfg, want] of [
     ["paru install", "paru", "install", undefined, ["paru", "-S", "--needed", "--nocheck", "--", "ttfx"]],
     ["paru update keeps --needed", "paru", "update", undefined, ["paru", "-S", "--needed", "--nocheck", "--", "ttfx"]],
+    ["paru upgrade builds the one package as its update", "paru", "upgrade", undefined, ["paru", "-S", "--needed", "--nocheck", "--", "ttfx"]],
     ["paru reinstall keeps its absence", "paru", "reinstall", undefined, ["paru", "-S", "--nocheck", "--", "ttfx"]],
     ["paru with its config", "paru", "install", config, ["paru", "--config", config, "-S", "--needed", "--nocheck", "--", "ttfx"]],
     ["yay passes makepkg's flag", "yay", "install", undefined, ["yay", "-S", "--needed", "--mflags", "--nocheck", "--", "ttfx"]]
@@ -129,7 +146,7 @@ for (const [label, helper, action, cfg, want] of [
     assert.ok(r.ok, label);
     assert.deepEqual(plain(r.plan.steps), [want], label);
 }
-for (const [manager, action] of [["pacman", "install"], ["aur", "upgrade"], ["aur", "remove"]])
+for (const [manager, action] of [["pacman", "install"], ["aur", "remove"]])
     assert.equal(managers.retryPlan(manager, action, "ttfx", onPath("paru")).error, "manager=" + manager + " action=" + action + " retry=unsupported");
 assert.deepEqual(plain(managers.bootstrapBuild(false)), ["makepkg", "-si"]);
 assert.deepEqual(plain(managers.bootstrapBuild(true)), ["makepkg", "-si", "--nocheck"]);
@@ -197,6 +214,9 @@ if (at < 0) {
             ["one-error", "PackageReview.js", "if (errors.length !== 1) return", "if (errors.length === 0) return"],
             ["check-phase", "PackageReview.js", 'if (started !== "check") return', "if (false) return"],
             ["summary", "PackageReview.js", "return ordinary(\"summary=mismatch\");", ";"],
+            ["multi-base", "PackageReview.js", "after.length < 2 || after[0] !== summary[0] || after[after.length - 1] !== summary[1]", "!sameJson(after, summary)"],
+            ["builder-diagnostic", "PackageReview.js", 'return ordinary("builder-diagnostic");', ";"],
+            ["package-blocks", "PackageReview.js", "if (opened !== null) { block = opened[1]; continue; }", "if (opened !== null) continue;"],
             ["locale", "PackageReview.js", 'if (!englishMessages(e.env)) return unread("locale=unsupported");', ""],
             ["retry-run", "PackageReview.js", 'if (retry.state === "available" && retry.originRun !== run) return fail("retry-run");', ""],
             ["mirror-mask", "PackageReview.js", String.raw`    { pattern: /([a-z][a-z0-9+.-]*:\/\/)[^\s\/@]+@/gi, mask: "$1\u2026@" },` + "\n", ""],

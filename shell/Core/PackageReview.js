@@ -326,10 +326,10 @@ function englishMessages(env) {
 // env the locale variables the step ran with; status and signal the step's
 // end; interval null when no output was captured, else { complete, text },
 // complete when the capture's end mark arrived; targets the names the step
-// asked for. Answers { kind: "check-only", base, version, target };
-// { kind: "unread", reason } when the evidence cannot be judged: no
-// capture, an incomplete interval, or a builder, version or locale whose
-// messages were never checked; or { kind: "ordinary", reason } for a
+// asked for, or an upgrade's pending names. Answers { kind: "check-only",
+// base, version, target }; { kind: "unread", reason } when the evidence
+// cannot be judged: no capture, an incomplete interval, or a builder,
+// version or locale whose messages were never checked; or { kind: "ordinary", reason } for a
 // failure it judged. An unread failure is ordinary to every caller, and
 // its reason is the one the owner reports.
 //
@@ -339,9 +339,21 @@ function englishMessages(env) {
 // only one complete, supported interval qualifies: one makepkg error line,
 // "A failure occurred in check().", right after check() started and
 // followed by makepkg's "Aborting...", in the base the last "Making
-// package" names, which is one target; every other base built in the
-// interval finished, and paru's summary after it names that base alone.
-// Anything else, a signal included, is ordinary.
+// package" before it names, which is one target; every other base made in
+// the interval finished, before the failure or after it. Under paru,
+// its per-base line follows "Aborting..." and its final summary names
+// that base alone. Each base's own makepkg block, from its "Making
+// package" to its "Finished making" or "Aborting...", holds the package's
+// build and test output, which may print anything. The builder's lines
+// outside every block hold no "error:" line but those two, and no
+// elevator or manager diagnostic, `sudo:` to `yay:` (the line-start
+// prefixes pipeline.sh _updates_cause_of reads as a transaction fault),
+// such as a refused password at paru's batch install. Without
+// --failfast, paru v2.2.0 prints a failed base's error and builds the
+// next (src/install.rs:866-883), installs the built bases once every base
+// was tried, then names every failed base once at the end (:444-451), so
+// a multi-base run leaves this shape when one base failed. Anything else,
+// a signal included, is ordinary.
 function classifyInstallFailure(evidence) {
     var ordinary = function (reason) { return { kind: "ordinary", reason: reason }; };
     var unread = function (reason) { return { kind: "unread", reason: reason }; };
@@ -365,14 +377,14 @@ function classifyInstallFailure(evidence) {
     var next = at + 1;
     while (next < lines.length && lines[next] === "") next++;
     if (next === lines.length || lines[next] !== "    Aborting...") return ordinary("marker=incomplete");
-    var started = null, base = null, version = null, firstMaking = -1, made = {}, finished = {};
-    for (i = 0; i < at; i++) {
+    var started = null, base = null, version = null, made = {}, finished = {};
+    for (i = 0; i < lines.length; i++) {
         var phase = /^==> Starting ([a-z]+)\(\)\.\.\.$/.exec(lines[i]);
-        if (phase !== null) started = phase[1];
+        if (phase !== null && i < at) started = phase[1];
         var making = /^==> Making package: (\S+) (\S+) \(/.exec(lines[i]);
         if (making !== null) {
-            if (firstMaking === -1) firstMaking = i;
-            base = making[1]; version = making[2]; made[base] = true;
+            made[making[1]] = true;
+            if (i < at) { base = making[1]; version = making[2]; }
         }
         var done = /^==> Finished making: (\S+) /.exec(lines[i]);
         if (done !== null) finished[done[1]] = true;
@@ -381,12 +393,24 @@ function classifyInstallFailure(evidence) {
     if (base === null) return ordinary("base=missing");
     if (hasOwn(finished, base) || Object.keys(made).some(function (name) { return name !== base && !hasOwn(finished, name); }))
         return ordinary("bases=ambiguous");
-    for (i = 0; i < firstMaking; i++)
-        if (/^error:/.test(lines[i])) return ordinary("builder-errors");
-    var after = lines.slice(next + 1).filter(function (line) { return line !== ""; });
+    var after = lines.slice(next + 1).filter(function (line) { return line !== ""; }).map(function (line) { return line.replace(/ +$/, ""); });
     var built = base + "-" + version;
-    var summary = e.builder === "paru" ? ["error: failed to build '" + built + "':", "error: packages failed to build: " + built] : [];
-    if (!sameJson(after.map(function (line) { return line.replace(/ +$/, ""); }), summary)) return ordinary("summary=mismatch");
+    var summary = ["error: failed to build '" + built + "':", "error: packages failed to build: " + built];
+    if (e.builder === "paru" ? after.length < 2 || after[0] !== summary[0] || after[after.length - 1] !== summary[1] : after.length !== 0)
+        return ordinary("summary=mismatch");
+    var own = [], block = null;
+    for (i = 0; i < lines.length; i++) {
+        var opened = /^==> Making package: (\S+) /.exec(lines[i]);
+        if (opened !== null) { block = opened[1]; continue; }
+        if (block !== null) {
+            var closed = /^==> Finished making: (\S+) /.exec(lines[i]);
+            if ((closed !== null && closed[1] === block) || lines[i] === "    Aborting...") block = null;
+            continue;
+        }
+        own.push(lines[i].replace(/ +$/, ""));
+    }
+    if (!sameJson(own.filter(function (line) { return /^error:/.test(line); }), e.builder === "paru" ? summary : [])) return ordinary("builder-errors");
+    if (own.some(function (line) { return /^\s*(?:sudo|doas|run0|pacman|paru|yay):\s/.test(line); })) return ordinary("builder-diagnostic");
     var targets = Array.isArray(e.targets) ? e.targets : [];
     var matched = targets.filter(function (name) { return String(name).split("/").pop() === base; });
     if (matched.length !== 1) return ordinary("target=unmatched");

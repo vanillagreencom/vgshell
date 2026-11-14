@@ -531,6 +531,7 @@ end = text.rsplit("Update result\n", 1)[1]
 assert sys.argv[2] in " ".join(end.split()), (sys.argv[2], end)
 PY
 }
+result_lacks() { ! result_has "$1" 2>/dev/null; }
 # Whether the first call A comes before the last call B.
 before() { # A B
   local lines i a="" b=""
@@ -1306,9 +1307,13 @@ row_aur_rebuild_stopped() {
     case "$ending" in
       recorded-2.1|sudo-eof|sudo-timeout|sudo-read) recording=paru-check-only.out ;;
       recorded-2.2) recording=paru-2.2-check-only.out ;;
+      recorded-2.2-pass|recorded-2.2-cached-sudo) recording=paru-2.2-batch-install.out ;;
+      recorded-2.2-cargo) recording=paru-2.2-check-only.out ;;
+      recorded-2.2-source) recording=paru-2.2-source-missing.out ;;
       *) recording="" ;;
     esac
     [[ -z $recording ]] || cp -- "$repo/scripts/fixtures/pkg/check-failure/$recording" "$fix/build-recording"
+    [[ $ending != recorded-2.2-cached-sudo ]] || cp -- "$repo/scripts/fixtures/pkg/check-failure/paru-check-pass.out" "$fix/cached-recording"
     cat >"$fix/transaction" <<'SH'
 #!/bin/sh
 case "$1" in
@@ -1319,6 +1324,30 @@ case "$1" in
       paru) printf ':: Proceed to review? [Y/n]: n\n' ;;
       yay) printf ':: Proceed with install? [Y/n] n\naborting due to user\n' ;;
       cancel) exit 130 ;;
+      recorded-2.2-pass)
+        # The package owner's retry question follows paru's summary; Stop
+        # prints its key (bin/lib/pkg-retry.js afterFailure).
+        cat "$FIX/build-recording"
+        printf 'Package tests failed\nThe tests in vgs-fixture-check-only failed. This build was not installed.\nRetry vgs-fixture-check-only without tests?\nvgshell: build-failure=check-only answer=stop package=vgs-fixture-check-only\n' ;;
+      recorded-2.2-cargo)
+        # cargo test's own error line inside the failed check()'s output.
+        awk '/==> ERROR:/ { print "error: test failed, to rerun pass `--lib`\r" } { print }' "$FIX/build-recording" ;;
+      recorded-2.2-cached-sudo)
+        # The recorded source-only return, for a third base, before the
+        # batch install whose password request times out.
+        awk '
+          FNR == NR {
+            if (/Making package:/) started=1
+            if (started) {
+              gsub(/vgs-fixture-check-pass/, "vgs-fixture-cached")
+              cached=cached $0 "\n"
+            }
+            next
+          }
+          /loading packages/ { printf "%s", cached; installing=1; next }
+          /error: packages failed to build:/ { print "sudo: timed out reading password\r"; print; next }
+          !installing { print }
+        ' "$FIX/cached-recording" "$FIX/build-recording" ;;
       recorded-*) cat "$FIX/build-recording" ;;
       sudo-*)
         sed '$d' "$FIX/build-recording"
@@ -1359,7 +1388,16 @@ SH
     assert "$route $ending reports its original result" test "$status" == "$expected"
     if [[ $rebuild == yes ]]; then
       assert "$route $ending still rebuilds independent VGS" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
-      assert "$route $ending reports package, cause and a pacman-valid next step" result_has "AUR packages failed. ${cause:-VGS could not build ttfx.} Next: wait for its maintainer to fix the package"
+      if [[ $ending == recorded-2.2-source ]]; then
+        # The sentence says what comes next, so no Next: repeats it.
+        assert "$route $ending names the package whose source is gone" result_has "AUR packages failed. $cause"
+        assert "$route $ending adds no second next step" result_lacks "the next update tries again. Next:"
+      elif [[ $ending == recorded-2.2-pass ]]; then
+        # Stop at the retry question: the next update offers it again.
+        assert "$route $ending names the tests' failure and the retry as the next step" result_has "AUR packages failed. $cause Next: update again to retry it without tests."
+      else
+        assert "$route $ending reports package, cause and a pacman-valid next step" result_has "AUR packages failed. ${cause:-VGS could not build ttfx.} Next: wait for its maintainer to fix the package"
+      fi
       assert "$route $ending never recommends self update" out_lacks "Next: vgshell self update"
     else
       assert "$route $ending does not re-offer the engine through VGS" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
@@ -1368,6 +1406,10 @@ SH
       fi
       if [[ -n $cause ]]; then
         assert "$route $ending retains the non-build cause before the aggregate" result_has "AUR packages failed. $cause"
+      fi
+      if [[ $ending == recorded-2.2-cached-sudo ]]; then
+        assert "$route $ending does not blame the check-only base for the install failure" result_lacks "VGS could not build vgs-fixture-check-only."
+        assert "$route $ending makes no installed claim after the password timeout" result_lacks "The other AUR packages installed."
       fi
     fi
     assert "$route $ending drops credentials after the AUR" before "$aur_call" "sudo -k"
@@ -1384,6 +1426,10 @@ table build-dependency failed 1 no
 table mixed failed 1 no
 table recorded-2.1 failed 1 yes VGS could not build vgs-fixture-check-only.
 table recorded-2.2 failed 1 yes VGS could not build vgs-fixture-check-only.
+table recorded-2.2-pass failed 1 yes vgs-fixture-check-only failed its own tests. The other AUR packages installed.
+table recorded-2.2-cached-sudo failed 1 no sudo: timed out reading password.
+table recorded-2.2-cargo failed 1 yes VGS could not build vgs-fixture-check-only.
+table recorded-2.2-source failed 1 yes vgs-fixture-source-missing failed: its source file could not be downloaded. Its maintainer must fix the package; the next update tries again.
 custom unrelated failed 1 yes
 table unknown failed 1 no
 table missing-target failed 1 no
@@ -2082,6 +2128,12 @@ check "the old loss reaches the known tool with unread build use" out_has "ttfx-
 check "the old loss drops the known package's build declaration" out_lacks "ttfx-codegen (build tool for ttfx)"
 control raw-build-output 'vgs_tui_log --build-progress "$_updates_log"' 'vgs_tui_log' row_build_progress
 control generic-build-failure '_updates_cause="VGS could not build ${_updates_failed_builds[*]:-the package}."' '_updates_cause="VGS could not build a package."' row_aur_rebuild_stopped
+control source-missing-unnamed '        if [[ ${#unfetched[@]} -gt 0 ]]; then' '        if false; then' row_aur_rebuild_stopped
+control retry-question-as-own ' last="$paru_summary" after="$paru_summary"' '' row_aur_rebuild_stopped
+control test-error-as-fault '    elif [[ $block == 0 ]] && [[ $line =~ $_updates_error_line ||' '    elif [[ $line =~ $_updates_error_line ||' row_aur_rebuild_stopped
+control cached-block-sticky '    elif [[ $line =~ ^::\  || $line =~ ^($_updates_package-[^[:space:]-]+-[^[:space:]-]+):\ parsing\ pkg\ list\.\.\.$ ]]; then block=0' '' row_aur_rebuild_stopped
+control stop-cause-unnamed '_updates_cause="$tested failed its own tests." _updates_next="update again to retry it without tests."' ':' row_aur_rebuild_stopped
+control others-installed-unsaid '[[ $others == 0 ]] || _updates_cause+=" The other AUR packages installed."' ':' row_aur_rebuild_stopped
 control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a reboot."' '  :' row_reboot_unread
 control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
 control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_cause

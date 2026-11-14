@@ -72,16 +72,21 @@ try{
   ["publisher-dependency",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git\nAUR DEP dependency dependency",1,upgrade]
  ])bypass(row);
  // paru --gendb follows a successful build; a built devel base it leaves
- // untracked is a result line, never a failed install.
- for(const [name,untracked] of [["devel-tracked",[]],["devel-untracked",["vgshell-git"]]]){
-  const world=create(path.join(scratch,name),{settings:{agent:"claude",command:""},choices:[]}),order="AUR TARGET vgshell-git vgshell-git";
+ // untracked, or an error it prints, is a result line, never a failed
+ // install. OWNER, when given, is a control's copy of bin/vgshell-pkg.
+ const develError=["devel-error",[],true];
+ function devel([name,untracked,error],folder=name,owner=undefined){
+  const world=create(path.join(scratch,folder),{settings:{agent:"claude",command:""},choices:[]}),order="AUR TARGET vgshell-git vgshell-git";
+  if(owner!==undefined)world.owner=owner;
   write(world,"dependency-world.json",{pending:["vgshell-git"],buildOrder:{upgrade:order,"vgshell-git":order}});
-  write(world,"devel-world.json",{untracked});
+  write(world,"devel-world.json",{untracked,error});
   const result=tty(world,["run","upgrade","--manager","aur"]);
   assert.equal(result.status,0,name+": "+result.stdout+result.stderr);
   assert.equal(world.calls().filter(call=>call.kind==="devel-completion").length,1,name+": tracking repair after the build");
   assert.deepEqual(keyed(result,"package-result").filter(line=>line.includes("vgshell-git")).length,untracked.length,name+": untracked devel base result");
+  if(error)assert.equal(keyed(result,"package-result").length,1,name+": the tracking error is one result line");
  }
+ for(const row of [["devel-tracked",[],false],["devel-untracked",["vgshell-git"],false],develError])devel(row);
  // A flagged base and its pending transitive dependents leave one second
  // call. The clean tree's stored verdict means no repeated VGS question.
  for(const [name,changed,status,agentCount,offerCount] of [["same-tree",false,0,1,2],["changed-tree",true,1,2,3]]){
@@ -212,6 +217,23 @@ try{
   assert.equal(builds(world).filter(call=>call.args.includes("--nocheck")).length,1,"immediate retry: tests skipped once");
   assert.equal(world.calls().filter(call=>call.kind==="devel-completion").length,1,"immediate retry: tracking follows successful install once");
  }
+ // An upgrade's check-only failure of one pending package, while paru built
+ // the other, offers its retry in the same run. The retry's view holds the
+ // same tree, so its stored verdict asks no second review. OWNER, when
+ // given, is a control's copy of bin/vgshell-pkg.
+ function upgradeRetry(folder="upgrade-retry",owner=undefined){
+  const world=create(path.join(scratch,folder),{choices:["Review","Retry without tests"]}),target="vgs-fixture-check-only";
+  if(owner!==undefined)world.owner=owner;
+  write(world,"dependency-world.json",{pending:[target,"vgs-fixture-check-pass"]});
+  write(world,"build.json",{first:{transcript:"paru-2.2-batch-install",status:1},retry:{status:0}});
+  const result=tty(world,["run","upgrade","--manager","aur"]);
+  assert.equal(result.status,0,"upgrade retry: "+result.stdout+result.stderr);
+  assert.equal(agents(world).length,1,"upgrade retry: one agent review");
+  const retried=builds(world).filter(call=>call.args.includes("--nocheck"));
+  assert.deepEqual(retried.map(call=>call.args.slice(call.args.indexOf("--")+1)),[[target]],"upgrade retry: one test-skipping build of the failed package");
+  assert.ok(keyed(result,"package-result").some(line=>line.includes(target)),"upgrade retry: a result line names the package the retry installed");
+ }
+ upgradeRetry();
  // A requirement failure holds one retry. Claiming consumes it once, and
  // the retry enters current file-manager review before disabling tests.
  {
@@ -247,23 +269,25 @@ try{
   const result=cp.spawnSync(process.execPath,[path.join(__dirname,"settings.js"),world.root,mode],{env:world.env,encoding:"utf8",timeout:30000});
   assert.equal(result.status,0,result.stdout+result.stderr);
  }
- // Controls: a copy of the owner with one rule of pkg-review.js removed
- // fails the case that holds the rule, at that rule's own assertion. The
- // copy's bin/ is its own, so the launcher paru runs is the copy's; the
- // rest of the checkout is linked.
+ // Controls: a copy of the owner with one rule of pkg-review.js, or of
+ // FILE, removed fails the case that holds the rule, at that rule's own
+ // assertion. The copy's bin/ is its own, so the launcher paru runs is the
+ // copy's; the rest of the checkout is linked.
  const repo=path.resolve(__dirname,"../../..");
- for(const [name,needle,replacement,rerun,fails] of [
+ for(const [name,needle,replacement,rerun,fails,file="bin/lib/pkg-review.js"] of [
   // helperReviewCovered's named-target branch, which reinstall takes.
   ["reinstall-reviewed","let targets = names;","let targets = [];",owner=>bypass(publisherReinstall,"control-reinstall-reviewed",owner),/^publisher-reinstall: (?:agent count|review questions|helper review choice)$/],
   ["unnamed-agent",'"The " + plan.label + " review stopped without a result."','"The review stopped without a result."',owner=>agentFailure(otherAgent,"control-unnamed-agent",owner),/^other-agent: the offer names the failed agent$/],
-  ["unsaid-line",'if (last) said = " Its last line: "','if (false) said = " Its last line: "',owner=>agentFailure(otherAgent,"control-unsaid-line",owner),/^other-agent: the offer shows the agent's last line$/]
+  ["unsaid-line",'if (last) said = " Its last line: "','if (false) said = " Its last line: "',owner=>agentFailure(otherAgent,"control-unsaid-line",owner),/^other-agent: the offer shows the agent's last line$/],
+  ["upgrade-unclassified",'["install", "reinstall", "update", "upgrade"].includes(r.plan.action)','["install", "reinstall", "update"].includes(r.plan.action)',owner=>upgradeRetry("control-upgrade-unclassified",owner),/^upgrade retry: /,"bin/vgshell-pkg"],
+  ["tracking-error-unread",'if (status !== 0 || review.judge.transcriptLines(stderr).some(line => line.startsWith("error:")))','if (status !== 0)',owner=>devel(develError,"control-tracking-error-unread",owner),/^devel-error: the tracking error is one result line$/,"bin/vgshell-pkg"]
  ]){
   const tree=path.join(scratch,"owner-"+name);
   fs.mkdirSync(tree);fs.cpSync(path.join(repo,"bin"),path.join(tree,"bin"),{recursive:true});
   for(const entry of ["VERSION","shell","config","packaging"])fs.symlinkSync(path.join(repo,entry),path.join(tree,entry));
-  const file=path.join(tree,"bin/lib/pkg-review.js"),source=fs.readFileSync(file,"utf8");
+  const copied=path.join(tree,file),source=fs.readFileSync(copied,"utf8");
   assert.equal(source.split(needle).length-1,1,name+": one rule to remove");
-  fs.writeFileSync(file,source.replace(needle,replacement));
+  fs.writeFileSync(copied,source.replace(needle,replacement));
   let caught=null;
   try{rerun(path.join(tree,"bin/vgshell-pkg"));}catch(error){caught=error;}
   // Node appends a diff after an assert.equal message; judge its own line.
