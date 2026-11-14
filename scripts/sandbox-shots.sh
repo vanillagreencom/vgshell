@@ -1750,15 +1750,24 @@ settings_empty() {
 }
 scene_settings() { # MODE
   # A section shot keeps its heading margin px below the area's top edge.
-  local area at bar title x y section start end height half margin=12
+  local area at bar title x y row section start end height half margin=12
   click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
   expect_poll "the gear opens the Settings window" 1 settings_count
   expect_poll "the Settings window holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
   expect "the Settings window's root takes the focus for the list image" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
   take "settings-$1-list"
   # The pointer resting on a row the selection is not on: the list's one
-  # hover (docs/architecture/design-system.md § Motion).
-  hover_on "the pointer rests on the Plugins list's Bluetooth row" "$settings_kind" vgs.settings "$list_row" Bluetooth "$settings_surface" && take_posed "settings-$1-list-hover"
+  # hover (docs/architecture/design-system.md § Motion). The row is the
+  # list's first one the keyboard has not highlighted, so it is on the
+  # list's first screen: the rows sort by id, and the world's fixtures
+  # can push a row chosen by name below it.
+  if row="$(ipc smoke itemValues "$settings_kind" vgs.settings "$list_row" text,highlighted,index,visible | py_reply 'import json,sys
+rows=sorted((r for r in json.load(sys.stdin) if r["visible"] is True and r["highlighted"] is False), key=lambda r: r["index"])
+print(rows[0]["text"] if rows else "none")')" && [[ $row != none ]]; then
+    hover_on "the pointer rests on the Plugins list's $row row" "$settings_kind" vgs.settings "$list_row" "$row" "$settings_surface" && take_posed "settings-$1-list-hover"
+  else
+    fail "the Plugins list has no row the selection is not on: $row"
+  fi
   park_pointer
   ipc smoke invokeInstance "$settings_kind" vgs.settings open '{}' >/dev/null || fail "the Settings search did not regain focus"
   # A search nothing matches: the empty state and its way back.
@@ -1925,15 +1934,16 @@ EOF
     expect_poll "vgs.ai-usage is built" True record_exists vgs.ai-usage
     expect "the window opens the AI Usage page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.ai-usage
     expect_poll "the AI Usage page is shown" '"vgs.ai-usage"' settings_page
-    # The manifest places the Sign-in entries on the page's Details tab.
+    # The manifest makes the sign-in entries optional steps, which the page
+    # draws on its Setup tab under its one Setup section.
     page_status vgs.ai-usage claude
     expect_poll "the AI Usage sign-in rows are reported" True page_reported vgs.ai-usage
-    # The Sign-in section's heading at the top.
-    if section="$(settings_section Sign-in SectionHeader Sign-in)"; then
+    # The Setup section's heading at the top, down to Codex's sign-in row.
+    if section="$(settings_section Setup EntryRow Codex)"; then
       read -r start _ _ <<<"$section"
-      settings_scroll_to "$((start - margin))" || fail "the scroll to AI Usage's Sign-in section failed"
+      settings_scroll_to "$((start - margin))" || fail "the scroll to AI Usage's Setup section failed"
     else
-      fail "AI Usage's Sign-in section is unreadable: $section"
+      fail "AI Usage's Setup section is unreadable: $section"
     fi
     park_pointer
     take "settings-$1-ai-usage"
