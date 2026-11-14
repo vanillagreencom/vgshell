@@ -31,7 +31,11 @@ function ownedDirectory(dir, forbiddenMode = 0o077) {
 }
 function query(argv, env = {}) {
     // VGS-2482 read-only `paru -Po -- vgshell-git` on home, 2026-11-12:
-    // 1.472 s. Keep the existing 120 s query bound for network variance.
+    // 1.472 s. VGS-2487 `paru --config /etc/pacman.conf -Si --aur -- <foreign>`
+    // on home, 2026-11-14, paru 2.2.0 +git: 33 installed foreign
+    // packages from `pacman -Qmq`, 0.603, 0.546, 0.547 s wall time via
+    // node spawnSync/performance.now, 31 records and two absent AUR names.
+    // Keep the existing 120 s query bound for network variance.
     const answer = cp.spawnSync(argv[0], argv.slice(1), { cwd: home(), encoding: "utf8", timeout: 120000, maxBuffer: 16 * MAX_DATA,
         stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LC_ALL: "C", ...env } });
     return answer;
@@ -261,9 +265,11 @@ function orphanInfo(names) {
         if (foreign.some(name => !managers.validName(name))) throw new Error("foreign=malformed");
         // One helper request bounds network/process cost for the installed
         // collection. -Si separates records with their Repository field.
+        // Paru 2.2.0 src/config.rs clears PKGBUILD repos in --aur mode.
+        // Their metadata read can source recipes while Updates holds sudo.
         const metadata = new Map();
         if (foreign.length) {
-            const answer = query([found.binary, "--config", config, "-Si", "--", ...foreign]);
+            const answer = query([found.binary, "--config", config, "-Si", "--aur", "--", ...foreign]);
             // Paru 2.2.0 keeps complete records on stdout when a requested
             // foreign package is absent from AUR (VGS-2373 home receipt).
             // Admit only that failure, never a network or truncated read.

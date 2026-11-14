@@ -43,11 +43,15 @@
 #      file source replaces packages, so it takes the snapshot and the
 #      orphan step as the system step does, and Update all takes it only
 #      while its check offers one of its installed packages newer
-#  10. each plugin, then each theme, behind its upstream:
+#  10. pacman's orphaned packages, after the system and file sources,
+#      inside the sudo session; pacman's removal confirmation is the only
+#      question. Declared build tools stay; later AUR builds' new tools are
+#      judged at the next run
+#  11. each plugin, then each theme, behind its upstream:
 #      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
-#  11. the end of the sudo session, which drops the credential
-#  12. the AUR, last, so no PKGBUILD runs under the update's credential:
+#  12. the end of the sudo session, which drops the credential
+#  13. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the table-owned upgrade or the non-table `aurCommand` words, then
 #      the reviewed `<helper> -S vgshell-git` when the status names
 #      the step `rebuild`. When self status selects `aur-upgrade` for paru's
@@ -59,8 +63,6 @@
 #      an unread judge excludes nothing. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
-#  13. pacman's orphaned packages, removed only on a yes, default no, after
-#      a system, file source or AUR upgrade
 #  14. record the run's end
 #  15. a reboot question when the run changed a package, by pacman -Q
 #      before the first package step and after the last, that the CachyOS
@@ -85,10 +87,10 @@
 # manager asks its own questions in this terminal. The system and AUR
 # steps keep their own configuration; a custom command keeps any config
 # its words name. -y answers only the
-# pipeline's own start question; the orphan and reboot questions are then
-# reported instead of asked, and the review's questions are still asked.
+# pipeline's own start question; orphan removal is skipped and the reboot
+# decision is reported instead of asked. The review's questions still run.
 # A printed reboot reason under -y does not prevent the shell restart.
-# No part's failure ends the run. A source step (7 to 10 and 12) that fails
+# No part's failure ends the run. A source step (7 to 9, 11 and 13) that fails
 # records its cause, read from its output (_updates_cause_of), and the run
 # goes on with the next; a run with a failed step exits 1 after the reboot
 # question. An unread system check is a failed part. After a failed or
@@ -101,8 +103,9 @@
 # rebuild, which need the helper. A refused password skips every step
 # that needs it: the system, the file rows, the snapshot, the AUR, the
 # rebuild and the orphans. An unreadable VGS status,
-# plugin, theme or orphan list skips that part, and a failed orphan removal
-# or shell restart is a failed part. An unread reboot check warns once
+# plugin, theme or orphan build-tool read skips that part. A declined orphan
+# removal keeps the packages; a failed removal or shell restart is a failed
+# part. An unread reboot check warns once
 # and adds a non-failed result line. A failed reboot permits the shell
 # restart; a failed shell restart updates the already recorded end.
 # An interrupted reboot question acts as Later through the restart,
@@ -558,9 +561,11 @@ _updates_review_of() { # FILE
 # package and the helper) whatever its status, for the review's lines.
 _updates_source() { # ID LABEL ARGV...
   local id="$1" label="$2" part="$2" status=0 reviewed=0
+  local completed="$label installed."
   shift 2
   if [[ $id == aur ]]; then part="AUR packages"
   elif [[ $label == System ]]; then part="System packages"
+  elif [[ $id == orphans ]]; then completed="$label removed."
   fi
   case "$id" in aur|vgshell-git|paru) reviewed=1 ;; esac
   _updates_part "$part"
@@ -569,7 +574,7 @@ _updates_source() { # ID LABEL ARGV...
   _updates_exit="$status"
   if [[ $status -eq 0 && $reviewed == 0 ]]; then
     _updates_outcome=installed
-    _updates_results+=("$label installed.")
+    _updates_results+=("$completed")
     return 0
   fi
   if [[ $status -eq 130 ]]; then
@@ -602,7 +607,7 @@ _updates_source() { # ID LABEL ARGV...
       _updates_results+=("$(_updates_shown "$_updates_review_final")")
     else
       _updates_outcome=installed
-      _updates_results+=("$label installed.")
+      _updates_results+=("$completed")
     fi
     _updates_results+=("${_updates_review_results[@]}")
     return 0
@@ -841,6 +846,12 @@ _updates_orphans() {
   info="$("$_updates_vgshell" pkg orphan-info "${orphans[@]}")" || { _updates_orphans_unread "orphans=info-failed exit=$?"; return 0; }
   out="$(node - "$info" <<'JS'
 const info = JSON.parse(process.argv[2]);
+// Whole-read notes refuse clean-up; missing AUR names and no helper do not.
+const failure = info.unavailable.find(note => !note.includes(":") && note !== "helper=absent");
+if (failure) {
+  console.log("orphans=info-unread cause=" + failure);
+  process.exit(1);
+}
 // REVISIT(D128): declared build tools stay out of the removal offer.
 const kept = info.packages.filter(row => row.builds.length);
 const candidates = info.packages.filter(row => !row.builds.length);
@@ -855,7 +866,7 @@ if (info.unavailable.length) {
 console.error("Pacman does not retain build declarations. Other orphaned packages may be build tools from earlier source builds.");
 console.log(candidates.map(row => row.name).join("\n"));
 JS
-  )" || { _updates_orphans_unread "orphans=unjudged exit=$?"; return 0; }
+  )" || { _updates_orphans_unread "${out:-orphans=unjudged exit=$?}"; return 0; }
   orphans=()
   if [[ -n $out ]]; then mapfile -t orphans <<<"$out"; fi
   if [[ ${#orphans[@]} -eq 0 ]]; then return 0; fi
@@ -863,18 +874,7 @@ JS
     printf 'The orphaned packages were kept. Open Updates to review them.\n'
     return 0
   fi
-  status=0
-  vgs_tui_confirm "Remove ${#orphans[@]} orphaned package(s)?" --default=false || status=$?
-  case "$status" in
-    0)
-      "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}" || {
-        _updates_diagnostic "updates: orphans=remove-failed exit=$?"
-        _updates_fail "Orphaned packages" "Orphaned packages failed. VGS could not remove them. Next: update again and remove them when it asks."
-        vgs_tui_warn "Orphaned packages failed. The rest of the update goes on."
-      } ;;
-    1) echo "Keeping the orphaned packages." ;;
-    *) exit "$status" ;;
-  esac
+  _updates_source orphans "Orphaned packages" "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}"
 }
 
 # The run's one check, asked as `run` so the service starts no second one
@@ -1409,6 +1409,13 @@ _updates_main() {
         ;;
     esac
   done
+  if [[ $primary == pacman && $upgrades == 1 && $denied == 0 ]]; then
+    if [[ -n $system_blocked ]]; then
+      _updates_results+=("Orphaned packages skipped. ${system_blocked^}, and clean-up runs only after a system upgrade.")
+    else
+      _updates_orphans
+    fi
+  fi
   if [[ ${#plugins[@]} -gt 0 ]]; then _updates_update_each plugin "${plugins[@]}"; fi
   if [[ ${#themes[@]} -gt 0 ]]; then _updates_update_each theme "${themes[@]}"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi
@@ -1490,13 +1497,6 @@ _updates_main() {
   fi
   if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi
 
-  if [[ $primary == pacman && $upgrades == 1 && $denied == 0 ]]; then
-    if [[ -n $system_blocked ]]; then
-      _updates_results+=("Orphaned packages skipped. ${system_blocked^}, and clean-up runs only after a system upgrade.")
-    else
-      _updates_orphans
-    fi
-  fi
   rm -f -- "${_updates_cause_file:?}"
   local ended=finished
   if [[ ${#_updates_failed_parts[@]} -gt 0 ]]; then ended=failed; fi

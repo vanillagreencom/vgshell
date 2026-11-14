@@ -101,8 +101,6 @@
 //       read-only installed-name postcheck; exits 1 if any name is missing.
 //   vgshell-pkg orphan-info <name>...
 //       Updates' read-only build-tool annotations, { packages, unavailable }.
-//       Updates' read-only dependency check after an AUR failure; exit 0 only
-//       when a complete helper build order excludes every failed build.
 //   vgshell-pkg review-run
 //       Updates allocates its private part and outcome folder. Its exit
 //       trap removes that folder when the run ends.

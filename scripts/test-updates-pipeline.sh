@@ -118,7 +118,9 @@ stub() { # DIR NAME BODY
 # `self status` fails while $FIX/fail-self-status exists, `pkg orphan-info`
 # while $FIX/fail-orphan-info does, `pkg review-custom-consent` while
 # $FIX/fail-consume does and refuses as the owner's No does while
-# $FIX/decline-consent does, `pkg run remove` while $FIX/fail-remove does,
+# $FIX/decline-consent does. `pkg run remove` fails with a lock error for
+# $FIX/fail-remove, declines at pacman's question for $FIX/decline-remove,
+# and exits 130 for $FIX/interrupt-remove.
 # `restart` while $FIX/fail-restart does and `power reboot` while
 # $FIX/fail-reboot does. `ipc call ... check` leaves $FIX/ended-at-check when the run had
 # recorded its end, and $FIX/outcome-at-check when the outcome file was
@@ -198,7 +200,13 @@ case "$1 $2" in
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
-    [ "$3" != remove ] || [ ! -e "$FIX/fail-remove" ] || exit 1
+    if [ "$3" = remove ]; then
+      [ ! -e "$FIX/fail-remove" ] || { printf "error: failed to init transaction (unable to lock database)\n" >&2; exit 1; }
+      [ ! -e "$FIX/interrupt-remove" ] || exit 130
+      printf ":: Do you want to remove these packages? [Y/n] " >&2
+      [ ! -e "$FIX/decline-remove" ] || { printf "n\n" >&2; echo "shell=rescan-started"; exit 1; }
+      printf "y\n" >&2
+    fi
     if [ "$3" = reinstall ] && [ "$5" = aur ]; then
       shift 5
       exec paru -S "$@"
@@ -244,7 +252,7 @@ printf '%s\n' "$repo/bin/vgshell-pkg" >"$tree/bin/review-owner"
 stub "$stubs" gum 'case "$1" in
   confirm)
     for q; do :; done
-    case "$q" in "Start the update?"*) f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
+    case "$q" in "Start the update?"*) f=start ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
     if [ "$f" = reboot ]; then
       d="$(cat "$FIX/current-run")"
       [ ! -e "$d/ended" ] || : >"$FIX/ended-at-reboot"
@@ -370,12 +378,13 @@ if [ -e "$FIX/devel-status" ]; then
   esac
 fi
 case "$*" in
-  *"-Si -- "*)
+  *"-Si --aur -- "*)
     [ -e "$FIX/aur-info" ] || exit 1
     cat "$FIX/aur-info"
     [ ! -e "$FIX/aur-info-error" ] || cat "$FIX/aur-info-error" >&2
     status=0; [ ! -e "$FIX/aur-info-status" ] || read -r status <"$FIX/aur-info-status"
     exit "$status" ;;
+  *"-Si "*) exit 1 ;;
 esac
 [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@" || exit "$?"
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
@@ -552,15 +561,15 @@ assert() {
 
 # The whole run, in order: the reads, the AUR's and the system's update
 # checks, the question, the sudo session, VGS, the system, Flatpak, mise,
-# the plugin and the theme, the session's end, the AUR, the drop after it,
-# the orphans. No snapshot tool is 127: no warning, and the run goes on.
+# the orphans, the plugin and the theme, the session's end, the AUR and
+# the drop after it. No snapshot tool is 127: no warning, and the run goes on.
 full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg check --json --source aur" "vgshell self status --json"
   "vgshell pkg plan upgrade pacman" "vgshell pkg check --json --source pacman" "vgshell pkg plan upgrade flatpak" "vgshell pkg plan upgrade mise" "vgshell pkg plan upgrade aur"
   "vgshell plugin outdated --json" "vgshell theme outdated --json" "gum confirm -- Start the update?"
   "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "pacman -Q" "vgshell self update"
   "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise"
-  "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k"
-  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Q" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check run")
+  "pacman -Qtdq" "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k"
+  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Q" "vgshell ipc call vgs.updates invoke check run")
 row_full() {
   reset_fix
   pipeline update.sh
@@ -1080,18 +1089,50 @@ row_reboot_core() {
 row_orphans() {
   reset_fix
   printf 'foo\nbar\n' >"$fix/orphans"
-  echo 1 >"$fix/answer-orphans"
-  pipeline update.sh
-  assert "orphans are asked about, default no" has_call "gum confirm --default=false -- Remove 2 orphaned package(s)?"
-  assert "a no removes no orphan" test "$(grep -c 'pkg run remove' "$tmp/seq")" == 0
-  rm -f -- "$fix/answer-orphans"
-  pipeline update.sh
-  assert "a yes removes the orphans through the package table" has_call "vgshell pkg run remove --manager pacman foo bar"
+  local answer
+  for answer in yes no interrupt; do
+    rm -f -- "$fix/decline-remove" "$fix/interrupt-remove"
+    case "$answer" in
+      no) touch "$fix/decline-remove" ;;
+      interrupt) touch "$fix/interrupt-remove" ;;
+    esac
+    pipeline update.sh
+    assert "$answer reaches removal through the package table" has_call "vgshell pkg run remove --manager pacman foo bar"
+    assert "$answer removes within the first password session" python3 - "$tmp/seq" <<'PY'
+import pathlib
+import sys
+calls = pathlib.Path(sys.argv[1]).read_text().splitlines()
+system = calls.index("vgshell pkg run upgrade --manager pacman")
+removal = calls.index("vgshell pkg run remove --manager pacman foo bar")
+assert system < removal < calls.index("sudo -k", system), calls
+assert calls.count("sudo /usr/bin/true") == 1, calls
+PY
+    assert "$answer asks no VGS removal question" no_call "gum confirm .*Remove"
+    if [[ $answer == interrupt ]]; then
+      assert "an interrupted removal ends the run with 130" test "$status" == 130
+      assert "an interrupted removal starts no later plugin or AUR step" no_call "vgshell plugin update"
+      assert "an interrupted removal starts no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+    else
+      assert "$answer asks only pacman's removal question once" test "$(grep -cF ':: Do you want to remove these packages? [Y/n]' "$tmp/out")" == 1
+      assert "$answer leaves the run successful" test "$status" == 0
+      if [[ $answer == no ]]; then
+        assert "a pacman no is declined, not a failed part" result_has "Orphaned packages skipped. You declined it."
+      else
+        assert "a pacman yes records removal, not installation" result_has "Orphaned packages removed."
+      fi
+    fi
+  done
+  rm -f -- "$fix/interrupt-remove"
   touch "$fix/fail-orphan-info"
   pipeline update.sh
   assert "an unreadable orphan list is a skipped part" result_has "Orphaned packages skipped. VGS could not check which packages are unused. Update again later."
   assert "an unreadable orphan list leaves the run successful" test "$status" == 0
   assert "the run's check follows an unreadable orphan list" before "vgshell pkg orphan-info foo bar" "vgshell ipc call vgs.updates invoke check run"
+  assert "an unreadable build-tool read starts no removal" no_call "vgshell pkg run remove"
+  assert "an unreadable build-tool read leaves the AUR step running" has_call "vgshell pkg run upgrade --manager aur"
+  assert "an unreadable build-tool read finishes the outcome" "$node_bin" - "$outcome" <<'JS'
+require("node:assert/strict").equal(JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8")).ended, "finished");
+JS
   # The parts outside the sources: a failed removal and restart fail, and
   # an unreadable plugin list is skipped.
   rm -f -- "${fix:?}/fail-orphan-info" "${fix:?}/plugins.json"
@@ -1099,7 +1140,7 @@ row_orphans() {
   pipeline update.sh
   assert "an unreadable plugin list is a skipped part" result_has "Plugins skipped. VGS could not check them for updates. Update again later."
   assert "an unreadable plugin list shows as unchecked in the plan box" out_has "Plugins: could not check for updates"
-  assert "a failed orphan removal is a failed part" result_has "Orphaned packages failed. VGS could not remove them."
+  assert "a failed orphan removal is a failed part with its cause" result_has "Orphaned packages failed. Another package manager is running, or one that stopped left its lock behind."
   assert "a failed shell restart is a failed part" result_has "VGS could not restart. Restart the computer when you are ready."
   assert "failed removal and restart end the run with 1" test "$status" == 1
   reset_fix
@@ -1119,13 +1160,22 @@ ttfx-tests|build tool for ttfx
 ROWS
   assert "one line reports the kept build tools" out_has "Kept 5 build tool(s):"
   assert "complete metadata permits the unused label" out_has "other (unused dependency)"
-  assert "only the remaining candidate is offered" has_call "gum confirm --default=false -- Remove 1 orphaned package(s)?"
   assert "declared make and check tools never reach removal" has_call "vgshell pkg run remove --manager pacman other"
+  assert "an AUR-only run removes before the AUR build" before "vgshell pkg run remove --manager pacman other" "vgshell pkg run upgrade --manager aur"
 
   printf 'ttfx-codegen\nttfx-tests\n' >"$fix/orphans"
   pipeline update-source.sh aur
-  assert "an all-tools list asks no removal question" no_call "gum confirm --default=false -- Remove"
   assert "an all-tools list starts no removal" no_call "vgshell pkg run remove"
+
+  printf 'ttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
+  printf 'error: connection failed\n' >"$fix/aur-info-error"
+  printf '1\n' >"$fix/aur-info-status"
+  pipeline update.sh
+  assert "a failed helper query skips clean-up in the result list" result_has "Orphaned packages skipped. VGS could not check which packages are unused. Update again later."
+  assert "a failed helper query records the whole-read cause" diag_has "updates: orphans=info-unread cause=query=paru cause=1"
+  assert "a failed helper query starts no removal" no_call "vgshell pkg run remove"
+  assert "a failed helper query leaves the run successful" test "$status" == 0
+  assert "the run's check follows a failed helper query" before "vgshell pkg orphan-info ttfx-codegen ttfx-tests other" "vgshell ipc call vgs.updates invoke check run"
 
   # Home's paru 2.2.0 receipt: a missing foreign name exits 1 while the
   # other package's complete record remains on stdout (VGS-2373).
@@ -1140,7 +1190,7 @@ ROWS
   assert "a partial read makes no unused-dependency claim" out_lacks "unused dependency"
   assert "a partial read marks remaining build use unknown" out_has "other (build use unknown)"
   assert "a partial read removes only the remaining candidate" has_call "vgshell pkg run remove --manager pacman other"
-  assert "foreign metadata uses one collection query" test "$(grep -c -- ' -Si -- ttfx unknown$' "$calls")" == 1
+  assert "foreign metadata uses one AUR-only collection query" test "$(grep -c -- ' -Si --aur -- ttfx unknown$' "$calls")" == 1
   cp -- "$fix/aur-info" "$fix/missing-foreign.stdout"
   cp -- "$fix/aur-info-error" "$fix/missing-foreign.stderr"
   cp -- "$fix/aur-info-status" "$fix/missing-foreign.exit"
@@ -1196,7 +1246,8 @@ row_yes() {
   printf 'foo\n' >"$fix/orphans"
   pipeline update.sh -y
   assert "-y asks no start question" test "$(grep -c 'Start the update' "$tmp/seq")" == 0
-  assert "-y reports orphans instead of asking" test "$(grep -c 'orphaned' "$tmp/seq")" == 0
+  assert "-y reports that orphans stay" out_has "The orphaned packages were kept. Open Updates to review them."
+  assert "-y starts no removal" no_call "vgshell pkg run remove"
   assert "-y still runs the system step" has_call "vgshell pkg run upgrade --manager pacman"
 }
 row_recheck_failure() {
@@ -2113,12 +2164,15 @@ control builds-after-unread-system '          system_blocked="VGS could not chec
 control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]' 'if false' row_aur_rebuild_stopped
 control rebuild-after-complete-build-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
 control build-tools-offered 'const candidates = info.packages.filter(row => !row.builds.length);' 'const candidates = info.packages;' row_orphans
+control orphans-after-session '      _updates_orphans' '      vgs_tui_sudo_session end; _updates_orphans' row_orphans
+control orphan-removal-unjudged '_updates_source orphans "Orphaned packages" "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}"' \
+  '"$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}"' row_orphans
 # Restore output() at the exact helper query that used to lose every
 # record on exit 1. Exercise the same production owner through the fixture
 # vgshell, with shipped recipe declarations available in its copied tree.
 copy_with orphan-partial-loss "$repo/bin/lib/pkg-review.js" \
-  'const answer = query([found.binary, "--config", config, "-Si", "--", ...foreign]);' \
-  'const answer = { status: 0, stderr: "", stdout: output([found.binary, "--config", config, "-Si", "--", ...foreign]) };'
+  'const answer = query([found.binary, "--config", config, "-Si", "--aur", "--", ...foreign]);' \
+  'const answer = { status: 0, stderr: "", stdout: output([found.binary, "--config", config, "-Si", "--aur", "--", ...foreign]) };'
 orphan_control="$tmp/orphan-control"
 cp -R -- "$tree" "$orphan_control"
 cp -- "$copy" "$orphan_control/bin/lib/pkg-review.js"
@@ -2130,8 +2184,17 @@ red=0
 QUIET=1 row_orphans
 cp -- "$tmp/orphan-review-owner" "$tree/bin/review-owner"
 check "the old partial-output loss fails the foreign metadata row" test "$red" -gt 0
-check "the old loss reaches the known tool with unread build use" out_has "ttfx-codegen (build use unknown)"
+check "the old loss skips clean-up on the lost partial read" result_has "Orphaned packages skipped. VGS could not check which packages are unused. Update again later."
 check "the old loss drops the known package's build declaration" out_lacks "ttfx-codegen (build tool for ttfx)"
+copy_with orphan-query-not-aur-only "$tree/bin/lib/pkg-review.js" \
+  '"-Si", "--aur", "--", ...foreign' '"-Si", "--", ...foreign'
+cp -- "$copy" "$orphan_control/bin/lib/pkg-review.js"
+printf '%s\n' "$orphan_control/bin/vgshell-pkg" >"$tree/bin/review-owner"
+red=0
+QUIET=1 row_orphans
+cp -- "$tmp/orphan-review-owner" "$tree/bin/review-owner"
+check "the non-AUR-only query mutant fails row_orphans" test "$red" -gt 0
+check "the non-AUR-only mutant still queries the foreign targets" grep -q -- ' -Si -- ttfx unknown$' "$calls"
 control raw-build-output 'vgs_tui_log --build-progress "$_updates_log"' 'vgs_tui_log' row_build_progress
 control generic-build-failure '_updates_cause="VGS could not build ${_updates_failed_builds[*]:-the package}."' '_updates_cause="VGS could not build a package."' row_aur_rebuild_stopped
 control source-missing-unnamed '        if [[ ${#unfetched[@]} -gt 0 ]]; then' '        if false; then' row_aur_rebuild_stopped
@@ -2157,7 +2220,6 @@ control reboot-ignores-targets '&& targetsMatch(trigger.targets, change.name);' 
 control reboot-ignores-mounts "printf 'mounted %s\\n' \"\$value\"" ':' row_reboot_core
 control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version 2>&1)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version 2>&1)"' row_reboot_core
 control reboot-new-as-upgrade 'then changes+=("install $name")' 'then changes+=("upgrade $name")' row_reboot_core
-control orphans-default-yes 'orphaned package(s)?" --default=false || status=$?' 'orphaned package(s)?" || status=$?' row_orphans
 control log-clobbers 'vgs_tui_log --build-progress "$_updates_log" "$UPDATES_LOG_PART"' 'vgs_tui_log --build-progress "$_updates_log" "$_updates_log"' row_busy
 control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true || status=$?' row_declined
 control log-elsewhere 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/update.log"' 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/other.log"' row_log

@@ -10,7 +10,9 @@ The plan precedes the snapshot and Updates' credential session. Package steps ke
 
 A snapshot precedes package replacement when a configured tool and elevation route are available. Update all reads what pacman, the AUR and each file source have pending through the package owner's check; another primary's system step always runs, since only pacman's check is known to read fresh package lists. A run that replaces no package takes no snapshot and asks no password. In Update all, the system step runs whenever another package step runs, since each of those needs the system upgrade first. The pipeline drops its shared sudo session before the AUR phase. That phase uses its own credential guard and drops any cached credential on completion, failure or interruption.
 
-The pipeline takes package plans and execution from the shared package owner. Its start-confirmation option does not answer package-manager or review questions. It prints orphan and reboot decisions instead of asking them in that mode.
+The pipeline takes package plans and execution from the shared package owner. Its start-confirmation option does not answer package-manager or review questions. It keeps orphaned packages and prints the reboot decision in that mode.
+
+Orphan clean-up follows the system and file sources before the shared credential session ends. pacman's removal confirmation is its only question. The package owner's build-tool judgement keeps declared tools out of removal ([D128](../../../docs/decisions/D128-keep-declared-build-tools.md)); tools installed by later AUR builds are judged at the next run. An unread orphan list or build-tool read skips only clean-up. A declined removal keeps the packages without failing the run.
 
 ## Outcomes and transcript
 
