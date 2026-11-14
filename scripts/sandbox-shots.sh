@@ -235,6 +235,13 @@
 # notify-send and sent to the sandbox's notification server as it was
 # written: its toast under the pointer, so its actions show, its Inbox row
 # selected, and that row with the arrow key on its first action.
+# notification-limits, taken only when named, is the long notices of
+# twenty-one senders, as each sender's own code words and hints them, on
+# screen in batches of seven, with the pointer on a short and on a wide
+# button, three toasts of one, two and three text lines, then all in the
+# inbox from its top to its end and, where the tree can open a cut card,
+# the theme check card open, each shot's box in items.tsv: the cards on
+# screen, or the inbox panel.
 # add-widget, taken only when named, is the bar's widget chooser, Manage
 # widgets, or Add widget in a --rev tree from before it, at rest with the
 # Tick fixture on the bar, AI Usage off it and Displays turned off, with
@@ -666,6 +673,7 @@ while [[ $# -gt 0 ]]; do
     local-sync) scenes+=("$1"); shift ;;
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
+    notification-limits) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -827,6 +835,7 @@ scene_ships() {
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
     automation-failure) ships_plugin vgs.automations vgs.notifications ;;
+    notification-limits) ships_plugin vgs.notifications ;;
     screensaver) ships_plugin vgs.screensaver ;;
     screensaver-lock) ships_plugin vgs.screensaver vgs.lock ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
@@ -3264,6 +3273,366 @@ scene_notifications() { # MODE
   done
   expect "the history clears" ok notes clear-history
   expect_poll "no toast is left" 0 on_screen
+}
+
+# The notification-limits scene: the longest notice each of twenty-one senders
+# writes, worded and hinted as its own code sends it: a plugin's through
+# the core's shell.notify.send (PluginLogic.notifyArgv: the manifest name
+# as the app, x-vgs-plugin, x-vgs-click none without actions, tone, icon,
+# a page reference's words with the reference in x-vgs-page, transient),
+# the core's as "VGS" from plugin "core", Automations' engine
+# (AutomationsLogic.notifySendArgs), Capture's helper (capture.py's
+# Notify, resident) and the synthetic Slack of the notifications scene.
+# Angle-bracket parts of each text are filled with made-up values.
+nl_theme_title="Paper Dawn: some text may be hard to read"
+# nl_q TEXT: TEXT as a GVariant string, so gdbus never reads it as
+# another type.
+nl_q() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1], ensure_ascii=False))' "$1"; }
+nl_send() { # APP SUMMARY BODY ACTIONS HINTS
+  notify "$(nl_q "$1")" "$(nl_q "$2")" "$(nl_q "$3")" "$4" "$5" >/dev/null || fail "notification-limits: \"$2\" could not be sent"
+}
+# nl_plugin APP PLUGIN URGENCY TONE ICON ACTIONS EXTRA TITLE BODY: a notice
+# as the core delivers a plugin's shell.notify.send; EXTRA is more hints.
+nl_plugin() {
+  local hints
+  hints="{\"x-vgs-plugin\": <$(nl_q "$2")>, \"urgency\": <byte $3>"
+  [[ $6 != '[]' ]] || hints+=', "x-vgs-click": <"none">'
+  [[ -z $4 ]] || hints+=", \"x-vgs-tone\": <$(nl_q "$4")>"
+  [[ -z $5 ]] || hints+=", \"x-vgs-icon\": <$(nl_q "$5")>"
+  hints+="${7:+, $7}}"
+  nl_send "$1" "$8" "$9" "$6" "$hints"
+}
+nl_notice() { # INDEX DIR
+  case $1 in
+    1) nl_plugin VGS core 1 warning triangle-alert '[]' "" "$nl_theme_title" \
+         $'Muted text on panel backgrounds: contrast 3.21:1, needs 4.5:1.\nFaint text on the main background: contrast 2.87:1, needs 4.5:1.\nKey hints on raised panel backgrounds: contrast 3.64:1, needs 4.5:1.\nAccent text on inset panel backgrounds: contrast 4.12:1, needs 4.5:1.\nSelected row text on selected row backgrounds: contrast 3.98:1, needs 4.5:1.\nTooltip details on tooltip backgrounds: contrast 4.03:1, needs 4.5:1.' ;;
+    2) nl_plugin "Google Drive" vgs.google-drive 1 warning cloud-alert '["default", "Set up two-way sync"]' "" "Google Drive folder sync stopped" \
+         "Sync stopped for Documents, Photos, Projects. Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm." ;;
+    3) nl_send Automations "Back up photos failed" \
+         $'Failed 4 times since 07:00\nrsync: [sender] write error: Broken pipe (32) while copying Pictures/2026/11/IMG_4821.HEIC to nas:/volume1/photos/2026' '[]' \
+         "{\"urgency\": <byte 2>, \"x-vgs-avatar\": <\"calendar-clock\">, \"x-vgs-icon\": <\"circle-x\">, \"x-vgs-tone\": <\"danger\">, \"x-vgs-click\": <\"open\">, \"x-vgs-open\": <$(nl_q "$2/back-up-photos.log")>}" ;;
+    4) nl_send Capture "Recording saved" \
+         $'/home/alex/Videos/Recording 2026-11-12 14-03-22.mp4\nProcessing failed, so the recording is kept as recorded.\nc1e2a840] Too many bits 8832 > 6144 per frame requested, clamping to max\nConversion failed!' \
+         '["default", "Open", "show", "Show"]' \
+         "{\"x-vgs-icon\": <\"camera\">, \"x-vgs-tone\": <\"success\">, \"image-path\": <$(nl_q "$2/recording.png")>, \"resident\": <true>}" ;;
+    5) nl_plugin Jarvis vgs.jarvis 1 info message-circle-plus '[]' "" "New conversation" \
+         "Jarvis reached this conversation's memory limit and started fresh. Your new message is still being answered. Earlier messages remain in the console's History." ;;
+    6) nl_plugin Jarvis vgs.jarvis 1 warning vgs-letter-j '["default", "Show problems"]' '"transient": <true>' "VGS restarted Jarvis" \
+         "The reply from the AI model stopped too early. This is a new conversation, so say your request again." ;;
+    7) nl_plugin "Agent Warden" vgs.agent-warden 1 "" "" '["default", "Open vsys"]' "" "An agent is near its memory limit" \
+         "claude in vgs-2463 is using 7.4 GB. Agent Warden slows it at 8 GB to keep your computer responsive. Open vsys to stop work you do not need." ;;
+    8) nl_plugin Scratchpads vgs.scratchpads 1 warning app-window '[]' '"x-vgs-page": <"[Plugins](page:vgs.scratchpads/Settings)">' \
+         'Pad kitty --class scratch-notes --title Notes -e nvim ~/notes/inbox.md +"set wrap linebreak" +startinsert cannot open' \
+         "Another pad uses its window class, scratch-notes. Give each pad its own window class in Plugins, and an app that opens its window with it." ;;
+    9) nl_plugin "Remote desktop" vgs.remote-desktop 1 info screen-share '[]' '"x-vgs-page": <"[Remote desktop Setup](page:vgs.remote-desktop/Setup)">' "Could not connect" \
+         "px13 has no remote desktop server. On that computer, install gliff from Remote desktop Setup." ;;
+    10) nl_plugin Themes vgs.themes 1 warning palette '[]' "" "Rose Pine Dawn" \
+         "Rose Pine Dawn is applied. Some applications did not change. Open the Themes panel for details." ;;
+    11) nl_plugin Notifications vgs.notifications 1 danger square-terminal '[]' "" "The file did not open" \
+         "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it." ;;
+    12) nl_plugin Lock vgs.lock 2 danger lock-open '[]' "" "The session was not locked before sleep" \
+         "Hyprland refused the VGS lock. Another lock screen may hold the session. Check the lock before sleep." ;;
+    13) nl_plugin "Web Apps" vgs.webapps 1 warning "" '[]' "" "Web app did not open" \
+         "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge." ;;
+    14) nl_plugin Clipboard vgs.clipboard 1 warning clipboard-list '[]' '"transient": <true>' "Copy failed" "The entry is not on the clipboard." ;;
+    15) nl_plugin "Agent Debug" vgs.agent-debug 1 warning bug '["default", "Diagnose"]' "" "Could not install tools" \
+         "python-pyqt6, qt6-webengine and wl-clipboard. Diagnose with Claude Code" ;;
+    16) nl_plugin "Passwordless Sudo" vgs.sudo 1 warning circle-question-mark '[]' "" "Passwordless sudo state unknown" \
+         "VGS could not read whether passwordless sudo is on after this change." ;;
+    17) nl_plugin Power vgs.power 1 danger circle-alert '[]' "" "Could not switch user" "This action is not available on this computer now." ;;
+    18) nl_plugin Windows vgs.windows 1 "" lock-open '[]' '"transient": <true>' "Group unlocked" "Windows can join and leave this group again." ;;
+    19) nl_plugin VGS core 1 warning terminal '[]' "" "Connect in terminal" \
+         "The session opened in your existing terminal. VGS could not confirm keyboard focus there." ;;
+    20) nl_plugin "VGS Components" vgs.gallery 1 success check '[]' "" "Saved" "The theme was saved" ;;
+    21) nl_send Slack "[acme] from Ada Lovelace" \
+         "I went through the release notes for 4.2 and left comments on the migration section. The rollback steps still mention the old config path, and the screenshots in the setup guide show the previous settings layout. Can you take the docs part? I will update the changelog and tag the release once CI is green. Also, the demo for Thursday moved to 15:00, so we have a bit more time to test the import flow." \
+         '["default", "View"]' '{"desktop-entry": <"slack">}' ;;
+  esac
+}
+nl_count=21
+nl_batch=7
+# The box around every card on screen, on the output: the stack's layer
+# starts under the bar, as card_centre reads it.
+nl_stack_box() {
+  ipc smoke layerItems vgs.notifications NotificationCard summary | py_reply 'import json,sys
+boxes = [b for _, b, _ in json.load(sys.stdin) if b[2] > 0 and b[3] > 0]
+top = int(sys.argv[1])
+if not boxes: print("absent"); sys.exit()
+x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+x1, y1 = max(b[0] + b[2] for b in boxes), max(b[1] + b[3] for b in boxes)
+print(json.dumps([x0, top + y0, x1 - x0, y1 - y0]))' "$bar_reserved"
+}
+nl_panel_box() {
+  local layer
+  layer="$(surface_box vgs:panel)" || return 1
+  ipc smoke instanceGeometry panel vgs.notifications | py_reply 'import json,sys
+box = json.load(sys.stdin); layer = json.loads(sys.argv[1])
+print(json.dumps([layer[0] + box[0], layer[1] + box[1], box[2], box[3]]) if box[2] > 0 and box[3] > 0 else "absent")' "$layer"
+}
+# nl_settled CMD...: `same` when two readings of CMD a frame or more apart
+# agree, else `moving`.
+nl_settled() {
+  local first second
+  first="$("$@")" || return 1
+  sleep 0.1
+  second="$("$@")" || return 1
+  [[ -n $first && $first != absent && $first == "$second" ]] && echo same || echo moving
+}
+nl_slack_badge() { ipc smoke layerItems vgs.notifications NotificationCard showsBadge,app | py_reply 'import json,sys; print(json.dumps([v["showsBadge"] for _, _, v in json.load(sys.stdin) if v["app"] == "Slack"]))'; }
+nl_rows() { ipc smoke readInstance panel vgs.notifications rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+nl_selected() {
+  local key rows
+  key="$(ipc smoke readInstance panel vgs.notifications selectedKey)" || return
+  rows="$(ipc smoke readInstance panel vgs.notifications rows)" || return
+  python3 -c 'import json,sys
+key = json.loads(sys.argv[1]); rows = [] if sys.argv[2] == "absent" else json.loads(sys.argv[2])
+print(next((row["summary"] for row in rows if row["key"] == key), "none"))' "$key" "$rows"
+}
+# nl_view_place: the inbox view's `contentY travel height`, whole pixels.
+nl_view_place() { ipc smoke notificationViewHolding panel vgs.notifications | py_reply 'import json,sys; v=json.load(sys.stdin); print("%d %d %d" % (round(v["contentY"]), round(v["contentHeight"] - v["height"]), round(v["height"])))'; }
+# nl_wheel_point: a point on the output inside the inbox view, in its side
+# room for the cards' shadows (CardScroll's look.stack.pad, 40), past each
+# card's hover area, which is the card's width (Panel.qml's slots), so a
+# wheel there hovers no card.
+nl_wheel_point() {
+  local layer
+  layer="$(surface_box vgs:panel)" || return 1
+  ipc smoke notificationViewHolding panel vgs.notifications | py_reply 'import json,sys
+box = json.load(sys.stdin)["box"]; layer = json.loads(sys.argv[1])
+print("%d %d" % (layer[0] + box[0] + 12, layer[1] + box[1] + box[3] / 2))' "$layer"
+}
+# nl_arrow_point SUMMARY: the output centre of the open arrow on the inbox
+# card titled SUMMARY, or `absent`.
+nl_arrow_point() {
+  local layer
+  layer="$(surface_box vgs:panel)" || return 1
+  ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
+rows = json.load(sys.stdin); layer = json.loads(sys.argv[2])
+card = next((i for i, r in enumerate(rows) if r["type"] == "NotificationCard" and r["text"] == sys.argv[1] and r["visible"]), None)
+def under(i):
+    while i >= 0:
+        if i == card: return True
+        i = rows[i]["parent"]
+    return False
+arrow = None if card is None else next((r for i, r in enumerate(rows) if r["name"] == "notificationOpenArrow" and r["visible"] and under(i)), None)
+print("absent" if arrow is None else "%d %d" % (layer[0] + arrow["box"][0] + arrow["box"][2] / 2, layer[1] + arrow["box"][1] + arrow["box"][3] / 2))' "$1" "$layer"
+}
+nl_toasts_shot() { # NAME
+  local box
+  expect_poll "$1: the cards on screen hold still" same nl_settled nl_stack_box
+  box="$(nl_stack_box)" || box=unreadable
+  take "$1"
+  record_item "$1" "$box"
+}
+# nl_hover_shot NAME SUMMARY: the pointer on that toast, its buttons shown
+# once its lift and their fade, both look.motion.duration.short4 from the
+# same hover, have ended.
+nl_hover_shot() {
+  local at box
+  at="$(card_centre "$2")" || at=""
+  [[ $at =~ ^[0-9]+\ [0-9]+$ ]] || { fail "$1: the toast \"$2\" has no card"; return; }
+  # shellcheck disable=SC2086
+  hover $at || { fail "$1: the hover over \"$2\" failed"; return; }
+  expect_poll "$1: the toast reports the pointer" True card_hovered "$2"
+  expect_poll "$1: the hovered cards hold still" same nl_settled nl_stack_box
+  box="$(nl_stack_box)" || box=unreadable
+  take_posed "$1"
+  record_item "$1" "$box"
+  park_pointer
+}
+nl_panel_shot() { # NAME TAKE
+  local box
+  expect_poll "$1: the inbox holds still" same nl_settled nl_view_place
+  box="$(nl_panel_box)" || box=unreadable
+  "$2" "$1"
+  record_item "$1" "$box"
+}
+# nl_list_shots MODE: the inbox from its top, then a page at a time by the
+# wheel, each page the view less its two fades (look.stack.fadeHeight 96
+# and look.stack.headerFadeHeight 48) past the one before, to its end.
+nl_list_shots() {
+  local page=1 place point y travel h start x0 y0
+  nl_panel_shot "notification-limits-$1-list-1" take
+  point="$(nl_wheel_point)" || point=""
+  [[ $point =~ ^[0-9]+\ [0-9]+$ ]] || { fail "the inbox view has no wheel point: $point"; return; }
+  read -r x0 y0 <<<"$point"
+  while (( page < 8 )); do
+    place="$(nl_view_place)" || place=""
+    [[ $place =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+$ ]] || { fail "the inbox view is unreadable: $place"; return; }
+    read -r y travel h <<<"$place"
+    (( y < travel )) || return 0
+    start=$y
+    for _ in $(seq 1 60); do
+      wheel "$x0" "$y0" 1 || { fail "the wheel over the inbox failed"; return; }
+      expect_poll "the inbox settles after a wheel notch" same nl_settled nl_view_place
+      place="$(nl_view_place)" || place=""
+      [[ $place =~ ^-?[0-9]+\ -?[0-9]+\ [0-9]+$ ]] || { fail "the inbox view is unreadable: $place"; return; }
+      read -r y travel h <<<"$place"
+      (( y < travel && y - start < h - 144 )) || break
+    done
+    park_pointer
+    page=$((page + 1))
+    nl_panel_shot "notification-limits-$1-list-$page" take
+  done
+  fail "the inbox did not reach its end in 8 pages"
+}
+# nl_open_shot MODE: the theme check card, the oldest, selected by the
+# arrow keys and open: by its selection on a tree whose card opens so, or
+# by a press on its open arrow. A tree with neither takes no shot.
+nl_open_shot() {
+  local how at
+  if tree_has shell/plugins/vgs.notifications/NotificationCard.qml '"notificationOpenArrow"'; then how=arrow
+  elif tree_has shell/plugins/vgs.notifications/NotificationCard.qml 'property bool open:'; then how=selection
+  else how=closed
+  fi
+  for _ in $(seq 1 30); do
+    [[ $(nl_selected) != "$nl_theme_title" ]] || break
+    type_keys -k Down || { fail "the Down key in the inbox failed"; return; }
+  done
+  expect_poll "the theme check card is selected" "$nl_theme_title" nl_selected
+  if [[ $how == arrow ]]; then
+    expect_poll "the theme check card stays closed while selected" false ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$nl_theme_title" open
+    at="$(nl_arrow_point "$nl_theme_title")" || at=""
+    [[ $at =~ ^[0-9]+\ [0-9]+$ ]] || { fail "the theme check card has no open arrow: $at"; return; }
+    # shellcheck disable=SC2086
+    hover $at && click $at || { fail "the press on the open arrow failed"; return; }
+    park_pointer
+  fi
+  if [[ $how != closed ]]; then
+    expect_poll "the theme check card is open" true ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$nl_theme_title" open
+  fi
+  expect_poll "the open card holds still" same nl_settled ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$nl_theme_title" height
+  nl_panel_shot "notification-limits-$1-list-open" take_posed
+}
+# The selected Capture card exposes a real action tooltip in both trees.
+# Keep the old wording in the baseline and the final keys in the after
+# image; native shortcut controls separately prove the anchor and delivery.
+nl_action_hint_shot() { # MODE
+  local rect x y
+  for _ in $(seq 1 30); do
+    [[ $(nl_selected) != "Recording saved" ]] || break
+    type_keys -k Up || { fail "the Up key before the action hint failed"; return; }
+  done
+  expect_poll "the Capture card is selected for its action hint" "Recording saved" nl_selected
+  expect_poll "the Capture card holds still for its action hint" same nl_settled ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "Recording saved" height
+  rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "Recording saved" PillButton Open)" || return
+  [[ $rect == \[* ]] || { fail "the Capture Open action has no box: $rect"; return; }
+  read -r x y < <(at_centre vgs:panel "$rect") || return
+  hover "$x" "$y" || { fail "the Capture Open action hover failed"; return; }
+  expect_poll "the Capture Open action tooltip is shown" True nl_action_hint_opened
+  nl_panel_shot "notification-limits-$1-action-hint" take_posed
+  park_pointer
+}
+nl_action_hint_opened() {
+  ipc smoke itemValues panel vgs.notifications Tooltip text,opened,anchorItem.text | py_reply 'import json,sys;print(any(t.get("opened") is True and t.get("text") and t.get("anchorItem.text")=="Open" for t in json.load(sys.stdin)))'
+}
+# The title, title plus one message line, and title plus two message lines
+# share the ordinary pill. The inbox's explicit three-, four- and
+# twelve-line messages bracket the tall-card boundary and show the same
+# icon top before and after expansion. On a tree without expansion the
+# matching selected frame records its actual closed card.
+nl_boundary_shots() { # MODE
+  local mode="$1" lines body title box at layer
+  for lines in 3 4 12; do
+    body="$(python3 -c 'import sys; print("\n".join("Line %d" % n for n in range(1, int(sys.argv[1]) + 1)))' "$lines")" || return
+    title="Message with $lines lines"
+    if (( lines == 12 )); then
+      title="A notification title long enough to be cut on a closed card and shown in full when the list card opens"
+    fi
+    nl_send smoke-boundary "$title" "$body" '[]' '{"x-vgs-icon": <"bell">}'
+    nl_send smoke-boundary "Download complete" "report.pdf is in Downloads" '[]' '{"x-vgs-icon": <"cloud-download">}'
+    expect "the boundary inbox opens" ok notes inbox
+    expect_poll "the boundary inbox holds focus" true ipc smoke activeFocusWithin panel vgs.notifications QQuickColumn
+    expect_poll "the boundary inbox lists both cards" 2 nl_rows
+    nl_panel_shot "notification-limits-$mode-boundary-$lines-closed" take
+    if (( lines == 12 )); then
+      box="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+      layer="$(surface_box vgs:panel)" || return
+      at="$(python3 -c 'import json,sys
+rows=json.loads(sys.argv[1]); layer=json.loads(sys.argv[2]); title=sys.argv[3]
+card=next((r for r in rows if r["type"] == "NotificationCard" and r["text"] == title and r["visible"]), None)
+print("absent" if card is None else "%d %d" % (layer[0]+card["box"][0]+card["box"][2]/2, layer[1]+card["box"][1]+card["box"][3]/2))' "$box" "$layer" "$title")" || return
+      [[ $at =~ ^[0-9]+\ [0-9]+$ ]] || { fail "the boundary card has no hover point: $at"; return; }
+      # shellcheck disable=SC2086
+      hover $at || { fail "the boundary card hover failed"; return; }
+      expect_poll "the boundary card reports the hover" true ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "$title" hovered
+      nl_panel_shot "notification-limits-$mode-boundary-$lines-hover" take_posed
+      park_pointer
+    fi
+    type_keys -k Down || { fail "the boundary inbox Down key failed"; return; }
+    expect_poll "the boundary card is selected" "$title" nl_selected
+    nl_panel_shot "notification-limits-$mode-boundary-$lines-selected" take
+    expect "the boundary inbox closes" ok notes close
+    notes_clear "Notification limits boundary"
+    expect "the boundary history clears" ok notes clear-history
+  done
+}
+scene_notification-limits() { # MODE
+  local mode="$1" dir="$home/notification-limits" found slack_made=false tool_made=false i
+  found="$(plugin_enabled vgs.notifications)" || found=unreadable
+  [[ $found == True || $found == False ]] || { fail "the notifications' enablement is unreadable: $found"; return; }
+  if [[ $found == True ]]; then
+    expect "the notifications stop to read the synthetic Slack" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "the notifications service is gone" False record_exists vgs.notifications
+  fi
+  mkdir -p -- "$dir"
+  solid_png "$dir/recording.png" 320 180 46 84 122 || fail "the recording thumbnail was not written"
+  # The synthetic Slack and a libsecret that holds no token, as the
+  # notifications scene sets them up; the service reads them at its start.
+  if [[ ! -e $home/.config/Slack ]]; then
+    mkdir -p -- "$home/.config/Slack"
+    cp -R -- "$checkout/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
+    slack_made=true
+  fi
+  if [[ ! -e $shim/secret-tool ]]; then
+    printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/secret-tool"
+    chmod 755 "$shim/secret-tool"
+    tool_made=true
+  fi
+  notes_on "Notification limits"
+  for (( i = 1; i <= nl_count; i++ )); do
+    nl_notice "$i" "$dir"
+    (( i % nl_batch == 0 || i == nl_count )) || continue
+    expect_poll "batch $(( (i + nl_batch - 1) / nl_batch )) is on screen" "$(( i - (i - 1) / nl_batch * nl_batch ))" on_screen
+    (( i != nl_count )) || expect_poll "the Slack card draws the workspace icon" '[true]' nl_slack_badge
+    nl_toasts_shot "notification-limits-$mode-toasts-$(( (i + nl_batch - 1) / nl_batch ))"
+    if (( i == nl_batch )); then
+      nl_hover_shot "notification-limits-$mode-hover-short" "An agent is near its memory limit"
+      nl_hover_shot "notification-limits-$mode-hover-wide" "Google Drive folder sync stopped"
+    fi
+    notes_clear "Notification limits batch"
+    expect "the batch leaves the history" ok notes clear-history
+  done
+  # A card of a title alone, as the notifications scene sends Power's, one
+  # of a title and one message line, and Remote desktop's two-line card, so
+  # a card's corner shows at each height.
+  nl_send Power "Charging resumed" "" '[]' '{"x-vgs-plugin": <"vgs.power">, "x-vgs-icon": <"plug-zap">, "x-vgs-tone": <"success">, "x-vgs-click": <"none">}'
+  nl_send smoke-heights "Download complete" "report.pdf is in Downloads" '[]' '{"x-vgs-icon": <"cloud-download">}'
+  nl_send smoke-heights "Files uploaded" $'report.pdf is in Documents\nphoto.jpg is in Pictures' '[]' '{"x-vgs-icon": <"cloud-upload">}'
+  expect_poll "the three short toasts are on screen" 3 on_screen
+  nl_toasts_shot "notification-limits-$mode-toasts-short"
+  notes_clear "Notification limits short toasts"
+  expect "the short toasts leave the history" ok notes clear-history
+  nl_boundary_shots "$mode"
+  for (( i = 1; i <= nl_count; i++ )); do nl_notice "$i" "$dir"; done
+  expect "the inbox opens on every notice" ok notes inbox
+  expect_poll "the panel is the inbox" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
+  expect_poll "the inbox holds its list focus" true ipc smoke activeFocusWithin panel vgs.notifications QQuickColumn
+  expect_poll "the inbox lists every notice" "$nl_count" nl_rows
+  nl_list_shots "$mode"
+  nl_open_shot "$mode"
+  nl_action_hint_shot "$mode"
+  park_pointer
+  expect "the inbox closes" ok notes close
+  expect "the history clears after the inbox" ok notes clear-history
+  notes_off "Notification limits"
+  if [[ $found == True ]]; then
+    expect "the notifications return to on" ok ipc shell setPluginEnabled vgs.notifications true
+    expect_poll "the notifications service is built again" True record_exists vgs.notifications
+  fi
+  [[ $tool_made == false ]] || rm -f -- "${shim:?}/secret-tool"
+  [[ $slack_made == false ]] || rm -rf -- "${home:?}/.config/Slack"
+  rm -rf -- "${dir:?}"
 }
 
 # Scroll through the bar's own buttons before using a widget's geometry:

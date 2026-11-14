@@ -52,6 +52,7 @@ Item {
         key: "boundary-" + index, app: "Boundary test",
         summary: "Notification " + index, body: "An overflowing shipped panel"
     }))
+    property var limitsEntry: null
 
     Notifications.Panel {
         id: panel
@@ -61,7 +62,8 @@ Item {
         // Drive the shipped open/refresh lifecycle through its snapshot
         // interface. The service owns data; this unit test owns its input.
         shell: ({ status: { revision: 0 }, settings: {}, ipc: { call: (name, arg) =>
-            name === "panel-state" ? JSON.stringify({ mode: "inbox", rows: scene.notificationRows }) : "ok" } })
+            name === "panel-state" ? JSON.stringify({ mode: "inbox", rows: scene.notificationRows.map((row, index) =>
+                index === 1 && scene.limitsEntry !== null ? Object.assign({}, row, scene.limitsEntry) : row) }) : "ok" } })
     }
 
     Component {
@@ -90,6 +92,7 @@ Item {
             }
             panel.close();
             panel.visible = false;
+            scene.limitsEntry = null;
             panel.height = 300;
             frame.visible = true;
         }
@@ -267,6 +270,52 @@ Item {
                 { tag: "unbounded screenshot control", badge: false, control: true },
                 { tag: "unbounded badge control", badge: true, control: true }
             ];
+        }
+
+        function test_cut_card_opens_from_pointer_or_keyboard_data() {
+            return [
+                { tag: "pointer", pointer: true, title: "A long title that wraps across several lines when the list card opens to show all its words" },
+                { tag: "keyboard", pointer: false, title: "A long title that wraps across several lines when the list card opens to show all its words" },
+                { tag: "message without title", pointer: false, title: "" }
+            ];
+        }
+
+        function test_cut_card_opens_from_pointer_or_keyboard(row) {
+            scene.limitsEntry = { summary: row.title, body: Array(6).fill("A message line").join("\n") };
+            const parts = showPanel(600);
+            const face = parts.faceAt(1);
+            verify(face !== undefined);
+            const card = face.card;
+            const title = findChild(card, "notificationTitleText");
+            const body = findChild(card, "notificationBodyText");
+            compare(card.open, false);
+            compare(title.visible, row.title !== "");
+            verify(body.visible);
+            if (row.title !== "") {
+                compare(title.lineCount, 1, "the closed title stays on one line");
+                verify(title.truncated);
+            }
+            compare(body.lineCount, 2, "a closed message stops after two lines");
+            verify(body.truncated);
+            const closedHeight = card.height;
+            if (row.pointer) {
+                mouseMove(parts.slots[1], parts.slots[1].width / 2, parts.slots[1].height / 2);
+                tryCompare(face, "hovered", true);
+            } else {
+                parts.slots[0].parent.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Down);
+                compare(panel.currentIndex, 1);
+            }
+            tryCompare(card, "open", true);
+            tryVerify(() => !body.truncated && (row.title === "" || !title.truncated));
+            compare(body.lineCount, 6, "the open card shows the full message");
+            if (row.title !== "") verify(title.lineCount > 1, "the open card shows the full title");
+            tryVerify(() => card.height > closedHeight && Math.abs(parts.slots[1].height - card.height - panel.look.card.gap) < 0.5);
+            verify(renderedFrame(card));
+            if (row.pointer) mouseMove(scene, scene.width - 1, scene.height - 1);
+            else keyClick(Qt.Key_Up);
+            tryCompare(card, "open", false);
+            tryCompare(card, "height", closedHeight);
         }
 
         function test_hidden_decoder(row) {

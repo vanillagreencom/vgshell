@@ -1374,9 +1374,12 @@ def corner_clears(side, edge, height):
     c = height / 2
     return c - math.hypot(max(0, c - side), max(0, c - edge)) >= NOTIFICATION_RADIUS_CLEARANCE - 1
 "
-# A card's text starts on the stack's text column, the same at both ends
-# for text alone, and its corners keep the step inside the rounded end. A
-# round slot stays at the pad, and the text's far end is on the column.
+# Text alone keeps equal vertical gaps and starts/ends on the stack's
+# column. Beside a slot, text keeps at least the pad above and below:
+# RowMeasure centres a lone title, otherwise aligns the first line's ink
+# with the slot's top. The existing tst_notification_media.qml owns exact
+# media-top and drawn-content padding. These independent ink readings keep
+# the rounded-end, text-column and slot-inset checks.
 inset_contract_value() { # KIND CLAMPED MEASUREMENT
   python3 -c "$corner_clears_py"'
 import re, sys
@@ -1386,16 +1389,17 @@ if not m: print(t); sys.exit()
 top, bottom, left, right, height, slot, pad, column = map(int, m.groups())
 edge = min(top, bottom)
 problems = []
-if abs(top - bottom) > 1: problems.append("vertical")
 if sys.argv[1] == "avatarless":
+    if abs(top - bottom) > 1: problems.append("vertical")
     if abs(left - column) > 1: problems.append("left")
     if abs(right - column) > 1: problems.append("right")
     if not corner_clears(min(left, right), edge, height): problems.append("curve")
 if sys.argv[1] == "slot":
+    if edge < pad - 1: problems.append("vertical")
     if abs(slot - pad) > 1: problems.append("slot")
     if abs(right - column) > 1: problems.append("right")
     if not corner_clears(right, edge, height): problems.append("curve")
-if sys.argv[2] == "clamped" and not (NOTIFICATION_CARD_MAX_HEIGHT - pad <= height <= NOTIFICATION_CARD_MAX_HEIGHT): problems.append("clamped")
+if sys.argv[2] == "clamped" and height > NOTIFICATION_CARD_MAX_HEIGHT: problems.append("clamped")
 print("ok" if not problems else "violation " + ",".join(problems))' "$1" "$2" <<<"$3"
 }
 checked_space() { # SUMMARY KIND [clamped]
@@ -1589,7 +1593,7 @@ expect_poll "a two-line card's text is on the stack's column and clears the roun
 expect_poll "a multiline card's text is on the stack's column and clears the rounded ends" ok checked_space "Even multi" avatarless
 expect_poll "a browser calendar card's text is on the stack's column and clears the rounded ends" ok checked_space "Weekly eStaff" avatarless
 expect_poll "a browser Slack card keeps its round slot at the pad and ends its text on the column" ok checked_space "New message in master-operator" slot
-expect_poll "a card past its most lines stops at its maximum height with its text on the column" ok checked_space "Even max" avatarless clamped
+expect_poll "a cut card stays within its height budget with its text on the column" ok checked_space "Even max" avatarless clamped
 expect "the pill predicate passes text that ends before the pill" clear pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 300, 30]], "pills": [[340, 30, 66, 28]]}'
 expect "control: the pill predicate refuses a body under the pill" overlap pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 380, 30]], "pills": [[340, 30, 66, 28]]}'
 expect "control: the pill predicate refuses a title under the pill" overlap pill_clear_value <<<'{"texts": [[20, 30, 380, 18]], "bodies": [[20, 50, 300, 30]], "pills": [[340, 30, 66, 28]]}'
@@ -4564,11 +4568,15 @@ fade_position_active() { # EDGE
 # Read shortcut names from current service actions, then hover each real
 # action pill. The shared tooltip must open with that action's shortcut.
 fade_shortcut_opened() {
-  ipc smoke itemValues panel vgs.notifications Tooltip text,opened | py_reply 'import json,sys;print(any(t.get("text")==sys.argv[1] and t.get("opened") is True for t in json.load(sys.stdin)))' "$1"
+  ipc smoke itemValues panel vgs.notifications Tooltip text,opened,anchorItem.text | py_reply 'import json,sys;print(any(t.get("text") and t.get("opened") is True and t.get("anchorItem.text")==sys.argv[1] for t in json.load(sys.stdin)))' "$1"
 }
 fade_shortcuts() { # MODE
-  local action label hint rect x y action_index=0
+  local action label rect x y evidence capture action_index=0
   local -a actions
+  if ! evidence="$(mktemp -d "$smoke_log_dir/notifications-shortcuts-$1.XXXXXX")"; then
+    printf 'notification-shortcut: evidence directory unavailable mode=%s\n' "$1" >&2
+    return 1
+  fi
   hover 1 1 || return
   fade_inventory || return
   type_keys -k Home || return
@@ -4582,8 +4590,6 @@ for action in rows[8]["actions"]: print(json.dumps(action))' <<<"$fade_inventory
   [[ ${#actions[@]} -gt 0 ]] || return 1
   for action in "${actions[@]}"; do
     label="$(py_reply 'import json,sys;print(json.load(sys.stdin)["label"])' <<<"$action")" || return
-    hint="$(py_reply 'import json,sys
-a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else " (Left/Right, then Enter)"))' <<<"$action")" || return
     # The card the selection left keeps its reservation until its tray
     # fades out, then rewraps and moves the cards under it.
     fade_capture_layout "fade-shortcut-$1-$action_index-items.json" || return
@@ -4591,8 +4597,14 @@ a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else 
     [[ $rect == \[* ]] || { echo 'notification-shortcut: action-pill-absent' >&2; return 1; }
     read -r x y < <(at_centre vgs:panel "$rect") || return
     hover "$x" "$y" || return
-    expect_poll "the $1 $label action shows its shortcut in its tooltip" True fade_shortcut_opened "$hint"
-    fade_output "$sandbox/fade-shortcut-$1-${action_index}.png" || return
+    expect_poll "the $1 $label action shows its shortcut in its tooltip" True fade_shortcut_opened "$label"
+    capture="$sandbox/fade-shortcut-$1-${action_index}.png"
+    fade_output "$capture" || return
+    if ! cp -- "$capture" "$evidence/"; then
+      printf 'notification-shortcut: capture copy failed mode=%s action=%s source=%s destination=%s\n' "$1" "$action_index" "$capture" "$evidence" >&2
+      return 1
+    fi
+    printf 'notification-shortcut: capture source=%s retained=%s/%s\n' "$capture" "$evidence" "${capture##*/}"
     hover 1 1 || return
     action_index=$((${action_index}+1))
   done

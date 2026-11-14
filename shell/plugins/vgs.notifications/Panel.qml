@@ -644,6 +644,9 @@ FocusScope {
                                     emoji: slot.entry.emoji || null
                                     actions: slot.entry.actions || []
                                     showActions: (slot.selected || hovered) && actions.length > 0
+                                    // A cut card opens to its whole text while the
+                                    // pointer is on it or the keyboard selects it.
+                                    open: slot.selected || hovered
                                     actionIndex: slot.selected ? root.actionIndex : -1
                                     keyboardActions: true
                                     glassChoice: root.glassChoice

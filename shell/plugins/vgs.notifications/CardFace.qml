@@ -34,6 +34,8 @@ Item {
     property real edgeBoost: 1
     property bool edgeVisible: false
     property bool reportHover: true
+    // Whether the card shows its whole text: an inbox card only.
+    property bool open: false
     property bool glassChoice: false
     // Whether the pointer is on the card: the card's own hover, unless the
     // surface hands the hover of the slot that holds the card.
@@ -62,6 +64,7 @@ Item {
         id: card
         look: face.look
         textColumn: face.textColumn
+        open: face.open
         anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width
         height: parent.height
@@ -96,13 +99,14 @@ Item {
         optIn: face.glassChoice
         follow: card
         fill: face.look.card.fill
-        radius: face.look.radius.full
+        radius: card.radius
         elevation: "tight"
         // The card morphs, so its shadow is not cached.
         shadowCached: false
 
         Orb {
             look: face.look
+            radius: card.radius
             amount: glass.drawn ? face.orb : 0
         }
     }

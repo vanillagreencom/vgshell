@@ -59,7 +59,19 @@ Item {
     property int actionIndex: -1
     property bool keyboardActions: false
     readonly property bool hovered: hoverTracker.hovered
-    readonly property real radius: look.radius.full
+    // The existing clearance bound keeps short cards round; taller cards
+    // take the media square's generous corner. Each drawer clamps it to
+    // half its smaller side, so a toast's dot stays round without another
+    // morph rule: GlassSurface.corner, EdgeLight.corner, and Qt 6.11's
+    // QSGBasicInternalRectangleNode::updateGeometry for Orb's Rectangle:
+    // https://raw.githubusercontent.com/qt/qtdeclarative/v6.11.0/src/quick/scenegraph/qsgbasicinternalrectanglenode.cpp
+    readonly property real radius: tall ? look.media.size : look.radius.full
+    // Taller than the clearance bound that keeps a card fully round.
+    readonly property bool tall: fullHeight > look.card.maxHeight
+    // Whether the card shows its whole title and message, past
+    // card.summaryLines and maxHeight: the inbox opens a cut card; a toast
+    // never opens.
+    property bool open: false
     signal actionTriggered(string id)
     signal closeRequested()
     signal cardClicked()
@@ -138,9 +150,19 @@ Item {
         }
     }
 
+    // Beside media, the text starts at the card's top: where its first
+    // line's ink is `pad` down, or, no taller than the media, centred on it
+    // (RowMeasure.textTop). The media centres on the text's height up to
+    // the pill limit and stands `pad` down past it. Text alone sizes the
+    // card, so it stays centred by its ink, and a growing card keeps its
+    // top. Centring aligns to whole pixels
+    // (anchors.alignWhenCentered, default true):
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#anchors.alignWhenCentered-prop
     RowLayout {
         id: content
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.top: card.showsSlot ? parent.top : undefined
+        anchors.topMargin: card.pad
+        anchors.verticalCenter: card.showsSlot ? undefined : parent.verticalCenter
         anchors.verticalCenterOffset: -card.trayBottomReserve / 2
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.horizontalCenterOffset: card.contentOffset
@@ -153,7 +175,16 @@ Item {
             objectName: "notificationMediaSlot"
             Layout.preferredWidth: implicitWidth
             Layout.preferredHeight: implicitHeight
-            Layout.alignment: Qt.AlignVCenter
+            Layout.alignment: Qt.AlignTop
+            // The text's height leaves out a tray row under it, so showing
+            // actions does not move the media. Whole pixels keep it sharp,
+            // as the centred content's anchors do.
+            transform: Translate {
+                y: {
+                    const block = textBlock.fullHeight(mediaSlot.implicitHeight);
+                    return block > card.look.card.maxHeight ? 0 : Math.round((block - mediaSlot.implicitHeight) / 2) - card.pad;
+                }
+            }
             visible: card.showsSlot
             look: card.look
             kind: card.mediaKind
@@ -178,24 +209,29 @@ Item {
             // https://doc.qt.io/qt-6/qml-qtquick-layouts-layout.html#fillHeight-attached-prop
             Layout.fillHeight: false
             Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve
-            Layout.alignment: Qt.AlignVCenter
-            // Centre text by its foreground envelope even when media owns
-            // the row height. Media itself stays on the card's centre.
-            // Qt's layout engine snaps alignment to whole pixels. Remove
-            // that rounding before applying the foreground-ink correction,
-            // including when an odd-height text block sits beside media.
+            Layout.alignment: Qt.AlignTop
+            // Keep the preferred text envelope centred over the layout's
+            // rounded assigned height. Remove its rounded alignment with
+            // the layout's own y before placing the first line's ink.
             // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/quicklayouts/qquickgridlayoutengine_p.h?h=6.11
             // Translate leaves the layout's assigned geometry unchanged.
-            transform: Translate { y: (content.height - textBlock.height) / 2 - textBlock.y + textBlock.verticalOffset }
+            transform: Translate { y: card.showsSlot ? textBlock.textTop(mediaSlot.implicitHeight) + (textBlock.implicitHeight - textBlock.height) / 2 - card.pad - textBlock.y : (content.height - textBlock.height) / 2 - textBlock.y + textBlock.verticalOffset }
         }
     }
 
+    // Actions beside the text centre on the card. On a tall card they stay
+    // at its top as it grows, level with the first text line and at least
+    // `pad` from the top edge.
     Item {
         id: tray
         anchors.right: parent.right
         anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2 : card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2 : 0
+        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2
+            : card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2
+            : !card.captionMode && card.tall
+                ? Math.max(card.pad + height / 2, textBlock.textTop(card.showsSlot ? mediaSlot.implicitHeight : 0) + textBlock.firstLineCentre) - card.fullHeight / 2
+            : 0
         width: card.captionMode ? captionText.implicitWidth : actionRow.width
         height: card.captionMode ? captionText.implicitHeight : actionRow.height
         visible: opacity > 0
@@ -233,8 +269,7 @@ Item {
                     focusPreview: card.showActions && card.actionIndex === index
                     tabFocusable: false
                     Tooltip {
-                        text: card.keyboardActions ? modelData.label + (modelData.id === "dismiss"
-                            ? " (Delete)" : " (Left/Right, then Enter)") : ""
+                        text: card.keyboardActions ? (modelData.id === "dismiss" ? "Delete" : "Left/Right, Enter") : ""
                     }
                     onClicked: card.actionTriggered(modelData.id)
                 }

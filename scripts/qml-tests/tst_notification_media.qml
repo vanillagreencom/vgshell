@@ -8,9 +8,10 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 // A notification's icon draws in one place whatever it is. A symbol icon,
 // the x-vgs-icon hint's Lucide name (the automation failure mark, the
 // passwordless sudo locks), has the box size and the vertical centre of an
-// application icon, on a card of one body line and on a card of two, and
-// both stand on the card's own centre, as an image does. A control for each
-// of the size and the two centres lives in scripts/test-qml-unit.sh.
+// application icon. Media centres on the text beside it up to the pill
+// limit, look.card.maxHeight, and stands `pad` down on a taller card. A
+// control for each of the size, the two centres and the placement lives in
+// scripts/test-qml-unit.sh.
 Item {
     id: scene
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
@@ -110,7 +111,6 @@ Item {
                 for (let x = 5; x < badge.width - 5; x++)
                     if (Theme.contrastRatio(image.pixel(Math.round(at.x + x), Math.round(at.y + y)), badge.color) >= 3) strokes.push([x, y]);
             verify(strokes.length >= 6, "the rendered inner mark contains readable stroke pixels");
-            fuzzyCompare(slot.mapToItem(card, 0, slot.height / 2).y, card.height / 2, 0.5, "the shared media square stays centred");
         }
 
         function test_symbolMatchesApplicationIcon_data() {
@@ -130,21 +130,65 @@ Item {
             fuzzyCompare(symbol[2], app[2], 0.5, "the symbol's vertical centre is the application icon's");
         }
 
-        function test_iconStandsOnTheCardCentre_data() {
+        function test_icon_centres_up_to_the_pill_limit_data() {
             return [
-                { tag: "application icon, one line", make: () => appCard(scene.oneLine) },
-                { tag: "application icon, two lines", make: () => appCard(scene.twoLines) },
-                { tag: "failure mark, two lines", make: () => symbolCard(symbols[0], scene.twoLines) },
-                { tag: "sudo lock, one line", make: () => symbolCard(symbols[1], scene.oneLine) }
+                { tag: "application icon, one line", make: () => appCard(scene.oneLine), tall: false },
+                { tag: "application icon, two lines", make: () => appCard(scene.twoLines), tall: false },
+                { tag: "failure mark, two lines", make: () => symbolCard(symbols[0], scene.twoLines), tall: false },
+                { tag: "sudo lock, one line", make: () => symbolCard(symbols[1], scene.oneLine), tall: false },
+                { tag: "open title and three lines", make: () => build({ summary: "Notification", body: Array(3).fill("Line").join("\n"), hintIcon: "bell", open: true }), tall: false },
+                { tag: "open tall card", make: () => build({ summary: "Long message", body: scene.twoLines.repeat(10), hintIcon: "circle-x", open: true }), tall: true }
             ];
         }
 
-        function test_iconStandsOnTheCardCentre(data) {
+        // Within the limit the icon centres on the card and on its text's
+        // ink, to the whole pixel the media is placed on; past it the icon
+        // stays `pad` down.
+        function test_icon_centres_up_to_the_pill_limit(data) {
             const card = data.make();
-            fuzzyCompare(iconBox(card)[2], card.height / 2, 0.5, "the icon's vertical centre is the card's");
+            card.settleHeight();
+            compare(card.fullHeight > scene.look.card.maxHeight, data.tall, "the fixture's height against the pill limit");
+            if (data.tall) {
+                fuzzyCompare(iconBox(card)[2], card.pad + scene.look.media.size / 2, 0.5, "media on a tall card stands pad down");
+                return;
+            }
+            fuzzyCompare(iconBox(card)[2], card.height / 2, 1, "media centres on the card");
+            const lines = ["notificationTitleText", "notificationBodyText"].map(name => findChild(card, name)).filter(item => item.visible);
+            const top = Math.min(...lines.map(item => item.mapToItem(card, 0, 0).y + Theme.inkAbove(item)));
+            const bottom = Math.max(...lines.map(item => item.mapToItem(card, 0, item.height).y - Theme.inkBelow(item)));
+            fuzzyCompare((top + bottom) / 2, iconBox(card)[2], 1, "the text's ink centres on the media");
         }
 
-        function test_media_keeps_the_text_ink_centred_data() {
+        function test_corners_follow_card_height_data() {
+            return [
+                { tag: "title", body: "", open: false, tall: false },
+                { tag: "title and message", body: scene.oneLine, open: false, tall: false },
+                { tag: "three lines", body: "First line\nSecond line", open: false, tall: false },
+                { tag: "below tall threshold", body: Array(3).fill("Line").join("\n"), open: true, tall: false },
+                { tag: "above tall threshold", body: Array(4).fill("Line").join("\n"), open: true, tall: true }
+            ];
+        }
+
+        function test_corners_follow_card_height(data) {
+            const card = build({ summary: "Notification", body: data.body, hintIcon: "bell", open: data.open });
+            card.settleHeight();
+            verify(renderedFrame(card));
+            compare(card.fullHeight > 94, data.tall, "the fixture reaches the intended height boundary");
+            if (data.tall) {
+                compare(card.radius, 40, "a tall card keeps a generous corner");
+                verify(card.radius < card.height / 2);
+            } else verify(card.radius >= card.height / 2, "ordinary cards remain fully round");
+            const slot = findChild(card, "notificationMediaSlot");
+            const radius = Math.min(card.radius, card.width / 2, card.height / 2);
+            for (const x of [0, slot.width]) for (const y of [0, slot.height]) {
+                const point = slot.mapToItem(card, x, y);
+                const dx = Math.max(0, radius - point.x, point.x - (card.width - radius));
+                const dy = Math.max(0, radius - point.y, point.y - (card.height - radius));
+                verify(Math.hypot(dx, dy) <= radius + 0.5, "the whole media square stays inside the drawn corner");
+            }
+        }
+
+        function test_media_keeps_equal_content_padding_data() {
             const rows = [];
             for (const mode of ["dark", "light"])
                 for (const entry of [
@@ -156,7 +200,7 @@ Item {
             return rows;
         }
 
-        function test_media_keeps_the_text_ink_centred(data) {
+        function test_media_keeps_equal_content_padding(data) {
             compare(UnitTheme.override({ scheme: { mode: data.mode } }), "ok");
             const card = build(data.entry);
             verify(renderedFrame(card));
@@ -165,11 +209,11 @@ Item {
             const body = findChild(card, "notificationBodyText");
             const lines = [title, body].filter(item => item.visible && (item === title ? item.text !== "" : item.lineCount > 0));
             verify(lines.length > 0, "the card draws text");
-            const top = Math.min(...lines.map(item => item.mapToItem(card, 0, 0).y + Theme.inkAbove(item)));
-            const bottom = card.height - Math.max(...lines.map(item => item.mapToItem(card, 0, item.height).y - Theme.inkBelow(item)));
-            verify(Math.abs(top - bottom) <= 1, "the text's ink has equal vertical gaps: " + top + "/" + bottom);
             const slot = findChild(card, "notificationMediaSlot");
-            fuzzyCompare(slot.mapToItem(card, 0, slot.height / 2).y, card.height / 2, 0.5, "the media keeps the card's centre");
+            const top = Math.min(slot.mapToItem(card, 0, 0).y, ...lines.map(item => item.mapToItem(card, 0, 0).y + Theme.inkAbove(item)));
+            const bottom = card.height - Math.max(slot.mapToItem(card, 0, slot.height).y, ...lines.map(item => item.mapToItem(card, 0, item.height).y - Theme.inkBelow(item)));
+            fuzzyCompare(top, card.pad, 1, "drawn content keeps the top padding");
+            fuzzyCompare(bottom, card.pad, 1, "drawn content keeps the bottom padding");
             compare(card.slotLeft, card.pad, "media keeps the look's pad");
         }
     }

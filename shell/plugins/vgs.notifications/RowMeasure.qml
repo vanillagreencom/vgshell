@@ -66,15 +66,58 @@ ColumnLayout {
         ensurePolished();
         inset.settle();
     }
-    readonly property real inkAbove: rowCard.summary.length > 0 ? titleText.inkAbove : bodyText.inkAbove
-    readonly property real inkBelow: rowCard.singleLine ? titleText.inkBelow : bodyText.inkBelow
+    // Ink belongs to this layout's coordinates, including the positions
+    // its nested layouts assign. Logical content flags also hold while
+    // the shared model measurer inherits visible=false.
+    readonly property real inkAbove: {
+        let first = Infinity;
+        if (rowCard.summary.length > 0) {
+            first = summaryRow.y + titleText.y + titleText.inkAbove;
+            if (rowCard.showsBadge) first = Math.min(first, summaryRow.y + workspaceBadge.y);
+        }
+        if (!rowCard.singleLine) first = Math.min(first, bodyText.y + bodyText.inkAbove);
+        return first === Infinity ? 0 : first;
+    }
+    readonly property real inkBelow: {
+        let last = -Infinity;
+        if (rowCard.summary.length > 0) {
+            last = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
+            if (rowCard.showsBadge) last = Math.max(last, summaryRow.y + workspaceBadge.y + workspaceBadge.height);
+        }
+        if (!rowCard.singleLine) last = Math.max(last, bodyText.y + bodyText.height - bodyText.inkBelow);
+        return last === -Infinity ? 0 : height - last;
+    }
     ClearingInset {
         id: inset
         pad: root.rowCard.pad
         content: root
     }
-    function fullHeight(mediaHeight) { return Math.max(mediaHeight + 2 * rowCard.pad, implicitHeight + inset.topPadding + inset.bottomPadding); }
+    // Where the text block's top stands in the card: beside media
+    // MEDIAHEIGHT tall, which stands `pad` down, a title alone on one line
+    // centres on the media (Label.topForLeadingIcon), and other text
+    // shorter than the media centres its ink on it. Taller text has its
+    // first line's ink `pad` down; the two meet where the ink is as tall
+    // as the media, so a growing card keeps its top. The ink edges are the
+    // inset's settled ones: the live edges read assigned geometry, a
+    // binding loop through the card's placement.
+    function textTop(mediaHeight) {
+        if (mediaHeight <= 0) return inset.topPadding;
+        if (rowCard.singleLine && rowCard.summary.length > 0 && titleText.lineCount === 1)
+            return Math.max(inset.topPadding, rowCard.pad - summaryRow.y - titleText.y - titleText.topForLeadingIcon(mediaHeight));
+        return Math.max(inset.topPadding, rowCard.pad + (mediaHeight - inset.topInk - implicitHeight + inset.bottomInk) / 2);
+    }
+    function fullHeight(mediaHeight) { return Math.max(mediaHeight + 2 * rowCard.pad, textTop(mediaHeight) + implicitHeight + inset.bottomPadding); }
+    // Centres the ink, not the line boxes, of text without media.
     readonly property real verticalOffset: (inset.topPadding - inset.bottomPadding) / 2
+    // The centre of the first line box in this layout: the title's, or
+    // the body's when there is no title.
+    readonly property real firstLineCentre: rowCard.summary.length > 0
+        ? summaryRow.y + titleText.y + bodyText.titleLine / 2
+        : bodyText.y + bodyText.implicitHeight / Math.max(1, bodyText.lineCount) / 2
+    // Qt Text's own default maximumLineCount, no limit:
+    // https://doc.qt.io/qt-6/qml-qtquick-text.html#maximumLineCount-prop
+    readonly property int noLimit: 2147483647
+    readonly property bool opened: rowCard.open === true
 
     // The model measurer has no layout parent. Give this same layout the
     // card's text-column width, rather than overwriting its children's
@@ -129,6 +172,7 @@ ColumnLayout {
 
         // Load while hidden so the workspace name stays until its icon is ready.
         ClippingRectangle {
+            id: workspaceBadge
             objectName: "notificationBadge"
             Layout.preferredWidth: rowCard.showsBadge ? rowCard.look.badge.size : 0
             Layout.preferredHeight: rowCard.look.badge.size
@@ -178,7 +222,7 @@ ColumnLayout {
             styleColor: rowCard.look.text.summaryShadow
             wrapMode: Text.WordWrap
             elide: Text.ElideRight
-            maximumLineCount: rowCard.look.card.summaryLines
+            maximumLineCount: root.opened ? root.noLimit : rowCard.look.card.summaryLines
         }
 
         FontMetrics {
@@ -190,10 +234,12 @@ ColumnLayout {
     ImageText {
         id: bodyText
         objectName: "notificationBodyText"
-        // The height left for the body under maxHeight, and so the
-        // whole lines it shows; the last one elides.
-        // The column's spacing is the one gap under the summary.
-        readonly property real room: rowCard.look.card.maxHeight - 2 * rowCard.pad - (rowCard.summary.length > 0 ? summaryRow.implicitHeight + root.spacing : 0)
+        // The height left for the body under maxHeight beside a closed
+        // title, and so the whole lines a closed card shows; the last one
+        // elides. The column's spacing is the one gap under the summary.
+        readonly property real titleLine: titleText.implicitHeight / Math.max(1, titleText.lineCount)
+        readonly property real room: rowCard.look.card.maxHeight - 2 * rowCard.pad - (rowCard.summary.length > 0 ? titleLine * rowCard.look.card.summaryLines + root.spacing : 0)
+        readonly property int restLines: Math.min(rowCard.look.card.bodyLines, Math.max(1, Math.floor(room / bodyMetrics.height)))
         Layout.fillWidth: true
         visible: !rowCard.singleLine
         // StyledText, since the server advertises body markup. The
@@ -208,7 +254,7 @@ ColumnLayout {
         hovered: rowCard.hovered === true
         color: rowCard.look.text.body.color
         font: Qt.font({ family: rowCard.look.font.family.sans, pixelSize: rowCard.look.text.body.size })
-        maximumLineCount: Math.max(1, Math.floor(room / bodyMetrics.height))
+        maximumLineCount: root.opened ? root.noLimit : restLines
     }
 
     FontMetrics {

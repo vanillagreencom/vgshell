@@ -238,11 +238,13 @@ Item {
         function test_long_actions_leave_the_message_readable(row) {
             const card = row.control ? alteredCard("readonly property bool trayBelow:", "readonly property bool trayBelow: false &&")
                 : build(shippedCard);
+            // An open list card gives the full title and message room.
+            card.open = true;
             showDriveActions(card);
             const part = parts(card);
             verify(card.trayReserve > 0, "the holder retains either tray layout while actions draw");
             if (row.control) {
-                verify(part.title.truncated && part.body.truncated, "the control exposes the unreadable notification");
+                verify(part.body.width < card.textWidth / 2, "the control leaves the message less room than its actions");
                 card.destroy();
                 return;
             }
@@ -297,6 +299,57 @@ Item {
                 verify(Math.abs(end - expected) > 0.5, "the centred row ends away from the text's end: " + end + " vs " + expected);
             else
                 fuzzyCompare(end, expected, 0.5, "the actions end " + row.inset + " from the card's right edge");
+            card.destroy();
+        }
+
+        function test_side_action_height_data() {
+            return [
+                { tag: "a card at the limit: centred on the card", tall: false, media: false, control: false },
+                { tag: "an open tall card: on the title's first line", tall: true, media: false, control: false },
+                { tag: "an open tall card beside media: on the title's first line", tall: true, media: true, control: false },
+                { tag: "control: an open tall card centres its action", tall: true, media: false, control: true }
+            ];
+        }
+
+        // A single action beside the text stays at the top of a card past
+        // the pill limit, level with the title's first line and at least
+        // `pad` from the top edge, so it does not drift down as an open
+        // card grows; on a card within the limit, it centres.
+        function test_side_action_height(row) {
+            const card = row.control ? alteredCard("? Math.max(card.pad + height / 2, textBlock.textTop(card.showsSlot ? mediaSlot.implicitHeight : 0) + textBlock.firstLineCentre) - card.fullHeight / 2",
+                "? 0") : build(shippedCard);
+            card.actions = [{ id: "dismiss", label: "Dismiss" }];
+            if (row.media) {
+                card.hintIcon = "cloud-alert";
+                tryCompare(card, "showsSlot", true);
+            }
+            if (row.tall) {
+                card.open = true;
+                card.body = Array(12).fill("Another line of the open message, long enough to wrap.").join(" ");
+            }
+            card.showActions = true;
+            const part = parts(card);
+            tryCompare(part.tray, "opacity", 1);
+            card.settleHeight();
+            compare(card.trayBelow, false, "the action stands beside the text");
+            compare(card.fullHeight > card.look.card.maxHeight, row.tall, "the card's height against the pill limit");
+            const tray = sceneRect(part.tray, part.tray.width, part.tray.height);
+            const trayCentre = tray.y + tray.height / 2;
+            const title = sceneRect(part.title, part.title.width, part.title.height);
+            const firstLine = title.y + part.title.implicitHeight / Math.max(1, part.title.lineCount) / 2;
+            const bound = sceneRect(card, card.width, card.height);
+            const cardCentre = bound.y + bound.height / 2;
+            const atTop = Math.max(bound.y + card.pad + tray.height / 2, firstLine);
+            if (row.control) {
+                verify(Math.abs(trayCentre - atTop) > 0.5, "the centred action stands away from the top: " + trayCentre + " vs " + atTop);
+            } else if (row.tall) {
+                fuzzyCompare(trayCentre, atTop, 0.5, "the action stands on the title's first line, pad from the top");
+                verify(tray.y - bound.y >= card.pad - 0.5, "the action keeps pad from the top edge: " + (tray.y - bound.y));
+                verify(bound.x + bound.width - (tray.x + tray.width) >= card.pad - 0.5,
+                    "the action keeps pad from the right edge: " + (bound.x + bound.width - tray.x - tray.width));
+            } else {
+                fuzzyCompare(trayCentre, cardCentre, 0.5, "the action centres on the card");
+            }
             card.destroy();
         }
     }

@@ -139,24 +139,24 @@ var TOKENS = {
         squashWide: share(0.16),
         squashFlat: share(0.14),
         lift: length(2),
-        // The space to the card's drawn content, the same above, below and at
-        // both ends at every height. The card grows with its text up to
-        // maxHeight and no further: the body then shows the whole lines
-        // that fit. At maxHeight the capsule's ends are circles of radius
-        // maxHeight / 2, and a content corner `pad` in from both edges stays
-        // inside them while pad >= (1 - 1/sqrt(2)) / 2 * maxHeight, 13.8
-        // for 94; scripts/test-notifications-logic.js holds the table to it.
+        // Equal clearance to drawn content on every side. A pill at the
+        // maxHeight below needs 13.8 here to contain the media square
+        // (r * (1 - 1 / sqrt(2))); 14 keeps the existing safe bound.
         pad: length(14),
+        // Keep CardScroll's safe text column and the pill's clearance
+        // bound. bodyLines separately caps the message, so a shorter
+        // title/message does not have to fill this height.
         maxHeight: length(94),
         gapIcon: length(12),
         glyphStroke: length(2),
-        // Under the summary. At 1 a card in the shipped family shows three
-        // body lines at maxHeight: 94 less twice `pad`, the 17 px summary
-        // line and this gap leaves 48, three 16 px lines (the hhea line
-        // heights of shell/assets/fonts/InterVariable.ttf at 14 and 13 px,
-        // read with fontTools).
+        // Under the summary.
         lineGap: length(1),
-        summaryLines: number(2, 1, 8),
+        // One line, cut with an ellipsis; an open inbox card shows it whole.
+        summaryLines: number(1, 1, 8),
+        // The message cap remains two lines even without a title or when
+        // the user chooses a smaller interface font. An open inbox card
+        // shows every line instead.
+        bodyLines: number(2, 1, 8),
         exitScale: share(0.3)
     },
 
