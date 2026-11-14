@@ -13,8 +13,9 @@
 # tree whose ShareSession answers the picker as before records the
 # portal's stream sideways and fails the hand-off reading; its last frame
 # is kept as $smoke_log_dir/picked-screen/control.png. A share another
-# app opened before the job launched is answered with its choice and hands
-# nothing off; a tree that hands off any request's screen fails that.
+# app opened before the job launched gets its Start answer with its stream
+# and hands nothing off; the job's own picker is cancelled before reading
+# the app's frame. A tree that hands off any request's screen fails that.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
 # inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
 set -euo pipefail
@@ -201,20 +202,29 @@ print(json.dumps({"recorders": targets, "argv": len(rows) == 2 and rows[1] == di
 PY
 }
 ps_handed='{"argv": true, "portalLeft": false, "recorders": ["portal", "'"$ps_output"'"], "sessions": 0, "starts": 0, "videoSources": 0}'
-# ps_early LABEL: whether the app's own request got its choice and nothing
-# was handed off: the app's phase, the job's phase, each recorder call's
-# -w, and how many screen selections the picker gave xdph.
+# ps_early LABEL ID: the app's Start answer (or its phase until answered),
+# whether the job's own request is open, the job's phase, each recorder
+# call's -w, and how many screen selections the picker gave xdph.
 ps_early() {
-  local phase
+  local phase own app
   phase="$(ps_read phase)" || return
+  own="$(ps_share_id)" || return
+  app="$(ps_app_phase "$1")" || return
   python3 -c 'import json,os,sys
-calls, xdph, app, phase, output = sys.argv[1:]
+calls, xdph, app, phase, output, answer, own, id = sys.argv[1:]
+try:
+    data = json.load(open(answer))
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+if data.get("response") == 0 and data.get("streams"):
+    app = "answered"
 rows = [json.loads(line)["args"] for line in open(calls)] if os.path.exists(calls) else []
 log = open(xdph, errors="replace").read() if os.path.exists(xdph) else ""
-print(json.dumps({"app": app, "phase": phase, "recorders": [r[r.index("-w") + 1] for r in rows],
-                  "selections": log.count("[SELECTION]/screen:" + output)}, sort_keys=True))' "$ps_calls" "$ps_xdph_log" "$(ps_app_phase "$1")" "$phase" "$ps_output"
+print(json.dumps({"app": app, "own": own not in ("none", id), "phase": phase,
+                  "recorders": [r[r.index("-w") + 1] for r in rows],
+                  "selections": log.count("[SELECTION]/screen:" + output)}, sort_keys=True))' "$ps_calls" "$ps_xdph_log" "$app" "$phase" "$ps_output" "$ps_world/app-$1.json" "$own" "$2"
 }
-ps_answered='{"app": "complete", "phase": "capturing", "recorders": ["portal"], "selections": 1}'
+ps_answered='{"app": "answered", "own": true, "phase": "capturing", "recorders": ["portal"], "selections": 1}'
 # ps_classify PNG LABEL: the frame's orientation, read from where the
 # mark's quadrants stand.
 ps_classify() { python3 - "$@" <<'PY'
@@ -277,9 +287,9 @@ ps_handoff_round() {
   ps_portal_stop handoff
 }
 # ps_early_round LABEL TREE: an app's share opens before the job; the
-# job's request queues behind it in xdph.
+# job's request queues behind it in xdph and is answered before the frame.
 ps_early_round() {
-  local label="$1" id own
+  local label="$1" id own early app
   ps_portal_start "$label" "$2"
   ps_capture_on "$label"
   spawn "$ps_out/app-$label.log" "${ps_env[@]}" timeout 90 python3 "$ps_fixture/portal-client.py" "$ps_world/app-$label" "$ps_world/consume"
@@ -288,15 +298,19 @@ ps_early_round() {
   id="$(ps_share_id)"
   expect "$label: Picker starts a recording behind the app's share" ok ipc vgs.capture invoke record-portal ''
   ps_choose "$label" "$id"
-  expect_poll "$label: the app's request gets its screen and nothing is handed off" "$ps_answered" ps_early "$label"
-  printf 'picked-screen: %s early=%s\n' "$label" "$(ps_early "$label")"
+  expect_poll "$label: the app's request gets its screen and nothing is handed off" "$ps_answered" ps_early "$label" "$id"
+  early="$(ps_early "$label" "$id")" || return
+  printf 'picked-screen: %s early=%s\n' "$label" "$early"
   # Every request still open is cancelled, so its caller ends: the job's
   # own, which opens once the app's is answered while the job waits, and
   # the app's when a hand-off held it.
-  ps_own() { ps_share_id | py_reply 'import sys; s=sys.stdin.read().strip(); print(s not in ("none", sys.argv[1]))' "$id"; }
-  [[ $(ps_read phase) != capturing ]] || expect_poll "$label: the job's own request opens" True ps_own
   own="$(ps_share_id)"
   [[ $own == none ]] || expect "$label: the open request is cancelled" ok ipc vgs.capture invoke share-cancel "{\"id\":\"$own\"}"
+  # xdph 1.5.0 blocks its event loop in the synchronous picker:
+  # src/shared/ScreencopyShared.cpp promptForScreencopySelection runSync.
+  # Release the job's picker before requiring the app's first frame.
+  app="$(py_reply 'import json,sys; print(json.load(sys.stdin)["app"])' <<<"$early")" || return
+  [[ $app != answered ]] || expect_poll "$label: the app gets its frame" complete ps_app_phase "$label"
   [[ $(ps_read phase) == idle ]] || expect "$label: the waiting recording is cancelled" ok ipc vgs.capture invoke record-portal ''
   expect_poll "$label: capture is idle again" idle ps_read phase
   own="$(ps_share_id)"
