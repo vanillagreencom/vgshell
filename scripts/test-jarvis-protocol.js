@@ -478,7 +478,8 @@ for (const row of cases) rejected(Protocol, row);
 // Fault rows publish beside the existing rows, any keyed area's head word among them.
 function faultRows(logic) {
     const faultList = { ...auditFailures, rows: [auditRow, faultRow, { ...faultRow, cause: "brain=provider-error", status: 500, category: "service", action: "stopped" },
-        { ...faultRow, cause: "home=absent", category: "other", action: "stopped" }] };
+        { ...faultRow, cause: "home=absent", category: "other", action: "stopped" },
+        { ...faultRow, cause: "brain=codex-feature name=fixture_tool", category: "other", action: "stopped" }] };
     let accepted;
     try {
         accepted = logic.accept(JSON.stringify(faultList), "daemon");

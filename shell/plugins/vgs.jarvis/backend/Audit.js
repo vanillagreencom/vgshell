@@ -32,7 +32,10 @@ const VISION_COMMAND = /^(grim|magick|slurp|tesseract)-(exit=[0-9]{1,3}|signal|c
 // ChainedEngine's restartOf word, and the action Session's. faultRecord
 // lowercases the head word and maps `_` to `-`, as a harness stop reason
 // carries its program's spelling (`copilot-stop-max_tokens`, `pi-stop-toolUse`).
+// A refused Codex feature also keeps its name, a fixed Codex identifier
+// CodexAppServer.features checked, so the row says which feature to judge.
 const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;
+const CODEX_FEATURE = /^brain=codex-feature name=[A-Za-z0-9_-]{1,64}$/;
 const FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"];
 const FAULT_ACTIONS = ["restarted", "stopped"];
 
@@ -126,7 +129,7 @@ function eventRecord(event, time) {
 function faultRow(row) {
     const { time, gen, cause, status, category, action } = row;
     if (!Number.isSafeInteger(gen) || gen < 0) fail("identity");
-    if (typeof cause !== "string" || !FAULT_CAUSE.test(cause)) fail("fault-cause");
+    if (typeof cause !== "string" || !FAULT_CAUSE.test(cause) && !CODEX_FEATURE.test(cause)) fail("fault-cause");
     if (status !== undefined && (!Number.isSafeInteger(status) || status < 100 || status > 599)) fail("fault-status");
     if (!FAULT_CATEGORIES.includes(category)) fail("fault-category");
     if (!FAULT_ACTIONS.includes(action)) fail("fault-action");
@@ -138,7 +141,8 @@ function faultRow(row) {
 function faultRecord(event, time) {
     if (event === null || typeof event !== "object" || typeof event.reason !== "string") fail("event-shape");
     const status = / status=([1-5][0-9]{2})(?: |$)/.exec(event.reason);
-    return faultRow({ time, gen: event.gen, cause: event.reason.replace(/^jarvis-[a-z]+: /, "").split(" ", 1)[0].toLowerCase().replace(/_/g, "-"),
+    const keyed = event.reason.replace(/^jarvis-[a-z]+: /, "");
+    return faultRow({ time, gen: event.gen, cause: CODEX_FEATURE.test(keyed) ? keyed : keyed.split(" ", 1)[0].toLowerCase().replace(/_/g, "-"),
         ...(status === null ? {} : { status: Number(status[1]) }), category: event.category, action: event.action });
 }
 

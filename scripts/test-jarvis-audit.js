@@ -445,7 +445,7 @@ world(() => {
     }
     // A conversation fault's row: the keyed cause's head word and status,
     // the engine's category and Session's action, never the cause's other
-    // text. The Problems list keeps it, and the next writer seeds it back.
+    // text but a refused Codex feature's name. The Problems list keeps it, and the next writer seeds it back.
     function checkFaultRow(logic) {
         const root = currentState();
         const time = "2026-09-30T12:00:00.000Z";
@@ -460,7 +460,9 @@ world(() => {
             // Harness stop reasons keep their program's spelling (CopilotAcp.STOPS, PiRpc.STOPS).
             ["brain=copilot-stop-max_tokens", "other", "stopped", { cause: "brain=copilot-stop-max-tokens" }],
             ["brain=copilot-stop-max_turn_requests", "other", "stopped", { cause: "brain=copilot-stop-max-turn-requests" }],
-            ["brain=pi-stop-toolUse", "other", "stopped", { cause: "brain=pi-stop-tooluse" }]];
+            ["brain=pi-stop-toolUse", "other", "stopped", { cause: "brain=pi-stop-tooluse" }],
+            // A refused Codex feature keeps its name, the one cause text past the head word.
+            ["brain=codex-feature name=fixture_tool", "other", "stopped", { cause: "brain=codex-feature name=fixture_tool" }]];
         const listed = kept.map(([, category, action, row]) => ({ time, kind: "fault", status: null, ...row, category, action }));
         const changes = [];
         withWriter(logic, { state: root, changed: rows => changes.push(rows) }, writer => {
@@ -696,7 +698,7 @@ world(() => {
         ["fault head spelling", '.toLowerCase().replace(/_/g, "-")', "", checkFaultRow],
         ["fault key prefix", '.replace(/^jarvis-[a-z]+: /, "")', "", checkFaultRow],
         ["fault any area", "const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;", "const FAULT_CAUSE = /^(?:brain|net)=[a-z0-9-]{1,60}$/;", checkFaultRow],
-        ["fault cause judged", 'if (typeof cause !== "string" || !FAULT_CAUSE.test(cause)) fail("fault-cause");', "", checkFaultRow],
+        ["fault cause judged", 'if (typeof cause !== "string" || !FAULT_CAUSE.test(cause) && !CODEX_FEATURE.test(cause)) fail("fault-cause");', "", checkFaultRow],
         ["fault status kept", "...(status === null ? {} : { status: Number(status[1]) })", "...{}", checkFaultRow],
         ["fault category judged", 'if (!FAULT_CATEGORIES.includes(category)) fail("fault-category");', "", checkFaultRow],
         ["fault action judged", 'if (!FAULT_ACTIONS.includes(action)) fail("fault-action");', "", checkFaultRow],
