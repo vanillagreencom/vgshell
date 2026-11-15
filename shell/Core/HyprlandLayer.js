@@ -1771,16 +1771,27 @@ function appliedLines(values, paths) {
 
 // hyprpm v0.57.1 DataState::getDataStatePath and addNewPluginRepo install
 // this repository's binary here, using getpwuid's name (the core reads
-// id -un, not an inherited USER value). Hyprglass v1.1.1 README documents
-// hl.plugin.load declares a config-owned lifetime, reconciled at the end
+// id -un, not an inherited USER value). On Hyprland 0.57.1/0.57.2 no pin
+// matches, so hyprpm builds hyprglass main; 317ed8c1 is proved on VGS-2534.
+// Its README documents that hl.plugin.load declares a config-owned
+// lifetime, reconciled at the end
 // of parsing. Its first load recursively parses again before returning to
 // drawing. Keep the declaration when the module appears. The parse call
 // seeds hg.layer's queue before the plugin commits; the later Lua callback
 // reseeds for the outer reload's repeated commit. Lookup stays inside the
 // function so an unload leaves no captured native function table.
+// layers.manage_blur (default true) replaces Hyprland's blur and voids the
+// layer rule's ignore_alpha. Carry SURFACE_BLUR's cutoff in mask_threshold
+// so glass lies only where Hyprland blurred before, not behind Jarvis's
+// plateless orb (VGS-2433) or other passive content under the cutoff.
+// The built-in glass preset supplies edge bend and colour fringe:
+// BuiltInPresets.hpp makeGlass sets refraction 8, chromatic aberration 0.5
+// and clear tint.
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
-// https://github.com/hyprnux/hyprglass/blob/v1.1.1/README.md#configuration
-// https://github.com/hyprnux/hyprglass/blob/v1.1.1/src/PluginConfig.cpp
+// https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#configuration
+// https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#layer-surfaces
+// https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/src/PluginConfig.cpp
+// https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/src/BuiltInPresets.hpp
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/config/lua/ConfigManager.cpp
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/plugins/PluginSystem.cpp
 function layerGlassPath(username) {
@@ -1801,7 +1812,7 @@ function layerGlassLines(theme) {
         "        local hg = hl.plugin.hyprglass",
         "        if not hg then return end",
         "        hg.config({ enabled = false, layers = { enabled = true } })",
-        '        hg.layer("vgs:layer", { mask_mode = "contour" })',
+        '        hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = ' + luaNumber(SURFACE_BLUR.ignoreAlpha) + ', preset = "glass" })',
         "    end",
         "    configure()",
         '    hl.on("config.reloaded", configure)',

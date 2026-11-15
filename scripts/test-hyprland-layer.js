@@ -2242,7 +2242,7 @@ do
                 seen[#seen + 1] = prefix .. "config"
             end,
             layer = function(namespace, value)
-                assert(namespace == "vgs:layer" and value.mask_mode == "contour")
+                assert(namespace == "vgs:layer" and value.mask_mode == "contour" and value.mask_threshold == 0.7 and value.preset == "glass")
                 seen[#seen + 1] = prefix .. "layer"
             end
         }
