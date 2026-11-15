@@ -127,6 +127,11 @@ Scope {
         }
         return highest;
     }
+    // Each render's permissions rebuild the permission object via the permissionState
+    // Binding below. Read only its bool verdict: it notifies only on value changes,
+    // ending the loop (VGS-2560 run; Qt property change signals:
+    // https://doc.qt.io/qt-6/qtqml-syntax-objectattributes.html#property-change-signals).
+    readonly property bool layerGlassPermit: Capabilities.hyprland.layerGlassPermission.kind === "allowed"
     readonly property var themeAppearance: ({
         colours: {
             accent: Theme.palette.accent,
@@ -141,7 +146,7 @@ Scope {
         groups: Theme.appearanceState.hyprland,
         layerGlass: !Capabilities.hyprland.layerGlassUserFailed && (Capabilities.hyprland.layerGlassRequest.enabled === null ? Theme.appearanceState.values.layerGlass === true : Capabilities.hyprland.layerGlassRequest.enabled),
         layerGlassLoad: Capabilities.hyprland.layerGlassRequest.load !== false,
-        layerGlassPermit: Capabilities.hyprland.layerGlassPermission.kind === "allowed",
+        layerGlassPermit: root.layerGlassPermit,
         layerGlassUser: Capabilities.hyprland.layerGlassUser,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },

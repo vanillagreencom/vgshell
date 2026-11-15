@@ -2019,6 +2019,7 @@ const APPEARANCE_CAPABILITIES = { hyprland: {
     layerGlassPermission: { kind: "unread" },
     layerGlassUser: ""
 } };
+const APPEARANCE_ROOT = { layerGlassPermit: false };
 function verifyStatusAppearance(source, layer = load(layerFile)) {
     const bindings = [...source.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)];
     assert.equal(bindings.length, 1);
@@ -2033,7 +2034,7 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         });
         published.appearanceState = themeJudge.published(tokens, result, "").appearance;
         published.glass = glassOf(result.values);
-        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES });
+        const appearance = vm.runInNewContext(bindings[0][1], { root: APPEARANCE_ROOT, Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES });
         same(appearance.tuiCell, { width: 10, height: 22 }, `${entry.name}: the floating TUIs' cell is whole pixels`);
         const lines = layer.borderLines(appearance, entry.name).join("\n");
         assert.match(lines, /^\s+gradients = true,$/m);
@@ -2134,7 +2135,7 @@ function verifyAppearanceLayer(layer) {
             glow: Object.assign({}, glow, { color: toColor(glow.color), colorEnd: toColor(glow.colorEnd), inactive: toColor(glow.inactive) })
         });
         const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: [] };
-        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
+        return layer.render([gaps], vm.runInNewContext(binding, { root: APPEARANCE_ROOT, Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
     };
     const block = out => {
         const all = out.text.split("\n");
