@@ -51,14 +51,19 @@
 # 145 later opens at or below the limit, median 124 ms, three over 200 ms
 # (215, 219, 222), each in a run whose fastest later open read 165 ms or less.
 # Restoring eager Tooltip window construction must exceed the same budget.
-# The first frame holds the groups that fill the window, and each open
-# polls for the rows built behind it; a copy that never builds them is the
-# control. This row's timing marks, with marks around the plugin build and
-# the first animation tick added, on 2026-10-12 on cachy at 5e0f29a0 with
-# 42 plugins and CPU pressure under 2%: building every row first took 69 to
-# 113 ms of opens of 146 to 261 ms and the frame's own 55 to 86 ms; with
-# the first frame's groups alone the build took 38 to 54 ms and the frame
-# was swapped 92 to 126 ms after the shortcut.
+# The first frame holds the rows that fill the window, counted by the
+# heights its components guarantee (the window's `firstRows`), and each
+# open polls for the rows built behind it; a copy that never builds them is
+# the control. This row's timing marks, with per-thread /proc schedstat
+# samples added, on 2026-11-15 on cachy at e84fe98f7 with 47 rows in 21
+# groups and world CPU pressure under 2%: the first frame built 14 rows in
+# 5 groups, a 1059 px pane for the 559 px window room, each row about
+# 5.5 ms of the GUI thread's 112 to 154 ms, and the render thread took 44
+# to 57 ms to the frame: opens of 163 to 209 ms, and 208 to 254 ms beside
+# a 16-thread burst outside the world (VGS-2570). With the
+# counted heights the same profile's first frame builds 9 rows in 4
+# groups; the VGS-2570 branch validation run on 2026-11-15 on cachy reads
+# its five opens, and VGS-2570 holds them.
 # Hyprland consent wires the shortcuts before this row types its open key.
 # inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/foundation/HintGround.js shell/Commons/Theme.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml bin/lib/qml-library.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml
 set -euo pipefail
