@@ -227,6 +227,18 @@
       ]
     },
     {
+      "id": "herdr-app",
+      "name": "Herdr",
+      "kind": "gui",
+      "icon": "boxes",
+      "brand": "herdr",
+      "package": "http:herdr-app[url=https://releases.herdr.dev/app/{{ version }}/herdr-app-linux-{% if arch() == 'x64' %}x86_64{% else %}aarch64{% endif %}.tar.gz,version_list_url=https://releases.herdr.dev/app/latest.json,version_json_path=.version,strip_components=1]",
+      "command": "herdr-app",
+      "launch": [
+        "herdr-app"
+      ]
+    },
+    {
       "id": "orca",
       "name": "Orca",
       "kind": "gui",
@@ -292,6 +304,12 @@
     }
   ],
   "tools": [
+    {
+      "id": "herdr-core",
+      "name": "Herdr Core",
+      "package": "http:herdr-core[url=https://releases.herdr.dev/core/{{ version }}/herdr-core-linux-{% if arch() == 'x64' %}x86_64{% else %}aarch64{% endif %}.tar.gz,version_list_url=https://releases.herdr.dev/core/latest.json,version_json_path=.version,rename_exe=hc]",
+      "command": "hc"
+    },
     {
       "id": "gh",
       "name": "GitHub CLI",

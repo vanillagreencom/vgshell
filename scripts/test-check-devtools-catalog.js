@@ -8,6 +8,7 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const assert = require("node:assert/strict");
 
 const repo = path.join(__dirname, "..");
 const CHECK = path.join(repo, "scripts", "check-devtools-catalog.js");
@@ -74,6 +75,28 @@ const brand = Logic.validateBrandTable(base, Appearance.TOKENS.brand);
 const context = { managerIds: Managers.MANAGERS.map(row => row.id), lucideNames: Object.keys(Lucide.ICONS), brandKeys: brand.brandKeys, packageNameValid: Managers.validName };
 try {
     pass("shipped catalog passes", []);
+    for (const [section, id, command, release, extraction] of [
+        ["apps", "herdr-app", "herdr-app", "app", "strip_components=1"],
+        ["tools", "herdr-core", "hc", "core", "rename_exe=hc"]
+    ]) {
+        const row = base[section].find(entry => entry.id === id);
+        assert.ok(row, id + " has a catalog entry");
+        assert.equal(row.command, command);
+        const installed = Logic.installSpec(row, null);
+        assert.equal(installed.ok, true);
+        assert.equal(Logic.specKey(installed.spec), "http:" + id);
+        const parts = Logic.specParts(installed.spec);
+        assert.equal(parts.version, "");
+        const options = Object.fromEntries(parts.options.split(",").map(option => {
+            const equals = option.indexOf("=");
+            return [option.slice(0, equals), option.slice(equals + 1)];
+        }));
+        assert.equal(options.version_list_url, "https://releases.herdr.dev/" + release + "/latest.json");
+        assert.equal(options.version_json_path, ".version");
+        assert.equal(options.url, "https://releases.herdr.dev/" + release + "/{{ version }}/" + id + "-linux-{% if arch() == 'x64' %}x86_64{% else %}aarch64{% endif %}.tar.gz");
+        assert.equal(options[extraction.split("=")[0]], extraction.split("=")[1]);
+        if (section === "apps") assert.deepEqual(row.launch, [command]);
+    }
     if (!base.apps.some(row => String(row.package || "").includes("matching_regex=linux-x64\\.zip"))) throw new Error("regex edge case missing from catalog");
     if (!base.apps.some(row => String(row.package || "").endsWith("@nightly"))) throw new Error("nightly edge case missing from catalog");
     for (const row of base.databases) for (const port of row.container.ports) if (port.host !== "127.0.0.1") throw new Error("database port host is not loopback");
