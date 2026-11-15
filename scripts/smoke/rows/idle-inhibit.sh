@@ -40,15 +40,15 @@
 #   60 s after an input, and the next input releases it;
 # - with a stand-in owner started before a shell restart, the helper logs
 #   the other owner once and the stand-in still owns the name.
-# Controls, each a copy of the tree started in place of it with one edit:
+# Controls, each a copy of the tree started in place of it with one defect:
 # a helper that ignores NameOwnerChanged keeps the pause after its caller
 # is killed; a helper whose UnInhibit keeps the cookie keeps the pause
 # after UnInhibit; a helper that asks REPLACE_EXISTING displaces the
 # stand-in, which allows replacement; a core whose monitors ignore the
 # pause lets the watch go idle while inhibited; a core whose report
-# observer drops its transitions leaves the session unreported 60 s after
-# an input; a core whose report observer sends nothing on its start leaves
-# the stand-in's true hint in place; a core that takes no idle inhibitor
+# observer drops its transitions leaves the session unreported after the
+# copy's threshold; a core whose report observer sends nothing on its start
+# leaves the stand-in's true hint in place; a core that takes no idle inhibitor
 # leaves logind's idle action free during a hold; a core whose
 # idle lock follows the pause alone leaves it free under a Wayland
 # inhibitor. Each control runs the row's own check and passes only on that
@@ -57,10 +57,11 @@
 # restores gdbus and systemd-inhibit and ends with a fresh shell of the
 # tree.
 # A held watch is read 3 s after it was created, three times its 1 s time,
-# since no event marks a watch that stays active. The report's fixed 60 s
-# threshold has no setting, so each proof and control that reads the
-# session idle waits it out once from an input. Every other reading polls
-# through expect_poll; no latency budget is claimed.
+# since no event marks a watch that stays active. The report's fixed
+# threshold has no setting. The two proofs each wait the shipped 60 s once
+# from an input. The two controls that read session idle use copies whose
+# observer and view are edited to 5 s and 4 s, so they wait 5 s. Every other
+# reading polls through expect_poll; no latency budget is claimed.
 # inputs: scripts/smoke/power-fakes.sh bin/vgshell-idle-inhibit bin/lib/dbus_wire.py scripts/smoke/fixtures/idle-inhibit/* scripts/smoke/fixtures/plugins/acme.idlewatch/* scripts/smoke/fixtures/screensaver-ttfx shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/CoverPresentation.qml shell/Hosts/CoverHost.qml shell/plugins/vgs.screensaver/* shell/plugins/*/manifest.json
 set -euo pipefail
 ii_bus="unix:path=$rt_dir/bus"
@@ -210,6 +211,15 @@ ii_input() { type_keys -k Shift_L || fail "the input for the idle report failed"
 ii_after() { # SECONDS
   local left=$((ii_input_at + $1 * 1000 - $(now_ms)))
   if ((left > 0)); then sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"; fi
+}
+ii_copy_report_s=5
+ii_short_report() { # NAME
+  edit_tree "$1" shell/Core/IdleRegistry.qml \
+    $'        id: sessionIdle\n        timeout: 60' \
+    $'        id: sessionIdle\n        timeout: '"$ii_copy_report_s" \
+    && edit_tree "$1" shell/Core/IdleRegistry.qml \
+      $'        id: inhibitedIdle\n        timeout: 59' \
+      $'        id: inhibitedIdle\n        timeout: '"$((ii_copy_report_s - 1))"
 }
 # ii_preset_idle: the stand-in's record ends with SetIdleHint true on the
 # Display session, as a previous shell's idle report leaves it.
@@ -455,12 +465,13 @@ fi
 
 # Control: a core whose report observer drops its transitions.
 copy_tree idle-inhibit-unreported
-if edit_tree idle-inhibit-unreported shell/Core/IdleRegistry.qml '        onIsIdleChanged: idleHint.report(isIdle)' '        onIsIdleChanged: {}'; then
+if edit_tree idle-inhibit-unreported shell/Core/IdleRegistry.qml '        onIsIdleChanged: idleHint.report(isIdle)' '        onIsIdleChanged: {}' \
+  && ii_short_report idle-inhibit-unreported; then
   : >"$power_gdbus_calls"
   start_shell "$sandbox/tree-idle-inhibit-unreported" "$sandbox/idle-inhibit-unreported.log"
   expect_poll "control: the unreported copy takes the name" "$ii_free" ii_pause
   ii_input
-  ii_after 60
+  ii_after "$ii_copy_report_s"
   ii_must_fail "a core whose observer drops its transitions leaves the session unreported" "60 s without input reports the session idle" ii_report_check
   stop_shell || :
 fi
@@ -491,13 +502,14 @@ fi
 
 # Control: a core whose idle lock follows the pause alone.
 copy_tree idle-inhibit-pause-only
-if edit_tree idle-inhibit-pause-only shell/Core/IdleRegistry.qml '    readonly property bool idleLockWanted: paused || (sessionIdle.isIdle && !inhibitedIdle.isIdle)' '    readonly property bool idleLockWanted: paused'; then
+if edit_tree idle-inhibit-pause-only shell/Core/IdleRegistry.qml '    readonly property bool idleLockWanted: paused || (sessionIdle.isIdle && !inhibitedIdle.isIdle)' '    readonly property bool idleLockWanted: paused' \
+  && ii_short_report idle-inhibit-pause-only; then
   : >"$power_inhibit_calls"
   start_shell "$sandbox/tree-idle-inhibit-pause-only" "$sandbox/idle-inhibit-pause-only.log"
   expect_poll "control: the pause-only copy takes the name" "$ii_free" ii_pause
   if ii_wayland_open "$sandbox/idle-inhibit-pause-only-window.log"; then
     ii_input
-    ii_after 60
+    ii_after "$ii_copy_report_s"
     ii_report_check
     ii_must_fail "a core whose idle lock follows the pause alone leaves logind's idle action free under a Wayland inhibitor" "a Wayland inhibitor with no pause takes logind's idle inhibitor" ii_wayland_check
     ii_wayland_close "$sandbox/idle-inhibit-pause-only-clear.log"
