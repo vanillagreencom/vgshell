@@ -1769,6 +1769,46 @@ function appliedLines(values, paths) {
     ]);
 }
 
+// hyprpm v0.57.1 DataState::getDataStatePath and addNewPluginRepo install
+// this repository's binary here, using getpwuid's name (the core reads
+// id -un, not an inherited USER value). Hyprglass v1.1.1 README documents
+// hl.plugin.load declares a config-owned lifetime, reconciled at the end
+// of parsing. Its first load recursively parses again before returning to
+// drawing. Keep the declaration when the module appears. The parse call
+// seeds hg.layer's queue before the plugin commits; the later Lua callback
+// reseeds for the outer reload's repeated commit. Lookup stays inside the
+// function so an unload leaves no captured native function table.
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
+// https://github.com/hyprnux/hyprglass/blob/v1.1.1/README.md#configuration
+// https://github.com/hyprnux/hyprglass/blob/v1.1.1/src/PluginConfig.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/config/lua/ConfigManager.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/plugins/PluginSystem.cpp
+function layerGlassPath(username) {
+    return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
+        ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
+}
+function layerGlassLines(theme) {
+    if (theme.layerGlass !== true) return [];
+    var path = layerGlassPath(theme.layerGlassUser);
+    if (path === null)
+        throw new Error("HyprlandLayer: layer glass has no managed username");
+    // A preparation/rebuild can span another theme or config reload.
+    // Keep the safe configuration but withhold loading throughout it.
+    var load = theme.layerGlassLoad === false ? [] : ['if hl.plugin.hyprglass or ' + (theme.layerGlassPermit === true ? "true" : "false") + ' then hl.plugin.load("' + path + '") end'];
+    return load.concat([
+        "do",
+        "    local function configure()",
+        "        local hg = hl.plugin.hyprglass",
+        "        if not hg then return end",
+        "        hg.config({ enabled = false, layers = { enabled = true } })",
+        '        hg.layer("vgs:layer", { mask_mode = "contour" })',
+        "    end",
+        "    configure()",
+        '    hl.on("config.reloaded", configure)',
+        "end"
+    ]);
+}
+
 // The layer's text and the binds, options or appearance owner declarations
 // it could not write.
 //
@@ -1818,6 +1858,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var plan = bindPlan === undefined ? resolveBinds(sections)
         : bindPlan === null ? resolveBinds(sections, null, "core") : bindPlan;
     var switches = groupSwitches(sections);
+    var layerGlass = layerGlassLines(theme);
     var applied = [];
     var groups = [];
     var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); }, glow: function () { return glowLines(theme); } };
@@ -1908,7 +1949,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         "",
         START_LINE,
         ""
-    ].concat(appliedLines(applied, paths), lines);
+    ].concat(layerGlass, appliedLines(applied, paths), lines);
     lines = lines.concat([""], padSweepLines());
     return {
         text: lines.join("\n") + "\n",

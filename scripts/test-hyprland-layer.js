@@ -2013,6 +2013,12 @@ function glassOf(values) {
 // What HyprlandLayer.qml's FontMetrics reads for the terminal cell, here a
 // 16 px font whose glyphs are 0.6 em wide on a 1.32 em line.
 const TERMINAL_CELL = { averageCharacterWidth: 9.6, lineSpacing: 21.12 };
+const APPEARANCE_CAPABILITIES = { hyprland: {
+    layerGlassUserFailed: false,
+    layerGlassRequest: { generation: 0, enabled: null },
+    layerGlassPermission: { kind: "unread" },
+    layerGlassUser: ""
+} };
 function verifyStatusAppearance(source, layer = load(layerFile)) {
     const bindings = [...source.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)];
     assert.equal(bindings.length, 1);
@@ -2027,7 +2033,7 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         });
         published.appearanceState = themeJudge.published(tokens, result, "").appearance;
         published.glass = glassOf(result.values);
-        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published, terminalCell: TERMINAL_CELL });
+        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES });
         same(appearance.tuiCell, { width: 10, height: 22 }, `${entry.name}: the floating TUIs' cell is whole pixels`);
         const lines = layer.borderLines(appearance, entry.name).join("\n");
         assert.match(lines, /^\s+gradients = true,$/m);
@@ -2128,7 +2134,7 @@ function verifyAppearanceLayer(layer) {
             glow: Object.assign({}, glow, { color: toColor(glow.color), colorEnd: toColor(glow.colorEnd), inactive: toColor(glow.inactive) })
         });
         const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: [] };
-        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published, terminalCell: TERMINAL_CELL }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
+        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
     };
     const block = out => {
         const all = out.text.split("\n");
@@ -2212,6 +2218,63 @@ function verifyAppearanceLayer(layer) {
     }
 }
 verifyAppearanceLayer(load(layerFile));
+function verifyLayerGlass(layer) {
+    const input = (enabled, load, permit) => Object.assign({}, theme, { layerGlass: enabled, layerGlassLoad: load, layerGlassPermit: permit, layerGlassUser: "test-user" });
+    const render = (enabled, load, permit) => layer.render([], input(enabled, load, permit), "vgs", 1);
+    for (const enabled of [undefined, false]) assert.doesNotMatch(render(enabled).text, /hyprglass/, "Off leaves no VGS plugin declaration");
+    const on = render(true, true, true).text;
+    const block = layer.layerGlassLines(input(true, true, true)).join("\n");
+    const blockAt = on.indexOf(block);
+    const callbackAt = on.indexOf('    hl.on("config.reloaded", function()');
+    assert.ok(blockAt >= 0 && blockAt < callbackAt, "the emitted block runs during parsing before the general reload callback");
+    const preparing = render(true, false, true).text;
+    assert.doesNotMatch(preparing, /hl\.plugin\.load\(/, "a reload during preparation never loads a binary");
+    assert.doesNotMatch(on, /hyprglass_enabled|hyprglass\.window|hyprglass\.preset/, "VGS never writes foreign tags or window presets");
+    // Execute only the emitted block. The declaration-only loader and
+    // explicit namespaces prove its calls, not Hyprland's native lifetime.
+    const program = [[false, true, true], [true, false, true], [false, false, true], [true, true, false]].map(([present, permit, loading]) => `
+do
+    local declarations, callbacks, seen = {}, {}, {}
+    local function module(prefix)
+        return {
+            config = function(value)
+                assert(value.enabled == false and value.layers.enabled == true)
+                seen[#seen + 1] = prefix .. "config"
+            end,
+            layer = function(namespace, value)
+                assert(namespace == "vgs:layer" and value.mask_mode == "contour")
+                seen[#seen + 1] = prefix .. "layer"
+            end
+        }
+    end
+    hl = {
+        plugin = { load = function(path)
+            assert(path == "/var/cache/hyprpm/test-user/HyprGlass/hyprglass.so")
+            declarations[#declarations + 1] = path
+        end },
+        on = function(event, callback)
+            assert(event == "config.reloaded")
+            callbacks[#callbacks + 1] = callback
+        end
+    }
+    ${present ? 'hl.plugin.hyprglass = module("parse-")' : ""}
+    ${layer.layerGlassLines(input(true, loading, permit)).join("\n")}
+    assert(#declarations == ${loading && (present || permit) ? 1 : 0})
+    assert((hl.plugin.hyprglass ~= nil) == ${present})
+    assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer" : ""}")
+    assert(#callbacks == 1)
+    seen = {}
+    hl.plugin.hyprglass = module("reload-")
+    callbacks[1]()
+    callbacks[1]()
+    assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-config,reload-layer")
+end`).join("\n");
+    const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
+        env: { PATH: process.env.PATH, VGS_TEST_RUN: "1" } });
+    assert.ifError(run.error);
+    assert.equal(run.status, 0, "layer-glass emitted declaration/configuration calls: " + run.stderr);
+}
+verifyLayerGlass(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 // Control: a caption drawn in its fill's own colour.
@@ -2222,6 +2285,11 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    [layerFile, "preparation withholds the loader", "theme.layerGlassLoad === false ? [] :", "false ? [] :", verifyLayerGlass],
+    [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass), paths), lines);", verifyLayerGlass],
+    [layerFile, "layer glass retains its declaration with a namespace", "if hl.plugin.hyprglass or ", "if not hl.plugin.hyprglass and ", verifyLayerGlass],
+    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", configure)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
+    [layerFile, "layer glass keeps windows globally disabled", "hg.config({ enabled = false, layers = { enabled = true } })", "hg.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
     [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
     [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],
     [logicFile, "HDR on uses mode one", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 2 : 0;'],
@@ -2468,9 +2536,9 @@ const CONTROLS = [
     [logicFile, "an option value is judged by its schema entry", "var unfit = settingError(manifest.schema[setting], value);", "var unfit = \"\";"],
     [logicFile, "an option value is judged by its Lua literal", "var literal = HyprlandLayer.optionLiteral(optionRow, value);", "var literal = { ok: true, lua: JSON.stringify(value) };"],
     [layerFile, "the options section is written", "if (section.options.length > 0) {", "if (false) {"],
-    [layerFile, "the applied section is written", "].concat(appliedLines(applied, paths), lines);", "].concat(lines);"],
-    [layerFile, "the values are applied after the configuration, not inline", "].concat(appliedLines(applied, paths), lines);", "].concat(applied, lines);"],
-    [layerFile, "the applied section follows the header", "].concat(appliedLines(applied, paths), lines);", "].concat(lines, appliedLines(applied, paths));"],
+    [layerFile, "the applied section is written", "appliedLines(applied, paths), lines", "lines"],
+    [layerFile, "the values are applied after the configuration, not inline", "appliedLines(applied, paths), lines", "applied, lines"],
+    [layerFile, "the applied section follows the header", "appliedLines(applied, paths), lines", "lines, appliedLines(applied, paths)"],
     [layerFile, "the layer starts VGS when Hyprland starts", "        START_LINE,\n", ""],
     [layerFile, "the login start uses the start verb", 'hl.exec_cmd(\\"vgshell start\\")', 'hl.exec_cmd(\\"vgshell run\\")'],
     [layerFile, "the values sit inside the callback", "].concat(values.map(function (line) { return \"        \" + line; }), [", "].concat(["],

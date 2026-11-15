@@ -33,7 +33,7 @@
 # The keyboard install reading also reports the world's CPU pressure over its
 # timed idle read as run_end_contention.cpu_some_pct (null if unavailable).
 # The ceiling and 0.2 s poll interval remain expect_run_end's in harness.sh.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/*/manifest.json shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
 leak_plugin_setup acme.status false || { fail "devtools: fixture precondition failed"; return 1; }
 devtools_stand_ins
@@ -175,6 +175,9 @@ expect_poll "the requirement fixture is discovered" True plugin_known acme.requi
 expect "enabling Dev Tools is allowed" ok ipc shell setPluginEnabled vgs.devtools true
 expect_poll "the Dev Tools service is built" True record_exists vgs.devtools
 expect_poll "the service publishes every status its manifest declares" '["catalog", "checks", "installed", "launcherRows", "mise", "missingRequirements", "outdated"]' dev_lent
+expect "enabling the requirement fixture before the keyboard tour is allowed" ok ipc shell setPluginEnabled acme.requires true
+has_fixture_missing() { ipc smoke doctorMissing service vgs.devtools | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("acme.requires"), "core" in d]))'; }
+expect_poll "the optional fixture contributes to the doctor inventory before the tour" '[["vgs-smoke-devtool"], true]' has_fixture_missing
 
 # The window: IPC open summons it, a Hyprland window like any other, and
 # opened again it draws the published catalog.
@@ -183,12 +186,14 @@ app_window_rows "Dev Tools" vgs.devtools
 expect "IPC open summons the window again" ok devtools open
 expect_poll "the window is shown" shown window_shown
 expect_poll "the window opens on Catalog search without a focus ring" '["TextField","Search tools",false,false,true]' ipc smoke focused window vgs.devtools
+devtools_first_install_kind() { ipc smoke readMatchingDescendant window vgs.devtools RowAction text Install modelData | py_reply 'import json,sys; a=json.load(sys.stdin); print(a.get("kind") if isinstance(a,dict) else "no-action")'; }
+expect_poll "the full catalog offers a competing doctor Install before the agent" doctor devtools_first_install_kind
 forget_record
 type_keys -k Return -k Tab || fail "Return and Tab on the Dev Tools search failed"
 expect_poll "Tab after Return is processed by the Dev Tools window" moved devtools_focus_moved_from_search
 expect "control: Return on the Dev Tools search runs no TUI" absent devtools_tui_state
-devtools_keyboard_install() {
-  local seen=() focus label
+devtools_keyboard_install() { # AGENT_ID
+  local expected_row_key="agents/$1" seen=() focus label route
   for _ in $(seq 1 80); do
     type_keys -k Tab || return 1
     focus="$(ipc smoke focused window vgs.devtools)" || return 1
@@ -209,13 +214,18 @@ PY
     then return 1; fi
     label="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$focus")" || return 1
     seen+=("$label")
-    if [[ $label == Install ]]; then
+    # Doctor and other agents share Install labels; use the focused action's row.
+    route="$(ipc smoke focusedRowAction window vgs.devtools | py_reply 'import json,sys
+reading=json.load(sys.stdin)
+action=reading.get("action") or {}
+print("target" if reading.get("state")=="row-action" and reading.get("rowKey")==sys.argv[1] and action.get("kind")=="verb" and action.get("verb")=="install" else "other")' "$expected_row_key")" || return 1
+    if [[ $route == target ]]; then
       type_keys -k Return || return 1
       printf 'ok\n'
       return 0
     fi
   done
-  printf 'missing-install seen=%s\n' "$(IFS=,; echo "${seen[*]}")"
+  printf 'missing-install row=%s seen=%s\n' "$expected_row_key" "$(IFS=,; echo "${seen[*]}")"
 }
 # keyboard_back: true while the shell reads the Dev Tools window holding
 # the keyboard, else its reading and the window the compositor names active.
@@ -231,7 +241,7 @@ forget_record
 # client can drop. The run is held
 # live, as a user's TUI is, until the shell reads the keyboard gone.
 hold_runs
-expect "the Dev Tools Tab tour reveals each focused action and Return reaches Install" ok devtools_keyboard_install
+expect "the Dev Tools Tab tour reveals each focused action and Return reaches the agent Install" ok devtools_keyboard_install "$agent_id"
 expect_poll "Return on the focused Install hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
 expect_poll "the shell reads the Dev Tools window without the keyboard while the run's terminal holds it" false window_keyboard vgs.devtools
 release_runs
@@ -478,7 +488,7 @@ expect "the agent lists absent before the click" "$(texts "$agent_name" "Not ins
 install_before="$(ended_record vgs.devtools/install)"
 forget_record
 hold_runs
-expect "the Dev Tools Tab tour reaches the agent Install again" ok devtools_keyboard_install
+expect "the Dev Tools Tab tour reaches the agent Install again" ok devtools_keyboard_install "$agent_id"
 expect_poll "the click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
 echo "$agent_key" >>"$dev_state/installed"
 expect "no list runs before a trigger" "$(texts "$agent_name" "Not installed" "Not installed" Install)" row_texts "$agent_name"
@@ -532,14 +542,10 @@ expect "the window scrolls to its switch again" scrolled scroll_bottom
 click_field_switch "Add tool commands to the terminal" || fail "the second click on the launcher switch failed"
 expect_poll "turning launchers off removes it" absent launcher_state "$agent_command"
 
-# The VGS section: a plugin's missing requirement, listed once enabling
-# the fixture moves the core scan's missing commands, which the service
-# follows through the doctor capability with no refresh. The fixture marks
-# it optional, so enabling it raises no core requirement notice. Install
-# raises the core's notice for it, which Escape closes.
+# The VGS section keeps the optional fixture's missing requirement from
+# the keyboard tour. Its doctor action raises the core's notice, which
+# Escape closes; enabling the optional fixture raised no notice itself.
 expect "a refresh answers ok" ok devtools refresh
-expect "enabling the requirement fixture is allowed" ok ipc shell setPluginEnabled acme.requires true
-has_fixture_missing() { ipc smoke doctorMissing service vgs.devtools | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("acme.requires"), "core" in d]))'; }
 expect_poll "the doctor capability reports the fixture's missing command and the core's list" '[["vgs-smoke-devtool"], true]' has_fixture_missing
 expect "the window switches to Info for the fixture requirement" '[' select_devtools_tab Info
 expect_poll "the VGS section lists the fixture's missing requirement with Install" \

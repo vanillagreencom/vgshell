@@ -3745,6 +3745,26 @@ Scope {
             const at = focused[focused.length - 1];
             return root.json([root.typeName(at), at.label !== undefined && at.label !== "" ? String(at.label) : at.text !== undefined ? String(at.text) : null]);
         }
+        // The focused catalog action and the ToolRow that owns it. Qt also
+        // marks enclosing FocusScopes active, so use the deepest focused
+        // item, as activeFocusItem does, and follow its visual parents
+        // (doc.qt.io/qt-6/qml-qtquick-item.html#activeFocus-prop and
+        // #parent-prop). Details links have no model action.
+        function focusedRowAction(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return root.json({ state: "absent" });
+            const focused = root.descendants(item).filter(child => child.activeFocus);
+            if (focused.length === 0) return root.json({ state: "no-focus" });
+            const target = focused[focused.length - 1];
+            if (!root.matchesType(target, "RowAction")) return root.json({ state: "not-row-action" });
+            if (target.modelData === undefined || target.modelData === null) return root.json({ state: "no-action" });
+            for (let at = target.parent; at !== null && at !== item; at = at.parent) {
+                if (!root.matchesType(at, "ToolRow")) continue;
+                if (at.row === null) return root.json({ state: "no-row" });
+                return root.json({ state: "row-action", rowKey: at.row.key, action: target.modelData });
+            }
+            return root.json({ state: "no-row" });
+        }
         // Whether the item holding the keys under an instance lies inside
         // an item named `type`, such as a page, whichever of its controls
         // holds them.

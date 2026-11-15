@@ -18,10 +18,28 @@ FocusScope {
     property var shell: null
     property string problem: ""
     readonly property var appearance: shell === null ? null : shell.appearance
+    readonly property var layerGlass: shell === null ? null : shell.hyprland.layerGlass
+    readonly property bool layerGlassBusy: layerGlass !== null && layerGlass.operation.phase !== "idle"
+    readonly property bool layerGlassWaiting: layerGlass !== null && layerGlass.operation.phase === "verifying"
+        && layerGlass.observed.kind === "shaders-pending"
+    readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""
+        ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1
+            ? layerGlass.observed.reason : ""
+    readonly property bool layerGlassRecovery: layerGlass !== null && (layerGlassBusy || layerGlassProblem !== ""
+        || (layerGlass.requested && (layerGlass.observed.stale || layerGlass.observed.kind !== "eligible"))
+        || (layerGlass.observed.loaded === true && !layerGlass.requested))
     readonly property Item initialFocus: radius.slider
 
     function open(payloadJson) {}
     function close() {}
+    onShellChanged: if (shell !== null) shell.hyprland.refreshLayerGlass()
+
+    function chooseLayerGlass(enabled, rebuild) {
+        const done = result => { if (!result.ok) console.warn("windows: layer-glass " + result.reason); };
+        const reply = rebuild ? shell.appearance.rebuildLayerGlass("layer-glass", "layer-glass-control", done)
+            : shell.appearance.chooseLayerGlass(enabled, "layer-glass", "layer-glass-control", done);
+        if (reply !== "ok") console.warn("windows: layer-glass " + reply);
+    }
 
     function answer(reply) {
         problem = reply === "ok" ? "" : "VGS could not save this setting.";
@@ -183,6 +201,70 @@ FocusScope {
                         root.answer(wanted ? root.shell.appearance.set("windowGlow", true) : root.shell.appearance.unset("windowGlow"));
                     }
                 }
+            }
+
+            FormRow {
+                width: parent.width
+                label: "Layer glass"
+                info: "Adds glass to VGS panels independently of VGlass. On offers to install hyprglass."
+                Switch {
+                    size: "sm"
+                    Accessible.name: "Layer glass"
+                    disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
+                    checked: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlassWaiting)
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => root.layerGlass !== null && (root.layerGlass.requested || root.layerGlassWaiting));
+                        root.chooseLayerGlass(wanted, false);
+                    }
+                }
+            }
+
+            FormRow {
+                visible: root.layerGlassRecovery
+                width: parent.width
+                label: "Status"
+                Label {
+                    width: parent.width
+                    text: root.layerGlassWaiting ? "Waiting for a panel" : root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
+                        ? "Checking…" : root.layerGlass.observed.kind === "eligible" ? "On"
+                            : root.layerGlass.observed.kind === "not-loaded" ? "Off" : "Needs attention"
+                }
+            }
+
+            FormRow {
+                visible: root.layerGlassRecovery
+                width: parent.width
+                label: ""
+                RowActions {
+                    width: parent.width
+                    RowAction {
+                        text: "Check again"
+                        disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.shell.hyprland.refreshLayerGlass()
+                    }
+                    RowAction {
+                        visible: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlass.observed.loaded === true)
+                            && root.layerGlass.observed.kind !== "eligible"
+                        text: "Rebuild"
+                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.chooseLayerGlass(true, true)
+                    }
+                    RowAction {
+                        visible: root.layerGlass !== null && root.layerGlass.observed.loaded === true && !root.layerGlass.requested
+                        text: "Turn off"
+                        disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.chooseLayerGlass(false, false)
+                    }
+                }
+            }
+
+            Callout {
+                visible: root.layerGlassProblem !== ""
+                width: parent.width
+                tone: root.layerGlass !== null && root.layerGlass.operation.reason === "" && root.layerGlass.observed.kind === "shaders-pending" ? "info" : "danger"
+                text: root.layerGlassProblem
+                plain: true
             }
         }
 

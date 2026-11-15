@@ -16,5 +16,18 @@
     "binds": [
       { "shortcut": "group-lock", "key": "SUPER+CTRL+G", "info": "Locks the group of the focused window, or unlocks it, and shows a notification that tells you which. A window in no group stays as it is." }
     ]
+  },
+  "requirements": [
+    { "command": "hyprpm", "optional": true, "requestOnly": true, "purpose": "Turn layer glass on or off", "packages": { "pacman": "hyprpm" } },
+    { "command": "cpio", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "cpio" } },
+    { "command": "cmake", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "cmake" } },
+    { "command": "pkg-config", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "pkgconf" } },
+    { "command": "g++", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
+    { "command": "gcc", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
+    { "command": "git", "optional": true, "requestOnly": true, "purpose": "Download the layer-glass plugin", "packages": { "pacman": "git" } }
+  ],
+  "tui": {
+    "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm", "cpio", "cmake", "pkg-config", "g++", "gcc", "git"] },
+    "layer-glass-control": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm"] }
   }
 }

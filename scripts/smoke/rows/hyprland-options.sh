@@ -133,7 +133,7 @@ expect "enabling the options fixture is allowed" ok ipc shell setPluginEnabled a
 expect "enabling the second options fixture is allowed" ok ipc shell setPluginEnabled acme.hyprland-other true
 expect_poll "the options fixture builds" True record_exists acme.hyprland
 expect_poll "the second options fixture builds" True record_exists acme.hyprland-other
-expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,displayWake,foreignBinds,overridden,permissions,resolveKeys,switchKeyboardLayout,userValues,values"' read_options members
+expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,displayWake,foreignBinds,layerGlass,overridden,permissions,refreshLayerGlass,resolveKeys,switchKeyboardLayout,userValues,values"' read_options members
 expect_poll "the core reads Hyprland while a plugin holds hyprland" true reads_active
 # The same predicate must reject the real enabled fixture holds.
 expect "control: enabled fixture holders fail the publisher-only predicate" False publisher_holds_alone

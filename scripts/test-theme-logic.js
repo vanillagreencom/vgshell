@@ -1341,7 +1341,7 @@ function verifyAppearance(judge) {
     // Where each value comes from, what the theme shows, and which layer
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
-    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland", windowGlow: "hyprland" }, "every value from the theme, animations, window glass and glow from Hyprland, glass from each surface");
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland", windowGlow: "hyprland", layerGlass: "theme" }, "every value from the theme, animations, window glass and glow from Hyprland, glass from each surface");
     assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false, glow: false, surfaceBlur: false }, "the layer writes borders and radius and leaves animations, window glass and glow");
     assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
@@ -1363,6 +1363,11 @@ function verifyAppearance(judge) {
         assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
     }
     assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
+    for (const glass of [undefined, "on", "off"]) {
+        const layerOnly = over(shipped, { glass: glass, layerGlass: true });
+        assert.equal(layerOnly.appearance.values.layerGlass, true, "layer glass stays independent of global VGlass " + glass);
+        assert.deepEqual(plain(layerOnly.values), plain(over(shipped, { glass: glass }).values), "layer glass changes no theme token");
+    }
     // The glass corner: while the user's glass is on, a menu, a dialog, a
     // popover and an OSD whose corner would be 0 take radius.glass, 16, a
     // menu entry following its menu; a corner above 0 stands, the theme's

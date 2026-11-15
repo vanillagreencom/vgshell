@@ -209,8 +209,8 @@ Scope {
 
     // The one judge of a plugin's own script request, run's and runFor's:
     // PluginLogic.tuiRunFor against the plugin's missing commands. HELD is
-    // { name, args, ctx, done }, ctx null and done undefined for a request
-    // no instance made. A script that lacks a command it needs hands HELD
+    // { name, args, ctx, done }, ctx null for a core-owned request whose
+    // callback follows the shell lifetime. A script that lacks a command it needs hands HELD
     // to the notice for the commands it lacks, which gives it back to
     // resume.
     function request(id, manifest, held) {
@@ -231,24 +231,32 @@ Scope {
     // resume: plugin ID's HELD request, once its requirement notice closed
     // with the commands found (Notices.resume). The asking instance's
     // snapshot and `done` run while that instance lives; otherwise the
-    // registered manifest runs the script with no instance. A request that
+    // registered manifest runs the script with no instance. Core-owned
+    // callbacks remain attached across prerequisite installation. A request that
     // does not start ends its `done` with `unstarted`, judged on start's own
     // answer: a busy key focuses a window, but starts no run to end.
     function resume(id, held) {
+        // A core-owned operation can end or lose its requesting revision
+        // while its package prerequisite runs. Its old consent starts no
+        // replacement script after that operation has ended.
+        if (held.current !== undefined && !held.current()) {
+            unstarted(held);
+            return Logic.tuiRefusal(held.name, "superseded").answer;
+        }
         const live = held.ctx !== null && held.ctx.active;
         const answer = live
             ? request(id, held.manager === true ? Registry.manifests[id] : held.ctx.manifest, held)
-            : request(id, Registry.manifests[id], { name: held.name, args: held.args, ctx: null, done: undefined });
+            : request(id, Registry.manifests[id], held.ctx === null ? held : { name: held.name, args: held.args, ctx: null, done: undefined });
         if (answer !== "ok") unstarted(held);
         return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, held.name), held.name, answer, held.args, startedArgs);
     }
 
     // The end a held request's `done` receives when it never starts, so a
-    // `done` run answered `ok` always receives one while its instance lives.
+    // `done` run answered `ok` receives one while its instance or core owner lives.
     // It reaches `done` as every run's end does (TuiRecords.handOver).
     function unstarted(held) {
-        if (held.done !== undefined && held.ctx !== null && held.ctx.active)
-            recordStore.handOver(held.ctx.id, held.done, { code: null, reason: "unstarted", package: null });
+        if (held.done !== undefined && (held.ctx === null || held.ctx.active))
+            recordStore.handOver(held.ctx === null ? "core" : held.ctx.id, held.done, { code: null, reason: "unstarted", package: null });
     }
 
     // open: any listed TUI by key, with no arguments; the `openTui` IPC
