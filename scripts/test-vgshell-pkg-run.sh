@@ -434,6 +434,21 @@ done
 chooser_status=77
 printf 'NAME="Arch Linux"\nID=arch\n' >"$tmp/os-release-arch"
 if unshare -rm true 2>/dev/null; then
+  check "a review world builds where /run/user holds no folder of this user's" \
+    unshare -rm sh -c 'mount -t tmpfs -o ro none /run/user && exec "$@"' sh \
+    "$node_bin" -e '
+const assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path");
+const root=fs.mkdtempSync(path.join(os.tmpdir(),"review-world-no-user-"));
+try{
+ const world=require(process.argv[1]).create(root);
+ const temporary=fs.realpathSync(world.env.TMPDIR);
+ for(const key of ["XDG_RUNTIME_DIR","XDG_CACHE_HOME"]){
+  const folder=fs.realpathSync(world.env[key]);
+  assert.ok(folder!=="/tmp"&&!folder.startsWith("/tmp/"),key+": outside /tmp");
+  assert.ok(folder!==temporary&&!folder.startsWith(temporary+path.sep),key+": outside TMPDIR");
+ }
+}finally{fs.rmSync(root,{recursive:true,force:true});}
+' "$repo/scripts/fixtures/pkg-review/world.js"
   PKG_ANSWERS=($'aur\n' $'aurpkg\n')
   pkg_in_arch() {
     local cmd

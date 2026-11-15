@@ -21,14 +21,9 @@ function git(dir,...args){
  if(result.error||result.status!==0)throw Error("fixture git: "+(result.error?.message||result.stderr));
  return result.stdout.trim();
 }
-function protectedParent(){
- for(const name of fs.readdirSync("/run/user")){
-  const candidate=path.join("/run/user",name),stat=fs.lstatSync(candidate);
-  if(!stat.isDirectory()||stat.uid!==process.getuid())continue;
-  try{fs.accessSync(candidate,fs.constants.W_OK|fs.constants.X_OK);return candidate;}catch(error){if(error.code!=="EACCES"&&error.code!=="EROFS")throw error;}
- }
- throw Error("fixture protected runtime parent unavailable");
-}
+// Every validation world mounts a private, executable /dev/shm tmpfs,
+// outside /tmp and the world's TMPDIR.
+function protectedParent(){return "/dev/shm";}
 // A world with a helper links the host's git. There only the review's
 // snapshot copy runs git, and the stand-in would forward each call unchanged
 // at the cost of a node start. The world's environment keeps that git on
@@ -38,8 +33,8 @@ function protectedParent(){
 // git calls keeps the stand-in with gitStandIn.
 function create(root,{choices=["Install without review"],settings={agent:"claude",command:""},agents=true,helper=true,gitStandIn=!helper}={}){
  fs.mkdirSync(root,{recursive:true});
- // Codex can write /tmp. Keep build clones and owner results outside it,
- // even when a suite's disposable outer world is under /tmp.
+ // /dev/shm keeps build clones, owner results and the review launcher outside
+ // agent-writable /tmp and TMPDIR while allowing the launcher to execute.
  const runtimeParent=protectedParent();
  const protectedRoot=fs.mkdtempSync(path.join(runtimeParent,"vgs-review-fixture-"));owned.add(protectedRoot);
  for(const dir of ["tools","home","tmp","config/vgshell","db/local","hooks","state","data"])fs.mkdirSync(path.join(root,dir),{recursive:true,mode:0o700});
