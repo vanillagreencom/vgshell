@@ -93,15 +93,17 @@ const FLAGS = {
 // only through --server-bin.
 // systemd-cat(1), systemd 262.1: command mode connects both stdout and
 // stderr to the journal; --identifier= names their entries.
+// gliff v0.4.3 net.rs and gliff-server session.rs report the video method
+// at info; keep dependency logs at error and include server fallback warnings.
 function argv(profile) {
     if (!HOST.test(profile.host)) return { field: "host" };
     if (profile.screen === "one" && !OUTPUT.test(profile.output)) return { field: "output" };
     const screen = profile.screen === "one" ? ["--output", profile.output] : FLAGS.screen[profile.screen];
     const server = FLAGS.picture[profile.picture].concat(FLAGS.capture[profile.capture],
         profile.bitrate > 0 ? ["--bitrate", String(Math.round(profile.bitrate * 1000000))] : []);
-    return { argv: ["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "gliff", "--release-hotkey", profile.releaseKey]
+    return { argv: ["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "env", "RUST_LOG=error,gliff=info", "gliff", "--release-hotkey", profile.releaseKey]
         .concat(profile.clipboard ? [] : ["--no-clipboard"], FLAGS.video[profile.video], screen,
-            server.length === 0 ? [] : ["--server-bin", ["gliff-server"].concat(server).join(" ")], ["--", profile.host]) };
+            ["--server-bin", ["env", "RUST_LOG=error,gliff_server=info", "gliff-server"].concat(server).join(" ")], ["--", profile.host]) };
 }
 
 // OpenSSH returns the remote command's exit status, or 255 on error

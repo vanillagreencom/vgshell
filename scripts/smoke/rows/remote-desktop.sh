@@ -21,8 +21,8 @@
 # widget with the viewer and starts the poll; the viewer leaving, with no
 # event, hides it through the poll, which stops; Connect's one table
 # refuses a missing remote server without opening gliff, passes the
-# loopback server its systemd-cat identifier prefix and unchanged gliff
-# profile argv, and keeps launching for unreachable
+# loopback server its systemd-cat identifier prefix, client and server info
+# log settings and gliff profile argv, and keeps launching for unreachable
 # smoke-beta; a copy that skips refusal fails the same missing-server
 # assertion; the pane's Set up sign-in
 # hands the terminal the sign-in script and the host; the script, run
@@ -85,7 +85,7 @@ printf '#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && echo "gliff 0.4.1"\nex
 # systemd-cat(1), installed systemd 262.1: command mode connects stdout
 # and stderr to the journal, sharing a channel at equal priorities. exec
 # preserves the command's status; the fixture sink is not a journal.
-printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ ${1:-} == --version ]] && { echo "systemd 262.1"; exit 0; }\npython3 -c %q "$@" >>%q\n[[ ${1:-} == --identifier=* && ${2:-} == gliff ]] || exit 64\nshift\nexec "$@" >>%q 2>&1\n' \
+printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ ${1:-} == --version ]] && { echo "systemd 262.1"; exit 0; }\npython3 -c %q "$@" >>%q\n[[ ${1:-} == --identifier=* ]] || exit 64\nshift\nexec "$@" >>%q 2>&1\n' \
   'import json,sys; print(json.dumps(["systemd-cat"] + sys.argv[1:]))' "$rd_dir/gliff.argv" "$rd_dir/gliff.output" >"$shim/systemd-cat"
 printf '#!%s\nimport time\nwhile True: time.sleep(3600)\n' "$rd_python" >"$shim/gliff-server"
 printf '#!/usr/bin/env bash\nexec %q -F %q -o UserKnownHostsFile=%q -o IdentityFile=none "$@"\n' \
@@ -213,7 +213,7 @@ print(json.dumps([runs, " server=missing host=smoke-sshd" in text, text.count("n
 PY
 }
 rd_connect_expected() {
-  printf '[[["systemd-cat", "--identifier=vgs-gliff", "gliff", "--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "gliff-server --capture shm", "--", "%s"]], false, 0]\n' "$1"
+  printf '[[["systemd-cat", "--identifier=vgs-gliff", "env", "RUST_LOG=error,gliff=info", "gliff", "--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "env RUST_LOG=error,gliff_server=info gliff-server --capture shm", "--", "%s"]], false, 0]\n' "$1"
 }
 rd_connect_table() {
   local only="${1:-}" state host expected
@@ -328,8 +328,8 @@ fi
 
 # Removing only the wrapper prefix must fail the same present argv case.
 if [[ -n $rd_sshd_bin ]] && copy_tree remote-desktop-no-journal-prefix && edit_tree remote-desktop-no-journal-prefix shell/plugins/vgs.remote-desktop/Remote.js \
-    '["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "gliff", "--release-hotkey", profile.releaseKey]' \
-    '["gliff", "--release-hotkey", profile.releaseKey]'; then
+    '["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "env", "RUST_LOG=error,gliff=info", "gliff", "--release-hotkey", profile.releaseKey]' \
+    '["env", "RUST_LOG=error,gliff=info", "gliff", "--release-hotkey", profile.releaseKey]'; then
   stop_shell || :
   if start_shell "$sandbox/tree-remote-desktop-no-journal-prefix" "$sandbox/remote-desktop-no-journal-prefix-qs.log"; then
     expect_poll "control: the service without the prefix is built" True record_exists "$rd_id"

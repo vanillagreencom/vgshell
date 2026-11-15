@@ -14,7 +14,7 @@ Remote desktop opens the desktop of your other computers in a window, and shows 
 
 A window your Hyprland configuration marks `no_screen_share` stays hidden in every screen capture, a remote session included.
 
-Connect sends gliff's own standard output and error output to the system journal under `vgs-gliff`.
+Connect sends gliff's own standard output and error output to the system journal under `vgs-gliff`. The session log names the video method in gliff's `connected` line. The server's video-pipeline lines in the same log explain a fallback to a slower method.
 
 ## Setup
 
