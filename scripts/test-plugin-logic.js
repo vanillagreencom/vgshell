@@ -188,31 +188,6 @@ function unplacedMounts(ctx, check) {
     check("unplaced mounts: saved configuration untouched", JSON.stringify(neighbor), before);
 }
 
-// Jarvis's shipped checkbox is the producer; other manifests use the same
-// placement metadata, judged once before the Settings page consumes it.
-function keySettings(ctx, check) {
-    const base = { schemaVersion: 1, id: "acme.keys", name: "Keys", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" },
-        capabilities: ["shortcut"], settings: { hold: false }, schema: { hold: { type: "boolean", label: "Hold to talk", underKey: "talk" } }, hyprland: { binds: [{ shortcut: "talk", key: null, hold: true }] } };
-    for (const [name, change, valid] of [
-        ["declared unbound shortcut", m => {}, true],
-        ["unknown shortcut", m => { m.schema.hold.underKey = "gone"; }, false],
-        ["missing binds", m => { delete m.hyprland; }, false],
-        ["invalid shortcut name", m => { m.schema.hold.underKey = "not a key"; }, false],
-        ["not a boolean", m => { m.settings.hold = 1; m.schema.hold.type = "number"; }, false],
-        ["second group", m => { m.schema.hold.group = "Elsewhere"; }, false],
-        ["list item", m => { m.settings = { rows: [] }; m.schema = { rows: { type: "list", label: "Rows", items: base.schema, defaults: { hold: false } } }; }, false]
-    ]) {
-        const raw = JSON.parse(JSON.stringify(base));
-        change(raw);
-        check("underKey: " + name, ctx.validateManifest(raw, "/p").ok, valid);
-    }
-    const manifest = ctx.validateManifest(base, "/p").manifest;
-    check("underKey: Keys owns the field", manifest.fieldRows.map(row => [row.key, row.section, row.list]), [["hold", "Keys", false]]);
-    check("underKey: stored key lists keep a regular field", ctx.pagePlacementError({ keys: { type: "presenceList", setting: "hold" } }, base.schema, true) !== "", true);
-    const jarvis = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, "vgs.jarvis", "manifest.json"))), "/p").manifest;
-    check("underKey: shipped checkbox default and placement", [jarvis.settings.holdToTalk, jarvis.schema.holdToTalk.type, jarvis.schema.holdToTalk.underKey, Object.hasOwn(jarvis.settings, "mode"), jarvis.hyprland.binds.some(bind => bind.shortcut === "mute")], [false, "boolean", "talk", false, false]);
-}
-
 function conversationMigration(configLogic, check) {
     const shipped = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "shell.json")));
     const descriptor = shipped.conversationSettingsMigration;
@@ -322,7 +297,6 @@ function keyClashResets(ctx, check) {
 
 function suite(ctx, configLogic, check) {
     keyClashResets(ctx, check);
-    keySettings(ctx, check);
     conversationMigration(configLogic, check);
     unplacedMounts(ctx, check);
     nmVpnRequirements(ctx, check);
@@ -431,8 +405,8 @@ function suite(ctx, configLogic, check) {
         status: { fact: { type: "state", label: "Fact", action: { label: "Fix", tui: "fix" } }, gone: { type: "data", label: "Data" } }
     }), "/p");
     check("fieldRows: each field's stored key lists, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
-        { key: "mode", section: "Main", list: false, keyLists: ["keys"], groups: [], idleStage: "", reference: false },
-        { key: "other", section: "", list: false, keyLists: [], groups: [], idleStage: "", reference: false }]);
+        { key: "mode", section: "Main", list: false, keyLists: ["keys"], idleStage: "", reference: false },
+        { key: "other", section: "", list: false, keyLists: [], idleStage: "", reference: false }]);
     // The defects first-party manifests held before their rows were judged,
     // planted again in the shipped manifest: each is refused at its path by
     // its rule.
@@ -679,26 +653,20 @@ function suite(ctx, configLogic, check) {
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
     const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
 
-    // An enum of a Local option and three Cloud ones, the Settings shape of
-    // a provider choice, and a choices string with an Add entry and a
-    // preview, each changed by PLANT.
-    const grouped = (plant = () => {}) => {
-        const entry = { type: "enum", label: "Side", groupLabel: "Cloud kind", options: [{ value: "local", label: "Local", group: "Local" },
-            { value: "a", label: "A", group: "Cloud" }, { value: "b", label: "B", group: "Cloud" }, { value: "c", label: "C", group: "Cloud" }] };
-        plant(entry);
-        return entry;
-    };
+    // A choices string with an Add entry and a preview, changed by PLANT.
     const offering = (plant = () => {}) => {
         const patch = { capabilities: ["status", "tui"], status: { voices: { type: "choices", label: "Voices" } }, tui: { "add-voice": { script: "tui/add.sh", title: "Add a voice" } },
             settings: { voice: "" }, schema: { voice: { type: "string", label: "Voice", optionsFrom: "voices", addChoice: { label: "Add a voice", tui: "add-voice" }, preview: true } } };
         plant(patch);
         return patch;
     };
-    // The groups a grouped enum's row draws, in order, and the request an
-    // Add entry makes of the manager (addChoiceRequest).
-    const offered = ctx.validateManifest(Object.assign({}, svc, offering(m => { m.settings.side = "local"; m.schema.side = grouped(); })), "/p");
-    check("fieldRows: a grouped enum's groups, each with its values in order", offered.ok ? offered.manifest.fieldRows.map(row => [row.key, row.groups]) : offered.error,
-        [["voice", []], ["side", [{ name: "Local", values: ["local"] }, { name: "Cloud", values: ["a", "b", "c"] }]]]);
+    // The request an Add entry makes of the manager (addChoiceRequest).
+    const offered = ctx.validateManifest(Object.assign({}, svc, offering(m => {
+        m.settings.side = "local";
+        m.schema.side = { type: "enum", label: "Side", options: [{ value: "local", label: "Local" }, { value: "a", label: "A" }] };
+    })), "/p");
+    const jarvis = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, "vgs.jarvis", "manifest.json"))), "/p").manifest;
+    check("fieldRows: the shipped toggle leads Voice", [jarvis.fieldRows.filter(row => row.section === "Voice")[0].key, jarvis.schema.holdToTalk.type, jarvis.settings.holdToTalk], ["holdToTalk", "boolean", false]);
     for (const [name, manifest, enabled, key, want] of [
         ["an Add entry opens its screen", offered.manifest, true, "voice", { ok: true, kind: "tui", name: "add-voice" }],
         ["an Add entry of a plugin that is off", offered.manifest, false, "voice", { ok: false, answer: "refused: tui=add-voice reason=disabled" }],
@@ -956,23 +924,10 @@ function suite(ctx, configLogic, check) {
         ["a setting gate with an unknown key", { settings: { on: true, a: true }, schema: { on: { type: "boolean", label: "On" }, a: { type: "boolean", label: "A", shownWhen: { setting: "on", in: [true], when: 1 } } } }, "schema.a.shownWhen has unknown key"],
         ["a list that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", shownWhen: "battery", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } } }, "schema.a.shownWhen needs a flat setting"],
         ["a list item field that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { on: { type: "boolean", label: "On", shownWhen: "battery" } }, defaults: { on: true } } } }, "schema.a.items.on.shownWhen is refused: an item draws every field"],
-        // An enum's option groups (optionGroupsError) and the select's own
-        // entries (addChoice, preview).
-        ["an enum of a one-option group and a many-option group", { settings: { side: "local" }, schema: { side: grouped() } }, null],
-        ["an enum of two one-option groups", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } } }, null],
-        ["options of which only some declare a group", { settings: { side: "local" }, schema: { side: grouped(e => { delete e.options[1].group; }) } }, "schema.side.options must all declare group, or none"],
-        ["a group that is no printable word", { settings: { side: "local" }, schema: { side: grouped(e => { e.options[0].group = "x".repeat(17); }) } }, "schema.side.options group must be a printable line of 1 to 16"],
-        ["one group's options apart", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.push({ value: "near", label: "Near", group: "Local" }); }) } }, "schema.side.options of one group must stand together"],
-        ["one group", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.forEach(o => { o.group = "Cloud"; }); }) } }, "schema.side.options must form 2 to 3 groups"],
-        ["four groups", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.forEach((o, i) => { o.group = "G" + i; }); delete e.groupLabel; }) } }, "schema.side.options must form 2 to 3 groups"],
-        ["two groups of several options", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.push({ value: "near", label: "Near", group: "Local" }); e.options.splice(1, 0, e.options.pop()); }) } }, "schema.side.options may hold several options in one group only"],
-        ["a many-option group with no groupLabel", { settings: { side: "local" }, schema: { side: grouped(e => { delete e.groupLabel; }) } }, "schema.side.groupLabel labels the select of a group of several options"],
-        ["a groupLabel over one-option groups", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", groupLabel: "Kind", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } } }, "schema.side.groupLabel labels the select of a group of several options"],
-        ["a groupLabel over options with no group", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", groupLabel: "Kind", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] } } }, "schema.side.groupLabel needs options that declare group"],
-        ["a groupLabel on a boolean", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", groupLabel: "Kind" } } }, "schema.a.groupLabel needs type enum"],
-        ["a groupLabel on two lines", { settings: { side: "local" }, schema: { side: grouped(e => { e.groupLabel = "Cloud\nvoice"; }) } }, "schema.side.groupLabel must be a printable line"],
-        ["a list item enum of groups", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { side: grouped() }, defaults: { side: "local" } } } }, "schema.a.items.side.groupLabel is refused: an item draws a plain control"],
-        ["a list item enum of groups with no label", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { side: { type: "enum", label: "Side", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } }, defaults: { side: "a" } } } }, "schema.a.items.side.options group is refused: an item draws a plain control"],
+        // Removed placement metadata is refused by the existing key tables.
+        ["an enum option refuses group", { settings: { side: "local" }, schema: { side: { type: "enum", label: "Side", options: [{ value: "local", label: "Local", group: "Local" }] } } }, "schema.side.options.0 has unknown key \"group\""],
+        ["an enum refuses groupLabel", { settings: { side: "local" }, schema: { side: { type: "enum", label: "Side", groupLabel: "Kind", options: [{ value: "local", label: "Local" }] } } }, "schema.side has unknown key \"groupLabel\""],
+        ["a toggle refuses underKey", { capabilities: ["shortcut"], settings: { hold: false }, schema: { hold: { type: "boolean", label: "Hold", underKey: "talk" } }, hyprland: { binds: [{ shortcut: "talk", key: null, hold: true }] } }, "schema.hold has unknown key \"underKey\""],
         ["an Add entry and a preview on a choices string", offering(), null],
         ["an Add entry on a string with no choices", offering(m => { delete m.schema.voice.optionsFrom; delete m.schema.voice.preview; m.schema.voice.presets = [{ value: "a" }]; m.settings.voice = "a"; }), "schema.voice.addChoice needs optionsFrom"],
         ["an Add entry with an unknown key", offering(m => { m.schema.voice.addChoice.icon = "plus"; }), "schema.voice.addChoice must be { label, tui }"],
@@ -3453,7 +3408,6 @@ const CONTROLS = [
     ["a saved non-default holder offers reset", "&& defaults.indexOf(normalized) === -1;", "&& false;", "key clash reset:"],
     ["shared key hints keep Settings navigation in its view", 'return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";',
         'return "[Settings/Keys](page:" + p.id + "/Settings/Keys)";', "key clash reset:"],
-    ["a key setting names a declared shortcut", "if (unboundSetting !== undefined)", "if (false)", "underKey:"],
     ["an unplaced widget is mounted", 'out[manifest.unplacedSection].unshift({ id: id, transient: true });', 'out[manifest.unplacedSection].slice();', "unplaced mounts:"],
     ["Open routed to today's panel without an anchor", 'return { ok: true, kind: "summon", surface: kind, presentation: "window" };', 'return { ok: true, kind: "summon", surface: "panel" };', "Open route: acme.open-panel"],
     ["splitFrom refuses its own id", "raw.splitFrom === raw.id ||", "false ||", "validateManifest:"],
@@ -3898,7 +3852,7 @@ const CONTROLS = [
     ["a space at a line's end takes no room", "var ink = segments[i].replace(/ +$/, \"\").length;", "var ink = segments[i].length;"],
     ["a line breaks after a hyphen", "var segments = text.match(", "var segments = text.replace(/-/g, \"_\").match("],
     ["a hyphen before a digit keeps its word", "(?:[^ -]|-(?=[0-9]))*", "[^ -]*"],
-    ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\", \"groupLabel\"", ", \"placeholder\", \"groupLabel\""],
+    ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\", \"addChoice\"", ", \"placeholder\", \"addChoice\""],
     ["hideEmpty needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".hideEmpty needs optionsFrom\";", "if (false)\n                return at + \".hideEmpty needs optionsFrom\";"],
     ["hideEmpty is a boolean", "if (typeof entry.hideEmpty !== \"boolean\")", "if (false)"],
     ["shownWhen is a schema entry key", "\"group\", \"shownWhen\", \"problem\"", "\"group\", \"problem\""],
@@ -3917,13 +3871,8 @@ const CONTROLS = [
     ["an unreported entry withholds its field", "!(hasOwn(values, shown) && values[shown] === \"present\")", "(hasOwn(values, shown) && values[shown] !== \"present\")"],
     ["a field without shownWhen is never withheld", "if (shown === undefined) return false;", ""],
     ["a setting gate follows the setting", "return shown.in.indexOf(settings[shown.setting]) === -1;", "return false;"],
-    ["an option names its group", 'var OPTION_KEYS = ["value", "label", "group"];', 'var OPTION_KEYS = ["value", "label"];'],
-    ["options all declare a group or none", "if (grouped !== entry.options.length)", "if (false)"],
-    ["one group's options stand together", "if (order[i] !== order[i - 1] && order.indexOf(order[i]) < i) return", "if (false) return"],
-    ["groups are counted", "if (groups.length < OPTION_GROUPS_MIN || groups.length > OPTION_GROUPS_MAX)", "if (false)"],
-    ["one group holds several options", "if (many.length > 1)", "if (false)"],
-    ["a group of several options is labelled", "if ((many.length === 1) !== (entry.groupLabel !== undefined))", "if (false)"],
-    ["a grouped row carries its groups", "groups: schema[key].type !== \"enum\" ? [] : groupsOf(schema[key])", "groups: [] && groupsOf(schema[key])"],
+    ["an enum option refuses group", 'var OPTION_KEYS = ["value", "label"];', 'var OPTION_KEYS = ["value", "label", "group"];'],
+    ["schema refuses removed placement keys", 'var SCHEMA_ENTRY_KEYS = [', 'var SCHEMA_ENTRY_KEYS = ["underKey", "groupLabel", '],
     ["an Add entry needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".addChoice needs optionsFrom\";", "if (false)\n                return at + \".addChoice needs optionsFrom\";"],
     ["an Add entry's screen is declared", "return schema[key].addChoice !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));", "return false;"],
     ["an Add entry of a plugin that is off opens nothing", "if (!enabled)\n        return { ok: false, answer: tuiRefusal(entry.addChoice.tui, \"disabled\").answer };", ""],
@@ -4046,8 +3995,7 @@ const CONTROLS = [
 // The list judge's rules the rows above reach through validateManifest;
 // scripts/test-pads.js holds the rest.
 const PADS_CONTROLS = [
-    ["an item field declares no select entries", "if (plain !== undefined)\n            return", "if (false)\n            return"],
-    ["an item enum declares no option groups", "&& entry.items[fields[i]].options.some(function (option) { return isPlainObject(option) && option.group !== undefined; }))", "&& false)"]
+    ["an item field declares no select entries", "if (plain !== undefined)\n            return", "if (false)\n            return"]
 ];
 const CONFIG_CONTROLS = [
     ["newer settings have a distinct refusal", "Number.isInteger(config.version) && config.version > CONFIG_VERSION", "Number.isInteger(config.version) && false", "configResult:"],
@@ -4121,7 +4069,6 @@ try {
             try {
                 const check = (name, got, want) => { if ((!filter || name.includes(filter)) && JSON.stringify(got) !== JSON.stringify(want)) red += 1; };
                 if (filter === "conversation migration:") conversationMigration(configLogic, check);
-                else if (filter === "underKey:") keySettings(ctx, check);
                 else if (filter === "unplaced mounts:") unplacedMounts(ctx, check);
                 else if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
                 else if (filter === "drmDriver:") drmDriverRequirements(ctx, check);

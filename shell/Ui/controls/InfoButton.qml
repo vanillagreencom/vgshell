@@ -143,6 +143,7 @@ IconButton {
                         // inserts its items in the Column (Qt Quick Repeater).
                         Column {
                             width: parent.width
+                            spacing: Theme.space.md
                             Repeater {
                                 model: root.info.split("\n")
                                 LinkText {

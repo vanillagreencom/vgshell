@@ -94,10 +94,14 @@ FocusScope {
                 userValue: root.valueOf("motionStyle")
                 onUseThemeValue: root.answer(root.shell.appearance.unset("motionStyle"))
                 formatValue: value => root.styleNames[value] || String(value)
-                SegmentedControl {
+                Select {
+                    width: parent.width
                     model: root.styles.map(style => root.styleNames[style] || style)
                     currentIndex: root.styles.indexOf(styleRow.shownValue)
-                    onActivated: index => root.answer(root.shell.appearance.set("motionStyle", root.styles[index]))
+                    onActivated: index => {
+                        root.answer(root.shell.appearance.set("motionStyle", root.styles[index]));
+                        currentIndex = Qt.binding(() => root.styles.indexOf(styleRow.shownValue));
+                    }
                 }
             }
 

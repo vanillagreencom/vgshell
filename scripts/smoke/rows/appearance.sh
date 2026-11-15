@@ -370,6 +370,7 @@ fi
 # The Motion section.
 expect "the Motion section summons" ok ipc shell summon window vgs.system '{"pane":"vgs.motion"}'
 expect_poll "the Motion section is mounted" '["vgs.motion"]' window_panes
+expect_poll "Style draws its Select" 0 ipc smoke readMatchingDescendant window vgs.motion Select model Smooth,Snappy currentIndex
 expect_poll "the Motion row reads Set by theme" '"theme"' app_row vgs.motion Motion messageKind
 expect_poll "the keyboard starts on the Motion switch" '["Switch",""]' app_focus vgs.motion
 type_keys -k space || fail "Space on the Motion switch failed"

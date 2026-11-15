@@ -26,7 +26,7 @@
 # returns to its text entry.
 # A settings row written outside the page: a second fixture, acme.outside,
 # a service and a bar widget whose settings live in its plugins row alone,
-# draws a switch, Compact, a segmented control, Mode, and a Custom text
+# draws a switch, Compact, a Select, Mode, and a Custom text
 # field, Label. Its row is written before it is enabled, so the enable
 # places its widget beside a row that holds settings, and its layout entry
 # holds its id alone. A row an editor saves over the user file while the
@@ -53,7 +53,7 @@
 # The bar holds its Saved line for saveBar.duration, 1600 ms, and fades for
 # motion.duration.normal, 150 ms (Tokens.js), so the control waits 3 s
 # before it reads a bar still drawn.
-# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/controls/NumberSettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml scripts/smoke/fixtures/plugins/acme.unsaved/* scripts/smoke/fixtures/plugins/acme.outside/* shell/Ui/BarWidget.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan bin/lib/dbus_wire.py
+# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/controls/NumberSettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml scripts/smoke/fixtures/plugins/acme.unsaved/* scripts/smoke/fixtures/plugins/acme.outside/* shell/Ui/BarWidget.qml shell/Ui/controls/Select.qml shell/Ui/controls/Switch.qml shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan bin/lib/dbus_wire.py
 set -euo pipefail
 
 us_id=acme.unsaved
@@ -419,10 +419,10 @@ uo_id=acme.outside
 uo_drawn() {
   local compact mode label
   compact="$(ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"$uo_id\",\"key\":\"compact\"}")" || return 1
-  mode="$(ipc smoke readMatchingDescendant window vgs.settings SegmentedControl model Calm,Busy,Off currentIndex)" || return 1
+  mode="$(ipc smoke invokeInstance window vgs.settings fieldChoice "{\"id\":\"$uo_id\",\"key\":\"mode\"}")" || return 1
   label="$(ipc smoke invokeInstance window vgs.settings fieldCustom "{\"id\":\"$uo_id\",\"key\":\"label\"}")" || return 1
   python3 -c 'import json,sys
-try: print(json.dumps([json.loads(sys.argv[1])["checked"], json.loads(sys.argv[2]), json.loads(sys.argv[3])["text"]]))
+try: print(json.dumps([json.loads(sys.argv[1])["checked"], json.loads(sys.argv[2])["index"], json.loads(sys.argv[3])["text"]]))
 except (ValueError, KeyError, TypeError): print("unread: %s | %s | %s" % tuple(sys.argv[1:]))' "$compact" "$mode" "$label"
 }
 # uo_widget: the same three settings as the fixture's widget holds them.

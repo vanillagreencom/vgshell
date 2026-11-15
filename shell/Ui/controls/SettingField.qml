@@ -3,9 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
-// Enums of at most three options use SegmentedControl because each choice
-// fits in one row. Larger enums and status-fed strings use Select. Both
-// draw an enum option's label and write its value. String presets use
+// Every enum and status-fed string uses Select. Enums draw each option's
+// label and write its value. String presets use
 // Select. A string's separator makes its presets independently checked
 // menu entries that keep their joined string value. When custom values
 // are allowed, Custom… follows the presets or the published choices, and
@@ -18,13 +17,7 @@ import qs.Ui
 // list with that entry, led by the plus mark, which asks the page to open
 // the plugin's screen that adds an offer and stores nothing; one that
 // declares `preview` draws a speaker button beside each offer, which asks
-// the plugin to play it. An enum whose options form groups (PluginLogic.groupsOf, the
-// manager row's `groups`) draws one segment per group; a group of one
-// option stores it when pressed, and under the group of several a second
-// row, labelled by the entry's `groupLabel`, chooses among them with a
-// Select. Pressing that group's segment while another group's option is
-// stored opens its list and stores nothing until a choice; the list
-// closed with none puts the segments back.
+// the plugin to play it.
 //
 // Every editor but a text one writes at once. A text editor keeps what is
 // typed until it is saved: Enter in it writes it, a loss of focus writes
@@ -49,17 +42,6 @@ Column {
     property var spec: ({})
     property var value
     property var choices: []
-    // An enum's option groups, each { name, values } (PluginLogic.fieldRows).
-    property var groups: []
-    // The group whose segment was pressed while its list waits for a
-    // choice, "" for none: the stored value's group draws otherwise.
-    property string pendingGroup: ""
-    readonly property int valueGroup: groups.findIndex(group => group.values.indexOf(value) !== -1)
-    readonly property int shownGroup: pendingGroup !== "" ? groups.findIndex(group => group.name === pendingGroup) : valueGroup
-    // The options of the shown group when it holds several, which the
-    // group row's Select offers; none otherwise.
-    readonly property var groupOptions: shownGroup < 0 || groups[shownGroup].values.length < 2 ? []
-        : spec.options.filter(option => groups[shownGroup].values.indexOf(option.value) !== -1)
     // The manager row resolves the schema's problem from plugin status.
     property string problem: ""
     property bool editable: true
@@ -68,7 +50,6 @@ Column {
     property var presetModel: []
     // The custom editor appeared and waits to be brought into view.
     property bool revealPending: false
-    readonly property int segmentedLimit: 3 // More choices read better in a vertical Select list.
     readonly property bool numeric: spec.type === "number"
     readonly property bool hasPresets: spec.presets !== undefined && Array.isArray(spec.presets)
     readonly property bool multiple: spec.separator !== undefined
@@ -92,7 +73,7 @@ Column {
     // Whether the field ends in a description or an error line, which
     // takes the room under it a Field takes (Theme.subTextRoom).
     readonly property bool subText: numeric ? numberLoader.item !== null && numberLoader.item.subText
-        : (customVisible ? customField : groupOptions.length > 0 && groupRow.item !== null ? groupRow.item : primary).subText
+        : (customVisible ? customField : primary).subText
     // A key/value row: the row under it stands by ink (Field).
     readonly property bool keyValueRow: true
     signal apply(var value)
@@ -257,59 +238,10 @@ Column {
             width: parent.width
             sourceComponent: root.numeric ? null
                 : root.spec.type === "boolean" ? toggle
-                : root.groups.length > 0 ? groupedSegments
-                : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.multiple ? multipleChoice
                 : root.hasPresets ? presetChoice
                 : text
-        }
-    }
-
-    // Open the group row's list, once the row shows the pressed group.
-    function openGroupList() {
-        if (groupRow.item !== null) groupRow.item.select.openList();
-    }
-
-    // The second row of a grouped enum: the shown group's options, while
-    // that group holds several. Only a grouped enum builds it.
-    Loader {
-        id: groupRow
-        width: root.width
-        active: root.groups.length > 0
-        visible: root.groupOptions.length > 0
-        sourceComponent: groupFieldComponent
-    }
-    Component {
-        id: groupFieldComponent
-        Field {
-            id: groupField
-            readonly property alias select: groupSelect
-            width: root.width
-            label: root.spec.groupLabel === undefined ? "" : String(root.spec.groupLabel)
-            inline: true
-
-            Select {
-                id: groupSelect
-                width: parent.width
-                readonly property int chosen: root.groupOptions.findIndex(option => option.value === root.value)
-                model: root.groupOptions
-                textRole: "label"
-                placeholderText: root.spec.groupLabel === undefined ? "" : "Choose a " + String(root.spec.groupLabel).toLowerCase()
-                currentIndex: chosen
-                enabled: root.editable
-                onActivated: index => {
-                    const option = root.groupOptions[index];
-                    currentIndex = Qt.binding(() => chosen);
-                    root.pendingGroup = "";
-                    if (option.value !== root.value) root.apply(option.value);
-                }
-                // A list closed with no choice stores nothing and puts the
-                // stored value's segment back. Select emits `activated` before
-                // it closes its list (Select.choose), so a choice has already
-                // cleared the pending group here.
-                onListOpenChanged: if (!listOpen && root.pendingGroup !== "") root.pendingGroup = ""
-            }
         }
     }
 
@@ -446,60 +378,6 @@ Column {
                 root.customChosen = false;
                 if (row.value === root.value) return;
                 root.apply(row.value);
-            }
-        }
-    }
-
-    Component {
-        id: groupedSegments
-        Item {
-            width: parent.width
-            implicitHeight: groupSeg.implicitHeight
-            readonly property real inkEnd: groupSeg.x + groupSeg.width
-
-            SegmentedControl {
-                id: groupSeg
-                width: implicitWidth
-                model: root.groups.map(group => group.name)
-                currentIndex: root.shownGroup
-                enabled: root.editable
-                onActivated: index => {
-                    currentIndex = Qt.binding(() => root.shownGroup);
-                    const group = root.groups[index];
-                    if (index === root.valueGroup) {
-                        root.pendingGroup = "";
-                        return;
-                    }
-                    if (group.values.length === 1) {
-                        root.pendingGroup = "";
-                        root.apply(group.values[0]);
-                        return;
-                    }
-                    root.pendingGroup = group.name;
-                    // The group row shows once the binding above settles.
-                    Qt.callLater(root.openGroupList);
-                }
-            }
-        }
-    }
-
-    Component {
-        id: segmented
-        Item {
-            width: parent.width
-            implicitHeight: seg.implicitHeight
-            readonly property real inkEnd: seg.x + seg.width
-
-            SegmentedControl {
-                id: seg
-                width: implicitWidth
-                model: root.spec.options.map(option => option.label)
-                currentIndex: root.optionIndex
-                enabled: root.editable
-                onActivated: index => {
-                    currentIndex = Qt.binding(() => root.optionIndex);
-                    root.apply(root.spec.options[index].value);
-                }
             }
         }
     }

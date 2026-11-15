@@ -109,14 +109,11 @@ FocusScope {
     }
     function placed(field) {
         if (field.reference) return true;
-        return row.schema[field.key].underKey === undefined && !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
+        return !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
             && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
     }
     function fieldRow(key) {
         return row === null ? null : row.fieldRows.find(field => field.key === key) || null;
-    }
-    function underKey(shortcut) {
-        return row === null ? [] : row.fieldRows.filter(field => !field.reference && row.schema[field.key].underKey === shortcut).map(field => field.key);
     }
     // What the editor of field KEY reads when it holds an idle stage's
     // time, as the core lends it, else null (ChoiceField `idleField`).
@@ -291,7 +288,6 @@ FocusScope {
         property var spec: ({})
         property var value
         property var choices: []
-        property var groups: []
         property string problem: ""
         property bool editable: true
         property var edits: null
@@ -331,7 +327,6 @@ FocusScope {
                 spec: choiceField.spec
                 value: choiceField.value
                 choices: choiceField.choices
-                groups: choiceField.groups
                 problem: choiceField.problem
                 editable: choiceField.editable
                 edits: choiceField.edits
@@ -462,7 +457,7 @@ FocusScope {
         if (tab === "Settings" && key === "Keys") return keysDrawn ? "" : "undrawn";
         if (tab === "Settings") {
             const field = fieldRow(key);
-            return field === null ? "unknown" : field.list || placed(field) || (row.schema[key].underKey !== undefined && row.withheldFields.indexOf(key) === -1) ? "" : "undrawn";
+            return field === null ? "unknown" : field.list || placed(field) ? "" : "undrawn";
         }
         const entry = statusEntry(key);
         if (entry === null) return "unknown";
@@ -711,7 +706,6 @@ FocusScope {
                                 spec: reference ? ({}) : page.row.schema[modelData]
                                 value: reference ? undefined : page.row.settings[modelData]
                                 choices: page.row.settingChoices[modelData] || []
-                                groups: page.fieldRow(modelData).groups
                                 problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                 editable: page.editable || reference
                                 edits: unsaved
@@ -777,7 +771,6 @@ FocusScope {
                                     spec: reference ? ({}) : page.row.schema[modelData]
                                     value: reference ? undefined : page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
-                                    groups: page.fieldRow(modelData).groups
                                     problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                     editable: page.editable || reference
                                     edits: unsaved
@@ -906,15 +899,7 @@ FocusScope {
                                 editable: page.editable
                                 capture: page.panel.capture
                                 edits: unsaved
-                                settingKeys: page.underKey(modelData.shortcut)
-                                schema: page.row === null ? ({}) : page.row.schema
-                                settings: page.row === null ? ({}) : page.row.settings
-                                withheldFields: page.row === null ? [] : page.row.withheldFields
-                                fieldProblems: page.row === null ? ({}) : page.row.fieldProblems
-                                settingDisabledReason: page.editable || page.row === null ? "" : "Turn on " + page.row.name + " to change this setting"
-                                onApplySetting: (key, value) => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, value); }
                                 onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                 onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
                                 onLineAsked: row => page.panel.openUserLine(row)
                                 onResetHolder: (id, shortcut) => page.panel.writeKey(id, shortcut, undefined)

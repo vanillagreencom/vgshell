@@ -269,6 +269,22 @@ Item {
             info.destroyPopup();
         }
 
+        function test_info_lines_draw_a_paragraph_gap() {
+            const original = info.info;
+            info.info = "First paragraph.\nSecond paragraph.";
+            try {
+                const window = openHelp();
+                verify(waitForPolish(window));
+                const lines = descendants(window.contentItem).filter(child => typeName(child) === "LinkText" && child.visible);
+                compare(lines.length, 2);
+                compare(lines[1].y - lines[0].y - lines[0].height, Theme.space.md);
+            } finally {
+                info.closeInfo();
+                info.destroyPopup();
+                info.info = original;
+            }
+        }
+
         // A theme dialog wider than the window shows the cap: the dialog
         // takes the window's width less the margin on each side.
         function test_the_help_stays_inside_the_content_edge_data() {

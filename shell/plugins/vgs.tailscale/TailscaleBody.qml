@@ -747,13 +747,15 @@ FocusScope {
                 hint: "How often VGS reads Tailscale while its flyout and this section are closed"
                 inline: true
 
-                SegmentedControl {
+                Select {
                     objectName: "tailscale-poll"
+                    width: parent.width
                     model: root.pollChoices.map(seconds => seconds + " s")
                     currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
                     onActivated: index => {
                         const reply = root.shell.configure.set("pollSeconds", root.pollChoices[index]);
                         root.localProblem = reply === "ok" ? "" : "VGS could not save this setting.";
+                        currentIndex = Qt.binding(() => root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds));
                     }
                 }
             }

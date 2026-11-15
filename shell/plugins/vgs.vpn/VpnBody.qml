@@ -462,11 +462,15 @@ FocusScope {
                 label: "Check every"
                 hint: "How often VGS reads your VPN profiles while its flyout and this section are closed"
                 inline: true
-                SegmentedControl {
+                Select {
                     objectName: "vpn-poll"
+                    width: parent.width
                     model: root.pollChoices.map(seconds => seconds + " s")
                     currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
-                    onActivated: index => root.answered(root.shell.configure.set("pollSeconds", root.pollChoices[index]), "VGS could not save this setting.")
+                    onActivated: index => {
+                        root.answered(root.shell.configure.set("pollSeconds", root.pollChoices[index]), "VGS could not save this setting.");
+                        currentIndex = Qt.binding(() => root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds));
+                    }
                 }
             }
         }

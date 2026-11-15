@@ -308,18 +308,6 @@ FocusScope {
                         // The row's slot is as tall as all its children,
                         // shown or not (FormRow `slot`), so a hidden
                         // control takes no height.
-                        SegmentedControl {
-                            visible: field.entry.type === "enum"
-                            height: visible ? implicitHeight : 0
-                            model: field.choices.map(choice => choice.label)
-                            currentIndex: field.current
-                            Accessible.name: field.entry.label
-                            onActivated: index => {
-                                root.configure(field.modelData, field.choices[index].value);
-                                currentIndex = Qt.binding(() => field.current);
-                            }
-                        }
-
                         Switch {
                             visible: field.entry.type === "boolean"
                             height: visible ? implicitHeight : 0
@@ -333,7 +321,7 @@ FocusScope {
                         }
 
                         Select {
-                            visible: field.entry.type === "number" || field.entry.type === "string"
+                            visible: field.entry.type === "enum" || field.entry.type === "number" || field.entry.type === "string"
                             height: visible ? implicitHeight : 0
                             width: parent.width
                             model: field.choices

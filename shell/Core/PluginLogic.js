@@ -64,18 +64,13 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "groupLabel", "addChoice", "preview", "underKey"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "addChoice", "preview"];
 // A status-fed select's last entry, which opens the plugin's own screen
 // that adds an offer, such as a key, and stores nothing itself.
 var ADD_CHOICE_KEYS = ["label", "tui"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
-var OPTION_KEYS = ["value", "label", "group"];
-// An enum's option groups (optionGroupsError): two or three segments, each
-// a short word the segmented control fits.
-var OPTION_GROUPS_MIN = 2;
-var OPTION_GROUPS_MAX = 3;
-var OPTION_GROUP_MAX = 16;
+var OPTION_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
 // A schema entry's `link`: the words of its description that open `url`,
 // or `pane`, the id of the plugin whose page the panes holder opens.
@@ -484,13 +479,6 @@ function schemaError(schema, settings, status) {
         }
         if (SETTING_TYPES.indexOf(entry.type) === -1)
             return at + ".type must be one of " + SETTING_TYPES.join(", ") + ", got " + JSON.stringify(entry.type);
-        // A key's checkbox is still a normal saved setting. Its placement
-        // needs a declared bind, checked after hyprlandError below.
-        if (entry.underKey !== undefined) {
-            if (entry.type !== "boolean") return at + ".underKey needs type boolean";
-            if (typeof entry.underKey !== "string" || !ConfigLogic.NAME_PATTERN.test(entry.underKey)) return at + ".underKey must name a shortcut";
-            if (entry.group !== undefined) return at + ".underKey supplies its Keys group";
-        }
         if (typeof entry.label !== "string" || entry.label.length === 0)
             return at + ".label must be a non-empty string";
         if (entry.description !== undefined && typeof entry.description !== "string")
@@ -539,14 +527,9 @@ function schemaError(schema, settings, status) {
                     return at + ".options must hold distinct values";
                 seenOptions.push(option.value);
             }
-            var badGroups = optionGroupsError(entry);
-            if (badGroups !== "")
-                return at + badGroups;
         } else if (entry.options !== undefined) {
             return at + ".options needs type enum";
         }
-        if (entry.groupLabel !== undefined && entry.type !== "enum")
-            return at + ".groupLabel needs type enum with option groups";
         if (entry.optionsFrom !== undefined) {
             if (entry.type !== "string")
                 return at + ".optionsFrom needs type string";
@@ -686,55 +669,6 @@ function schemaError(schema, settings, status) {
             return "settings." + key + " does not fit its schema: " + bad;
     }
     return "";
-}
-
-// The first defect of enum ENTRY's option groups, after its path, or "".
-// Options either all declare `group` or none does. Grouped options draw as
-// one segment per group, in the order the groups first appear, so a group's
-// options stand together; there are OPTION_GROUPS_MIN to OPTION_GROUPS_MAX
-// groups, each a printable word of at most OPTION_GROUP_MAX characters. A
-// group of one option stores that option when its segment is pressed; one
-// group may hold several, which a select under the segments chooses from,
-// labelled by the entry's `groupLabel`, which only such an entry declares.
-function optionGroupsError(entry) {
-    var grouped = entry.options.filter(function (option) { return option.group !== undefined; }).length;
-    if (grouped === 0)
-        return entry.groupLabel === undefined ? "" : ".groupLabel needs options that declare group";
-    if (grouped !== entry.options.length)
-        return ".options must all declare group, or none";
-    var groups = groupsOf(entry);
-    for (var g = 0; g < groups.length; g++)
-        if (!isPrintableLine(groups[g].name, OPTION_GROUP_MAX)) return ".options group must be a printable line of 1 to " + OPTION_GROUP_MAX + " characters";
-    var order = entry.options.map(function (option) { return option.group; });
-    for (var i = 1; i < order.length; i++)
-        if (order[i] !== order[i - 1] && order.indexOf(order[i]) < i) return ".options of one group must stand together";
-    if (groups.length < OPTION_GROUPS_MIN || groups.length > OPTION_GROUPS_MAX)
-        return ".options must form " + OPTION_GROUPS_MIN + " to " + OPTION_GROUPS_MAX + " groups";
-    var many = groups.filter(function (group) { return group.options.length > 1; });
-    if (many.length > 1)
-        return ".options may hold several options in one group only";
-    if ((many.length === 1) !== (entry.groupLabel !== undefined))
-        return ".groupLabel labels the select of a group of several options, which needs one";
-    if (entry.groupLabel !== undefined && !isPrintableLine(entry.groupLabel, STATUS_LABEL_MAX))
-        return ".groupLabel must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
-    return "";
-}
-
-// The option groups of enum ENTRY, [{ name, options }] in the order each
-// first appears, its options in order; none for an enum without groups.
-// The Settings page draws one segment per group (SettingField).
-function groupsOf(entry) {
-    var out = [];
-    entry.options.forEach(function (option) {
-        if (option.group === undefined) return;
-        var group = out.find(function (seen) { return seen.name === option.group; });
-        if (group === undefined) {
-            group = { name: option.group, options: [] };
-            out.push(group);
-        }
-        group.options.push(option);
-    });
-    return out;
 }
 
 // The first defect of a schema entry's `shownWhen`, SHOWN, over SCHEMA and
@@ -5376,11 +5310,6 @@ function validateManifest(raw, sourceDir) {
                 return { ok: false, error: badMonitorDefault.replace("refused: monitors", "hyprland.monitors default") };
         }
     }
-    var unboundSetting = Object.keys(schema).find(function (key) {
-        return schema[key].underKey !== undefined && !(raw.hyprland && Array.isArray(raw.hyprland.binds) && raw.hyprland.binds.some(function (bind) { return bind.shortcut === schema[key].underKey; }));
-    });
-    if (unboundSetting !== undefined)
-        return { ok: false, error: "schema." + unboundSetting + ".underKey must name a declared shortcut" };
     if (raw.tui !== undefined) {
         var badTui = tuiError(raw.tui, capabilities, requirements);
         if (badTui !== "")
@@ -6673,7 +6602,6 @@ function pagePlacementError(status, schema, secrets) {
         if (entry.setting !== undefined) {
             if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list; Settings draws only values the user changes";
             if (typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)) return at + ".setting must name a schema field";
-            if (schema[entry.setting].underKey !== undefined) return at + ".setting needs a regular setting field";
             if (entry.hidden === true) return at + ".setting needs a displayed status";
         }
         if (entry.step !== undefined) {
@@ -6772,11 +6700,10 @@ function setupGuideRow(manifest, readme) {
 
 // The rows a plugin's Settings page draws for SCHEMA, one per field in
 // schema order, from the normalized STATUS: { key, section, list,
-// keyLists, groups, idleStage, reference }. `section` is the field's
+// keyLists, idleStage, reference }. `section` is the field's
 // group, "" for none, and `list` whether it is a list, which draws as a
 // section of its own. `keyLists` are the stored key lists placed beside
-// the field (pagePlacementError). `groups` are an enum's option groups
-// (groupsOf), each { name, values }, none for any other field.
+// the field (pagePlacementError).
 // `idleStage` is the stage of IDLE_STAGES whose time the field holds, by
 // the manifest's IDLE_STAGES_DECLARED, "" for none, so the page draws it
 // with the idle time editor. Each stage of IDLE_SETTING_ROWS adds a
@@ -6793,12 +6720,9 @@ function fieldRows(schema, status, idleStagesDeclared, idleSettingRows) {
     var rows = Object.keys(schema).map(function (key) {
         return {
             key: key,
-            section: schema[key].underKey !== undefined ? "Keys" : schema[key].group === undefined ? "" : schema[key].group,
+            section: schema[key].group === undefined ? "" : schema[key].group,
             list: schema[key].type === "list",
             keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; }),
-            groups: schema[key].type !== "enum" ? [] : groupsOf(schema[key]).map(function (group) {
-                return { name: group.name, values: group.options.map(function (option) { return option.value; }) };
-            }),
             idleStage: stageOf(key),
             reference: false
         };
@@ -6811,7 +6735,7 @@ function fieldRows(schema, status, idleStagesDeclared, idleSettingRows) {
         var later = rows.filter(function (row) { return own(row) && IDLE_STAGES.indexOf(row.idleStage) > order; })
             .sort(function (a, b) { return IDLE_STAGES.indexOf(a.idleStage) - IDLE_STAGES.indexOf(b.idleStage); })[0];
         var beside = earlier !== undefined ? earlier : later;
-        var row = { key: "stage:" + stage, section: beside === undefined ? "" : beside.section, list: false, keyLists: [], groups: [], idleStage: stage, reference: true };
+        var row = { key: "stage:" + stage, section: beside === undefined ? "" : beside.section, list: false, keyLists: [], idleStage: stage, reference: true };
         var at = beside === undefined ? rows.length : rows.indexOf(beside) + (beside === earlier ? 1 : 0);
         rows.splice(at, 0, row);
     });

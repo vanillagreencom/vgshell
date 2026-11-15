@@ -477,7 +477,7 @@ Item {
                 { tag: "control taller than the label's box", row: explainedLines },
                 { tag: "label of two lines", row: explainedLong },
                 { tag: "too long for one line over its hint", row: hintedRow(hintedLong).row },
-                { tag: "with info of its own", row: explainedInfo, text: "The clock's format.\n\nIt follows the locale." }
+                { tag: "with info of its own", row: explainedInfo, text: "The clock's format.\nIt follows the locale." }
             ];
         }
         function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog(data) {

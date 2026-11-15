@@ -133,8 +133,7 @@ Item {
         value: "gone"
     }
 
-    // An enum draws each option's label and writes its value: three
-    // options in a segmented control, more in a Select.
+    // Every enum draws each option's label and writes its value in a Select.
     SettingField {
         id: fewOptions
         x: 480
@@ -189,7 +188,7 @@ Item {
         SettingField { id: unexplained; key: "cursor"; spec: ({ type: "boolean", label: "Include pointer" }); value: true }
         SettingField { id: longLabel; key: "long"; spec: ({ type: "boolean", label: "A label that is far too long for two lines of its column" }); value: true }
         SettingField { id: probe; key: "probe"; spec: ({ type: "boolean", label: "Probe" }); value: true }
-        SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both" }
+        SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both"; onApply: value => root.applied.push(value) }
     }
 
     Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
@@ -278,43 +277,6 @@ Item {
         }
     }
 
-    // A grouped enum, as a provider choice of Local and three Cloud
-    // offers, between two switches on the surface colour, so the rendered
-    // image reads its rows' ink.
-    Component {
-        id: coveredGrouped
-        Rectangle {
-            id: groupedCover
-            property alias rows: groupedRows
-            property alias grouped: groupedField
-            property alias after: afterField
-            property var written: []
-            anchors.fill: parent
-            z: 1
-            color: Theme.color.surface
-            Column {
-                id: groupedRows
-                width: 420
-                spacing: Theme.stack.row
-                SettingField { key: "before"; spec: ({ type: "boolean", label: "Before" }); value: true }
-                SettingField {
-                    id: groupedField
-                    key: "provider"
-                    spec: ({ type: "enum", label: "Voice provider", groupLabel: "Cloud voice", options: [{ value: "local", label: "Local", group: "Local" },
-                        { value: "realtime", label: "OpenAI Realtime", group: "Cloud" }, { value: "gemini", label: "Gemini Live", group: "Cloud" },
-                        { value: "elevenlabs", label: "ElevenLabs", group: "Cloud" }] })
-                    groups: [{ name: "Local", values: ["local"] }, { name: "Cloud", values: ["realtime", "gemini", "elevenlabs"] }]
-                    value: "local"
-                    onApply: chosen => {
-                        groupedCover.written = groupedCover.written.concat([chosen]);
-                        groupedField.value = chosen;
-                    }
-                }
-                SettingField { id: afterField; key: "after"; spec: ({ type: "boolean", label: "After" }); value: true }
-            }
-        }
-    }
-
     // A status-fed select whose entry ends its list with an Add entry and
     // plays each offer (`addChoice`, `preview`).
     Component {
@@ -398,7 +360,7 @@ Item {
 
     // A column of bare key/value rows, as the Displays, Capture and Sound
     // panes draw them: a select, a level slider, a level meter, a slider
-    // with its reading, a slider, a segmented control, switches, one with a
+    // with its reading, a slider, a select, switches, one with a
     // message, and a text value, `spacing` apart by their boxes.
     Component {
         id: coveredBare
@@ -417,7 +379,7 @@ Item {
                 FormRow { label: "Level"; width: parent.width; ProgressBar { width: parent.width; value: 0.4 } }
                 FormRow { label: "Radius"; width: parent.width; SavedSlider { width: parent.width; from: 0; to: 32; shown: 12; formatValue: value => Math.round(value) + " px" } }
                 FormRow { label: "Scale"; width: parent.width; Slider { width: parent.width; from: 0; to: 100; value: 40 } }
-                FormRow { label: "Mode"; width: parent.width; SegmentedControl { width: parent.width; model: ["Extend", "Mirror"] } }
+                FormRow { label: "Mode"; width: parent.width; Select { width: parent.width; model: ["Extend", "Mirror"] } }
                 FormRow { label: "Mute"; width: parent.width; Switch { size: "sm"; checked: true } }
                 FormRow { label: "Speed"; warning: "Overridden by policy"; width: parent.width; Switch { size: "sm" } }
                 FormRow { label: "Device"; width: parent.width; Label { role: "value"; text: "Analog stereo output" } }
@@ -667,14 +629,21 @@ Item {
             compare(root.applied, ["fra+lat", "fra+lat+eng", "lat+eng"]);
         }
 
-        function test_a_short_enum_draws_labels_and_writes_values() {
-            const segments = descendants(fewOptions).find(child => String(child).indexOf("SegmentedControl") === 0);
-            verify(segments !== undefined, "three options draw as a segmented control");
-            compare(segments.model, ["Save and copy", "Copy", "Save"], "each segment reads its option's label");
-            compare(segments.currentIndex, 1, "the stored value chooses its segment");
-            segments.choose(0);
-            compare(root.applied, ["save-copy"], "a segment writes its option's value");
-            compare(segments.currentIndex, 1, "the segment follows what the configuration holds");
+        function test_a_short_enum_draws_a_select_data() {
+            return [
+                { tag: "two options", field: explainedChoice, labels: ["Save and copy", "Copy"], selected: 0, choice: 1, value: "copy" },
+                { tag: "three options", field: fewOptions, labels: ["Save and copy", "Copy", "Save"], selected: 1, choice: 0, value: "save-copy" }
+            ];
+        }
+
+        function test_a_short_enum_draws_a_select(data) {
+            const select = selectOf(data.field);
+            verify(select !== undefined, "every enum draws as a Select");
+            compare(select.model.map(row => row.label), data.labels);
+            compare(select.currentIndex, data.selected);
+            select.choose(data.choice);
+            compare(root.applied, [data.value]);
+            compare(select.currentIndex, data.selected, "the Select follows what the configuration holds");
         }
 
         function test_a_long_enum_draws_labels_and_writes_values() {
@@ -989,16 +958,6 @@ Item {
             compare(shown[0], explained.spec.tooltip);
             const plain = labelOf(unexplained).children.find(child => child.visualFocus !== undefined);
             verify(!plain.activeFocusOnTab, "a label without a tooltip is no Tab stop");
-        }
-
-        // A short segmented editor draws less than its row's value column,
-        // so the label's explainer opens past its last segment.
-        function test_a_segmented_editor_ends_where_its_segments_end() {
-            const row = descendants(explainedChoice).find(child => child.objectName === "fieldRow");
-            const segmented = descendants(explainedChoice).find(child => String(child).indexOf("SegmentedControl") === 0);
-            const end = segmented.mapToItem(row, segmented.width, 0).x;
-            verify(end < row.width, "the segments stop short of the row's end edge");
-            fuzzyCompare(row.controlEnd, end, 1, "the row reads the segments' end");
         }
 
         function test_a_long_label_wraps_and_never_elides() {
@@ -1332,45 +1291,7 @@ Item {
             verify(pitch.slice(2).every(step => step === pitch[2]), "under values with descenders, tall glyphs or neither: " + pitch.join(", "));
         }
 
-        function segmentsOf(item) { return descendants(item).find(child => String(child).indexOf("SegmentedControl") === 0); }
         function fieldRowOf(item, label) { return descendants(item).find(child => child.objectName === "fieldRow" && child.label === label && child.visible); }
-
-        // A grouped enum draws one segment per group. The stored value's
-        // group is pressed, and under a group of several the second row,
-        // labelled by `groupLabel`, chooses among them; under a group of
-        // one no second row shows.
-        function test_a_grouped_enum_draws_its_groups_as_segments() {
-            const cover = createTemporaryObject(coveredGrouped, root);
-            verify(cover !== null);
-            const segments = segmentsOf(cover.grouped);
-            compare(segments.model, ["Local", "Cloud"]);
-            compare(segments.currentIndex, 0);
-            compare(fieldRowOf(cover.grouped, "Cloud voice"), undefined, "a group of one draws no second row");
-            cover.grouped.value = "gemini";
-            compare(segments.currentIndex, 1);
-            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined, 1000, "the group of several draws its row");
-            const select = selectOf(fieldRowOf(cover.grouped, "Cloud voice"));
-            compare(select.model.map(option => option.label), ["OpenAI Realtime", "Gemini Live", "ElevenLabs"]);
-            compare(select.currentText, "Gemini Live");
-        }
-
-        // The second row stands `stack.page` under the segments by ink, and
-        // the row under the field stands `stack.page` under the second row,
-        // as every key/value row does (design-system § Layout). Held in a
-        // Loader, the row stood 8 blank rows under the segments, its
-        // column's spacing alone.
-        function test_a_grouped_enums_second_row_stands_one_step_under_the_segments() {
-            const cover = createTemporaryObject(coveredGrouped, root);
-            cover.grouped.value = "realtime";
-            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined, 1000);
-            verify(renderedFrame(cover));
-            const img = grabImage(root);
-            const width = cover.rows.width;
-            const gaps = [["Voice provider/Cloud voice", gapOver(img, fieldRowOf(cover.grouped, "Cloud voice"), width)], ["Cloud voice/After", gapOver(img, fieldRowOf(cover.after, "After"), width)]];
-            const read = gaps.map(entry => entry.join(" ")).join(", ");
-            for (const entry of gaps)
-                verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);
-        }
 
         // The value a label draws, its line breaks read as the spaces they
         // stand for.
@@ -1573,33 +1494,6 @@ Item {
             const read = gaps.map(entry => entry.join(" ")).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);
-        }
-
-        // Pressing the group of several while another group's value is
-        // stored opens its list and stores nothing until a choice; a choice
-        // stores it, and a list closed with no choice puts the stored
-        // value's segment back. The group of one stores its option at once.
-        function test_pressing_a_group_of_several_opens_its_list_and_stores_nothing() {
-            const cover = createTemporaryObject(coveredGrouped, root);
-            const segments = segmentsOf(cover.grouped);
-            segments.activated(1);
-            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined && selectOf(fieldRowOf(cover.grouped, "Cloud voice")).listOpen, 1000, "the Cloud voice list opens");
-            const select = selectOf(fieldRowOf(cover.grouped, "Cloud voice"));
-            compare(cover.written, [], "pressing Cloud stores nothing");
-            compare(segments.currentIndex, 1, "Cloud reads pressed while its list is open");
-            compare(select.currentIndex, -1, "no Cloud voice reads chosen");
-            keyClick(Qt.Key_Escape);
-            tryVerify(() => !select.listOpen, 1000);
-            compare(cover.written, [], "a list closed with no choice stores nothing");
-            tryCompare(segments, "currentIndex", 0, 1000, "the stored value's segment comes back");
-            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") === undefined, 1000, "the second row goes with it");
-            segments.activated(1);
-            tryVerify(() => selectOf(fieldRowOf(cover.grouped, "Cloud voice")).listOpen, 1000);
-            selectOf(fieldRowOf(cover.grouped, "Cloud voice")).choose(1);
-            compare(cover.written, ["gemini"], "a choice stores it");
-            compare(segments.currentIndex, 1);
-            segments.activated(0);
-            compare(cover.written, ["gemini", "local"], "the group of one stores its option at once");
         }
 
         // An Add entry ends a status-fed select's list, led by the plus

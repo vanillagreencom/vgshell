@@ -261,7 +261,7 @@ Item {
     // label's line count nor a place that moves with it.
     readonly property bool explainInDialog: labelTooltip !== "" && labelColumn && !besideRoom && !bandOneLine
     readonly property string tipText: explainInDialog ? "" : labelTooltip
-    readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n\n" + info
+    readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // The row box, the end of the message's line and the room under the
     // lower of the two, each from the row box's top, so the space above it

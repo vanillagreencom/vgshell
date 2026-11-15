@@ -459,8 +459,8 @@ expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u20
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
 # Voice hides with no voices reported: its ElevenLabs guidance is a Details fact.
 expect "the disabled Jarvis page hides Voice with no voices reported" absent home_field voice
-# The ElevenLabs option, by its stored value, as the field draws it: in
-# the Cloud voice row's list, which shows while a cloud voice is stored.
+# The provider Select offers all four providers, including ElevenLabs,
+# whatever provider is stored.
 # The page refuses a write for a disabled plugin, so the configuration
 # file stores it, and is put back after.
 voice_provider() { home_field voiceProvider | py_reply 'import json,sys; print(json.dumps([o["label"] for o in json.load(sys.stdin)["model"] if o["value"] == sys.argv[1]]))' "$1"; }
@@ -479,7 +479,7 @@ expect "the stored cloud voice reaches the shell" ok ipc shell reloadConfig
 expect_poll "the Jarvis page's Voice provider field offers ElevenLabs in words, not as its stored value" '["ElevenLabs"]' voice_provider elevenlabs
 user_config_restore "$sandbox/settings-voice-config.json" || fail "the Voice provider setting could not be put back"
 expect "the put-back setting reaches the shell" ok ipc shell reloadConfig
-expect_poll "the Jarvis page's Cloud voice row hides again" '[]' voice_provider elevenlabs
+expect_poll "the provider Select keeps ElevenLabs after the saved value returns" '["ElevenLabs"]' voice_provider elevenlabs
 expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
 # The short fixture reaches the same scroll reader, which must refuse it
 # as setup rather than report a product failure or accept a clamped zero.

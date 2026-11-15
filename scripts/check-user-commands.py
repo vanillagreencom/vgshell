@@ -132,7 +132,7 @@ REQUIRED_HEADS = ("vgshell", "sudo")
 # table or index of a list.
 FIELDS = (
     ("name",), ("description",), ("author",),
-    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "tooltip"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "groupLabel"), ("schema", "*", "addChoice", "label"), ("schema", "*", "options", "*", "label"), ("schema", "*", "options", "*", "group"), ("schema", "*", "presets", "*", "label"),
+    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "tooltip"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "addChoice", "label"), ("schema", "*", "options", "*", "label"), ("schema", "*", "presets", "*", "label"),
     ("schema", "*", "items", "*", "label"), ("schema", "*", "items", "*", "description"), ("schema", "*", "items", "*", "tooltip"), ("schema", "*", "items", "*", "placeholder"), ("schema", "*", "items", "*", "group"),
     ("schema", "*", "items", "*", "options", "*", "label"), ("schema", "*", "items", "*", "presets", "*", "label"),
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "link", "text"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"), ("status", "*", "aside", "label"), ("status", "*", "rowActions", "*", "label"), ("status", "*", "sourceAction", "label"),
@@ -150,7 +150,6 @@ FIELDS = (
 # identifier, a path or a value no one reads as prose.
 EXEMPT = (
     ("status", "*", "folderProperty"),  # A row property identifier, never prose.
-    ("schema", "*", "underKey"),  # A declared shortcut identifier, never prose.
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("unplacedSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",), ("idleSettingRows",),
     ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "addChoice", "tui"), ("schema", "*", "preview"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),

@@ -82,10 +82,14 @@ Column {
             id: accelProfileSource
             setting: "accelProfile"
             label: "Acceleration"
-            SegmentedControl {
+            Select {
+                width: parent.width
                 model: ["Adaptive", "Flat"]
                 currentIndex: root.shell === null ? 0 : Logic.profileIndex(accelProfileSource.shownValue)
-                onActivated: index => root.setValue("accelProfile", Logic.profileAt(index))
+                onActivated: index => {
+                    root.setValue("accelProfile", Logic.profileAt(index));
+                    currentIndex = Qt.binding(() => root.shell === null ? 0 : Logic.profileIndex(accelProfileSource.shownValue));
+                }
             }
         }
 

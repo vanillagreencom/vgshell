@@ -113,7 +113,6 @@ FocusScope {
                     key: modelData.key
                     spec: root.updateRow.schema[key]
                     value: root.updateRow.settings[key]
-                    groups: modelData.groups
                     choices: root.updateRow.settingChoices[key] || []
                     problem: spec.problem === undefined ? "" : root.updateRow.fieldProblems[key]
                     editable: root.updateRow.enabled

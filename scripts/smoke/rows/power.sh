@@ -148,7 +148,7 @@
 # lending record clear. Its controls, acme.power-noend,
 # acme.power-nocritical and acme.power-writes, are
 # power_stay_awake_controls' too.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/NumberSettingField.qml shell/Ui/controls/IdleTimeField.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.screensaver/manifest.json shell/Commons/Reply.js bin/lib/dbus_wire.py
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/NumberSettingField.qml shell/Ui/controls/IdleTimeField.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Select.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.screensaver/manifest.json shell/Commons/Reply.js bin/lib/dbus_wire.py
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -243,9 +243,6 @@ power_pane_fields() { ipc smoke itemTexts window vgs.power Field | py_reply 'imp
 schema = json.load(open(sys.argv[1]))["schema"]
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
 print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
-# power_pane_choices TYPE: the currentIndex of each shown TYPE control of
-# the mounted pane, top to bottom: the SegmentedControls of When charging
-# and On battery, or the Selects of Low and Critical battery alert.
 # power_pane_choices TYPE: each shown TYPE's current index in the section's
 # settings groups. Stay awake's list and the timeline's Lock after list,
 # the lock owner's, carry no label of Power's schema, so they are left out.
@@ -1472,25 +1469,29 @@ PY_REVISE
   expect "turning the lock owner on again is allowed" ok ipc shell setPluginEnabled acme.power-away true
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
   expect_poll "the lock owner's default time returns" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
-  # The section's own writes: a segment and a list entry, each picked as a
-  # user picks it, then the segment back, so the battery profile the later
+  # The section's own writes: list entries picked as a user picks them,
+  # then the profile back, so the battery profile the later
   # bar picks are judged against is the one the panel stored.
   expect "before the pane's pick the battery profile is Performance" '"performance"' power_setting batteryProfile
-  expect "before the pane's pick both profile controls mark Performance" '[2, 2]' power_pane_choices SegmentedControl
-  power_pane_pick "On battery" Label "Power saver" || fail "the click on On battery's Power saver failed"
-  expect_poll "a click on On battery's Power saver stores it" '"power-saver"' power_setting batteryProfile
-  expect_poll "On battery marks Power saver and When charging keeps Performance" '[2, 0]' power_pane_choices SegmentedControl
-  power_pane_pick "On battery" Label "Performance" || fail "the click on On battery's Performance failed"
-  expect_poll "a click on On battery's Performance stores it" '"performance"' power_setting batteryProfile
-  expect_poll "On battery marks Performance again" '[2, 2]' power_pane_choices SegmentedControl
+  expect "before the pane's pick both profile Selects mark Performance" '[3, 0, 1, 1, 2, 2]' power_pane_choices Select
+  power_pane_pick "On battery" Select "Performance" || fail "the click on On battery's list failed"
+  expect_poll "On battery's list opens" True power_pane_list_open
+  type_keys -k Home -k Return || fail "choosing Power saver in On battery's list failed"
+  expect_poll "choosing On battery's Power saver stores it" '"power-saver"' power_setting batteryProfile
+  expect_poll "On battery marks Power saver and When charging keeps Performance" '[3, 0, 1, 1, 2, 0]' power_pane_choices Select
+  power_pane_pick "On battery" Select "Power saver" || fail "the second click on On battery's list failed"
+  expect_poll "On battery's list reopens" True power_pane_list_open
+  type_keys -k End -k Return || fail "choosing Performance in On battery's list failed"
+  expect_poll "choosing On battery's Performance stores it" '"performance"' power_setting batteryProfile
+  expect_poll "On battery marks Performance again" '[3, 0, 1, 1, 2, 2]' power_pane_choices Select
   expect "before the pane's pick the low alert holds no stored value" null power_setting lowThreshold
-  expect "before the pane's pick the display and alert lists mark their defaults" '[3, 0, 1, 1]' power_pane_choices Select
+  expect "before the pane's pick the display and alert lists mark their defaults" '[3, 0, 1, 1, 2, 2]' power_pane_choices Select
   power_pane_pick "Low battery alert" Select "20%" || fail "the click on Low battery alert's list failed"
   expect_poll "Low battery alert's list opens" True power_pane_list_open
   type_keys -k Down -k Return || fail "typing Down and Return in Low battery alert's list failed"
   expect_poll "Return closes Low battery alert's list" False power_pane_list_open
   expect_poll "Down and Return in the list store 25 percent" 25 power_setting lowThreshold
-  expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 0, 2, 1]' power_pane_choices Select
+  expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 0, 2, 1, 2, 2]' power_pane_choices Select
   expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
   expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
   expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false

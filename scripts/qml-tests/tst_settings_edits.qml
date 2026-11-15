@@ -237,42 +237,41 @@ Item {
         // READY, then let the comparison that follows report what is shown.
         function settle(ready) { for (let i = 0; i < 20 && !ready(); i++) wait(50); }
         function keyFields(item) { return descendants(item).filter(child => child instanceof KeyField && child.pluginId === "acme.unit"); }
-        function test_under_key_checkbox_writes_keeps_binding_and_obeys_disabled_state() {
+        function test_a_toggle_has_its_own_row_and_keeps_its_saved_value() {
             const original = root.pageRow;
             let page = null;
             try {
                 root.pageRow = Object.assign({}, original, {
-                    schema: { held: { type: "boolean", label: "Hold to talk", underKey: "tap" } },
+                    schema: { held: { type: "boolean", label: "Hold to talk", group: "Voice" } },
                     settings: { held: false }, withheldFields: [], fieldProblems: ({})
                 });
                 page = createTemporaryObject(pluginPageComponent, root);
                 verify(page !== null);
-                settle(() => descendants(page).some(child => child.objectName === "keySetting"));
-                const box = descendants(page).find(child => child.objectName === "keySetting");
+                const field = () => descendants(page).find(child => child instanceof SettingField && child.key === "held");
+                settle(() => field() !== undefined);
+                const box = descendants(field()).find(child => child instanceof Switch);
                 verify(box !== undefined);
                 compare(page.fields, []);
-                compare(page.sections, []);
+                compare(page.sections.map(section => [section.group, section.keys]), [["Voice", ["held"]]]);
                 compare(box.checked, false);
                 const key = keyFields(page)[0];
                 verify(waitForPolish(root.Window.window));
-                const keyAt = key.shortcutField.mapToItem(page, 0, 0), boxAt = box.mapToItem(page, 0, 0);
-                compare(boxAt.x, keyAt.x, "the checkbox starts at the shortcut value column");
-                verify(boxAt.y > keyAt.y + key.shortcutField.height, "the checkbox follows the shortcut");
+                verify(!descendants(key).some(child => child instanceof Checkbox || child instanceof Switch), "the Keys row draws no inset toggle");
                 box.forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Space);
                 compare(fakePanel.settingWrites, [["acme.unit", "held", true]]);
                 compare(box.checked, true);
                 root.pageRow = Object.assign({}, root.pageRow, { settings: Object.assign({}, root.pageRow.settings, { unrelated: 1 }) });
-                compare(descendants(page).find(child => child.objectName === "keySetting"), box);
-                verify(box.activeFocus, "an unrelated update preserves checkbox focus");
+                compare(descendants(field()).find(child => child instanceof Switch), box);
+                verify(box.activeFocus, "an unrelated update preserves switch focus");
                 root.accepts = false;
                 keyClick(Qt.Key_Space);
                 compare(box.checked, true, "a refused write restores the saved checked value");
                 root.pageRow = Object.assign({}, root.pageRow, { enabled: false });
-                verify(box.disabledReason !== "");
+                compare(box.enabled, false);
                 const writes = fakePanel.settingWrites.length;
                 keyClick(Qt.Key_Space);
-                compare(fakePanel.settingWrites.length, writes, "the disabled checkbox writes nothing");
+                compare(fakePanel.settingWrites.length, writes, "the disabled switch writes nothing");
             } finally {
                 if (page !== null) releasePage(page, original);
                 else root.pageRow = original;

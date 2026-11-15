@@ -578,7 +578,7 @@ expect_poll "the no-profile line shows" true vpn_named window EmptyState vpn-emp
 expect "the no-profile line offers Import a VPN file" offered vpn_empty_action
 expect "no profile list draws without profiles" false vpn_named window Section vpn-profiles visible
 expect "the pane's Updates section shows while NetworkManager answers" true vpn_named window Section vpn-updates visible
-expect "Check every shows in the pane" true vpn_named window SegmentedControl vpn-poll visible
+expect "Check every shows in the pane" true vpn_named window Select vpn-poll visible
 vpn_editor_step "empty pane Add" create
 expect "the empty pane closes" ok ipc shell hide window vgs.system
 
@@ -762,7 +762,7 @@ expect "System closes after the profile checks" ok ipc shell hide window vgs.sys
 expect "the flyout opens" ok ipc shell summon panel vgs.vpn '{}'
 expect_poll "the flyout lists the profiles" true vpn_named panel ProfileRow "vpn-profile:$vpn_lab" visible
 expect "the flyout has no Updates section" false vpn_named panel Section vpn-updates visible
-expect "the flyout has no Check every" false vpn_named panel SegmentedControl vpn-poll visible
+expect "the flyout has no Check every" false vpn_named panel Select vpn-poll visible
 expect "the flyout has no Add or Edit action" '[]' vpn_editor_drawn
 
 expect "the flyout closes" ok ipc shell hide panel vgs.vpn

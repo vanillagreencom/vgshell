@@ -419,19 +419,19 @@ if len(page) != 1 or len(areas) != 1:
     print(json.dumps(["pages=%d areas=%d" % (len(page), len(areas))])); sys.exit()
 if plant:
     slider_planted = False
-    segment_planted = False
+    select_planted = False
     for j, r in enumerate(rows):
         if r["type"] == "Slider" and inside(j, page[0]) and not slider_planted:
             labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, page[0]) and visible(q)]
             if labels_after:
                 rows[labels_after[0]] = dict(rows[labels_after[0]], box=[right(r) + label_gap - 8] + rows[labels_after[0]]["box"][1:])
                 slider_planted = True
-        if r["type"] == "SegmentedControl" and inside(j, page[0]) and not segment_planted:
+        if r["type"] == "Select" and inside(j, page[0]) and not select_planted:
             rows[j] = dict(r, box=r["box"][:2] + [r["box"][2] + 8, r["box"][3]])
-            segment_planted = True
+            select_planted = True
     # A control slot moved under its label leaves the label with no control;
     # the field moved holds neither control planted above.
-    first = next(i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "SegmentedControl") and inside(j, i) for j, c in enumerate(rows)))
+    first = next(i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field", "KeyField") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "Select") and inside(j, i) for j, c in enumerate(rows)))
     line = next(j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == first)
     label_box = next(r["box"] for r in rows if r["parent"] == line and r["type"] == "Label" and r.get("role") == "label")
     for j, r in enumerate(rows):
@@ -450,7 +450,7 @@ for n, i in enumerate(headers):
     check("section%d.x" % n, rows[labels[0]]["box"][0], content_left)
 setting_roots = [i for i, r in enumerate(rows) if r["type"] == "SettingField" and inside(i, page[0]) and visible(i)]
 key_roots = [i for i, r in enumerate(rows) if r["type"] == "KeyField" and inside(i, page[0]) and visible(i)]
-fields = [i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field") and inside(i, page[0]) and visible(i)]
+fields = [i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field", "KeyField") and inside(i, page[0]) and visible(i)]
 counts = [len(setting_roots), len(key_roots)]
 if counts != [want_settings, want_keys]: out.append("settings,keys=%s want=%s" % (counts, [want_settings, want_keys]))
 for n, i in enumerate(fields):
@@ -481,14 +481,12 @@ for n, i in enumerate(fields):
         if r["type"] == "Slider" and inside(j, i):
             labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, i)]
             if labels_after: check(name + ".slider.gap", rows[labels_after[0]]["box"][0] - right(r), label_gap)
-        if r["type"] == "SegmentedControl" and inside(j, i):
-            check(name + ".segmented.width", r["box"][2], r["implicit"][0])
 print(json.dumps(out))
 PY
 }
 geometry expect_poll "the page's fields share one label edge, one control edge and one right edge, each label on its control" '[]' page_alignment 9 0
-page_alignment_planted() { page_alignment 9 0 plant | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(".slider.gap=" in e for e in o) and any(".segmented.width=" in e for e in o) and any(e.endswith(" slots=0") for e in o))'; }
-expect "control: overlapping the slider value, stretching a segmented control and moving a control under its label are each refused" True page_alignment_planted
+page_alignment_planted() { page_alignment 9 0 plant | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(".slider.gap=" in e for e in o) and any(".Select.right=" in e for e in o) and any(e.endswith(" slots=0") for e in o))'; }
+expect "control: overlapping the slider value, stretching a Select and moving a control under its label are each refused" True page_alignment_planted
 
 # This producer owns the long fixture that Settings also reads. Both pages
 # get their length from its manifest, without capabilities or host data.

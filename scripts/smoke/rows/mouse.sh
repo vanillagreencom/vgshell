@@ -33,7 +33,7 @@
 # message and whose action hands the keys to no control failed "no row
 # shows a message before the user table", read the flyout's message -10.95
 # px wide beside an action 186.95 px wide, and read the keys on the action.
-# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/RowActions.qml shell/Commons/Theme.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
+# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/RowActions.qml shell/Commons/Theme.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]mouse')
 
@@ -53,7 +53,7 @@ mouse_text_count() { ipc smoke itemTextCount window vgs.mouse "$1" "$2"; }
 # The key/value rows of the pane that show a message, whatever it says: for
 # each shown, non-empty message line, in the tooltip role the Mouse rows
 # give it, directly under a row, the types of that
-# row's controls among Slider, Switch and SegmentedControl, as a JSON list.
+# row's controls among Slider, Switch and Select, as a JSON list.
 # A chip's label is no message.
 mouse_messages() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
 import json, sys
@@ -65,7 +65,7 @@ def under(index, row):
         index = items[index]["parent"]
     return False
 rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
-print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
+print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "Select") and under(n, row)}) for row in rows]))'; }
 # The user's own Hyprland value the Pointer speed row reads from the
 # `hyprland` capability, `undefined` for none.
 mouse_user_values() { ipc smoke readMatchingDescendant window vgs.mouse MouseRow label "Pointer speed" hyprlandConfigValue; }
@@ -162,6 +162,7 @@ expect "enabling Mouse is allowed" ok ipc shell setPluginEnabled vgs.mouse true
 expect_poll "the Mouse widget is placed in the bar" True mouse_placed
 expect_poll "the Mouse pane can be summoned" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
 expect_poll "the Mouse pane is mounted" '["vgs.mouse"]' window_panes
+expect_poll "Acceleration draws its Select" 0 ipc smoke readMatchingDescendant window vgs.mouse Select model Adaptive,Flat currentIndex
 expect_poll "Hyprland devices are read before Mouse checks touchpads" true ipc smoke readInstance service vgs.mouse devicesRead
 expect_poll "the sandbox has no touchpad section" 0 mouse_text_count SectionHeader Touchpad
 expect_poll "the Mouse service publishes its status value" ok mouse_status_published

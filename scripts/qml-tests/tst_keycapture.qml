@@ -97,12 +97,6 @@ Item {
         }
         // The tokens whose undo records the capture holds.
         function heldTokens() { return JSON.stringify(Object.keys(owner().removedBinds.rows)); }
-        function bindControl(field) {
-            const control = field.children.find(child => child instanceof BindField);
-            verify(control !== undefined, "the key row retains its shared bind control");
-            return control;
-        }
-
         function submap(name) { Hyprland.rawEvent({ name: "submap", data: name }); }
         function sent() { return JSON.stringify(Compositor.requests); }
         // The registry's KeyCapture, whose start time the timeout case moves back.
@@ -402,7 +396,7 @@ Item {
             field.removeLine(userLine(true));
             compare(sentEdits(), '[["remove-bind","/h/.config/hypr/binds.lua","12","SUPER+SPACE"]]');
             removedOk(0);
-            const token = bindControl(field).removed.token;
+            const token = field.removed.token;
             compare(heldTokens(), JSON.stringify([token]));
             field.destroy();
             wait(0); // QObject.destroy() completes after the current event turn.
@@ -429,7 +423,7 @@ Item {
             const field = keyField.createObject(root, { capture: root.capture });
             field.removeLine(userLine(true));
             removedOk(0);
-            bindControl(field).undoRemoval();
+            field.undoRemoval();
             compare(source.edits.length, 2);
             field.destroy();
             wait(0); // QObject.destroy() completes after the current event turn.
