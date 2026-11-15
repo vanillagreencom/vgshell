@@ -953,10 +953,12 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   }
   # The widget of SIDE under that zone's start button, or `none`.
   zone_under_start() { zone_pick "next((i for i, (a, w) in zip(d['$1']['ids'], d['$1']['spans']) if a <= d['$1']['view'][0] + (d['$1']['inset'] - $zone_fade) / 2 <= a + w), 'none')"; }
-  # zone_wheel_walk SIDE: wheel notches up over SIDE's < button while it
-  # shows, each read as moving the zone: `walked over=<ids>`, naming the
-  # widgets that lay under the button, or `stuck=<notch> under=<id>` when
-  # a notch moved nothing.
+  # zone_wheel_walk SIDE [DEPTH]: wheel notches up over SIDE's < button
+  # while it shows, each read as moving the zone: `walked over=<ids>`,
+  # naming the widgets that lay under the button, or `stuck=<notch>
+  # under=<id>` when a notch moved nothing. DEPTH is zone_moved's, 2 for
+  # a positive check read through $(); a control expecting the stuck
+  # notch passes 1, so it waits the control bound.
   zone_wheel_walk() {
     local n place x y under seen=""
     for ((n = 1; n <= 20; n++)); do
@@ -965,7 +967,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
       seen+=",$under"
       read -r x y < <(zone_button "$1" start) || return 1
       hover "$((x + 1))" "$y" && wheel "$x" "$y" -1 || return 1
-      [[ $(zone_moved "$1" "$place" 2) == True ]] || { echo "stuck=$n under=$under"; return; }
+      [[ $(zone_moved "$1" "$place" "${2:-2}") == True ]] || { echo "stuck=$n under=$under"; return; }
     done
     echo stuck
   }
@@ -1307,7 +1309,7 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
     geometry expect "control: a zone that takes no wheel never leaves its end" False zone_ever "d['right']['end']" 0
   fi
   if zone_control button-wheel shell/plugins/vgs.bar/Bar.qml '            onWheel: wheel => scroller.owner.takeWheel(wheel)' ''; then
-    geometry expect "control: a < button that lets the wheel through sticks on a widget that takes the wheel" True py_reply 'import sys; r=sys.stdin.read().strip(); print(r.startswith("stuck=") and r.split("under=")[-1] in ("vgs.sound", "vgs.displays"))' <<<"$(zone_wheel_walk right)"
+    geometry expect "control: a < button that lets the wheel through sticks on a widget that takes the wheel" True py_reply 'import sys; r=sys.stdin.read().strip(); print(r.startswith("stuck=") and r.split("under=")[-1] in ("vgs.sound", "vgs.displays"))' <<<"$(zone_wheel_walk right 1)"
   fi
   if zone_control focus shell/plugins/vgs.bar/Bar.qml '        if (!clipped) return;' '        return;'; then
     zone_focus "control: a zone deaf to focus leaves the focused widget hidden" False
