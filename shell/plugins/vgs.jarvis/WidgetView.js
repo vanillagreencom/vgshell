@@ -112,14 +112,14 @@ var FAULT_TEXT = {
 // names (Session.FAULT_CATEGORIES): the title of the restart line, the
 // restart notice and a fault row in the console's Problems list.
 var FAULT_WORDS = {
-    "connection": "Jarvis lost the connection to the AI model",
-    "reply-cut": "The reply from the AI model stopped too early",
-    "service": "The AI service had an error",
+    "connection": "Jarvis lost the connection",
+    "reply-cut": "The reply stopped too early",
+    "service": "The service had an error",
     "app-stopped": "The AI app stopped",
-    "account": "The AI account refused the request",
+    "account": "The account refused the request",
     "model": "Jarvis cannot use the AI model",
-    "setup": "The AI model is not set up correctly",
-    "other": "The AI model did not answer",
+    "setup": "Jarvis is not set up correctly",
+    "other": FAULT_TEXT.other.title,
     "voice": "The voice service stopped working",
     "audio": "The microphone or speaker stopped working",
     "slow": "The AI model took too long to answer",

@@ -1100,7 +1100,7 @@ function verifyReadiness(gate) {
     const localNotReady = plain(readiness(gate, { kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
     assert.equal(localNotReady.hint, "Set up the local voice again", "local voice setup-broken words");
     const localReadyTimeout = plain(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
-    assert.equal(localReadyTimeout.action, "setup", "local voice startup refusal keeps its setup action");
+    assert.equal(gate.voiceCheck(localReadyTimeout, { kind: "ready" }).action, "setup", "local voice startup refusal keeps its setup action");
     const probeTimeout = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
@@ -2204,7 +2204,8 @@ function verify(gate) {
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         const expected = plain(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice);
-        assert.deepEqual(plain(value), expected, "voice setup cause survives microphone check");
+        assert.deepEqual(plain(value), { ...expected, action: "setup" }, "voice setup cause survives microphone check");
+        assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], "voice setup cause survives microphone check without diagnostics");
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
@@ -2668,7 +2669,6 @@ const CONTROLS = [
     ["the timed-out Voice step draws its cause", ': { tone: "warning", text: text, hint: hint, action: action };',
         ': cause === "speech=local-ready-timeout" ? { tone: "warning", text: text, hint: hint, action: action, lines: [String(cause)] } : { tone: "warning", text: text, hint: hint, action: action };',
         "voice setup cause survives microphone check"],
-    ["the timed-out Voice step reads to do", 'var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : TO_DO;', 'var text = TO_DO;', "voice setup cause survives microphone check"],
     ["a start failure summary draws its cause", "hint: answer.action || problem.action },", "hint: answer.action || problem.action, lines: problem.lines },",
         "hello timeout: the start failure summary draws no keyed cause"],
     ["a stopped summary draws its reason as a line", 'hint: START_STOPPED }', 'lines: [START_STOPPED] }'],
@@ -3522,7 +3522,7 @@ function verifyPathForm(gate) {
         ["speech=live-account-unselected", "vgs.jarvis", "Setup/keyStore"],
         ["speech=live-account-unreadable", "vgs.jarvis", "Setup/accountSearch"],
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
-        ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
+        ["speech=local-ready-timeout", "vgs.jarvis", "Setup/setupVoice"],
         ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
         ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings/home"],

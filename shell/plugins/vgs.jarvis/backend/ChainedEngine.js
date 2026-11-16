@@ -151,9 +151,9 @@ function programEnd(setup) {
 }
 const CAUSES = Object.freeze([
     // Session deadlines, Audio child failures and the speech adapters below
-    // already release their failed operation; reopening acquires a new one.
+    // use Session's shared teardown before it opens a successor operation.
     [/^thinking-timeout$/, () => cause("transient", "slow", false)],
-    [/^playback-timeout$|^(?:capture|playback)-exit-|^(?:playback-pipe-closed|capture-overflow|provider-disconnected|input-end)$|^(?:audio-start: audio-readiness|device-probe: discovery-exit:)/, () => cause("transient", "audio", false)],
+    [/^playback-timeout$|^(?:capture|playback)-exit-|^(?:playback-pipe-closed|capture-overflow)$|^(?:audio-start: audio-readiness|device-probe: discovery-exit:)/, () => cause("transient", "audio", false)],
     [/^(?:playback-source: jarvis: )?speech=local-(?:end-timeout|synthesis-timeout|synthesis-empty|backlog|exit(?: |$)|write(?: |$))/, () => cause("transient", "voice", false)],
     [/^speech=dictation-(?:timeout|failed)$/, () => cause("transient", "dictation", false)],
     [/^(?:playback-source: jarvis: )?speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500
@@ -973,8 +973,19 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
             } else utterance.collection?.done("final", text);
         }
-        // A dictation request that failed ends the utterance with no words; a
-        // live collection's turn carries the cause.
+        function failedInput(reason, error = new Error("jarvis: " + reason)) {
+            // Audio reduces a stream error to provider-disconnected. Report
+            // the keyed producer cause while Session still owns this input.
+            const collection = utterance.collection;
+            const bound = collecting(c, collection);
+            const capturing = session.live(state(), e, "capture", ["opening", "open", "closing"]);
+            if (bound) collection.failed(reason);
+            else if (capturing) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });
+            if (!sink.destroyed) sink.destroy(error);
+            else if (!bound && !capturing) fault("speech-transcribe: " + reason);
+        }
+        // A refused recording supplies no final words, including an empty
+        // transcript that could hide its failure.
         const record = c.plan.speech.dictation !== true ? null : dictation(result => {
             if (utterance.state !== "running" && utterance.state !== "ending") return;
             if (result.kind === "text") {
@@ -987,10 +998,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 void output?.return?.();
             }
             utterance.state = "concluded";
-            // A live collection's turn carries the cause; an unbound capture,
-            // as a held request's answer, carries it as run()'s catch does.
-            if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);
-            else if (running && !sink.destroyed) sink.destroy(new Error("jarvis: " + result.cause));
+            failedInput(result.cause);
         });
         async function run() {
             let rev = 0;
@@ -1031,11 +1039,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (utterance.state !== "running") return;
                 utterance.state = "concluded";
                 record?.cancel();
-                // An open capture carries the failure; after it closed, the
-                // collection's turn does; unbound, only the service hears it.
-                if (!sink.destroyed) sink.destroy(error);
-                else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));
-                else fault("speech-transcribe: " + keyed(error));
+                failedInput(keyed(error), error);
             }
         }
         void run();
