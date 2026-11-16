@@ -98,6 +98,7 @@ template() {
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
   cp -- "$repo/docs/architecture/validation.md" "$dir/docs/architecture/validation.md"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$repo/scripts/smoke/reap.sh" "$dir/scripts/smoke/"
+  sed -n '/^# inputs:/p' "$repo/scripts/smoke/harness.sh" >"$dir/scripts/smoke/harness.sh"
   # Selection and scheduler cases have a transparent world stand-in. The
   # boundary cases below replace it with the production world.
   printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
@@ -1032,8 +1033,11 @@ if area in ["cli", "offline", "all"] and satellite not in lines and any(fnmatch.
     lines.insert(lines.index(router) + 1, satellite)
 # Product boot belongs to the nested smoke's core rows. Fatal-row controls
 # exercise the runner and its fixtures.
-fatal_smoke_input = (file.startswith(("scripts/smoke/", "scripts/fixtures/jarvis/"))
-                     or file in {"scripts/qml-smoke.sh", "scripts/test-qml-smoke.sh", "scripts/lib/jarvis-env.sh"})
+fatal_smoke_input = (file.startswith(("scripts/fixtures/jarvis/", "scripts/smoke/keyboard/"))
+                     or file in {"scripts/qml-smoke.sh", "scripts/test-qml-smoke.sh", "scripts/lib/jarvis-env.sh",
+                                 "scripts/smoke/harness.sh", "scripts/smoke/row-inputs.sh", "scripts/smoke/rows.list",
+                                 "scripts/smoke/rows/bluetooth.sh", "scripts/smoke/Probe.qml", "scripts/smoke/devices.sh",
+                                 "scripts/smoke/fixtures/devices/stand-in.py"})
 if area in ["qml", "all"] and fatal_smoke_input and "scripts/test-qml-smoke.sh" not in lines:
     lines.append("scripts/test-qml-smoke.sh")
 print("\n".join(lines), end="")
@@ -1707,6 +1711,47 @@ for spec in \
 done
 test_area=manifests
 test_args=()
+
+# The runner replaces these product rows with fixtures. A shared harness
+# input remains an input of its table control, even outside smoke/.
+for spec in \
+  'reconcile|scripts/smoke/rows/bar-reconcile.sh|absent' \
+  'updates|scripts/smoke/rows/updates.sh|absent' \
+  'launcher|scripts/smoke/rows/launcher.sh|absent' \
+  'bluetooth|scripts/smoke/rows/bluetooth.sh|present' \
+  'row-list|scripts/smoke/rows.list|present' \
+  'reader|scripts/smoke/row-inputs.sh|present' \
+  'declared|bin/lib/shared-fixture.sh|present' \
+  'unreadable|scripts/smoke/rows/updates.sh|present' \
+  'unmapped|new-source.bin|full' \
+  'unmapped-control|new-source.bin|present' \
+  'control|scripts/smoke/rows/updates.sh|present' \
+  'full|scripts/smoke/rows/updates.sh|present'; do
+  IFS='|' read -r name file presence <<<"$spec"
+  d="$tmp/plan-narrow-runner-$name"; fresh "$d"
+  printf '# inputs: bin/lib/shared-fixture.sh\n' >"$d/scripts/smoke/harness.sh"
+  printf '# shared\n' >"$d/bin/lib/shared-fixture.sh"
+  [[ $name != control ]] || plant "$d/scripts/validate" 'scripts/smoke/rows/bluetooth.sh scripts/fixtures/jarvis/*' 'scripts/smoke/rows/bluetooth.sh scripts/smoke/* scripts/fixtures/jarvis/*'
+  [[ $name != unmapped-control ]] || plant "$d/scripts/validate" '      row_required[i]=true' "      patterns+=('*')"
+  commit "$d" declaration
+  case "$name" in
+    unreadable) chmod 000 "$d/scripts/smoke/harness.sh" ;;
+    unmapped*) plant "$d/scripts/smoke/harness.sh" '# inputs: bin/lib/shared-fixture.sh' '# declaration missing' ;;
+  esac
+  mkdir -p -- "$d/$(dirname -- "$file")"
+  printf '# changed\n' >>"$d/$file"
+  test_area=qml test_args=(--changed HEAD --list)
+  [[ $name != full ]] || test_args=(--full --list)
+  case "$presence" in
+    present) wanted=scripts/test-qml-smoke.sh ;;
+    full) wanted='validate: selection=full unknown-input=new-source.bin' ;;
+    *) wanted='!scripts/test-qml-smoke.sh' ;;
+  esac
+  if [[ $name == unmapped-control ]]; then
+    row "$name demonstrates the wildcard hiding an unmapped source" "$d" 0 "" "$wanted" '!validate: selection=full unknown-input=new-source.bin'
+  else row "$name retains only reached runner controls" "$d" 0 "" "$wanted"; fi
+done
+test_area=manifests test_args=()
 
 d="$tmp/plan-rename"; fresh "$d"
 mkdir -p "$d/shell/Core"
@@ -2395,6 +2440,100 @@ printf 'changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "the smoke input self-check names a harness with no input line" "$d" 0 "" \
   "validate: smoke-input harness=scripts/smoke/harness.sh missing; add to the leading comment block of scripts/smoke/harness.sh: # inputs: GLOB [GLOB...]" \
   "validate: smoke-rows=all reason=harness-line-unreadable"
+# Real input declarations with isolated product loads. PathField is drawn
+# only by Gallery; the other roots load a shared control through a sibling.
+# RuntimeEntry is selected by data, so only the retained folder names it.
+d="$tmp/narrow-ui-template"; smoke_fixture "$d"
+python3 - "$repo" "$d" <<'PYNARROW'
+import fnmatch, pathlib, re, subprocess, sys
+repo, target = map(pathlib.Path, sys.argv[1:])
+tracked = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z']).decode().split('\0')
+pending = ['network', 'picked-screen', 'jarvis-console']
+seen = set()
+while pending:
+    row = pending.pop()
+    if row in seen:
+        continue
+    seen.add(row)
+    path = f'scripts/smoke/rows/{row}.sh'
+    lines = re.findall(r'^# inputs: (.+)$', (repo / path).read_text(), re.M)
+    assert len(lines) == 1, path
+    for pattern in lines[0].split():
+        matches = [p for p in tracked if p and fnmatch.fnmatchcase(p, pattern)]
+        assert matches, pattern
+        # One neutral member is sufficient to keep each declaration readable.
+        relative = matches[0]
+        dest = target / relative
+        if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text('# neutral\n' if dest.suffix == '.sh' else '')
+        if re.fullmatch(r'scripts/smoke/rows/[a-z0-9-]+\.sh', pattern):
+            pending.append(pathlib.Path(pattern).stem)
+    (target / path).write_text('# inputs: ' + lines[0] + '\n')
+for plugin in ['network', 'capture', 'jarvis']:
+    folder = target / f'shell/plugins/vgs.{plugin}'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'Widget.qml').write_text('Mid {}\n')
+    (folder / 'Mid.qml').write_text('import qs.Ui\nCallout {}\n')
+    (folder / 'RuntimeEntry.qml').write_text('QtObject {}\n')
+ui = target / 'shell/Ui'
+ui.mkdir(parents=True, exist_ok=True)
+(ui / 'qmldir').write_text('module qs.Ui\nCallout 1.0 Callout.qml\nPathField 1.0 PathField.qml\n')
+(ui / 'Callout.qml').write_text('QtObject {}\n')
+(ui / 'PathField.qml').write_text('QtObject {}\n')
+(target / 'scripts/smoke/rows/gallery.sh').write_text('# inputs: shell/Ui/PathField.qml\n')
+listed = (target / 'scripts/smoke/rows.list').read_text().splitlines()
+names = set(listed) | seen | {'gallery'}
+(target / 'scripts/smoke/rows.list').write_text('\n'.join(sorted(n for n in names if n and not n.startswith('#'))) + '\n')
+PYNARROW
+commit "$d" narrowed-inputs
+for spec in \
+  'pathfield|shell/Ui/PathField.qml|absent' \
+  'control|shell/Ui/PathField.qml|present' \
+  'shared-transitive|shell/Ui/Callout.qml|present' \
+  'network-direct|shell/plugins/vgs.network/Widget.qml|network' \
+  'capture-runtime|shell/plugins/vgs.capture/RuntimeEntry.qml|picked-screen' \
+  'jarvis-runtime|shell/plugins/vgs.jarvis/RuntimeEntry.qml|jarvis-console' \
+  'unreadable-load|shell/Ui/Callout.qml|all' \
+  'full|shell/Ui/PathField.qml|all'; do
+  IFS='|' read -r name file presence <<<"$spec"
+  d="$tmp/narrow-ui-$name"; cp -a -- "$tmp/narrow-ui-template" "$d"
+  if [[ $name == control ]]; then
+    for real_row in network picked-screen jarvis-console; do
+      sed -i 's|^# inputs: |# inputs: shell/Ui/* |' "$d/scripts/smoke/rows/$real_row.sh"
+    done
+    commit "$d" control
+  fi
+  if [[ $name == unreadable-load ]]; then printf '\377\n' >>"$d/$file"
+  else printf '// changed\n' >>"$d/$file"; fi
+  test_area=qml test_args=(--changed HEAD --list)
+  [[ $name != full ]] || test_args=(--full --list)
+  if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml "${test_args[@]}" 2>"$tmp/narrow-ui-$name.err")"; then
+    smoke_plan=""
+    while IFS= read -r line; do
+      [[ $line != scripts/qml-smoke.sh* ]] || smoke_plan="$line"
+    done <<<"$out"
+    case "$presence" in
+      all) [[ $smoke_plan == scripts/qml-smoke.sh ]] || fail "$name omitted the full smoke set" ;;
+      *)
+        selected=",${smoke_plan#scripts/qml-smoke.sh --rows },"
+        if [[ $presence == absent ]]; then
+          [[ $selected == *,gallery,* ]] || fail "$name lost Gallery's direct PathField input"
+          for real_row in network picked-screen jarvis-console hold-shortcuts hyprland jarvis-keys overlay-capture theme-browse theme-browser; do
+            [[ $selected != *,$real_row,* ]] || fail "$name selected unrelated $real_row: $smoke_plan"
+          done
+        else
+          wanted_rows="$presence"
+          [[ $presence != present ]] || wanted_rows='network picked-screen jarvis-console'
+          for real_row in $wanted_rows; do
+            [[ $selected == *,$real_row,* ]] || fail "$name lost $real_row: $smoke_plan"
+          done
+        fi ;;
+    esac
+    ok "narrowed Ui selection $name was read"
+  else fail "narrowed Ui selection $name could not be read"; fi
+done
+
 # A real row and its real shared helpers, without starting their runtime.
 # The fixture keeps the row's whole source and declared inputs. Only the
 # changed helper, hunk shape or incoming commit varies; expected plans do
@@ -3059,6 +3198,9 @@ reuse_cases=(
   "control: the nested smoke a cut run passed is reused whole|TERM|fatal-controls|||whole|~validate: reuse=on rows-reused=1 ^!scripts/qml-smoke.sh"
   "a changed input reruns the smoke row it reaches|TERM|fatal-controls||edit||validate: reused secs=3 smoke=notifications^$smoke_launcher"
   "a changed input reruns a table row a finished run passed|-|-||control-file||%validate: rerun secs=[0-9]+ row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
+  "a declared shared input reruns a table row a finished run passed|-|-||harness-file||%validate: rerun secs=[0-9]+ row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
+  "an unreadable harness declaration forbids table control reuse|-|-||unreadable-harness||%validate: rerun secs=[a-z0-9]+ reason=untraced row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
+  "an unreadable declaration cannot hide an unmapped input from reuse binding|-|-||unreadable-unknown||validate: selection=full unknown-input=new-source.bin^!validate: reused secs="
   "control: a changed input no longer reruns a table row|-|-||control-file|row-lines|%validate: reused secs=[0-9]+ row=smoke fatal row controls$^!scripts/test-qml-smoke.sh"
   "a run whose tree changed while it ran leaves nothing to reuse|TERM|fatal-controls|revert|revert||validate: rerun secs=unknown smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_both"
   "control: a run whose tree changed while it ran no longer withdraws its records|TERM|fatal-controls|revert|revert|void|validate: reused secs=3 smoke=launcher^$smoke_none"
@@ -3094,6 +3236,10 @@ reuse_case() { # SPEC
     row-file) printf '# changed\n' >>"$d/scripts/smoke/rows/launcher.sh" ;;
     control-file) printf '# changed\n' >>"$d/scripts/test-qml-smoke.sh" ;;
     harness-file) printf 'changed\n' >>"$d/scripts/smoke/helper/click.c" ;;
+    unreadable-harness) plant "$d/scripts/smoke/harness.sh" '# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh' '# declaration missing' ;;
+    unreadable-unknown)
+      plant "$d/scripts/smoke/harness.sh" '# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh' '# declaration missing'
+      printf 'source\n' >"$d/new-source.bin" ;;
     validate-file) printf '# changed\n' >>"$d/scripts/validate" ;;
     unknown) printf 'source\n' >"$d/new-source.bin" ;;
     revert)

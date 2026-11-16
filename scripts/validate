@@ -657,7 +657,7 @@ rows=(
   "tools|launcher glyph capture controls|python3 scripts/test-launcher-latency.py|scripts/smoke/launcher-latency.py"
   "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/RadialBackdrop.qml shell/Ui/feedback/shaders/* shell/Ui/foundation/GlassSurface.qml shell/Ui/foundation/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg shell/Core/PackageManagers.js @alone|entry"
   # Product boot is proved by the nested smoke core rows.
-  "qml|smoke fatal row controls|scripts/test-qml-smoke.sh|scripts/qml-smoke.sh scripts/smoke/* scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh scripts/test-qml-smoke.sh shell/plugins/vgs.lock/manifest.json shell/plugins/vgs.lock/Service.qml"
+  "qml|smoke fatal row controls|scripts/test-qml-smoke.sh|scripts/qml-smoke.sh scripts/smoke/harness.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bluetooth.sh scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh scripts/test-qml-smoke.sh shell/plugins/vgs.lock/manifest.json shell/plugins/vgs.lock/Service.qml"
 )
 
 # The branch point, printed on stdout: the merge base of COMMIT, HEAD by
@@ -2068,9 +2068,10 @@ declare -A row_index_literal=() row_index_glob_members=() row_index_load_members
 row_index_globs=()
 row_traced=()
 row_scoped=()
+row_required=()
 for i in "${!rows[@]}"; do
   IFS='|' read -r row_area _ command inputs owner <<<"${rows[i]}"
-  row_traced[i]=false row_scoped[i]=false
+  row_traced[i]=false row_scoped[i]=false row_required[i]=false
   [[ $row_area != repo ]] || continue
   row_traced[i]=true
   row_loads=""
@@ -2085,6 +2086,17 @@ for i in "${!rows[@]}"; do
   for word in "${words[@]}"; do
     if [[ $word == */* ]]; then patterns+=("$word"); fi
   done
+  if [[ $command == scripts/test-qml-smoke.sh ]]; then
+    # These controls replace runtime rows, but read the shared harness.
+    # Keep its declaration in the selection index that also binds reuse.
+    if smoke_inputs_read scripts/smoke/harness.sh; then
+      patterns+=("${smoke_globs[@]}")
+    else
+      # A wildcard here would hide unmapped paths from full selection.
+      row_required[i]=true
+      row_traced[i]=false
+    fi
+  fi
   for pattern in "${patterns[@]}"; do
     case "$pattern" in
       \$*|device:*) row_traced[i]=false ;;
@@ -2710,7 +2722,7 @@ for i in "${!rows[@]}"; do
       *) row_reached=false ;;
     esac
   else
-    [[ ${affected[i]} == true || $row_area == repo ]] || row_reached=false
+    [[ ${affected[i]} == true || ${row_required[i]} == true || $row_area == repo ]] || row_reached=false
   fi
   if [[ $row_reached == false ]]; then run_selection=all; continue; fi
   if [[ $skip_unprepared == true ]]; then
