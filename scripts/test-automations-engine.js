@@ -648,8 +648,9 @@ const CASES = {
                 // nm-reads is an acknowledgement that the production read
                 // reached the stub; missing busctl has no such child.
                 if (value !== null) waitFor(() => fs.existsSync(path.join(w.stub, "nm-reads")), "the connectivity read");
-                waitFor(() => networkLogs(runner).some(out => out.operation === "get-property"), "the structured connectivity result");
-                const cause = networkLogs(runner).find(out => out.operation === "get-property");
+                const operation = value === null ? "call" : "get-property";
+                waitFor(() => networkLogs(runner).some(out => out.operation === operation), "the structured connectivity result");
+                const cause = networkLogs(runner).find(out => out.operation === operation);
                 same([cause.id, cause.command, cause.category, cause.exit, cause.signal, cause.timeoutMs], [id, "busctl", category, exit, signal, timeoutMs]);
                 if (category === "connectivity") same(cause.connectivity, Number(value));
                 if (category === "invalid-reply" || category === "exit") assert.ok(cause.detail.length > 0 && cause.detail.length <= 512);
@@ -673,6 +674,23 @@ const CASES = {
             same([ended(w, id).trigger, ended(w, id).outcome], [trigger, "succeeded"]);
             assert.equal(listed(w, engine, id).pending, null);
         }
+    },
+
+    "network admission refreshes a stale FULL before starting"(engine) {
+        const { w, id } = networkWorld(engine, { value: "4" });
+        write(path.join(w.stub, "nm-check"), "3");
+        const runner = startRunner(w, engine, id, "scheduled");
+        try {
+            waitFor(() => {
+                same(runFiles(w).filter(n => n.endsWith(".started.json")), [], "stale FULL never starts a command");
+                return waits(w) >= 1;
+            }, "LIMITED waits after the fresh check");
+            same([checks(w), listed(w, engine, id).state, calls(w, "notify-send")], [1, "waiting", []]);
+            write(path.join(w.stub, "nm-check"), "4");
+            write(path.join(w.stub, "nm"), "4");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "fresh FULL starts the waiting run");
+            same([ended(w, id).outcome, checks(w)], ["succeeded", 2]);
+        } finally { stopRunner(runner); }
     },
 
     "network wait failure transitions retain causes and suppress identical retries"(engine) {
@@ -802,40 +820,42 @@ const CASES = {
         const first = cli(w, engine, ["run", "--scheduled", id]);
         same([first.status, latestEnded(w).outcome, latestEnded(w).reason, latestEnded(w).exitCode], [0, "skipped", "network-dns", 128], first.stderr);
         assert.equal(Logic.recordError(latestEnded(w), "ended"), "");
-        same([calls(w, "notify-send"), fs.existsSync(streak), checks(w)], [[], false, 0], "a DNS skip after a success sends nothing, opens no streak and needs no re-check");
+        same([calls(w, "notify-send"), fs.existsSync(streak), checks(w)], [[], false, 1], "a DNS skip after a success sends nothing, opens no streak and needs only the admission check");
         // NetworkManager re-checks FULL after each later failure.
         for (const k of [1, 2]) {
             clockAt(w, due + k * DAY + 5 * 60000, 0);
             const again = cli(w, engine, ["run", "--scheduled", id]);
-            same([again.status, latestEnded(w).outcome, latestEnded(w).reason, checks(w)], [1, "failed", "", k], "DNS failure " + (k + 1) + " in a row fails");
+            same([again.status, latestEnded(w).outcome, latestEnded(w).reason, checks(w)], [1, "failed", "", 1 + 2 * k], "DNS failure " + (k + 1) + " in a row fails");
             same(journalNetwork(again.stderr).map(out => [out.operation, out.category, out.connectivity]), [["get-property", "connectivity", 4], ["get-property", "connectivity", 4]], "the admission read and the re-check's read");
         }
         same(calls(w, "notify-send").map(c => c.slice(-1)[0].split("\n")[0]), ["fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", "Failed 2 times since Sat 31 Oct 2026 09:05"], "each failure alerts");
         const other = networkWorld(engine, { value: "4", command: "echo 'rsync: Permission denied' >&2; exit 23" });
         plant(other.w, other.id, other.due - DAY);
         const failed = cli(other.w, engine, ["run", "--scheduled", other.id]);
-        same([failed.status, calls(other.w, "notify-send").length, checks(other.w)], [1, 1, 0], "another failure after a success stays failed with no re-check");
+        same([failed.status, calls(other.w, "notify-send").length, checks(other.w)], [1, 1, 1], "another failure after a success stays failed with only the admission check");
     },
 
     "scheduled network runs that cannot resolve a name with no internet skip whatever ran before"(engine) {
         // [the run before, how the world makes it, its history row]. Each
-        // later run is admitted on the cached FULL; the re-check after its
+        // later run is admitted on a fresh FULL; the re-check after its
         // failure finds NONE, and the next run's admission finds FULL again.
         for (const [before, make, earlier] of [
             ["none", () => {}, []],
             ["an offline skip", (w, id, due) => plant(w, id, due - DAY, false, { trigger: "scheduled", slot: due - DAY, outcome: "skipped", reason: "network-offline-late", exitCode: null, durationMs: 0, endedAt: due - DAY }), [["skipped", "network-offline-late"]]],
             ["a failure", (w, id) => assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 1, "the failure before, with the internet up"), [["failed", ""]]]
         ]) {
-            const { w, id, due } = networkWorld(engine, { value: "4", command: UNRESOLVED });
+            const { w, id, due } = networkWorld(engine, { value: "4", command: 'cp "$STUB/nm-after-command" "$STUB/nm-check"; ' + UNRESOLVED });
+            write(path.join(w.stub, "nm-after-command"), "4");
             const streak = path.join(w.home, ".local/state/vgshell/automations/streak", id + ".json");
             make(w, id, due);
             const streakBefore = fs.existsSync(streak) ? fs.readFileSync(streak, "utf8") : null;
             const sent = calls(w, "notify-send").length;
-            write(path.join(w.stub, "nm-check"), "1");
+            write(path.join(w.stub, "nm-after-command"), "1");
             const skippedRuns = [];
             for (const k of [1, 2]) {
                 clockAt(w, due + k * DAY + 5 * 60000, 0);
                 write(path.join(w.stub, "nm"), "4");
+                write(path.join(w.stub, "nm-check"), "4");
                 const out = cli(w, engine, ["run", "--scheduled", id]);
                 same([out.status, latestEnded(w).outcome, latestEnded(w).reason, latestEnded(w).exitCode], [0, "skipped", "network-offline", 128], "run " + k + " after " + before + ": " + out.stderr);
                 assert.equal(Logic.recordError(latestEnded(w), "ended"), "");
@@ -851,8 +871,8 @@ const CASES = {
         }
         // A refused re-check is no reading: the run stays failed and the
         // journal names the call's refusal.
-        const { w, id, due } = networkWorld(engine, { value: "4", command: UNRESOLVED });
-        write(path.join(w.stub, "nm-check"), "refuse");
+        const { w, id, due } = networkWorld(engine, { value: "4", command: 'cp "$STUB/nm-after-command" "$STUB/nm-check"; ' + UNRESOLVED });
+        write(path.join(w.stub, "nm-after-command"), "refuse");
         clockAt(w, due + 5 * 60000, 0);
         const out = cli(w, engine, ["run", "--scheduled", id]);
         same([out.status, latestEnded(w).outcome, calls(w, "notify-send").length], [1, "failed", 1], out.stderr);
@@ -1468,6 +1488,7 @@ function waits(w) {
 
 // [label, the case, text in bin/automations, its replacement].
 const CONTROLS = [
+    ["admission refreshes cached FULL", "network admission refreshes a stale FULL before starting", "const connectivity = recheckConnectivity(id, env, reportNetwork);", "const connectivity = Connectivity.readConnectivity(env).connectivity;"],
     ["FULL admission cannot be bypassed", "network requirements admit FULL alone and local commands bypass NM", "if (!admission.admit) {", "if (false && !admission.admit) {"],
     ["sync starts nothing with nothing to schedule", "sync with nothing runs nothing", "if (store.automations.length === 0 && ownedUnits().length === 0 && !fs.existsSync(engineRoot)) {", "if (false) {"],
     ["sync reloads after a unit change", "add writes the units, reloads and enables the timer", "if (removed.length + changed.length > 0) systemctl([\"daemon-reload\"]);", ""],
@@ -1549,6 +1570,7 @@ try {
         try {
             CASES[name](path.join(copy, "bin", "automations"));
         } catch (e) {
+            if (label === "admission refreshes cached FULL" && (!(e instanceof assert.AssertionError) || !e.message.startsWith("stale FULL never starts a command"))) throw e;
             if (label === "FULL admission cannot be bypassed" && !(e instanceof assert.AssertionError)) throw e;
             if (label === "cron admission precedes store mutation") {
                 if (!(e instanceof assert.AssertionError) || !e.message.startsWith("add preserves the stored definitions")) throw e;
@@ -1560,6 +1582,7 @@ try {
         }
         assert.ok(failed, `control "${label}": case "${name}" passed on an engine without that rule`);
         controls += 1;
+        if (label === "admission refreshes cached FULL") console.log("control: cached FULL admission starts the command before the fresh LIMITED check");
         if (label === "FULL admission cannot be bypassed") console.log("control: FULL admission bypass rejected by non-FULL command-start assertion");
         if (label === "cron admission precedes store mutation") console.log("control: late cron admission rejected by unchanged-store assertion after scheduler refusal");
         if (label === "cron add admits the whole prospective store") console.log("control: candidate-only add admission rejected by unchanged-store assertion after scheduler refusal");

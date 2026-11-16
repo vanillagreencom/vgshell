@@ -1081,10 +1081,10 @@ function runVerb(words) {
     };
     while (answer.kind === "wait") {
         ownedPending = { id: id, owner: owner, token: token };
-        const reading = Connectivity.readConnectivity(env);
-        reportNetwork(reading.outcome);
-        answer = transaction(Object.assign({}, request, { kind: "advance", connectivity: reading.connectivity, waitedMs: Math.max(0, monotonicMs() - began) }));
-        if (answer.kind === "wait") reportNetwork(waitForNetwork(env, reading.connectivity, Math.max(0, monotonicMs() - began)));
+        // Resume can leave the cached property FULL before the link works.
+        const connectivity = recheckConnectivity(id, env, reportNetwork);
+        answer = transaction(Object.assign({}, request, { kind: "advance", connectivity: connectivity, waitedMs: Math.max(0, monotonicMs() - began) }));
+        if (answer.kind === "wait") reportNetwork(waitForNetwork(env, connectivity, Math.max(0, monotonicMs() - began)));
     }
     if (answer.kind === "run") return execute(answer.automation, trigger, answer.slot, Date.now(), "", answer.network);
     if (answer.kind === "refused") return execute(answer.automation, trigger, null, Date.now(), answer.refusal, null);
@@ -1124,8 +1124,7 @@ function waitForNetwork(env, connectivity, waitedMs) {
 // sits above that, and the child's bound ends a busctl that outlasts its
 // own. A user unit may call it: VGS-2392's run on cachy, 2026-11-08.
 const NM_CHECK_SECONDS = 25;
-function recheckConnectivity(id, env) {
-    const report = outcome => log("network=" + JSON.stringify(Object.assign({ id: id }, outcome)));
+function recheckConnectivity(id, env, report = outcome => log("network=" + JSON.stringify(Object.assign({ id: id }, outcome)))) {
     const check = Connectivity.networkCall(env, "call", ["--timeout=" + NM_CHECK_SECONDS, "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "CheckConnectivity"], NM_CHECK_SECONDS * 1000 + 1000).outcome;
     if (check.category !== "completed") {
         report(check);
