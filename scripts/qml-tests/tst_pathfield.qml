@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import QtCore
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -17,6 +18,7 @@ Item {
     }
     Label { id: expected; role: "item"; textFormat: Text.PlainText; y: 80 }
     TextMetrics { id: metrics; elide: Text.ElideLeft }
+    Component { id: emptyFolder; PathField {} }
 
     TestCase {
         name: "pathfield"
@@ -33,6 +35,26 @@ Item {
             return out;
         }
         function titleOf(row) { return descendants(row.contentItem).find(child => child.role === "item" && child.text === row.text); }
+
+        function test_browse_empty_field_opens_home_as_a_choosable_path() {
+            const field = createTemporaryObject(emptyFolder, root);
+            verify(field !== null);
+            compare(field.path, "");
+            const editor = field.children.find(child => child.placeholderText !== undefined);
+            const browse = editor.actions.find(child => child.text === "Browse");
+            browse.clicked();
+            const picker = field.children.find(child => child.toggle !== undefined && child.opened !== undefined);
+            tryCompare(picker, "opened", true);
+            const home = String(StandardPaths.writableLocation(StandardPaths.HomeLocation)).replace(/^file:\/\//, "");
+            compare(field.currentFolder, home);
+            verify(field.currentFolder.startsWith("/"));
+            tryCompare(field, "folderFound", true);
+            const window = picker.resources.find(child => child.anchor !== undefined);
+            const choose = descendants(window.contentItem).find(child => child.text === "Choose");
+            verify(choose.enabled);
+            compare(field.errorMessage, "");
+            picker.close();
+        }
 
         function test_the_keyboards_folder_row_holds_the_plate_and_opens_on_enter() {
             UnitTheme.reset();

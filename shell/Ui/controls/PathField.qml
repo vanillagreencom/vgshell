@@ -20,7 +20,7 @@ Item {
     property string path: ""
     property alias placeholderText: field.placeholderText
     property string displayPath: path
-    property string currentFolder: displayPath !== "" && displayPath.charAt(0) === "/" ? displayPath : homePath()
+    property string currentFolder: displayPath !== "" && displayPath.charAt(0) === "/" ? displayPath : clean(homePath())
     property bool error: false
     property string errorMessage: ""
     readonly property bool absolute: isAbsolute(displayPath)
