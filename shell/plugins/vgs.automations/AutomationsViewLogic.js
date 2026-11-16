@@ -415,9 +415,10 @@ function formatWhen(ms, showSeconds) {
     return weekdays[(at.getDay() + 6) % 7] + " " + at.getDate() + " " + months[at.getMonth()] + " " + hh + ":" + mm + (showSeconds ? ":" + ss : "");
 }
 
+// Why a waiting run cannot tell whether the internet is reachable, or "".
 function networkExplanation(pending) {
     return pending !== null && pending.diagnostic === "unavailable"
-        ? "NetworkManager cannot check internet access. This run keeps waiting."
+        ? "Cannot check internet access"
         : "";
 }
 

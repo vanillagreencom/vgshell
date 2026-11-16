@@ -43,13 +43,15 @@ Section {
             spacing: Theme.stack.row
             Repeater {
                 model: ScriptModel { values: root.occurrences }
-                ListItem {
+                // A pick list's row: a ContentRow a click selects.
+                ContentRow {
                     required property var modelData
                     required property int index
                     width: previewColumn.width
                     iconName: "clock"
                     text: View.formatWhen(modelData, root.showSeconds)
                     highlighted: index === root.current
+                    clickable: true
                     cursor: plate
                     onClicked: root.current = index
                 }

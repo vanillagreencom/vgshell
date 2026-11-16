@@ -148,8 +148,11 @@ Item {
             const drawn = lines(window);
             compare(drawn.map(line => [line.text, line.detail, line.secondary, line.iconName, line.clickable]), root.pairs.map(pair => [pair.label, pair.secondary, "", "folder-sync", pair.local !== undefined]));
             compare(drawn.map(line => line.width), drawn.map(() => listOf(window).width), "each row is as wide as the list");
-            compare(drawn.map(line => line.mapToItem(listOf(window), 0, 0).x), drawn.map(() => 0), "each row stands on the content edge");
-            compare(drawn.map(line => line.leftPadding), drawn.map(() => 0), "a row insets no text");
+            compare(drawn.map(line => line.mapToItem(listOf(window), 0, 0).x), drawn.map(() => 0), "each row's box stands on the content edge");
+            // A row its folder plates keeps a list row's side padding inside
+            // the plate; a passive row insets no text.
+            const inset = line => line.clickable ? Theme.listItem.paddingX : 0;
+            compare(drawn.map(line => line.leftPadding), drawn.map(inset), "a plated row pads its text, a passive row does not");
             // The state reads under the name with its tone's mark; a calm
             // one in the hint colour, one that needs the user in its tone.
             compare(drawn.map(line => [line.status, line.statusTone]), [["1 to review", "warning"], ["Up to date", "success"], ["Up to date", "success"]]);
@@ -164,9 +167,10 @@ Item {
             compare(drawn.map(line => menuOf(line).items().map(entry => entry.Accessible.name)), root.pairs.map(pair => ["Remove " + pair.label]), "a screen reader hears which row Remove removes");
             verify(addOf(window) !== undefined, "Add stands under the list");
             compare(addOf(window).variant, "secondary");
-            // The dots' ink, not their square, ends on the list's edge.
+            // The dots' ink, not their square, ends on the list's edge, or a
+            // plated row's side padding inside it.
             compare(drawn.map(line => Math.round(moreOf(line).mapToItem(listOf(window), moreOf(line).width - moreOf(line).glyphEnd, 0).x)),
-                drawn.map(() => Math.round(listOf(window).width)), "each menu's dots end on the list's edge");
+                drawn.map(line => Math.round(listOf(window).width - inset(line))), "each menu's dots end its row's side padding inside the list's edge");
             const last = drawn[drawn.length - 1];
             const groups = descendants(listOf(window)).find(item => item instanceof GroupList);
             verify(Number.isInteger(groups.height) && Number.isInteger(groups.implicitHeight), "the list keeps a whole-pixel height: " + groups.height);

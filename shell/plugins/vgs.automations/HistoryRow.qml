@@ -3,7 +3,9 @@ import qs.Ui
 import "AutomationsLogic.js" as Engine
 import "AutomationsViewLogic.js" as View
 
-ListItem {
+// One run of the history, a NavigationRow: its one click opens the run's
+// transcript, and its outcome badge stands before the chevron.
+NavigationRow {
     id: root
 
     required property var row
@@ -13,11 +15,10 @@ ListItem {
 
     width: parent ? parent.width : implicitWidth
     text: row.name
-    iconName: ""
     secondary: View.historySecondary(row, Engine)
     cursor: cursorItem
     onClicked: root.openRequested(row.transcript)
-    trailing: [
-        Badge { text: View.outcomeLabel(root.row.outcome); tone: root.row.tone; iconName: root.row.icon; size: "sm"; anchors.verticalCenter: parent.verticalCenter }
+    accessories: [
+        Badge { text: View.outcomeLabel(root.row.outcome); tone: root.row.tone; iconName: root.row.icon; size: "sm" }
     ]
 }

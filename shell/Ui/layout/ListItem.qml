@@ -28,9 +28,9 @@ import qs.Ui
 // is `highlighted`; and while it is `active`, the page a navigation list
 // shows now, so the shown page stays marked while the plate sits on another
 // row. A row that draws its own `contentItem` reads `lit` for the same
-// colours. Under a rounded theme the side padding grows until the content
-// clears the drawn corner. `textStart` is where the row's text
-// starts, its padding plus its icon and icon gap, for content a caller
+// colours. Under a rounded theme the side padding, `sidePadding`, grows
+// until the content clears the drawn corner. `textStart` is where the row's
+// text starts, its padding plus its icon and icon gap, for content a caller
 // lines up under the text. `secondaryTone` "danger" draws the secondary
 // line in the danger colour, for a state that is a failure, such as a
 // stopped printer; "" draws it in its role's colour.
@@ -39,6 +39,9 @@ import qs.Ui
 // then breaks only at spaces (LineBreak.atSpaces) onto at most a second
 // line, cut with an ellipsis past it, the row grows by that line, and the
 // icon stands on the title's line, as a leading icon of variable detail does.
+// `titleCentre` is the centre of the title's line in the content item, and
+// a row that sets `trailingOnTitle` centres its trailing items on it
+// instead of on its lines, as ContentRow's stacked row does.
 // A row a click cannot change, such as a detail line, sets `clickable`
 // false: a hover puts no plate on it, it takes no press and shows no
 // pointing hand, and a trailing control keeps its own hover, pointer, focus
@@ -73,7 +76,10 @@ T.ItemDelegate {
     property bool active: false
     property bool clickable: true
     property bool enters: cursor !== null
+    property bool trailingOnTitle: false
     readonly property bool lit: active || (cursor !== null ? cursor.shown && cursor.placed === root : highlighted)
+    readonly property real titleCentre: lines.y + title.y + title.height / 2
+    readonly property real sidePadding: Theme.controlPadding(Theme.listItem.paddingX, Theme.listItem.radius, Math.max(secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height, height), implicitContentHeight)
     readonly property real textStart: leftPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)
 
     signal pointed()
@@ -96,7 +102,7 @@ T.ItemDelegate {
 
     implicitWidth: leftPadding + rightPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth) + (trailingRow.width > 0 ? trailingRow.width + Theme.listItem.gap : 0)
     implicitHeight: Math.max((secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height) + secondaryLabel.addedHeight, implicitContentHeight + topPadding + bottomPadding)
-    leftPadding: Theme.controlPadding(Theme.listItem.paddingX, Theme.listItem.radius, Math.max(secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height, height), implicitContentHeight)
+    leftPadding: sidePadding
     rightPadding: leftPadding
     spacing: Theme.listItem.gap
     hoverEnabled: true
@@ -166,6 +172,7 @@ T.ItemDelegate {
             spacing: Theme.listItem.gap
             x: parent.width - width
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: root.trailingOnTitle ? root.titleCentre - parent.height / 2 : 0
         }
     }
 

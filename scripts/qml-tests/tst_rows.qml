@@ -9,11 +9,14 @@ import qs.Unit
 // trailing action keeps its own click, and its text starts on the content
 // edge. A navigation row takes the click and shows the hand, and ends in
 // its chevron, after its accessories, with no gap before the chevron
-// when it has none.
+// when it has none. A row that takes its stacked lines while hidden lays
+// them out, once it shows, as a row that took them while shown. A stacked
+// row with a secondary line keeps its row menu and trailing controls on
+// its name's line.
 Item {
     id: root
     width: 400
-    height: 300
+    height: 560
 
     ContentRow {
         id: content
@@ -37,6 +40,34 @@ Item {
         text: "Updates"
         iconName: "package"
         accessories: [ Badge { id: accessory; text: "2"; anchors.verticalCenter: parent.verticalCenter } ]
+    }
+    ContentRow {
+        id: stackedShown
+        y: 240
+        width: 300
+        text: "Backup"
+        iconName: "clock"
+        status: "Done"
+        statusTone: "success"
+        detail: "Next Mon 09:00"
+    }
+    Item {
+        id: hider
+        y: 360
+        width: 300
+        ContentRow { id: stackedHidden; width: 300; text: "Backup"; iconName: "clock" }
+    }
+    ContentRow {
+        id: stackedSecondary
+        y: 450
+        width: 300
+        text: "Backup"
+        secondary: "Every 10 minutes"
+        iconName: "clock"
+        status: "Done"
+        statusTone: "success"
+        menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]
+        trailing: [ Switch { id: secondarySwitch; size: "sm"; anchors.verticalCenter: parent.verticalCenter } ]
     }
     SignalSpy { id: actionClicks; target: contentAction; signalName: "clicked" }
     SignalSpy { id: rowClicks; target: bare; signalName: "clicked" }
@@ -81,6 +112,26 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             compare(found.filter(item => item instanceof IconButton || item instanceof Menu).length, 0, "a plain content row builds no row menu");
             compare([content.stacked, content.stackItem, content.menuButton], [false, null, null], "a plain content row builds no stacked lines");
+        }
+
+        function test_a_row_stacked_while_hidden_lays_out_once_shown() {
+            hider.visible = false;
+            stackedHidden.status = "Done";
+            stackedHidden.statusTone = "success";
+            stackedHidden.detail = "Next Mon 09:00";
+            tryVerify(() => stackedHidden.stacked && !stackedHidden.settlePending, 1000, "the hidden row took its stacked lines");
+            hider.visible = true;
+            const layout = row => JSON.stringify([row.topPadding, row.bottomPadding, row.height]);
+            tryVerify(() => layout(stackedHidden) === layout(stackedShown), 1000,
+                "the row lays out as one stacked while shown: " + layout(stackedHidden) + " against " + layout(stackedShown));
+        }
+
+        function test_a_stacked_rows_menu_and_controls_stand_on_its_names_line() {
+            tryVerify(() => stackedSecondary.menuButton !== null && !stackedSecondary.settlePending, 1000, "the row built its menu and settled");
+            const title = stackedSecondary.contentItem.children[1].children[0];
+            const centre = item => item.mapToItem(stackedSecondary, 0, item.height / 2).y;
+            fuzzyCompare(centre(stackedSecondary.menuButton), centre(title), 1, "the row menu centres on the name's line");
+            fuzzyCompare(centre(secondarySwitch), centre(title), 1, "the trailing switch centres on the name's line");
         }
 
         function test_a_navigation_row_takes_the_click() {

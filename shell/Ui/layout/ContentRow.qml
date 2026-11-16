@@ -37,10 +37,15 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // (Theme.inkAbove, Theme.inkBelow), and the row's box holds
 // `listItem.paddingX` above the first ink and below the last, so a plate
 // that rests on it, a clickable row's ListCursor, keeps that room top and
-// bottom while the row keeps the content edge at its sides; a passive row
-// draws its name's line where a plain row does (`passiveTop`). The dots' ink
-// ends on the row's end, as a trailing mark's does, and the name stops
-// `listItem.gap` before the button.
+// bottom, and the row keeps ListItem's own side padding inside the plate,
+// as a NavigationRow does. A passive row draws no plate: it keeps the
+// content edge at its sides and draws its name's line where a plain row
+// does (`passiveTop`). The dots' ink ends where that side padding ends, on
+// the row's end for a passive row, as a trailing mark's does, and the name
+// stops `listItem.gap` before the button. A `secondary` line stands under
+// the name, above the stacked lines; the dots and, on a stacked row, the
+// trailing controls centre on the name's line, not on the name and its
+// secondary line together.
 // keyboard-path: each trailing control, stacked action and the row menu button is its own focus target
 ListItem {
     id: root
@@ -62,7 +67,9 @@ ListItem {
     // painted extent, since its box leaves room around each shape. The
     // content item's height follows the paddings these set, so they settle
     // a turn later, as ClearingInset settles, rather than in a binding that
-    // reads its own result.
+    // reads its own result. A hidden row settles once it shows: a hidden
+    // ancestor makes every child read not visible, so no child would read as
+    // ink.
     property real headInkAbove: 0
     property real headInkBelow: 0
     property bool settlePending: false
@@ -73,7 +80,7 @@ ListItem {
     }
     function settle() {
         settlePending = false;
-        if (!stacked || contentItem === null) return;
+        if (!stacked || contentItem === null || !visible) return;
         let top = contentItem.height;
         let bottom = 0;
         for (const child of contentItem.children) {
@@ -86,6 +93,7 @@ ListItem {
         headInkBelow = contentItem.height - bottom;
     }
     onStackedChanged: scheduleSettle()
+    onVisibleChanged: scheduleSettle()
     onHeightChanged: scheduleSettle()
     onWidthChanged: scheduleSettle()
     onTextChanged: scheduleSettle()
@@ -103,8 +111,9 @@ ListItem {
     readonly property Item menuButton: moreLoader.item
 
     clickable: false
-    leftPadding: 0
-    rightPadding: menuButton !== null ? menuButton.width - menuButton.glyphEnd + Theme.listItem.gap : leftPadding
+    leftPadding: plated ? sidePadding : 0
+    rightPadding: menuButton !== null ? leftPadding + menuButton.width - menuButton.glyphEnd + Theme.listItem.gap : leftPadding
+    trailingOnTitle: stacked
     // A row a ListCursor plates keeps `stackPad` above its first ink and
     // below its last, so the plate's padding is even. A passive row draws
     // no plate: its name's line stands where a plain row of
@@ -139,7 +148,7 @@ ListItem {
         active: root.stacked
         x: root.textStart
         y: root.topPadding + root.stackOffset
-        width: Math.max(0, root.width - x)
+        width: Math.max(0, root.width - root.leftPadding - x)
         sourceComponent: Item {
             id: stack
 
@@ -252,12 +261,12 @@ ListItem {
     }
 
     // The row menu: its dots centre on the name's line, and their ink ends
-    // on the row's end.
+    // where the row's side padding ends.
     Loader {
         id: moreLoader
         active: root.menuActions.length > 0
-        x: root.width - (item === null ? 0 : item.width - item.glyphEnd)
-        y: Math.round(root.topPadding + root.implicitContentHeight / 2 - (item === null ? 0 : item.height) / 2)
+        x: root.width - root.leftPadding - (item === null ? 0 : item.width - item.glyphEnd)
+        y: Math.round(root.topPadding + root.titleCentre - (item === null ? 0 : item.height) / 2)
         sourceComponent: IconButton {
             id: more
             size: "sm"

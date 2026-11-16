@@ -1,10 +1,15 @@
 import QtQuick
-import qs.Commons
 import qs.Ui
 import "AutomationsLogic.js" as Engine
 import "AutomationsViewLogic.js" as View
 
-ListItem {
+// One automation of the list, a ContentRow: a click opens its editor, and
+// the row carries a state and a removing action. Under its name stand its
+// schedule, its last run with its outcome's mark or, while a run waits for
+// the network, that wait with the warning mark, and when it runs next or is
+// due. Its switch and Run now stand at its end; Duplicate and Remove are in
+// its row menu.
+ContentRow {
     id: root
 
     required property var row
@@ -18,47 +23,23 @@ ListItem {
     signal cancelRequested()
     signal toggleRequested(bool enabled)
 
+    readonly property bool waiting: row.pending !== null
+
     width: parent ? parent.width : implicitWidth
     text: row.name
     iconName: row.enabled ? "calendar-check" : "calendar-x"
-    secondary: row.pending !== null ? "Waiting for network" : row.summary
+    secondary: row.summary
     secondaryWraps: true
+    // A skipped run's "neutral" tone draws no mark.
+    status: waiting ? View.networkExplanation(row.pending) || "Waiting for network" : View.lastRunText(row.lastRun, Engine)
+    statusTone: waiting ? "warning" : row.lastRun === null || row.lastRun.tone === "neutral" ? "" : row.lastRun.tone
+    detail: (waiting ? "Due " : "Next ") + View.formatWhen(waiting ? row.pending.dueAt : row.nextRun)
+    menuActions: [{ key: "duplicate", text: "Duplicate", iconName: "copy" }, { key: "remove", text: "Remove", iconName: "trash" }]
+    clickable: true
     cursor: cursorItem
     onClicked: root.openRequested()
+    onMenuActionTriggered: action => action.key === "remove" ? root.removeRequested() : root.duplicateRequested()
     trailing: [
-        Column {
-            id: lastColumn
-            // As wide as its widest reading, so the summary keeps the rest,
-            // up to panel.sm, where the network explanation wraps.
-            width: Math.min(Theme.size.panel.sm, Math.max(nextLabel.implicitWidth, explanation.visible ? explanation.implicitWidth : 0, lastRun.visible ? Theme.space.xs * 2 + lastLabel.implicitWidth : 0))
-            spacing: Theme.row.lineGap
-            anchors.verticalCenter: parent.verticalCenter
-            Label { id: nextLabel; width: parent.width; role: "itemHint"; color: root.lit ? Theme.listItem.selectedForeground : Theme.text.itemHint.color; text: (root.row.pending !== null ? "Due " : "Next ") + View.formatWhen(root.row.pending !== null ? root.row.pending.dueAt : root.row.nextRun); horizontalAlignment: Text.AlignRight; wrapMode: Text.Wrap }
-            Label {
-                id: explanation
-                width: parent.width
-                role: "itemHint"
-                color: root.lit ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
-                text: View.networkExplanation(root.row.pending)
-                visible: text !== ""
-                horizontalAlignment: Text.AlignRight
-                wrapMode: Text.Wrap
-            }
-            Row {
-                id: lastRun
-                visible: root.row.pending === null
-                anchors.right: parent.right
-                spacing: Theme.space.xs
-                Rectangle {
-                    width: Theme.space.xs
-                    height: width
-                    radius: Theme.radius.full
-                    color: root.row.lastRun === null ? Theme.color.textFaint : root.row.lastRun.tone === "danger" ? Theme.color.danger : root.row.lastRun.tone === "success" ? Theme.color.success : root.row.lastRun.tone === "warning" ? Theme.color.warning : Theme.color.textFaint
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-                Label { id: lastLabel; width: Math.min(implicitWidth, lastColumn.width - Theme.space.xs * 2); role: "itemHint"; text: View.lastRunText(root.row.lastRun, Engine); elide: Text.ElideRight }
-            }
-        },
         Switch {
             size: "sm"
             checked: root.row.enabled
@@ -69,22 +50,11 @@ ListItem {
             }
         },
         IconButton {
-            iconName: root.row.pending !== null ? "x" : "play"
-            label: root.row.pending !== null ? "Cancel waiting run" : "Run now"
+            iconName: root.waiting ? "x" : "play"
+            label: root.waiting ? "Cancel waiting run" : "Run now"
             size: "sm"
-            onClicked: root.row.pending !== null ? root.cancelRequested() : root.runRequested()
-        },
-        IconButton {
-            id: moreButton
-            iconName: "ellipsis"
-            label: "More actions"
-            size: "sm"
-            onClicked: rowMenu.toggle(KeyNavLogic.opener(moreButton))
-            Menu {
-                id: rowMenu
-                MenuItem { text: "Duplicate"; iconName: "copy"; onTriggered: root.duplicateRequested() }
-                MenuItem { text: "Remove"; iconName: "trash"; onTriggered: root.removeRequested() }
-            }
+            anchors.verticalCenter: parent.verticalCenter
+            onClicked: root.waiting ? root.cancelRequested() : root.runRequested()
         }
     ]
 }

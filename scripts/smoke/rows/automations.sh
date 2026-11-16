@@ -409,7 +409,7 @@ expect "Return removes it" ok ui_keys -k Return
 expect_poll "the CLI reads the keyboard-created automation removed" absent auto_row_exists smoke-keyboard
 
 # The row menu removes the pointer-created automation.
-expect "the row's menu opens" ok ui_click_in_row "Smoke UI" IconButton "More actions"
+expect "the row's menu opens" ok ui_click_in_row "Smoke UI" IconButton "More actions for Smoke UI"
 expect "a typed R and Return choose the menu's Remove" ok ui_keys r -k Return
 expect_poll "the menu's remove question shows" '"remove"' ui_confirm
 expect "Return removes it" ok ui_keys -k Return
