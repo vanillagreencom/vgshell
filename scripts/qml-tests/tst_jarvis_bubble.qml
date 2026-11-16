@@ -6,6 +6,7 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
+import "../../shell/plugins/vgs.jarvis/WidgetView.js" as View
 
 // The Jarvis overlay's fault card: a fault's action that names a page
 // draws the reference's words with no Markdown, and a click on them opens
@@ -90,6 +91,57 @@ Item {
             return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
         }
         function plates() { return collect(bubble, n => n.glassSurface === true && n.visible, []); }
+
+        function listeningConversation() {
+            service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())), {
+                gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
+                capture: { kind: "open", gen: 1, op: 2, mode: "hold" }
+            });
+        }
+
+        function test_listening_uses_the_orb_and_bar_without_a_card() {
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const orb = collect(bubble, item => item.phase !== undefined && item.capture !== undefined, [])[0];
+            compare(orb.phase, "listening");
+            verify(orb.visible && orb.active);
+            const bar = View.view({ detail: { phase: bubble.phase, state: service.sessionState } }, null);
+            compare(bar.state, "listening");
+            compare(bar.icon, "vgs-letter-j");
+            compare(bar.stateDot, "success");
+            compare(findChild(bubble, "textCard").visible, false);
+            compare(shownText().length, 0);
+        }
+
+        function test_the_control_pill_fades_as_one_piece() {
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const pill = findChild(bubble, "iconPill");
+            const bridge = findChild(bubble, "iconBridge");
+            const icons = collect(bubble, item => item.children.some(child => child.entry !== undefined), [])[0];
+            const hit = findChild(bubble, "orbHit");
+            tryCompare(bubble, "iconOpacity", 0);
+            compare(UnitTheme.override({ motion: { scale: 1 } }), "ok");
+            const at = hit.mapToItem(root, hit.width / 2, hit.height / 2);
+            for (const entering of [true, false]) {
+                mouseMove(root, entering ? at.x : 1, entering ? at.y : 1);
+                tryVerify(() => bubble.iconOpacity > 0 && bubble.iconOpacity < 1,
+                    2000, "the real hover and hold path reaches a partial fade");
+                // Sample consecutive animation frames, including the endpoint.
+                let frames = 0;
+                do {
+                    compare(pill.opacity, icons.opacity);
+                    compare(bridge.opacity, icons.opacity);
+                    verify(pill.visible && bridge.visible && icons.visible);
+                    frames++;
+                    verify(renderedFrame(bubble));
+                } while (bubble.iconOpacity > 0 && bubble.iconOpacity < 1);
+                verify(frames > 0);
+                tryCompare(bubble, "iconOpacity", entering ? 1 : 0);
+                compare(pill.opacity, icons.opacity);
+                compare(bridge.opacity, icons.opacity);
+            }
+        }
 
         function test_fault_placement_tracks_console_without_a_hold_data() {
             return [

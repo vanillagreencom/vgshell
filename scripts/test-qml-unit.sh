@@ -190,7 +190,6 @@ mutations=(
   "Jarvis's band keeps enough tint to take the blur|../plugins/vgs.jarvis/Appearance.js|clarity: share(0.4)|clarity: share(0.1)|tst_jarvis_plates.qml|test_the_body_takes_the_tint_and_the_band_stays_under_the_blur"
   "Jarvis's points carry no edge|../plugins/vgs.jarvis/Appearance.js|edge: share(0.66)|edge: share(0)|tst_jarvis_plates.qml|test_the_orbs_points_read_on_white_by_their_edge"
   "Jarvis's orb draws an edge of its own|../plugins/vgs.jarvis/ParticleOrb.qml|property real uEdge: root.look.orb.edge|property real uEdge: 0.66|tst_jarvis_orb.qml|test_the_point_edge_is_the_looks_one_value"
-  "Jarvis's capsule fades with its icons|../plugins/vgs.jarvis/Bubble.qml|            visible: icons.visible"$'\n'"|            visible: icons.visible"$'\n'"            opacity: icons.opacity"$'\n'"|tst_jarvis_plates.qml|test_the_capsule_shows_whole_while_its_icons_fade"
   "Jarvis's words card stands three lines tall for one|../plugins/vgs.jarvis/Bubble.qml|y: words.y + words.height - words.shownHeight|y: words.y|tst_jarvis_plates.qml|test_the_words_card_follows_the_lines_shown"
   "Jarvis's Console judgement leaves out the card's padding|../plugins/vgs.jarvis/Bubble.qml|bottomBelow + bottomMeasure.height + look.plate.card.paddingY|bottomBelow + bottomMeasure.height|tst_jarvis_bubble.qml|test_the_console_judgement_reads_the_plates_extent"
   "a Jarvis toggle that is on draws the raw accent|../plugins/vgs.jarvis/Bubble.qml|onColor: look.icon.on|onColor: look.palette.accent|tst_jarvis_overlay.qml"

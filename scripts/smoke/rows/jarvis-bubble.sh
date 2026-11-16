@@ -1478,13 +1478,14 @@ edits=[
     ('prompt.detail', 'lines.length > 2'),
     ('approvalText.prompt === null ? "" : approvalText.prompt.question', 'approvalText.filePrompt ? approvalText.lines[0] : root.hold === null ? "" : root.hold.text'),
     ('approvalText.prompt === null ? "" : approvalText.prompt.path', 'approvalText.filePrompt ? approvalText.lines[1] : ""'),
-    ('approvalText.prompt === null ? "" : approvalText.prompt.payload', 'approvalText.filePrompt ? approvalText.lines.slice(2).join("\\n") : ""')]
+    ('approvalText.prompt === null ? "" : approvalText.prompt.payload', 'approvalText.filePrompt ? approvalText.lines.slice(2).join("\\n") : ""'),
+    ('id: fullPath\n                width: parent.width\n                visible: text !== ""',
+     'id: fullPath\n                width: parent.width\n                visible: approvalText.filePrompt && text !== ""'),
+    ('leftPadding: payloadArea.rightInset\n                    visible: text !== ""',
+     'leftPadding: payloadArea.rightInset\n                    visible: approvalText.filePrompt && text !== ""')]
 for needle,replacement in edits:
     assert s.count(needle)==1
     s=s.replace(needle,replacement)
-needle='visible: text !== ""'
-assert s.count(needle)==2
-s=s.replace(needle,'visible: approvalText.filePrompt && text !== ""')
 assert s!=p.read_text()
 p.write_text(s)
 PY

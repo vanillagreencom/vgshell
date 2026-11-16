@@ -13,7 +13,7 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // the lens pass with no drop shadow, whole and clear of the others and of
 // what the orb draws by the look's gap, and holds its content inside its
 // padding, which is no less than its band; the words' card follows the
-// lines shown; a plate keeps its opacity while its content fades; without
+// lines shown; without
 // glass each plate draws the look's own solid. The drawn bubble is read
 // over white and over black under scripts/qml-unit.sh's software OpenGL,
 // which draws the shaders: a plate's body is its fill over the wallpaper,
@@ -179,7 +179,7 @@ Item {
                   state: root.session(Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open)),
                   plates: ["iconPill", "textCard", "wordsCard"] },
                 { tag: "listening under the pointer", hover: true, state: root.session(Object.assign({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, open)),
-                  plates: ["iconPill", "textCard"] },
+                  plates: ["iconPill"] },
                 { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), plates: ["textCard"] },
                 { tag: "a held request under the pointer", hover: true, state: root.held(widest, true), plates: ["iconPill", "textCard"] }
             ];
@@ -274,7 +274,10 @@ Item {
             const shown = plates();
             const card = root.look.plate.card;
             const lines = bubble.textItems.filter(item => bubble.drawn(item) && item.height > 0);
-            verify(lines.length >= 1, "the overlay draws its lines");
+            if (data.plates.indexOf("textCard") !== -1 || data.plates.indexOf("wordsCard") !== -1)
+                verify(lines.length >= 1, "the overlay draws its lines");
+            else
+                compare(lines.length, 0, "the listening orb needs no text card");
             for (const item of lines) {
                 const words = item.shownHeight !== undefined;
                 // The words draw their shown lines at the bottom of their item.
@@ -413,23 +416,6 @@ Item {
                 verify(without - withEdge >= 15, "the edged orb's face reads " + withEdge + " over white, the orb with no edge " + without);
             } finally {
                 edgeStage.visible = false;
-            }
-        }
-
-        // A plate's fill fading through the compositor's blur threshold
-        // would gain or lose its blur mid-fade, so the capsule keeps its
-        // opacity while its icons fade.
-        function test_the_capsule_shows_whole_while_its_icons_fade() {
-            put(poses()[2]);
-            const icons = all(bubble, []).find(item => item.children.some(child => child.entry !== undefined));
-            icons.opacity = 0.5;
-            try {
-                const capsule = plates().iconPill;
-                verify(capsule !== undefined, "the capsule shows with its fading icons");
-                compare(capsule.item.opacity, 1);
-            } finally {
-                // The bubble is shared: hand the row its binding back.
-                icons.opacity = Qt.binding(() => bubble.iconOpacity);
             }
         }
 

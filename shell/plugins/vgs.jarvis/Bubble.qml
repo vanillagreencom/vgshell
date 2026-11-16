@@ -18,9 +18,8 @@ import "AccountProviders.js" as Providers
 // the shared glass (qs.Ui GlassSurface) in the lens form, in the look's
 // `plate` values, with no drop shadow. No plate's box enters another's:
 // the look's `plate.gap` parts them, so each draws as glass
-// (GlassSurface.overContent). A plate shows whole and never fades; what
-// stands on it fades. A passive layer takes clicks only on `inputItems`
-// (D026).
+// (GlassSurface.overContent). A passive layer takes clicks only on
+// `inputItems` (D026).
 //
 // While the overlay is active (listening, thinking, acting, speaking, a
 // held request or a fault) the orb takes the pointer on the look's hit
@@ -181,7 +180,7 @@ Item {
         : state === null || hidden ? null : View.restartLine(state.restart, state.conversation.kind !== "ended")
     readonly property string stateText: state === null ? "" : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
         : fault !== null ? fault.title
-        : stateWords[phase]
+        : (stateWords[phase] || "")
     readonly property var levels: service === null || service.shell === null ? {}
         : service.shell.status.values.level || {}
     readonly property var caption: service === null || service.shell === null ? null
@@ -235,7 +234,7 @@ Item {
         else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
     }
     readonly property var stateWords: ({
-        idle: "Ready to talk", listening: "Listening", thinking: "Thinking",
+        idle: "Ready to talk", thinking: "Thinking",
         acting: "Working", speaking: "Speaking", confirming: "Waiting for you", error: "", down: "Stopping"
     })
 
@@ -503,6 +502,7 @@ Item {
         Item {
             id: bridge
             objectName: "iconBridge"
+            opacity: root.iconOpacity
             visible: root.active && root.iconsShown
             x: overlay.capsuleBelow ? iconPill.x
                 : overlay.orbMiddle + root.look.layout.bridge * orbHit.width / root.look.layout.hit
@@ -515,8 +515,7 @@ Item {
 
         Timer { id: iconHold; interval: root.look.icon.hold }
 
-        // The capsule follows the group's chosen edge. It shows whole
-        // while its icons fade.
+        // The capsule follows the group's chosen edge and fades with its icons.
         GlassSurface {
             id: iconPill
             objectName: "iconPill"
@@ -527,6 +526,7 @@ Item {
             width: icons.width + 2 * pad.paddingX
             height: icons.height + 2 * pad.paddingY
             visible: icons.visible
+            opacity: root.iconOpacity
             optIn: true
             fill: overlay.card.fill
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
@@ -595,9 +595,11 @@ Item {
             y: overlay.below
             width: Math.min(root.look.layout.line, Math.max(0, overlay.width - 2 * overlay.stateInset))
             visible: root.hold === null && (!root.hidden || root.fault !== null)
+                && (root.stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
             spacing: root.look.layout.gap
             Label {
                 id: stateLine
+                visible: text !== ""
                 width: parent.width
                 role: root.fault !== null ? "bodyStrong" : "label"
                 color: root.fault !== null ? root.look.ink.title : root.look.ink.state
@@ -608,11 +610,12 @@ Item {
             LinkText {
                 id: silenceLine
                 width: parent.width
-                visible: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
+                visible: text !== ""
                 role: "body"
                 color: root.look.ink.action
                 linkColor: root.look.ink.link
-                text: visible ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
+                text: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
+                    ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => {
