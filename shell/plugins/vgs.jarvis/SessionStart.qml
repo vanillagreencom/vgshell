@@ -28,13 +28,18 @@ Item {
     // The block of that failed selection, "" for none. A read of the
     // session that stays keeps it on the row.
     property string unapplied: ""
-    // The helper's last answer, null before the first.
+    // The helper's last answer, null before the first or during its retry.
     property var result: null
     // Status rechecks home placement, but cannot reconstruct Start's
     // account check or refusal. A stopped read keeps that failed attempt.
     property var startFailure: null
     // The running call's verb and the home setting it is for.
     property var current: null
+    // Only a start this owner issued may follow an asynchronous launch.
+    property var following: null
+    // Jarvis package scripts/lib/session.py: CALL_SECONDS = 55 bounds its
+    // launch worker. Following never extends that worker's launch window.
+    readonly property int launchWaitMs: 55000
     // The calls that wait for the running one, oldest first.
     property var waiting: []
     property string output: ""
@@ -89,7 +94,11 @@ Item {
         return false;
     }
 
-    function call(verb, home, args) {
+    function call(verb, home, args, retried) {
+        if (verb !== "status") {
+            following = null;
+            if (helper.running) current.superseded = true;
+        }
         if (helper.running) {
             // A status read adds nothing behind a call that answers the session.
             if (verb !== "status" || waiting.length === 0) waiting = waiting.concat([{ verb: verb, home: home, args: args }]);
@@ -97,7 +106,8 @@ Item {
         }
         // A queued change names the session's home as it is when it runs.
         if (verb === "change") args = [sessionHome].concat(args.slice(1));
-        current = { verb: verb, home: home };
+        current = { verb: verb, home: home, args: args, retried: retried === true,
+            follow: verb === "status" && following !== null && home === following.home ? following : null };
         output = "";
         errors = "";
         helper.command = ["node", program, "--tree", Quickshell.shellDir + "/..", verb].concat(args);
@@ -121,6 +131,23 @@ Item {
                 || (answer.kind === "answer" && answer.state === "failed"))
             console.warn("jarvis-session: " + current.verb + "=" + (block !== null ? "blocked block=" + block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
                 + (errors === "" ? "" : " cause=" + errors.split("\n")[0].slice(0, 180)));
+        const attempt = answer.startAttempt === true && !current.superseded ? current
+            : current.follow !== null && current.follow === following ? following : null;
+        if (attempt !== null && !attempt.retried && answer.kind === "answer" && answer.state === "failed"
+                && (answer.reason === "launch-failed" || answer.reason === "handover-failed")) {
+            // Replaying build would reuse the package's consumed boot claim;
+            // replaying change would only read the session it already stopped.
+            const args = attempt.verb === "change" ? attempt.args.slice(1) : attempt.args.slice(0, 3);
+            result = null;
+            publish();
+            call("start", attempt.home, args.concat(["retry"]), true);
+            return;
+        }
+        if (attempt !== null) {
+            if (answer.kind === "answer" && (answer.state === "starting" || answer.state === "handing-over")) {
+                if (following === null) following = Object.assign({}, attempt, { until: Date.now() + launchWaitMs });
+            } else following = null;
+        }
         if (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped")) startFailure = null;
         // Status re-probes placement faults; an app's Off is intentional.
         if (wanted && (current.verb === "build" || current.verb === "start")
@@ -149,6 +176,20 @@ Item {
         if (again) call("status", sessionHome, [sessionHome]);
         takeNext();
     }
+
+    function followStart() {
+        if (following === null) return;
+        if (Date.now() >= following.until) {
+            console.warn("jarvis-session: " + following.verb + "=failed reason=follow-timeout");
+            following = null;
+            return;
+        }
+        if (!helper.running) call("status", following.home, [following.home]);
+    }
+
+    // QtQuick Timer owns each interval; Process.running is checked before
+    // each read (Quickshell 0.3.1 guide/introduction and Io/Process).
+    Timer { interval: 1000; repeat: true; running: root.following !== null; onTriggered: root.followStart() }
 
     // The oldest call that waits for the one that answered, if any.
     function takeNext() {

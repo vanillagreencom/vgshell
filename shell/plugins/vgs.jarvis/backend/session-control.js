@@ -14,7 +14,9 @@
 //                                    empty uses the record's harness and
 //                                    account;
 //                                    else a status read
-//   start ACCOUNT HOME MODE          `start --origin manual`
+//   start ACCOUNT HOME MODE [retry]  `start --origin manual`; an automatic
+//                                    retry may reuse the failed record's
+//                                    account for an empty resume selection
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
@@ -28,6 +30,8 @@
 //     `model` and `since` are added as the package gives them
 //     (accepted); `unapplied`, a block, is added when the selection failed
 //     its check and the session that lives stays as it is
+//     `startAttempt: true` marks a launch, for SessionStart's follow/retry;
+//     a status read of a failed session carries no such mark
 //   { kind: "blocked", block }  "no-account", "not-app", "no-home",
 //     "package", "not-set-up", "home-link", "home-kind" or
 //     "home-unreadable" (SessionCommand.place): no call can be made; or
@@ -99,10 +103,11 @@ function accepted(text) {
 
 async function main() {
     const [flag, tree, verb, ...args] = process.argv.slice(2);
-    const shapes = { status: 1, build: 4, start: 3, change: 4, stop: [1, 2] };
+    const shapes = { status: 1, build: 4, start: [3, 4], change: 4, stop: [1, 2] };
     if (flag !== "--tree" || !path.isAbsolute(tree || "") || !Object.hasOwn(shapes, verb)
             || ![].concat(shapes[verb]).includes(args.length)
             || (verb === "build" && !["on", "off"].includes(args[3]))
+            || (verb === "start" && args.length === 4 && args[3] !== "retry")
             || (["build", "start"].includes(verb) && !["resume", "new"].includes(args[2]))
             || (verb === "change" && !["resume", "new"].includes(args[3]))
             || (verb === "stop" && args.length === 2 && args[1] !== "app-off")) {
@@ -130,10 +135,11 @@ async function main() {
         }
     }
     // The optional fields are passed on only as the package gives them.
-    const answer = async value => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
+    const answer = async (value, startAttempt = false) => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
         names: value.home === null || value.harness === null || value.account === null ? null
             : { home: short(value.home), account: await label(value.harness, value.account) },
-        ...Object.fromEntries(["model", "since"].filter(field => value[field] !== null).map(field => [field, value[field]])) });
+        ...Object.fromEntries(["model", "since"].filter(field => value[field] !== null).map(field => [field, value[field]])),
+        ...(startAttempt ? { startAttempt: true } : {}) });
 
     // The home folder a setting names with its session command, or a block.
     const place = setting => SessionCommand.place(setting, user);
@@ -187,9 +193,9 @@ async function main() {
     async function launch(at, words) {
         const started = await run(at, words);
         if (started === null) return failed;
-        if (started.state === "blocked" || started.state === "failed") return answer(started);
+        if (started.state === "blocked" || started.state === "failed") return answer(started, true);
         const after = await run(at, ["status"]);
-        return after === null ? failed : answer(after);
+        return after === null ? failed : answer(after, true);
     }
     const start = (at, who, mode, origin) => launch(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);
     const shown = value => value.kind === "blocked" ? value : answer(value);
@@ -236,7 +242,8 @@ async function main() {
     // An explicit selection wins over history; the package's start judges
     // whether that selection can resume. With no selection, boot resume
     // uses the record's app and account (jarvis-session start --help).
-    const who = origin === "boot" && mode === "resume" && setting === ""
+    const recordedRetry = verb === "start" && args[3] === "retry" && now.state === "failed";
+    const who = (origin === "boot" || recordedRetry) && mode === "resume" && setting === ""
             && now.harness !== null && now.harness !== "" && now.account !== null && now.account !== ""
         ? { harness: now.harness, directory: now.account } : account(setting);
     if (who.kind !== "blocked") return start(at, who, mode, origin);

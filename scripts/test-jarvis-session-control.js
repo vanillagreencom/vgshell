@@ -336,7 +336,39 @@ function inside() {
         cases++;
     }
 
-    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, causes, names, outside, fields, fieldsOutside, bootResume };
+    function automaticRetry(directory) {
+        const prior = path.join(home, ".codex-prior");
+        const history = { home: folder, harness: "codex", account: prior };
+        const recordedStart = ["start", "--harness", "codex", "--account", prior, "--mode", "resume", "--origin", "manual", "--home", folder];
+        for (const [name, setting, mode, state, reason, retry, words, block] of [
+            ["launch retry resumes recorded selection", "", "resume", "failed", "launch-failed", true, recordedStart],
+            ["handover retry resumes recorded selection", "", "resume", "failed", "handover-failed", true, recordedStart],
+            ["manual empty Account stays blocked", "", "resume", "failed", "launch-failed", false, null, "no-account"],
+            ["retry keeps explicit selection", claude, "resume", "failed", "launch-failed", true, startWords("resume", "manual")],
+            ["retry keeps invalid selection", "cli:" + "0".repeat(32), "resume", "failed", "launch-failed", true, null, "no-account"],
+            ["retry new mode needs selection", "", "new", "failed", "launch-failed", true, null, "no-account"],
+            ["retry does not adopt a blocked record", "", "resume", "blocked", "trust-required", true, null, "no-account"]
+        ]) {
+            answers(folder, { status: said(state, reason, history), start: said("starting", "launching") });
+            const result = helper(directory, ["start", setting, "~/Jarvis", mode].concat(retry ? ["retry"] : []));
+            assert.deepEqual(calls(folder).map(call => call.argv), words === null ? [status(folder)] : [status(folder), words, status(folder)], name + ": argv");
+            assert.deepEqual(block === undefined ? result.kind : result, block === undefined ? "answer" : { kind: "blocked", block }, name + ": result");
+        }
+        for (const [name, args, attempted] of [
+            ["manual launch", ["start", claude, "~/Jarvis", "resume"], true],
+            ["boot launch", ["build", claude, "~/Jarvis", "resume", "on"], true],
+            ["boot off status", ["build", claude, "~/Jarvis", "resume", "off"], false],
+            ["selection without live session", ["change", "~/Jarvis", claude, "~/Jarvis", "resume"], false],
+            ["status", ["status", "~/Jarvis"], false]
+        ]) {
+            answers(folder, { status: said("failed", "launch-failed", history), start: said("failed", "launch-failed") });
+            const result = helper(directory, args);
+            assert.equal(result.startAttempt === true, attempted, name + ": only an actual start marks its failure for retry");
+        }
+        cases++;
+    }
+
+    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, causes, names, outside, fields, fieldsOutside, bootResume, automaticRetry };
     const only = process.argv[3];
     if (only !== undefined) {
         assert.ok(Object.hasOwn(checks, only), "no check " + only);
@@ -387,8 +419,8 @@ function inside() {
     }
     const C = "backend/session-control.js";
     const S = "backend/SessionCommand.js";
-    control("duplicate-start", C, 'if (started.state === "blocked" || started.state === "failed") return answer(started);',
-        'if (started.state === "blocked" || started.state === "failed") return answer(started);\n        await run(at, words);', boot);
+    control("duplicate-start", C, 'if (started.state === "blocked" || started.state === "failed") return answer(started, true);',
+        'if (started.state === "blocked" || started.state === "failed") return answer(started, true);\n        await run(at, words);', boot);
     control("boot-setting", C, 'boot === "on" ? "boot" : null', '"boot"', bootOff);
     control("app-on", C, 'now.state === "off" ? "app-on" : ', "", enable);
     control("origin-manual", C, 'verb === "start" ? "manual" : ', "", manual);
@@ -418,7 +450,9 @@ function inside() {
     control("fields-pass-on", C, '...Object.fromEntries(["model", "since"]', '...Object.fromEntries([]', fields);
     control("model-checked", C, "if (model !== null && !named(model)) return null;", "", fieldsOutside);
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
-    control("boot-record-account", C, 'origin === "boot" && mode === "resume" && setting === ""', 'false', bootResume);
+    control("boot-record-account", C, 'origin === "boot" || recordedRetry', 'false || recordedRetry', bootResume);
+    control("retry-record-account", C, 'origin === "boot" || recordedRetry', 'origin === "boot" || false', automaticRetry);
+    control("launch-attempt", C, '...(startAttempt ? { startAttempt: true } : {})', '...(false ? { startAttempt: true } : {})', automaticRetry);
     control("not-app", C, 'resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app")',
         "{ harness: resolved.provider, directory: String(resolved.source.directory) }", blocks);
     // No control plants a file without its execute bit as a package: the
