@@ -2868,6 +2868,10 @@ try {
         ["session-start-diagnosis-clearing", 'if (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped")) startFailure = null;',
             'if (false && (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped"))) startFailure = null;', "no-account / fresh package block / next stopped"],
         ["session-boot-choice-clearing", 'if (!wanted) startFailure = null;', 'if (false && !wanted) startFailure = null;', "no-account / boot choice / back on"],
+        ["session-automatic-retry", 'attempt !== null && !attempt.retried', 'false && attempt !== null && !attempt.retried', "launch-failed / build: automatic start"],
+        ["session-read-only", 'answer.startAttempt === true && !current.superseded', '!current.superseded', "build: a read of an earlier failure starts nothing"],
+        ["session-retry-allowance", '!attempt.retried && ', '', "the second answer launches no third attempt"],
+        ["session-follow-bound", 'Date.now() >= following.until', 'false', "the launch follow ends at its bound"],
         ["session-repaired-placement", '(answer.block === "no-account" || answer.block === "not-app")', '(true || answer.block === "no-account" || answer.block === "not-app")', "repair re-probes package"]
     ]) {
         assert.equal(startSource.split(needle).length, 2, label + ": the mutation matches once");
@@ -3569,7 +3573,7 @@ function verifySessionAnswers(gate, source) {
     const create = wanted => {
         const logs = [], calls = [];
         const context = { output: "", errors: "", exitCode: 0, current: null, wanted,
-            shell: { settings: { home: "~/Jarvis", brain: "", startAtBoot: wanted } }, unapplied: "", result: null, startFailure: null,
+            shell: { settings: { home: "~/Jarvis", brain: "", startAtBoot: wanted } }, unapplied: "", result: null, startFailure: null, following: null,
             repairEndedAt: "2026-11-08T00:00:00Z", judged: "selection", sessionHome: "~/Jarvis",
             Gate: gate, console: { warn: text => logs.push(text) }, publish: () => {}, takeNext: () => {}, call: (...args) => calls.push(args) };
         const handle = vm.runInNewContext("(" + answered[0] + ")", context);
@@ -3631,6 +3635,130 @@ function verifySessionAnswers(gate, source) {
     vm.runInNewContext("(function () {" + repaired[1] + "})", repair.context)();
     assert.deepEqual(plain(repair.calls), [["status", "~/Jarvis", ["~/Jarvis"]]], "Repair completion asks for status");
     assert.deepEqual(repair.drive("status", stopped), stopped, "repair re-probes package");
+    verifySessionRetry(gate, source);
+}
+
+function verifySessionRetry(gate, source) {
+    const read = name => {
+        const method = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        assert.ok(method, name + ": the production handler is read");
+        return method[0];
+    };
+    const create = () => {
+        const published = [], logs = [];
+        let now = 0;
+        const helper = { running: false, command: [] };
+        const context = { helper, program: "/fixture/session-control.js", Quickshell: { shellDir: "/fixture/shell" },
+            shell: { settings: { home: "~/Jarvis", startAtBoot: true } }, wanted: true,
+            sessionHome: "~/Jarvis", unapplied: "", result: null, startFailure: null, waiting: [], following: null, launchWaitMs: 55000, Date: { now: () => now },
+            output: "", errors: "", exitCode: 0, Gate: gate, console: { warn: line => logs.push(line) },
+            publish: () => published.push(plain(gate.sessionStart(true, context.result))), takeNext: () => {} };
+        context.call = vm.runInNewContext("(" + read("call") + ")", context);
+        context.followStart = vm.runInNewContext("(" + read("followStart") + ")", context);
+        const answered = vm.runInNewContext("(" + read("answered") + ")", context);
+        return { context, helper, published, logs, advance(ms) { now += ms; }, answer(value) {
+            helper.running = false;
+            context.output = JSON.stringify(value);
+            answered();
+        } };
+    };
+    const running = { kind: "answer", state: "running", reason: "existing", detail: "", names: null };
+    for (const reason of ["launch-failed", "handover-failed"]) for (const verb of ["build", "start", "change"]) {
+        const args = verb === "change" ? ["~/Old", "account", "~/Jarvis", "resume"]
+            : ["account", "~/Jarvis", "resume"].concat(verb === "build" ? ["on"] : []);
+        for (const second of [running, { kind: "answer", state: "failed", reason, detail: "fixture", names: null, startAttempt: true }]) {
+            const run = create(), failure = { kind: "answer", state: "failed", reason, detail: "fixture", names: null, startAttempt: true };
+            run.context.call(verb, "~/Jarvis", args);
+            run.answer(failure);
+            assert.equal(run.helper.running, true, reason + " / " + verb + ": automatic start");
+            assert.deepEqual(plain(run.helper.command.slice(4)), ["start", "account", "~/Jarvis", "resume", "retry"], "the second attempt keeps the selection");
+            assert.ok(run.published.every(row => row.action !== "retry"), "the first failure offers no Retry");
+            assert.equal(run.logs[0], "jarvis-session: " + verb + "=failed reason=" + reason);
+            run.answer(second);
+            assert.equal(run.helper.running, false, "the second answer launches no third attempt");
+            assert.deepEqual(plain(run.context.result), second, "the second answer is published with its cause");
+            assert.equal(run.published.at(-1).action === "retry", second.state === "failed", "only a second failure offers Retry");
+            run.context.call("start", "~/Jarvis", ["account", "~/Jarvis", "resume"]);
+            run.answer(failure);
+            assert.equal(run.helper.running, true, "another independent start owns a fresh allowance");
+        }
+    }
+    const blocks = Object.keys(gate.SESSION_BLOCKS).map(block => ({ kind: "blocked", block }));
+    const packageBlocks = Object.keys(gate.SESSION_ROWS).filter(key => key.startsWith("blocked "))
+        .map(key => ({ kind: "answer", state: "blocked", reason: key.slice(8), detail: "fixture", names: null }));
+    for (const answer of [...blocks, ...packageBlocks, { kind: "failed" }, running]) for (const asynchronous of [false, true]) {
+        const run = create();
+        run.context.call("start", "~/Jarvis", ["account", "~/Jarvis", "resume"]);
+        if (asynchronous) {
+            run.answer({ kind: "answer", state: "starting", reason: "launching", detail: "", names: null, startAttempt: true });
+            run.context.followStart();
+        }
+        run.answer(answer);
+        assert.equal(run.helper.running, false, JSON.stringify(answer) + ": no automatic retry");
+        assert.equal(run.context.following, null, JSON.stringify(answer) + ": the terminal answer ends any follow");
+    }
+    const status = create();
+    status.context.call("status", "~/Jarvis", ["~/Jarvis"]);
+    status.answer({ kind: "answer", state: "failed", reason: "launch-failed", detail: "fixture", names: null });
+    assert.equal(status.helper.running, false, "reading a failed session starts nothing");
+    for (const verb of ["build", "change"]) {
+        const run = create();
+        const args = verb === "build" ? ["account", "~/Jarvis", "resume", "off"] : ["~/Old", "account", "~/Jarvis", "resume"];
+        run.context.call(verb, "~/Jarvis", args);
+        run.answer({ kind: "answer", state: "failed", reason: "launch-failed", detail: "fixture", names: null });
+        assert.equal(run.helper.running, false, verb + ": a read of an earlier failure starts nothing");
+    }
+    for (const state of ["starting", "handing-over"]) {
+        const pending = { kind: "answer", state, reason: state === "starting" ? "launching" : "succession", detail: "", names: null };
+        const failure = { kind: "answer", state: "failed", reason: "launch-failed", detail: "fixture", names: null };
+        const run = create();
+        run.context.call("build", "~/Jarvis", ["account", "~/Jarvis", "resume", "on"]);
+        run.answer({ ...pending, startAttempt: true });
+        assert.notEqual(run.context.following, null, state + ": the issued start remains owned");
+        run.context.followStart();
+        assert.deepEqual(plain(run.helper.command.slice(4)), ["status", "~/Jarvis"], state + ": the owner follows through status");
+        run.answer(failure);
+        assert.deepEqual(plain(run.helper.command.slice(4)), ["start", "account", "~/Jarvis", "resume", "retry"], state + ": delayed failure retries once");
+        run.answer({ ...pending, startAttempt: true });
+        run.context.followStart();
+        run.answer(failure);
+        assert.equal(run.helper.running, false, state + ": a delayed second failure starts no third attempt");
+        assert.equal(run.context.following, null, state + ": the terminal answer ends its follow");
+        assert.equal(run.published.at(-1).action, "retry", state + ": the delayed second failure offers Retry");
+
+        const success = create();
+        success.context.call("start", "~/Jarvis", ["account", "~/Jarvis", "resume"]);
+        success.answer({ ...pending, startAttempt: true });
+        success.context.followStart();
+        success.answer(running);
+        assert.equal(success.context.following, null, "a running answer ends the launch follow");
+        success.context.followStart();
+        assert.equal(success.helper.running, false, "a finished launch has no background reads");
+
+        const readOnly = create();
+        readOnly.context.call("status", "~/Jarvis", ["~/Jarvis"]);
+        readOnly.answer(pending);
+        assert.equal(readOnly.context.following, null, "a plain pending status starts no follow");
+
+        const bound = create();
+        bound.context.call("start", "~/Jarvis", ["account", "~/Jarvis", "resume"]);
+        bound.answer({ ...pending, startAttempt: true });
+        bound.advance(55000);
+        bound.context.followStart();
+        assert.equal(bound.context.following, null, "the launch follow ends at its bound");
+        assert.equal(bound.helper.running, false, "an unfinished launch at the bound starts no retry");
+        assert.equal(bound.logs.at(-1), "jarvis-session: start=failed reason=follow-timeout");
+
+        const superseded = create();
+        superseded.context.call("start", "~/Jarvis", ["account", "~/Jarvis", "resume"]);
+        superseded.answer({ ...pending, startAttempt: true });
+        superseded.context.followStart();
+        superseded.context.call("change", "~/Other", ["~/Jarvis", "other", "~/Other", "resume"]);
+        superseded.answer(failure);
+        assert.equal(superseded.helper.running, false, "a late failure of a superseded start launches nothing");
+        assert.equal(superseded.context.following, null, "a new selection ends the old follow");
+        assert.equal(superseded.context.waiting.length, 1, "the newer selection stays in the existing queue");
+    }
 }
 
 function verifyChipTitles(gate) {
