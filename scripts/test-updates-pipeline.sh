@@ -37,26 +37,6 @@ cp -- "$repo/bin/lib/self.js" "$repo/bin/lib/engine.js" "$repo/bin/lib/owned-gro
 cp -- "$repo/bin/vgshell-pkg" "$tree/bin/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/ConfigLogic.js" "$tree/shell/Core/"
-# This fixture loader observes the real library returned to facts. The
-# existing self verb never draws a window, so the fixture checks that same
-# library's window rows without adding a test verb to the shipped command.
-cat >>"$tree/bin/lib/qml-library.js" <<'JS'
-const shippedLoad = module.exports.load;
-module.exports.load = function(file, modules) {
-  const library = shippedLoad(file, modules);
-  if (process.env.UPDATES_TEST_SECONDARY === "1" && path.basename(file) === "UpdatesLogic.js") {
-    const assert = require("node:assert/strict");
-    const reason = "helper-missing=checkupdates";
-    const secondary = library.windowRows({ sources: [{ source: "pacman", count: null, error: reason }] })[0].detail;
-    process.stderr.write("updates-test: secondary=reached\n");
-    assert.match(library.errorText(reason), /\]\(page:/);
-    assert.doesNotMatch(secondary, /[\[\]]|\(page:/, "updates-test: secondary=markup");
-    assert.ok(secondary.length > 0);
-    process.stderr.write("updates-test: secondary=plain\n");
-  }
-  return library;
-};
-JS
 printf '0.1.0\n' >"$tree/VERSION"
 calls="$tmp/calls"; fix="$tmp/fix"; rt="$tmp/rt"; state="$tmp/state"
 mkdir -p "$fix" "$rt" "$state"
@@ -489,7 +469,7 @@ pipeline() {
   status=0
   [[ -z ${PIPE_DEADLINE:-} ]] || bound=(timeout "$PIPE_DEADLINE")
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
-    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
+    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" \
     "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
@@ -580,7 +560,7 @@ row_full() {
   assert "a finished run records its end before its check" test -e "$fix/ended-at-check"
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "Snapshot failed."
-  assert "the log keeps the plan box" grep -qF "Update everything" "$log"
+  assert "the log keeps the plan box" grep -qF "Update all" "$log"
   assert "a full run lists each source installed" result_has "System installed."
   assert "a full run lists each plugin installed" result_has "Plugin acme.one installed."
   assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
@@ -2014,22 +1994,6 @@ SH
   done
 }
 
-row_facts_plain() {
-  reset_fix
-  status=0
-  "${base_env[@]}" UPDATES_TEST_SECONDARY=1 "${PLUGIN:-$plugin}/bin/facts" "$tree/bin/lib/qml-library.js" self \
-    <"$fix/self.json" >"$tmp/facts.out" 2>"$tmp/out" || status=$?
-  assert "facts loads the window's plain secondary text" test "$status" == 0
-  assert "facts reaches the window secondary check" out_has "updates-test: secondary=reached"
-  assert "facts leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
-}
-row_pipeline_plain() {
-  reset_fix
-  UPDATES_TEST_SECONDARY=1 pipeline update.sh
-  assert "the pipeline loads the window's plain secondary text" test "$status" == 0
-  assert "the pipeline reaches the window secondary check" out_has "updates-test: secondary=reached"
-  assert "the pipeline leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
-}
 # Two stand-ins record at once, as the sudo keepalive's `sleep` and `pacman -Q`
 # do. The first runs under sh -x, whose PS4 runs hold before each command: hold
 # stops it at its first command after it wrote to the calls file, if it has,
@@ -2069,7 +2033,7 @@ if [[ $# -gt 0 ]]; then
   rows_done test-updates-pipeline
   exit
 fi
-row_facts_plain; row_pipeline_plain; row_record_whole
+row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
 
@@ -2120,11 +2084,6 @@ red=0
 SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
 check "the raw diagnostic mutant fails status/facts/pipeline consumption" test "$red" -gt 0
 control helper-install-skipped '_updates_source paru Paru _updates_run _updates_install_helper' ':' row_vgs_helper
-for row in row_facts_plain row_pipeline_plain; do
-  control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
-  check "the $row markup control reaches windowRows" out_has "updates-test: secondary=reached"
-  check "the $row markup control fails on markup" out_has "updates-test: secondary=markup"
-done
 missing_tree="$tmp/missing-page-reference"
 mkdir -p "$missing_tree/bin/lib"
 cp -- "$tree/bin/lib/qml-library.js" "$missing_tree/bin/lib/"

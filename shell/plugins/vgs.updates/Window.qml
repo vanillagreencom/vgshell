@@ -7,17 +7,17 @@ import "UpdatesLogic.js" as Logic
 // The Updates window: where updates stand, how the last update run ended,
 // one row per source the service
 // published with its count, the packages it lists when opened and its own
-// Update when it has updates, a row with a detail opened on it, and a footer with Update everything over
-// Refresh, the last check's time in the shell's one wording of a past
-// moment (Timestamp), and the last run's log. The title row ends with
+// Update when it has updates, unique details, and a footer with Update all,
+// Refresh and the last run's log. The heading keeps the check time beside
+// the summary, in Timestamp's wording. The title row ends with
 // Package review settings, which opens the Packages page, so
 // the link takes no height from the sources. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
-// service's `check` through the plugin's own IPC. Update everything asks
+// service's `check` through the plugin's own IPC. Update all asks
 // that service to offer the reboot-notice choice before its TUI; a source
 // update and the log open their TUIs directly (UpdatesLogic.tuiRequest). The
-// window asks to be `size.panel.lg` wide and `size.panel.maxHeight` tall,
-// or the room its screen leaves when that is less, and the sources scroll
+// window asks to be `size.panel.lg` wide and fits its content up to
+// `size.panel.maxHeight`, or the room its screen leaves when that is less, and the sources scroll
 // in whatever size Hyprland gives it after. An Escape nothing here takes
 // goes on to the window host, which closes the window. A payload may carry
 // the refusal from a setup terminal's attempt to start the update.
@@ -79,7 +79,11 @@ FocusScope {
     }
 
     implicitWidth: Math.floor(Math.min(Theme.size.panel.lg, OverlayState.room(screen).width))
-    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))
+    // Pane measures content; the native host requests that initial height
+    // and the pane fills the size the compositor gives it after mapping.
+    // Implicit size flows up, assigned size down:
+    // https://quickshell.org/docs/v0.3.1/guide/size-position/.
+    implicitHeight: Math.floor(layout.implicitHeight)
     focus: true
 
     // The sources' cursor, in the body's scrolling content with the rows:
@@ -90,13 +94,15 @@ FocusScope {
     }
 
     // One inset box: the heading, the scrolling sources, and a footer
-    // with Update everything, Refresh and the last log that stays in view
+    // with Update all, Refresh and the last log that stays in view
     // while the sources scroll; Pane draws the divider over it while more
     // sources lie below.
     Pane {
         id: layout
         anchors.fill: parent
         container: "window"
+        fitToContent: true
+        maximumHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(root.screen).height))
 
         title: "Updates"
         // The title slot's implicit height is its children's rect, and the
@@ -130,13 +136,24 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: root.view.spinning
                     }
-                    Label {
+                    Row {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - (root.view.spinning ? Theme.spinner.size + parent.spacing : 0)
-                        role: "hint"
-                        text: Logic.windowSummaryText(root.values)
-                        color: root.view.tone === "warning" ? Theme.color.warning : Theme.color.textMuted
-                        wrapMode: Text.Wrap
+                        Label {
+                            width: Math.min(implicitWidth, parent.width - checkedLabel.width)
+                            role: "hint"
+                            text: Logic.windowSummaryText(root.values)
+                            color: root.view.tone === "warning" ? Theme.color.warning : Theme.color.text
+                            wrapMode: Text.Wrap
+                        }
+                        Label {
+                            id: checkedLabel
+                            visible: !root.view.spinning && typeof root.values.lastCheck === "number"
+                            width: visible ? implicitWidth : 0
+                            role: "hint"
+                            text: visible ? " - " + Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text) : ""
+                            color: Theme.color.textMuted
+                        }
                     }
                 }
                 // How the last update run failed or stopped, kept until the
@@ -190,12 +207,9 @@ FocusScope {
                     width: sections.width
                     cursor: plate
                     text: modelData.label
-                    secondary: modelData.secondary
                     iconName: modelData.icon
                     expandable: modelData.detail !== "" || modelData.lines.length > 0 || modelData.more !== ""
-                    // A row with a detail, a failure or what installs a new
-                    // VGS, opens with it shown: the line beside the badge
-                    // has room for a few words alone.
+                    // Unique details open with the row.
                     expanded: modelData.detail !== ""
                     Component.onCompleted: if (index === 0) sections.firstFocus = focusItem
                     // The count stands beside an Update button only for a
@@ -206,12 +220,11 @@ FocusScope {
                             size: "md"
                             text: source.modelData.badge
                             tone: source.modelData.badgeTone
-                            width: source.modelData.spinning ? Math.max(implicitWidth, Theme.spinner.size + Theme.control.gap) : implicitWidth
-
-                            Spinner {
-                                anchors.centerIn: parent
-                                visible: source.modelData.spinning
-                            }
+                            visible: !source.modelData.spinning
+                        },
+                        Spinner {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: source.modelData.spinning
                         },
                         RowAction {
                             id: update
@@ -262,49 +275,32 @@ FocusScope {
         }
 
         footer: [
-            Column {
+            Row {
                 width: layout.contentWidth
-                spacing: Theme.stack.row
-
-                Label {
-                    width: parent.width
-                    role: "hint"
-                    text: Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text, root.view.spinning || Logic.lastKnown(root.values))
-                    wrapMode: Text.Wrap
-                }
+                spacing: Theme.control.gap
 
                 Button {
-                    width: parent.width
+                    width: parent.width - refreshButton.width - logButton.width - 2 * parent.spacing
                     variant: "primary"
-                    text: "Update everything"
+                    text: "Update all"
                     iconName: "download"
                     disabledReason: Logic.updateDisabledReason(root.values)
                     onClicked: root.run("all")
                 }
-
-                Item {
-                    width: parent.width
-                    height: Math.max(refreshButton.implicitHeight, logButton.implicitHeight)
-
-                    Button {
-                        id: refreshButton
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        variant: "tertiary"
-                        text: "Refresh"
-                        iconName: "refresh-cw"
-                        disabledReason: root.view.spinning ? "An update check is running. Wait for it to finish." : ""
-                        onClicked: root.refresh()
-                    }
-                    Button {
-                        id: logButton
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        variant: "tertiary"
-                        text: "Open last log"
-                        iconName: "scroll-text"
-                        onClicked: root.run("log")
-                    }
+                IconButton {
+                    id: refreshButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    label: "Refresh"
+                    iconName: "refresh-cw"
+                    disabledReason: root.view.spinning ? "An update check is running. Wait for it to finish." : ""
+                    onClicked: root.refresh()
+                }
+                IconButton {
+                    id: logButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    label: "Open last log"
+                    iconName: "scroll-text"
+                    onClicked: root.run("log")
                 }
             }
         ]

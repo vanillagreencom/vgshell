@@ -22,13 +22,13 @@
     {"command": "less", "packages": {"pacman": "less", "apt": "less", "dnf": "less", "nix": "less"}, "optional": false, "purpose": "Shows the last update log"}
   ],
   "tui": {
-    "update": { "script": "tui/update.sh", "title": "Update everything", "size": "tall" },
+    "update": { "script": "tui/update.sh", "title": "Update all", "size": "tall" },
     "update-source": { "script": "tui/update-source.sh", "title": "Update one source", "size": "tall", "requires": [] },
     "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" }
   },
   "menu": {
     "packages.install": { "label": "Install", "icon": "package", "tui": "core/pkg-install" },
-    "packages.update": { "label": "Update", "icon": "refresh-cw", "aliases": ["Update everything"], "shortcut": "update-all" },
+    "packages.update": { "label": "Update", "icon": "refresh-cw", "aliases": ["Update all"], "shortcut": "update-all" },
     "packages.remove": { "label": "Remove", "icon": "package", "aliases": ["uninstall"], "tui": "core/pkg-remove" }
   },
   "settings": {
@@ -55,7 +55,7 @@
     ]
   },
   "status": {
-    "pending": {"type": "count", "label": "Updates waiting"},
+    "pending": {"type": "count", "label": "Updates available"},
     "lastCheck": {"type": "time", "label": "Last checked"},
     "checkState": {"type": "state", "label": "Check"},
     "checking": {"type": "data", "label": "Checking"},

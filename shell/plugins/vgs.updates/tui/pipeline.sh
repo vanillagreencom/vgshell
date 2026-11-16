@@ -1289,7 +1289,7 @@ _updates_main() {
     vgs_tui_warn "Less than 10 GiB is free on /. An update can fail when the disk fills up."
   fi
   local name
-  local box=("Update ${only:-everything}" "")
+  local box=("Update ${only:-all}" "")
   [[ -z $snapshot_line ]] || box+=("$snapshot_line")
   box+=("${plan[@]}")
   if [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then box+=("The AUR runs last, after every step that runs as root."); fi

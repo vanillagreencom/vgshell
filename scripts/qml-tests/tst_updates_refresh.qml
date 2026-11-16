@@ -2,6 +2,8 @@ import QtQuick
 import QtTest
 import Quickshell.Io
 import qs.Core
+import qs.Commons
+import qs.Ui
 import "../../shell/plugins/vgs.updates" as Updates
 import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
@@ -35,6 +37,7 @@ Item {
     TestCase {
         id: tests
         name: "updates_refresh"
+        when: windowShown
         property var service: null
         property var view: null
         function snapshot(count) {
@@ -64,9 +67,107 @@ Item {
             ProcessRegistry.clear(); root.values = {}; root.observed = []; root.handlers = {}; root.refuseKey = "";
             service = createTemporaryObject(serviceComponent, root);
             service.shell = root.facade;
-            view = createTemporaryObject(windowComponent, root, { shell: root.facade });
+            view = createTemporaryObject(windowComponent, root);
+            // Match the core's post-creation facade assignment: the
+            // constructor map turns arrays into QVariant sequences
+            // (tst_settingfield's constructor fixture), not native arrays.
+            view.shell = root.facade;
         }
         function cleanup() { view.destroy(); service.destroy(); wait(0); }
+        function descendants(item) {
+            let found = [];
+            for (const child of item.children) found = found.concat([child], descendants(child));
+            return found;
+        }
+        function sourceRows() {
+            return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
+        }
+        // The production footer stays one keyboard path; checking replaces
+        // a source badge with a bare spinner, not a spinner inside a badge.
+        function test_flyout_footer_and_checking_row() {
+            startup();
+            view.width = 700; view.height = 700;
+            view.forceActiveFocus();
+            wait(0);
+            const controls = descendants(view);
+            const all = controls.find(item => item.text === "Update all" && item.iconName === "download");
+            const refresh = controls.find(item => item.label === "Refresh" && item.iconName === "refresh-cw");
+            const log = controls.find(item => item.label === "Open last log" && item.iconName === "scroll-text");
+            verify(all !== undefined && refresh !== undefined && log !== undefined);
+            compare(all.parent, refresh.parent); compare(refresh.parent, log.parent);
+            compare(Math.round(all.y + all.height / 2), Math.round(refresh.y + refresh.height / 2));
+            compare(Math.round(refresh.y + refresh.height / 2), Math.round(log.y + log.height / 2));
+            compare(refresh.tooltip, "Refresh"); compare(log.tooltip, "Open last log");
+            compare(refresh.text, ""); compare(log.text, "");
+            verify(all.width > refresh.width);
+            let reachedRefresh = false, reachedLog = false;
+            for (let step = 0; step < 24 && !(reachedRefresh && reachedLog); step++) {
+                keyClick(Qt.Key_Tab);
+                reachedRefresh = reachedRefresh || refresh.activeFocus;
+                reachedLog = reachedLog || log.activeFocus;
+            }
+            verify(reachedRefresh && reachedLog, "both icon actions take keyboard focus");
+            view.open("{}"); admission(4);
+            compare(refresh.lock.locked, true);
+            verify(refresh.disabledReason !== "");
+            wait(0);
+            tryVerify(() => view.rows.length === 1 && sourceRows().length === 1, 1000,
+                "the checking view constructs its one cached source row");
+            const source = sourceRows()[0];
+            const accessories = descendants(source.focusItem);
+            const badge = accessories.find(item => item.displayedText !== undefined && item.tone !== undefined);
+            const spinner = accessories.find(item => item.running !== undefined && item.size !== undefined);
+            verify(badge !== undefined && spinner !== undefined);
+            compare(badge.visible, false); compare(spinner.visible, true);
+            compare(spinner.parent, badge.parent);
+        }
+        // Source diagnostics come from bin/check. Their rendered detail
+        // adds a known cause alone, or stays absent when none is known.
+        function test_failed_source_detail_data() {
+            return [
+                { tag: "unknown", error: "exit=1 network down", detail: "" },
+                { tag: "absent", error: null, detail: "" },
+                { tag: "timeout", error: "timeout=120", detail: "The update check took too long." },
+                { tag: "missing tool", error: "helper-missing=checkupdates", detail: "A tool needed for this check is missing." }
+            ];
+        }
+        function test_failed_source_detail(data) {
+            view.width = 700;
+            root.values = { checking: false, checkState: { tone: "warning", text: "System failed" },
+                sources: [{ source: "pacman", label: "System", count: null, error: data.error, packages: [] }] };
+            tryVerify(() => view.rows.length === 1 && sourceRows().length === 1, 1000);
+            const row = sourceRows()[0];
+            compare(view.rows[0].detail, data.detail);
+            compare(row.expandable, data.detail !== "");
+            compare(row.expanded, data.detail !== "");
+            const details = descendants(row).filter(item => item.visible && item.role === "hint");
+            compare(details.map(item => item.text), data.detail === "" ? [] : [data.detail]);
+        }
+        function test_flyout_fits_content_up_to_cap() {
+            startup();
+            view.width = 700;
+            view.height = Qt.binding(() => view.implicitHeight);
+            tryVerify(() => sourceRows().length === 1, 1000);
+            const cap = Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(view.screen).height));
+            const footer = descendants(view).find(item => item.text === "Update all" && item.iconName === "download").parent;
+            const compact = view.implicitHeight;
+            verify(compact > 0 && compact < cap, "one collapsed source fits below the cap");
+            sourceRows()[0].expanded = true;
+            tryVerify(() => view.implicitHeight > compact, 1000, "expanded package content grows the fitted window");
+            const packages = Array.from({ length: 100 }, (unused, index) => ({ name: "package-" + index, old: "1", new: "2" }));
+            // The service limits each published package list. Several
+            // expanded package sources reach the real overflowing state.
+            const now = Date.now();
+            const sources = ["pacman", "aur", "flatpak"].map(source => Logic.sourceRow(source, packages.length, packages, now, null));
+            root.values = Logic.publishValues({ checkedAt: now, error: null, sources: sources }, false, now, 0, "", "", "online");
+            tryVerify(() => sourceRows().length === sources.length && view.rows.every(row => row.lines.length > 0), 1000);
+            for (const row of sourceRows()) row.expanded = true;
+            tryCompare(view, "implicitHeight", cap);
+            const pane = descendants(view).find(item => item.scrollArea !== undefined && item.footerHeight !== undefined);
+            verify(pane.scrollArea.contentHeight > pane.scrollArea.height, "overflow stays scrollable");
+            const footerTop = footer.mapToItem(view, 0, 0).y;
+            verify(footerTop >= 0 && footerTop + footer.height <= view.height, "the footer stays inside the capped window");
+        }
         function test_open_waits_for_startup_and_never_unmasks_a_mixed_result() {
             view.open("{}");
             compare(view.view.state, "checking", "the opening frame is masked before startup reads answer");

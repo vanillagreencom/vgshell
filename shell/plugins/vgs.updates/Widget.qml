@@ -61,7 +61,7 @@ BarWidget {
         tooltipDetails: widget.tip.details
         onClicked: widget.toggle()
 
-        // keyboard-path: the window's Update everything button uses the same service gate
+        // keyboard-path: the window's Update all button uses the same service gate
         // pointer-cursor-exempt: it adds the middle click to the Button it sits in, whose own PointerCursor shows the hand
         TapHandler {
             acceptedButtons: Qt.MiddleButton

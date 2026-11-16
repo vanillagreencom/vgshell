@@ -95,7 +95,7 @@ Item {
         Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
         Tooltip {
             id: detailsTip
-            text: "17 updates waiting"
+            text: "17 updates"
             details: [
                 { label: "System", value: 14 },
                 { label: "AUR", value: 2 },

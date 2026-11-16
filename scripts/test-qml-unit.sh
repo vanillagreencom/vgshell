@@ -110,6 +110,8 @@ mutations=(
   "search keyboard focus draws a full ring|controls/TextField.qml|opacity: root.searchVariant && root.searchUnderline ? 0 : 1|opacity: 1|tst_textfield.qml"
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
+  "an unknown Updates failure repeats generic detail|../plugins/vgs.updates/UpdatesLogic.js|return causeOnly === true ? \"\" : checkText(CHECK_FAILED[0], CHECK_FAILED[1], false);|return checkText(CHECK_FAILED[0], CHECK_FAILED[1], causeOnly);|tst_updates_refresh.qml|test_failed_source_detail"
+  "Updates requests the maximum height for short content|../plugins/vgs.updates/Window.qml|implicitHeight: Math.floor(layout.implicitHeight)|implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))|tst_updates_refresh.qml|test_flyout_fits_content_up_to_cap"
   "the config reader omits the conversation migration|../Core/Config.qml|ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration)|ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations)|tst_config_writes.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"
   "message responses lose their small control size|layout/MessageRow.qml|size: \"sm\"|size: \"md\"|tst_message_patterns.qml"

@@ -680,7 +680,7 @@ while [[ $# -gt 0 ]]; do
     vpn-nord) scenes+=("$1"); shift ;;
     notification-limits) scenes+=("$1"); shift ;;
 
-    link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|updates-flyout|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -883,6 +883,7 @@ scene_ships() {
     elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
     jarvis-setup|jarvis-home-repair|jarvis-fleet|jarvis-home|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
+    updates-flyout) ships_plugin vgs.updates ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     reboot-notice) [[ $manager_scene == settings ]] && ships_plugin vgs.updates ;;
     ai-usage|ai-usage-states|ai-usage-hide) ships_plugin vgs.ai-usage ;;
@@ -2655,6 +2656,49 @@ scene_reboot-notice() { # MODE
   record_item "reboot-notice-$1" "$(ipc smoke instanceGeometry panel vgs.updates)"
   settings_close
   expect_poll "the reboot notice closes with Settings" absent ipc smoke readInstance panel vgs.updates problem
+}
+
+# The production flyout over status fixtures, with its open-time refresh
+# removed only in the disposable capture tree. No check or update runs.
+scene_updates-flyout() { # MODE
+  local mode="$1" state values key value
+  expect "the Updates provider is held for flyout pictures" held ipc smoke holdStatus service vgs.updates
+  expect "Updates opens for its flyout pictures" ok ipc shell summon window vgs.updates '{}'
+  expect_poll "the Updates flyout maps" open updates_window
+  for state in checking available current failed; do
+    values="$(python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$state" <<'PYSTATE'
+import json, sys, time
+snapshot = json.load(open(sys.argv[1]))
+state = sys.argv[2]
+now = int(time.time() * 1000) - 60000
+rows = snapshot["sources"]
+for row in rows:
+    row.update(label={"pacman":"System", "aur":"AUR", "flatpak":"Flatpak", "mise":"mise", "vgs":"VGS", "plugins":"Plugins", "themes":"Themes"}[row["source"]], checkedAt=now)
+    row["packages"] = []
+    if state == "current": row["count"] = 0
+    if row["source"] == "vgs" and state != "current": row.update(count=0, note={"kind":"aurUpgrade"})
+    if state == "failed" and row["source"] == "pacman": row.update(count=None, error="exit=1 connection refused")
+values = {"snapshot":{"args":[json.dumps({"checkedAt":now, "error":None, "sources":rows}), True]}, "admission":"online", "checking":state=="checking", "pending":sum(r["count"] or 0 for r in rows), "lastCheck":now,
+          "checkState":{"tone":"warning" if state=="failed" else "ok", "text":"System failed" if state=="failed" else "Up to date"}}
+for key, value in values.items(): print(key + "\t" + json.dumps(value, separators=(",",":")))
+PYSTATE
+)" || { fail "the flyout status fixture is unreadable"; return; }
+    while IFS=$'\t' read -r key value; do
+      if [[ $key == snapshot ]]; then
+        # invokeInstanceArgs wraps the argument list in an object: qs IPC
+        # strips the brackets of an argument that opens with `[`, as its
+        # Probe.qml header records. The production snapshot judge owns rows.
+        expect "the $state flyout fixture reads its snapshot" true ipc smoke invokeInstanceArgs service vgs.updates acceptText "$value"
+      else
+        expect "the $state flyout fixture writes $key" ok ipc smoke heldStatusSet "$key" "$value"
+      fi
+    done <<<"$values"
+    expect_poll "the $state flyout draws its sources" open updates_window
+    park_pointer
+    take "updates-flyout-$mode-$state"
+    record_item "updates-flyout-$mode-$state" "$(surface_box window:Updates)"
+  done
+  expect "Updates closes after its flyout pictures" ok ipc shell hide window vgs.updates
 }
 
 scene_updates() { # MODE
@@ -12173,6 +12217,22 @@ done
 shots_vsys_title='1 group is near the memory threshold'
 for scene in "${setups[@]}"; do
   case $scene in
+    updates-flyout)
+      # Keep refresh admission and every external package tool out of this
+      # visual fixture; the service still owns the published status provider.
+      python3 - "$repo/shell/plugins/vgs.updates/Window.qml" <<'PYOPEN'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); assert not p.is_symlink()
+s = p.read_text(); old = "        refresh();"
+assert s.count(old) == 1
+p.write_text(s.replace(old, ""))
+PYOPEN
+      updates_snapshot_plant
+      tree_rescan "the Updates flyout capture fixture is scanned"
+      expect "Updates enables for its flyout pictures" ok ipc shell setPluginEnabled vgs.updates true
+      expect_poll "Updates reads its flyout cache" 6 updates_pending
+      close_notices ;;
     gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab|capture-notifications) ;;
     reboot-notice)
       devices_ready reboot-notice-shot || exit 77
