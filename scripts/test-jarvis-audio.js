@@ -464,8 +464,7 @@ async function inside() {
             settings: { microphone: setting, speaker: "" } });
         w.dispatch("talk-down");
         await until(() => w.runner.state.fault.kind === "error" && w.runner.state.capture.kind === "closed",
-            "three device retries end");
-        assert.equal(w.runner.state.fault.retry, 3);
+            "a missing device stops capture");
         assert.equal(w.runner.state.fault.reason, reason, "the fault names the target and what the read held");
         assert.equal(w.runner.state.settings.microphone, setting, "never rewrite unavailable configured id");
         w.runner.close();
@@ -477,7 +476,6 @@ async function inside() {
     failed.dispatch("talk-down");
     await until(() => failed.runner.state.fault.kind === "error" && failed.runner.state.capture.kind === "closed",
         "exiting capture gives its actual cause");
-    assert.equal(failed.runner.state.fault.retry, 0);
     assert.equal(failed.runner.state.fault.reason, "capture-exit-1");
     failed.runner.close();
     await failed.audio.close("test-end");
@@ -526,13 +524,10 @@ async function inside() {
     try {
         earlyLoss.dispatch("talk-down");
         await until(() => earlyLoss.runner.state.fault.kind === "error" && earlyLoss.runner.state.capture.kind === "closed",
-            "a stream exit before monitor removal still gets three device retries");
-        // The stream exit names the target it held; the retries' selections
-        // find no default after the full read.
+            "a stream exit before monitor removal keeps its device-loss cause");
         assert.deepEqual(earlyLoss.published[0],
-            { kind: "retrying", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', retry: 1 });
-        assert.equal(earlyLoss.runner.state.fault.reason, "device-lost target=null from=default microphones=0[]");
-        assert.equal(earlyLoss.runner.state.fault.retry, 3);
+            { kind: "error", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', category: "other" });
+        assert.equal(earlyLoss.runner.state.fault.reason, earlyLoss.published[0].reason);
     } finally {
         earlyLoss.runner.close();
         await earlyLoss.audio.close("test-end");
@@ -914,9 +909,8 @@ async function inside() {
             drive: held, seen: [["fixture.mic", "fixture.usb"], "fixture.usb"] },
         // The exiting pw-record's own stream node goes before the monitor
         // reports the microphone's removal, which the read already shows.
-        // Session retries only a device-lost exit.
         { name: "recorder-exit", markers: ["no-devices"], delta: [{ id: 77, info: null }], drive: exits,
-            seen: { kind: "retrying", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', retry: 1 } }
+            seen: { kind: "error", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', category: "other" } }
     ];
     async function readOverlap(Implementation = Audio, rows = overlapRows) {
         for (const row of rows) {
@@ -942,11 +936,10 @@ async function inside() {
         await capture(lost);
         fs.writeFileSync(path.join(process.env.HOME, "remove-device"), "");
         await until(() => lost.runner.state.fault.kind === "error" && lost.runner.state.capture.kind === "closed",
-            "discovery removal closes capture and bounds retries");
-        // The monitor's removal writes the first fault, the retries the rest.
+            "discovery removal closes capture without reopening an absent device");
         assert.deepEqual(lost.published.map(fault => fault.reason),
-            Array(4).fill('device-lost target="fixture.mic" from=default microphones=0[]'));
-        assert.equal(lost.runner.state.fault.retry, 3);
+            ['device-lost target="fixture.mic" from=default microphones=0[]']);
+        assert.equal(lost.runner.state.conversation.kind, "ended");
         assert.deepEqual(lost.offers.at(-1).microphones, []);
         assert.equal(unlocked(), true);
     } finally { lost.runner.close(); await lost.audio.close("test-end"); }

@@ -195,6 +195,7 @@ function rig(kit, server, options = {}) {
         ...(options.rejudge === undefined ? {} : { rejudge: options.rejudge }) });
     if (daemon !== null) daemon.engine = engine;
     ports.release = engine.release;
+    ports.restart = engine.restart;
     const actionApproval = ports.approval;
     const wiring = [...daemonSource.matchAll(/runner\.ports\.approval = (\{\n[\s\S]*?\n                    \});/g)];
     assert.equal(wiring.length, 1, "one shipped daemon approval wiring");
@@ -878,8 +879,10 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         assert.equal(server.requests.length, before, "no transcription or brain turn before real ready");
         if (ending === "fault") {
             process.kill(starts()[0].start.pid, "SIGKILL");
-            await until(() => s().fault.kind === "error", "own-child fault is visible during loading");
-            assert.match(s().fault.reason, /^speech=local-exit/);
+            await until(() => s().restart.kind === "restarted", "own-child failure uses the shared recovery during loading");
+            assert.equal(s().fault.kind, "none");
+            assert.equal(s().restart.category, "voice");
+            assert.equal(s().failures.includes("collect-failed:voice"), true);
             assert.equal(s().capture.kind, "closed");
             hello();
             await until(() => status().causes.length === 0, "own-child fault is unloaded, not setup refusal");
@@ -1217,6 +1220,25 @@ async function cases(kit, server, only = null, mutation = false) {
         w.runner.dispatch({ type: "confirm", gen: held.gen, id: held.id, digest: held.digest, source: "button" });
     }
     const remoteVoice = { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } };
+    for (const routed of [false, true]) await run("restart-deadline-" + (routed ? "routed" : "clean"), async w => {
+        const held = gate();
+        try {
+            const before = await say(w, utterance("Focus the editor."));
+            server.replies.push(pause(held));
+            await requested(w, before + 1, "the request remains active at its deadline");
+            if (routed) {
+                const result = w.router.route({ kind: "tool-call", id: "deadline-call", tool: "windows.focus", arguments: { window: "0x1f" } },
+                    { gen: w.s().gen, op: w.s().turn.op });
+                assert.notEqual(result.kind, "refuse");
+                await until(() => w.executions.length === 1, "the routed call has acted before the deadline");
+            }
+            w.advanceRunner(w.s().turn.deadline - w.runnerNow());
+            assert.equal(w.s().restart.kind, routed ? "none" : "restarted", "Session consumes the engine's real side-effect facts");
+            assert.equal(w.s().fault.kind, routed ? "error" : "none");
+            assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.cause, row.category, row.action]),
+                [["session=thinking-timeout", "slow", routed ? "stopped" : "restarted"]]);
+        } finally { held.open(); }
+    });
     for (const [name, turns, reason, restart, category, options] of [
         ["restart-after-cut-reply", w => cutReply(w, "Focus the editor."), "brain=stream-truncated", "restart", "reply-cut"],
         ["restart-none-after-tool", w => cutReply(w, "Focus the editor.", undefined, async () => {
@@ -2334,7 +2356,7 @@ async function cases(kit, server, only = null, mutation = false) {
         // A failure the service heard is one the turn no longer can.
         await settled(() => w.s().turn.kind !== "collecting",
             () => w.faults.includes("speech-transcribe: speech=fixture-failed"), "the failure reaches the turn");
-        assert.deepEqual({ ...w.s().fault }, { kind: "error", reason: "speech=fixture-failed", retry: 0 });
+        assert.deepEqual({ ...w.s().fault }, { kind: "error", reason: "speech=fixture-failed", category: "other" });
         assert.equal(server.requests.length, before);
     });
 
@@ -3539,6 +3561,22 @@ function brainPlan(Engine) {
 function restartTable(Engine) {
     const clean = { acted: false, answered: true, remote: true };
     const rows = [
+        ["thinking-timeout", clean, "restart", "slow"],
+        ["thinking-timeout", { ...clean, acted: true }, "none", "slow"],
+        ...["playback-timeout", "capture-exit-1", "playback-exit-SIGTERM", "playback-pipe-closed", "capture-overflow",
+            "provider-disconnected", "input-end", "audio-start: audio-readiness", "device-probe: discovery-exit: fixture"].map(reason => [reason, clean, "restart", "audio"]),
+        ...["speech=local-exit code=1 signal=null", "speech=local-write code=EPIPE", "speech=local-end-timeout",
+            "speech=local-synthesis-timeout", "speech=local-synthesis-empty", "speech=local-backlog",
+            "playback-source: jarvis: speech=local-synthesis-timeout", "speech=elevenlabs-timeout",
+            "speech=elevenlabs-stream-failed", "speech=elevenlabs-audio-empty", "speech=elevenlabs-http status=503",
+            "playback-source: jarvis: speech=elevenlabs-http status=408", "playback-source: jarvis: net=request"].map(reason => [reason, clean, "restart", "voice"]),
+        ...["speech=dictation-timeout", "speech=dictation-failed"].map(reason => [reason, clean, "restart", "dictation"]),
+        ...["device-lost target=fixture", "capture-refused", "playback-frame", "audio-start: audio-child: spawn-ENOENT",
+            "speech=local-ready-timeout", "speech=local-not-ready", "speech=local-memory-insufficient",
+            "speech=local-protocol key=shape", "speech=dictation-busy", "speech=dictation-unavailable"].map(reason => [reason, clean, "none", "other"]),
+        ...[401, 402, 403, 429].map(status => ["playback-source: jarvis: speech=elevenlabs-http status=" + status, clean, "none", "account"]),
+        ["speech=elevenlabs-http status=400", clean, "none", "setup"],
+        ...["speech=elevenlabs-no-key", "playback-source: jarvis: speech=elevenlabs-voice"].map(reason => [reason, clean, "none", "setup"]),
         ["live=input-overflow", clean, "restart", "connection"],
         ["live=disconnected code=1006", clean, "restart", "connection"],
         ["net=socket-not-open", clean, "restart", "connection"],
@@ -3992,11 +4030,24 @@ async function groupSelection(root, server) {
     failoverTable(Fixture.copy(root).Engine);
     restartTable(Fixture.copy(root).Engine);
     for (const [name, needle, replacement] of [
+        ["elevenlabs-http-restart", 'speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500',
+            'speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => false'],
+        ["elevenlabs-account-cause", '[401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : SETUP',
+            '[401, 402, 403, 429].includes(Number(status)) ? SETUP : SETUP'],
+        ["elevenlabs-stream-cause", 'speech=elevenlabs-(?:timeout|stream-failed|audio-empty)',
+            'speech=elevenlabs-(?:(?!)timeout|stream-failed|audio-empty)'],
+        ["elevenlabs-setup-cause", '[/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => SETUP]',
+            '[/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => PERMANENT]'],
+        ["slow-restart-cause", '[/^thinking-timeout$/, () => cause("transient", "slow", false)]', '[/^thinking-timeout$/, () => PERMANENT]'],
+        ["audio-restart-cause", 'cause("transient", "audio", false)', 'PERMANENT'],
+        ["local-restart-cause", 'speech=local-(?:end-timeout', 'speech=local-(?:(?!)end-timeout'],
+        ["dictation-restart-cause", '[/^speech=dictation-(?:timeout|failed)$/, () => cause("transient", "dictation", false)]',
+            '[/^speech=dictation-(?:timeout|failed)$/, () => PERMANENT]'],
         ["start-timeout-cause",
             '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => cause("transient", "app-stopped", true, { ended: true })]',
             '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => UNKNOWN]'],
         ["provider-status-cause", "Number(status) >= 500 ? SERVICE", "false ? SERVICE"],
-        ["request-timeout-cause", "Number(status) === 408 || ", ""],
+        ["request-timeout-cause", "Number(status) === 408 || Number(status) >= 500 ? SERVICE", "Number(status) >= 500 ? SERVICE"],
         ["unknown-failover", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("unknown", "other", true);'],
         ["unknown-restart", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("transient", "other", false);'],
         ["restart-acted", "judged.class === \"transient\" && !facts.acted && ", "judged.class === \"transient\" && "],
@@ -4141,6 +4192,8 @@ async function groupPlants(root, server) {
     let controls = 0;
     // Each control plants one defect in a disposable engine copy.
     const plants = [
+        ["deadline-restart-answer", '            return restart;', '            return unrestarted(reason);', "restart-deadline-clean"],
+        ["deadline-routed-facts", 'return c.turn ?? (pending ? c.last : null);', 'return pending ? c.last : null;', "restart-deadline-routed"],
         ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
         ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',

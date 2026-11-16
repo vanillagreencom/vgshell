@@ -75,43 +75,38 @@ var FAULT_KINDS = [
     [/^speech=local-ready-timeout$/, "localVoice"],
     [/^speech=dictation-busy$/, "dictationBusy"],
     [/^speech=dictation-/, "dictation"],
-    [/^speech=/, "voice"],
     // The ElevenLabs voice fails a reply's playback with its own keyed cause
     // (ElevenLabs.js), which Audio carries behind its source prefix.
-    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-/, "elevenlabs"],
+    [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
-// What the bar and the bubble say of each kind: what went wrong, then what
-// removes its cause. A Talk press clears a fault and starts a new
-// conversation, but not the cause, which can stop that conversation too:
-// a device fault asks for a device, and a kind with no other step below
-// asks for a restart, which starts Jarvis again. A home
-// folder fault opens the Home folder step, whose row links each file to
-// check: Jarvis reads the folder again at the next request. A refused model asks for another: a changed model clears the
-// fault, and its title ends with the model's name. A dictation fault, the
-// core's recording refused or failed, clears at the next Talk.
-var RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings).";
+// A stopped fault names its user action. Automatic recovery is reported
+// separately through Session's restart notice.
+var ASK_AGAIN = "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings).";
 var FAULT_TEXT = {
-    "slow": { title: "The AI model took too long to answer", action: RESTART },
+    "slow": { title: "The AI model took too long to answer", action: ASK_AGAIN },
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     // The local voice hears the system default microphone, as dictation does.
     "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
     "home": { title: "Jarvis cannot use the home folder", action: "See what to change in [Setup > Home folder](page:vgs.jarvis/Setup/setupHome)." },
-    "brain": { title: "The AI model did not answer", action: RESTART },
+    "brain": { title: "The AI model did not answer", action: ASK_AGAIN },
+    "account": { title: "The AI account refused the request", action: "Check your [AI model account](page:vgs.jarvis/Settings/brain)." },
+    "setup": { title: "The AI model is not set up correctly", action: "Check [AI model settings](page:vgs.jarvis/Settings/brain)." },
     "voiceConnection": { title: "The voice service could not finish the request", action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceNetwork": { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceInput": { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceReply": { title: "The voice reply stopped too early", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
-    "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
-    "voice": { title: "Local voice stopped working", action: RESTART },
-    "elevenlabs": { title: "ElevenLabs did not speak the reply", action: "Check your ElevenLabs key and its credits, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." },
+    "localVoice": { title: "Local voice did not get ready in time", action: "See [Setup > Voice](page:vgs.jarvis/Setup/setupVoice)." },
+    "voice": { title: "Local voice stopped working", action: ASK_AGAIN },
+    "elevenlabs": { title: "ElevenLabs did not speak the reply", action: ASK_AGAIN },
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
     "dictation": { title: "Dictation did not record", action: "Check dictation in [Settings > Voice](page:vgs.voice/Setup), then talk again." },
-    "audio": { title: "The microphone or speaker stopped working", action: RESTART },
+    "audio": { title: "The microphone or speaker stopped working", action: ASK_AGAIN },
     // A cloud voice refused the key at its handshake; the next key clears it.
     "keyRefused": { title: "The voice service refused your key", action: KEY_REFUSED_ACTION },
-    "other": { title: "Jarvis stopped after a problem", action: RESTART }
+    "other": { title: "Jarvis stopped after a problem", action: ASK_AGAIN }
 };
 // What went wrong, in plain words, for each cause category the engine
 // names (Session.FAULT_CATEGORIES): the title of the restart line, the
@@ -124,14 +119,16 @@ var FAULT_WORDS = {
     "account": "The AI account refused the request",
     "model": "Jarvis cannot use the AI model",
     "setup": "The AI model is not set up correctly",
-    "other": "The AI model did not answer"
+    "other": "The AI model did not answer",
+    "voice": "The voice service stopped working",
+    "audio": "The microphone or speaker stopped working",
+    "slow": "The AI model took too long to answer",
+    "dictation": "Dictation did not record"
 };
 // The restart notice's one action, which opens the console's Problems list.
 var PROBLEMS_ACTION = "problems";
-// While Session retries a lost device, Jarvis acts by itself.
-var RETRYING = { title: "The microphone or speaker is gone", action: "Jarvis is trying it again." };
-var AUDIO_TEXT = { title: "Jarvis cannot read the microphones and speakers", action: RESTART };
-var DAEMON_TEXT = { title: "Jarvis stopped after a problem", action: RESTART };
+var AUDIO_TEXT = { title: "Jarvis cannot read the microphones and speakers", action: "Check [Audio in Settings > Jarvis](page:vgs.jarvis/Settings)." };
+var DAEMON_TEXT = { title: "Jarvis stopped after a problem", action: "See [Jarvis settings](page:vgs.jarvis/Settings)." };
 // The tones Service.qml publishes for `daemon` and for `audio`.
 var DAEMON_TONES = ["info", "warning", "danger"];
 var AUDIO_TONES = ["info", "ok", "danger"];
@@ -204,8 +201,8 @@ function gateDown(gate) {
 // failure. Other net= reasons still belong to the brain when that port
 // did not fail.
 function faultKind(fault) {
-    if (fault === null || typeof fault !== "object" || ["error", "retrying", "voice-connection"].indexOf(fault.kind) === -1
-            || typeof fault.reason !== "string") refuse("fault", fault);
+    if (fault === null || typeof fault !== "object" || ["error", "voice-connection"].indexOf(fault.kind) === -1
+            || typeof fault.reason !== "string" || Session.FAULT_CATEGORIES.indexOf(fault.category) === -1) refuse("fault", fault);
     if (fault.reason === "live=key-refused") return "keyRefused";
     if (fault.kind === "voice-connection") {
         if (/^live=disconnected code=|^net=socket-not-open$/.test(fault.reason)) return "voiceNetwork";
@@ -213,6 +210,8 @@ function faultKind(fault) {
         if (/^live=response status=incomplete(?: |$)/.test(fault.reason)) return "voiceReply";
         return "voiceConnection";
     }
+    if (/^(brain|net)=|^jarvis-keys: /.test(fault.reason)
+            && ["account", "setup"].indexOf(fault.category) !== -1) return fault.category;
     for (var i = 0; i < FAULT_KINDS.length; i++)
         if (FAULT_KINDS[i][0].test(fault.reason)) return FAULT_KINDS[i][1];
     return "other";
@@ -225,9 +224,13 @@ function faultKind(fault) {
 function faultText(fault, engine, voice) {
     var kind = faultKind(fault);
     if (kind === "keyRefused") return keyRefusedText(voice);
+    if (kind === "elevenlabs" && fault.category === "account") return { title: FAULT_TEXT.elevenlabs.title,
+        action: "Check your key and credits under [Voice key](page:vgs.jarvis/Settings/voiceAccount)." };
+    if (kind === "elevenlabs" && fault.category === "setup") return { title: FAULT_TEXT.elevenlabs.title,
+        action: "Check the voice and key in [Voice settings](page:vgs.jarvis/Settings/voice)." };
     if (kind === "device" && engine === "dictation") kind = "defaultDevice";
     if (kind === "model") return { title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1], action: FAULT_TEXT.model.action };
-    return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
+    return FAULT_TEXT[kind];
 }
 
 // Publish the approval labels together. QML may settle separate bindings in
@@ -323,7 +326,7 @@ function faultWords(category) {
     return FAULT_WORDS[category];
 }
 
-// What the bar and the bubble say while RESTART, Session's restart region,
+// What the bar and the bubble say while Session's restart region
 // holds a restart that has not met a user turn yet: { title, action }, or
 // null. LISTENING is whether the conversation opened again.
 function restartLine(restart, listening) {
@@ -374,7 +377,7 @@ function look(state, title, action) {
 }
 
 function textLook(state, text) { return look(state, undefined, text.action); }
-function reportLook(state, value) { return look(state, undefined, value.hint === undefined ? RESTART : value.hint); }
+function reportLook(state, value) { return look(state, undefined, value.hint === undefined ? DAEMON_TEXT.action : value.hint); }
 
 // One status reading for the bar. Key hints and the console's model and
 // voice information belong to their own views.

@@ -1100,8 +1100,7 @@ function verifyReadiness(gate) {
     const localNotReady = plain(readiness(gate, { kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
     assert.equal(localNotReady.hint, "Set up the local voice again", "local voice setup-broken words");
     const localReadyTimeout = plain(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
-    assert.deepEqual([localReadyTimeout.text, localReadyTimeout.hint], ["Timed out",
-        "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)"], "local voice timeout words");
+    assert.equal(localReadyTimeout.action, "setup", "local voice startup refusal keeps its setup action");
     const probeTimeout = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
@@ -2204,9 +2203,8 @@ function verify(gate) {
     verifyOneSessionJudgement(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
         const value = gate.voiceCheck(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
-        assert.deepEqual(plain(value), { tone: "warning", text: "Timed out",
-            hint: "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
-            action: "setup" }, "voice setup cause survives microphone check");
+        const expected = plain(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice);
+        assert.deepEqual(plain(value), expected, "voice setup cause survives microphone check");
     }
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
@@ -2366,7 +2364,7 @@ function verifyLimitPresentation(gate) {
     for (const suffix of Object.values(layers)) assert.ok(combinedLinks.includes(home.path + suffix), "each start text file remains a distinct link");
     // The bar's home fault links its Setup row once; that row's file links
     // open the chosen files (the home cause table above).
-    const homeFault = widget.faultText({ kind: "error", reason: "home=text" }, "dictation", {});
+    const homeFault = widget.faultText({ kind: "error", reason: "home=text", category: "other" }, "dictation", {});
     assert.deepEqual(Array.from(pageReference.references(homeFault.action).links, link => [link.page, link.tab]),
         [["vgs.jarvis", "Setup/setupHome"]], "the home fault links its Setup row once");
     assert.equal(judge.statusWrite(manifest, {}, "startText", { tone: "info", text: "Fixture", info: combinedInfo }).ok, true,
@@ -2650,10 +2648,6 @@ const CONTROLS = [
     ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),\n            info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a file over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
     ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    if (rules.length === 0)', 'delete value.action;\n    }\n    if (rules.length === 0)', "the caution carries its file action"],
-    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
-        "hint: START_RESTART };", "probe timeout: the Local voice row asks for no restart beside Ready"],
-    ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
-        '"setup=probe-timeout": "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
@@ -2677,16 +2671,16 @@ const CONTROLS = [
     ["the timed-out Voice step reads to do", 'var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : TO_DO;', 'var text = TO_DO;', "voice setup cause survives microphone check"],
     ["a start failure summary draws its cause", "hint: answer.action || problem.action },", "hint: answer.action || problem.action, lines: problem.lines },",
         "hello timeout: the start failure summary draws no keyed cause"],
-    ["a stopped summary draws its reason as a line", 'hint: "Turn Jarvis off and on again" }', 'lines: ["Turn Jarvis off and on again"] }'],
+    ["a stopped summary draws its reason as a line", 'hint: START_STOPPED }', 'lines: [START_STOPPED] }'],
     ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(String) },', "nothing set up: the summary draws no keyed cause"],
     ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(String) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "local voice ready under Realtime"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
-    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },\n            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
-        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },\n            setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
-    ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_RESTART }],', ""],
+    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: START_STOPPED },\n            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
+        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: START_STOPPED },\n            setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
+    ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_STOPPED }],', ""],
     ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [DAEMON_EXIT.detail] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["auto names no tier of its own", 'return wanted === "auto" ? pick : wanted;', "return wanted;"],
@@ -3353,8 +3347,6 @@ function verifyCheckFailures(gate) {
     const probeTimeout = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout"] })).setup;
     const timedOutRow = plain(gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceDone));
     assert.deepEqual([probeTimeout.tone, probeTimeout.text], ["ok", "Ready"], "probe timeout: the summary is Ready");
-    assert.equal(timedOutRow.hint.includes(gate.START_RESTART), false, "probe timeout: the Local voice row asks for no restart beside Ready");
-    assert.equal(probeTimeout.hint.includes(gate.START_RESTART), false, "probe timeout: the caution asks for no restart beside Ready");
     assert.throws(() => gate.checkFailure("lost", manifest.status.localRuntime), /^Error: jarvis-setup: check-failure=lost unexpected/);
 }
 // Every cause the Setup table knows states one readiness on the bar and in

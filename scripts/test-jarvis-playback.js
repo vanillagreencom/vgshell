@@ -247,7 +247,6 @@ async function stalledDeadline(Implementation = Audio) {
         await finish(running);
         assert.equal(runner.state.fault.kind, "error");
         assert.equal(runner.state.fault.reason, "playback-timeout");
-        assert.equal(runner.state.fault.retry, 0);
         assert.ok(faults.length > 0);
         assert.ok(faults.every(record => record.at === 300000 && record.fault.reason === "playback-timeout"));
         discoveryOnly(w);
@@ -261,7 +260,6 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(runner.state.playback.kind, "idle");
         assert.equal(runner.state.fault.kind, "error");
         assert.equal(runner.state.fault.reason, "playback-timeout");
-        assert.equal(runner.state.fault.retry, 0);
         assert.equal(w.writes.length, writes);
         console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + pendingBytes);
     } finally {

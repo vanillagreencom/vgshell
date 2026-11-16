@@ -352,7 +352,7 @@ Item {
             const open = { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } };
             return [
                 { tag: "a state line", state: open },
-                { tag: "a fault", state: Object.assign({ fault: { kind: "error", reason: "jarvis-test=unknown" } }, open) },
+                { tag: "a fault", state: Object.assign({ fault: { kind: "error", reason: "jarvis-test=unknown", category: "other" } }, open) },
                 { tag: "words over the orb", state: Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open),
                   caption: "The meeting moved to Thursday at three, and the room is the same as last week. I added it to your calendar and told Dana you will join a few minutes late." }
             ];
@@ -408,21 +408,21 @@ Item {
         // and the page and tab it names.
         function test_a_fault_action_draws_its_page_reference_as_a_link_data() {
             return [
-                { tag: "stopped", engine: "chained", reason: "jarvis-test=unknown", words: "Settings > Jarvis", page: "vgs.jarvis", tab: "Settings" },
-                { tag: "default device", engine: "dictation", reason: "device-lost target=null from=default microphones=0[]", words: "System > Sound", page: "vgs.sound", tab: "" }
+                { tag: "stopped", engine: "chained", reason: "jarvis-test=unknown", page: "vgs.jarvis", tab: "Settings" },
+                { tag: "default device", engine: "dictation", reason: "device-lost target=null from=default microphones=0[]", page: "vgs.sound", tab: "" }
             ];
         }
         function test_a_fault_action_draws_its_page_reference_as_a_link(data) {
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())),
-                { gate: { kind: "up" }, engine: { kind: data.engine }, fault: { kind: "error", reason: data.reason } });
+                { gate: { kind: "up" }, engine: { kind: data.engine }, fault: { kind: "error", reason: data.reason, category: "other" } });
             compare(bubble.phase, "error");
             const drawn = shownText();
             verify(drawn.length > 0, "the card draws text");
             for (const text of drawn)
                 verify(!/\]\((page|file):/.test(text), "no drawn text shows a reference's raw form: " + text);
-            const link = links().find(n => n.plain.indexOf(data.words) !== -1);
-            verify(link !== undefined, "a link draws the action's words: " + JSON.stringify(drawn));
-            compare(link.words, data.words);
+            const link = links().find(n => n.reference.page === data.page && n.reference.tab === data.tab);
+            verify(link !== undefined, "a link carries the fault's Settings route: " + JSON.stringify(drawn));
+            verify(link.words.length > 0);
             verify(bubble.inputItems.indexOf(link) !== -1, "the passive layer takes clicks on the link");
             // The layout gives the link its width at the next polish.
             verify(renderedFrame(bubble));

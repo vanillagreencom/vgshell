@@ -150,6 +150,17 @@ function programEnd(setup) {
         : cause("transient", "app-stopped", true, { ended: true, needs: "answered" });
 }
 const CAUSES = Object.freeze([
+    // Session deadlines, Audio child failures and the speech adapters below
+    // already release their failed operation; reopening acquires a new one.
+    [/^thinking-timeout$/, () => cause("transient", "slow", false)],
+    [/^playback-timeout$|^(?:capture|playback)-exit-|^(?:playback-pipe-closed|capture-overflow|provider-disconnected|input-end)$|^(?:audio-start: audio-readiness|device-probe: discovery-exit:)/, () => cause("transient", "audio", false)],
+    [/^(?:playback-source: jarvis: )?speech=local-(?:end-timeout|synthesis-timeout|synthesis-empty|backlog|exit(?: |$)|write(?: |$))/, () => cause("transient", "voice", false)],
+    [/^speech=dictation-(?:timeout|failed)$/, () => cause("transient", "dictation", false)],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500
+        ? cause("transient", "voice", false) : [401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : SETUP],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:timeout|stream-failed|audio-empty)$/, () => cause("transient", "voice", false)],
+    [/^playback-source: jarvis: net=request$/, () => cause("transient", "voice", false)],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => SETUP],
     // Realtime server-events distinguishes server_error from client errors;
     // incomplete max_output_tokens can retry, content_filter cannot.
     // https://developers.openai.com/api/reference/resources/realtime/server-events
@@ -1347,6 +1358,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             answered: answered.has(c.brainOwner.value),
             remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback });
     }
+    // Session owns output after the engine has concluded its last turn.
+    // c.last alone is history, not evidence that its answer is pending.
+    function pendingTurn(c) {
+        const s = state();
+        const pending = s.speech.kind === "open" && (s.speech.reply.kind !== "none"
+            || s.playback.kind === "playing" && s.playback.source === s.speech.op)
+            || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
+            || s.playback.kind === "flushing" && s.playback.reply.kind === "waiting"
+            || s.playback.kind === "playing" && c.last?.op === s.playback.source;
+        return c.turn ?? (pending ? c.last : null);
+    }
     function failed(c, turn, error) {
         if (turn.stopped) return;
         stop(turn);
@@ -2136,6 +2158,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     return Object.freeze({
+        restart(reason) {
+            const c = conversation;
+            if (c === null) return unrestarted(reason);
+            const restart = restartFor(c, pendingTurn(c), reason);
+            freshBrain(c);
+            return restart;
+        },
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
             const identity = JSON.stringify([[settings.brain, settings.model ?? ""],
@@ -2363,10 +2392,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     // The adapter has released its account, but Session still
                     // owns queued words and playback after the brain finishes.
-                    const s = state();
-                    const pending = s.speech.kind === "open" && (s.speech.reply.kind !== "none"
-                        || s.playback.kind === "playing" && s.playback.source === s.speech.op);
-                    const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);
+                    const restart = restartFor(c, pendingTurn(c), reason);
                     freshBrain(c);
                     events.failed(reason, restart);
                     // A refused key holds Talk with its cause until the key changes.

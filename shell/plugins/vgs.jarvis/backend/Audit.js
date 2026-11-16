@@ -37,7 +37,7 @@ const VISION_COMMAND = /^(grim|magick|slurp|tesseract)-(exit=[0-9]{1,3}|signal|c
 // which setting to judge.
 const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;
 const CODEX_NAMED = /^brain=codex-(?:feature|catalog) name=[A-Za-z0-9_-]{1,64}$/;
-const FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"];
+const FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other", "voice", "audio", "slow", "dictation"];
 const FAULT_ACTIONS = ["restarted", "stopped"];
 
 function visionReason(content) {
@@ -142,7 +142,11 @@ function faultRow(row) {
 function faultRecord(event, time) {
     if (event === null || typeof event !== "object" || typeof event.reason !== "string") fail("event-shape");
     const status = / status=([1-5][0-9]{2})(?: |$)/.exec(event.reason);
-    const keyed = event.reason.replace(/^jarvis-[a-z]+: /, "");
+    // Session and Audio have fixed operation keys without an area prefix.
+    // Keep that key alone, never a device name or child diagnostic.
+    const reason = event.reason.replace(/^playback-source: /, "").replace(/^jarvis(?:-[a-z]+)?: /, "");
+    const bare = /^((?:thinking|playback)-timeout|(?:capture|playback)-[a-z0-9-]+|audio-(?:start|child|readiness|ended|start-refused)|device-probe|device-lost|provider-disconnected|input-end)(?::| |$)/.exec(reason.toLowerCase());
+    const keyed = bare === null ? reason : "session=" + bare[1];
     return faultRow({ time, gen: event.gen, cause: CODEX_NAMED.test(keyed) ? keyed : keyed.split(" ", 1)[0].toLowerCase().replace(/_/g, "-"),
         ...(status === null ? {} : { status: Number(status[1]) }), category: event.category, action: event.action });
 }

@@ -137,7 +137,7 @@ Item {
         function test_main_text_is_body_strong_data() {
             return [
                 { tag: "the approval question", state: root.held, text: "Delete draft.txt?", role: "bodyStrong" },
-                { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true, role: "bodyStrong" },
+                { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }), title: true, role: "bodyStrong" },
                 { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk", role: "label" }
             ];
         }

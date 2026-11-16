@@ -725,7 +725,7 @@ function accept(line, direction) {
                         || typeof row.cause !== "string" || !/^[a-z-]+=[a-z0-9-]{1,60}$/.test(row.cause)
                             && !/^brain=codex-(?:feature|catalog) name=[A-Za-z0-9_-]{1,64}$/.test(row.cause)
                         || !(row.status === null || Number.isSafeInteger(row.status) && row.status >= 100 && row.status <= 599)
-                        || ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"].indexOf(row.category) === -1
+                        || ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other", "voice", "audio", "slow", "dictation"].indexOf(row.category) === -1
                         || ["restarted", "stopped"].indexOf(row.action) === -1) fail("audit-fault");
                 continue;
             }

@@ -142,7 +142,7 @@ Item {
                 [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), Theme.color.accent, "success", "Jarvis: Speaking", 0],
                 [muted, Theme.color.textMuted, "warning", "Jarvis: Microphone muted", 0],
                 [root.ready({ gate: { kind: "down", reason: "unconfigured" } }), Theme.color.textMuted, "warning", "Jarvis: Not set up", 1],
-                [root.ready({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), Theme.color.danger, "danger", "Jarvis: Problem", 1]
+                [root.ready({ fault: { kind: "error", reason: "brain=stream-error", category: "other" } }), Theme.color.danger, "danger", "Jarvis: Problem", 1]
             ];
             const badges = [Theme.badge.tone.info, Theme.badge.tone.accent, Theme.badge.tone.neutral, Theme.badge.tone.danger].map(t => String(Qt.color(t.foreground)));
             for (const [values, colour, dotRole, text, actionLines] of rows) {

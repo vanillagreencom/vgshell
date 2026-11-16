@@ -117,7 +117,7 @@ Item {
                 { tag: "thinking", state: root.session({ turn: { kind: "thinking" } }), takes: true },
                 { tag: "acting", state: root.session({ action: { kind: "running" } }), takes: true },
                 { tag: "speaking", state: root.session({ playback: { kind: "playing" } }), takes: true },
-                { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), takes: true }
+                { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }), takes: true }
             ];
         }
 
@@ -310,7 +310,7 @@ Item {
         // A right click on a line of text opens it too, and the menu keeps
         // the overlay shown after the service stops wanting it.
         function test_the_menu_keeps_the_overlay_shown() {
-            put(root.session({ fault: { kind: "error", reason: "device-lost" } }));
+            put(root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }));
             const lines = all(bubble, []).filter(item => item.role !== undefined && item.text === bubble.fault.title && bubble.drawn(item));
             compare(lines.length, 1, "one drawn fault title supplies the click target");
             const line = lines[0];
@@ -340,7 +340,7 @@ Item {
                 { tag: "speaking with muted voice", regions: { playback: { kind: "playing" } }, required: false },
                 { tag: "speaking with voice", regions: { playback: { kind: "playing" }, voiceMute: { kind: "off" } }, required: false },
                 { tag: "rest", regions: {}, required: false },
-                { tag: "fault", regions: { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, required: true },
+                { tag: "fault", regions: { fault: { kind: "error", reason: "brain=stream-error", category: "other" } }, required: true },
                 { tag: "held", regions: { approval: { kind: "held", id: "fixture", gen: 1, digest: "fixture",
                     purpose: "action", tool: "fixture", text: "Allow fixture?", physical: true } }, required: true }
             ];

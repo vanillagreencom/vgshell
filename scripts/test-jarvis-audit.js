@@ -451,6 +451,13 @@ world(() => {
         const time = "2026-09-30T12:00:00.000Z";
         const fault = { kind: "fault-record", gen: 4, op: 9, reason: "brain=provider-error status=503", category: "service", action: "restarted" };
         const kept = [
+            ["thinking-timeout", "slow", "restarted", { cause: "session=thinking-timeout" }],
+            ["capture-exit-1", "audio", "restarted", { cause: "session=capture-exit-1" }],
+            ["capture-exit-SIGTERM", "audio", "restarted", { cause: "session=capture-exit-sigterm" }],
+            ["provider-disconnected", "audio", "restarted", { cause: "session=provider-disconnected" }],
+            ["audio-child: spawn-ENOENT", "other", "stopped", { cause: "session=audio-child" }],
+            ["playback-source: jarvis: speech=elevenlabs-http status=503", "voice", "restarted", { cause: "speech=elevenlabs-http", status: 503 }],
+            ["speech=dictation-timeout", "dictation", "stopped", { cause: "speech=dictation-timeout" }],
             ["brain=provider-error status=503", "service", "restarted", { cause: "brain=provider-error", status: 503 }],
             ["brain=harness-model-refused model=planted-arbitrary-credential", "model", "stopped", { cause: "brain=harness-model-refused" }],
             ["brain=harness-api-error status=0", "other", "stopped", { cause: "brain=harness-api-error" }],
@@ -697,7 +704,7 @@ world(() => {
         ["cause listed", "cause: record.cause ?? null }", "cause: null }", checkFailures],
         ["fault head word", '.split(" ", 1)[0]', "", checkFaultRow],
         ["fault head spelling", '.toLowerCase().replace(/_/g, "-")', "", checkFaultRow],
-        ["fault key prefix", '.replace(/^jarvis-[a-z]+: /, "")', "", checkFaultRow],
+        ["fault key prefix", '.replace(/^jarvis(?:-[a-z]+)?: /, "")', "", checkFaultRow],
         ["fault any area", "const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;", "const FAULT_CAUSE = /^(?:brain|net)=[a-z0-9-]{1,60}$/;", checkFaultRow],
         ["fault cause judged", 'if (typeof cause !== "string" || !FAULT_CAUSE.test(cause) && !CODEX_NAMED.test(cause)) fail("fault-cause");', "", checkFaultRow],
         ["fault status kept", "...(status === null ? {} : { status: Number(status[1]) })", "...{}", checkFaultRow],
