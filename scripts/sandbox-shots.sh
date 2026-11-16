@@ -249,7 +249,8 @@
 # Switch, or Add in an older tree; after a mouse click on Displays'
 # control, its Enable plugin link, which turns it on and puts its widget
 # on the bar, the row then showing its Switch on, or Settings in an older
-# tree, which opens the Plugins window; and the empty bar's right-click
+# tree, which opens the Plugins window; the chooser dragged taller than it
+# opened; and the empty bar's right-click
 # menu, the saved configuration restored after the shots;
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
@@ -4531,6 +4532,23 @@ scene_add-widget() { # MODE
     fi
   else
     fail "the click on Displays' control failed"
+  fi
+  # The chooser dragged taller than it opened, by the room under it less
+  # 40 px; the compositor may move it while it resizes.
+  local address width height
+  if read -r address width height < <(python3 - "$(window_of Bar address size at)" "$(hypr -j monitors)" <<'PY'
+import json,sys
+w,m=sys.argv[1],json.loads(sys.argv[2])
+if not w.startswith("[") or not m: print("none 0 0"); raise SystemExit
+a,s,at=json.loads(w)
+print(a, s[0], m[0]["height"]-(at[1]-m[0]["y"])-40)
+PY
+  ) && [[ $address == 0x* ]]; then
+    expect "the chooser is dragged taller" ok hypr dispatch "hl.dsp.window.resize({ x = $width, y = $height, relative = false, window = \"address:$address\" })"
+    expect_poll "the chooser takes the dragged height" "[[$width, $height]]" window_of Bar size
+    take "add-widget-$1-stretched"
+  else
+    fail "the chooser's window is unreadable for the stretch"
   fi
   expect "the chooser hides" ok ipc shell hide window vgs.bar
   expect_poll "the chooser is gone" 0 window_count Bar

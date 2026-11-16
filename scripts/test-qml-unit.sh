@@ -1972,7 +1972,7 @@ mutations=(
   "a pane's footer divider shows only while more lies below|layout/Pane.qml|visible: root.footerHeight > 0 && !root.cardGrowing && scroll.contentY + scroll.height < scroll.contentHeight - 1|visible: root.footerHeight > 0 && !root.cardGrowing|tst_pane.qml"
   "a title button reports its title's capital centre|controls/TitleButton.qml|readonly property real capCentre: topPadding + label.capCentre|readonly property real capCentre: topPadding + label.height / 2|tst_titlebutton.qml"
   "an arc adds only its end|foundation/IconBounds.js|        if (inside(theta)) pointAt(theta);|        if (false) pointAt(theta);|tst_icon.qml"
-  "a fitted pane lays out past a shorter host|layout/Pane.qml|readonly property real boxHeight: fitToContent ? (height > 0 ? Math.min(cappedHeight, height) : cappedHeight) : height|readonly property real boxHeight: fitToContent ? cappedHeight : height|tst_pane.qml"
+  "a fitted pane lays out past a shorter host|layout/Pane.qml|readonly property real boxHeight: fitToContent ? (height > 0 ? (container === \"window\" ? height : Math.min(cappedHeight, height)) : cappedHeight) : height|readonly property real boxHeight: fitToContent ? cappedHeight : height|tst_pane.qml"
   "a pane's dividers start on the content edge|layout/Pane.qml|        x: root.frameBorder|        x: root.contentInset|tst_pane.qml"
   "a pane's dividers span the content width|layout/Pane.qml|        width: Math.max(0, root.width - 2 * root.frameBorder)|        width: root.contentWidth|tst_pane.qml"
   "a pane's footer divider is narrower than its header divider|layout/Pane.qml|        id: footerDivider|        id: footerDivider; width: root.contentWidth|tst_pane.qml"

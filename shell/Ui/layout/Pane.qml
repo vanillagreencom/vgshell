@@ -137,7 +137,9 @@ Item {
     // The height the box lays out in: a fitted pane's capped height, or
     // less when its host gives it less, such as a popup held inside a
     // short output; the body then scrolls and the footer stays inside.
-    readonly property real boxHeight: fitToContent ? (height > 0 ? Math.min(cappedHeight, height) : cappedHeight) : height
+    // A fitted window pane only opens its window at that height, then
+    // fills the height the user drags the window to.
+    readonly property real boxHeight: fitToContent ? (height > 0 ? (container === "window" ? height : Math.min(cappedHeight, height)) : cappedHeight) : height
     // The height a body with content shows at the pane's limit: a fitted
     // pane's `maximumHeight`, unbounded without one, else its height, less
     // the insets, the header, the footer and the gaps a header and a
