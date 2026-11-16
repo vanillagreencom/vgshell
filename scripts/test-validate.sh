@@ -4807,10 +4807,10 @@ python3 - "$q/scripts/test-qml-unit-reversed.sh" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
-line = '  cat -- "$tmp/case-$i.log"\n'
+line = '    cat -- "$tmp/case-$phase-$i.log"\n'
 source = path.read_text()
 assert source.count(line) == 1
-path.write_text(source.replace(line, '  cat -- "$tmp/case-$((${#cases[@]} - 1 - i)).log"\n'))
+path.write_text(source.replace(line, '    cat -- "$tmp/case-$phase-$((${#cases[@]} - 1 - i)).log"\n'))
 PY
 qml_jobs_want=$'  ok    killed slow\n  FAIL  survived: tst_x.qml passed on the mutated copy\n  FAIL  crashed: the runner exited 3, so no test judged the mutated copy\n  ok    killed fast'
 for copy in test-qml-unit.sh test-qml-unit-reversed.sh; do

@@ -2,7 +2,12 @@
 # Controls for scripts/qml-unit.sh and the unit tests under
 # scripts/qml-tests/: a table of mutations, one per guarantee a test pins,
 # each applied to a copy of its source module with its match counted, and the
-# runner is required to fail on every copy and pass on the unmutated copy. Two
+# runner is required to fail on every copy and pass on the unmutated copy.
+# Mutations that share a copy layout (ui, Commons, Core, the plugins mirror,
+# the stand-ins mirror or the smoke Probe mirror) and test file share one
+# such unmutated run, before any of their own copies are mutated; a
+# mutation whose pair's shared run did not pass fails the row without
+# judging its own copy, and is never counted as killed. Two
 # rows pin the runner's arguments: a missing qmltestrunner is not a pass,
 # and an unknown argument is refused. A second table plants one test file
 # per rule of the runner's log check and pins the exit and the line each
@@ -35,11 +40,15 @@
 # behavior. Product QML unit tests still run in full, and direct runs or
 # scripts/validate --full check every mutation.
 #
-# The unmutated copy, the mutations, the two argument rows, the display
-# lock row, the GC mode row, the cleanup control and the log rows run side by side, at most
+# The one shared baseline per distinct (layout, test) pair runs first, side
+# by side at the same bound; the unmutated copy, the mutations, the two
+# argument rows, the display lock row, the GC mode row, the cleanup control
+# and the log rows then run the same way, at most
 # VGS_VALIDATE_JOBS at once, a positive integer
 # (unset or empty: nproc), and print in that order; another value is
-# refused with exit 2, `test-qml-unit: refused: jobs=<value>`.
+# refused with exit 2, `test-qml-unit: refused: jobs=<value>`. A last control
+# forces one pair's recorded baseline to a failure and reruns its real
+# mutation to prove the row fails rather than counting a kill.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -2349,6 +2358,25 @@ mutation_target_path() { # FILE-FIELD
   esac
 }
 
+# The copy layout a row's file field builds: every row of the same layout
+# builds the identical sibling copy or mirror beside its mutated target, so
+# two rows of the same layout and test file share one unmutated baseline.
+mutation_layout() { # FILE-FIELD
+  case "$1" in
+    ../smoke/Probe.qml) printf 'smoke\n' ;;
+    ../Commons/*) printf 'commons\n' ;;
+    ../Core/*) printf 'core\n' ;;
+    ../plugins/*) printf 'plugins\n' ;;
+    ../stand-ins/*) printf 'standins\n' ;;
+    *) printf 'ui\n' ;;
+  esac
+}
+
+# The key a row's baseline is shared under: its layout and test file.
+mutation_pair_key() { # FILE-FIELD TEST-FILE
+  printf '%s|%s\n' "$(mutation_layout "$1")" "$2"
+}
+
 changed_paths=()
 scope=all
 if [[ -n ${VGS_VALIDATE_CHANGED:-} ]]; then
@@ -2434,11 +2462,18 @@ mutation_selected() { # INDEX FILE-FIELD TEST-FILE
 mutation_plan=()
 ran_mutations=0
 skipped_mutations=0
+baseline_pairs=()
+declare -A baseline_pair_seen=()
 for index in "${!mutations[@]}"; do
   IFS='|' read -r -d '' label file _needle _replacement test _intended_test < <(printf '%s\0' "${mutations[index]}")
   if mutation_selected "$index" "$file" "$test"; then
     mutation_plan+=("run $label")
     ran_mutations=$((ran_mutations + 1))
+    pair_key="$(mutation_pair_key "$file" "$test")"
+    if [[ -z ${baseline_pair_seen[$pair_key]-} ]]; then
+      baseline_pair_seen[$pair_key]=1
+      baseline_pairs+=("$pair_key")
+    fi
   else
     mutation_plan+=("skip $label")
     skipped_mutations=$((skipped_mutations + 1))
@@ -2488,9 +2523,76 @@ fresh() {
 copy="$tmp/ui"
 fresh "$copy"
 
+# Build DIR/ui and, for a LAYOUT beyond plain ui, the sibling copy or
+# mirror the runner needs: the same tree for every row of that layout.
+# Sets commons_args, core_args and tests_dir for the caller to pass to the
+# runner, through the dynamic scope mutation_case and baseline_case both
+# declare those in before calling this.
+mutation_tree() { # LAYOUT DIR
+  local dir="$2"
+  commons_args=()
+  core_args=()
+  tests_dir="$repo/scripts/qml-tests"
+  fresh "$dir/ui"
+  case "$1" in
+    commons)
+      cp -R -- "$repo/shell/Commons" "$dir/commons"
+      commons_args=(--commons "$dir/commons") ;;
+    core)
+      cp -R -- "$repo/shell/Core" "$dir/core"
+      core_args=(--core "$dir/core") ;;
+    plugins)
+      mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins" "$dir/mirror/shell/Commons" "$dir/mirror/shell/Core"
+      cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+      # Tests can read manifests from sibling plugins through relative paths.
+      cp -R -- "$repo/shell/plugins/." "$dir/mirror/shell/plugins/"
+      cp -R -- "$repo/shell/Commons/." "$dir/mirror/shell/Commons/"
+      cp -R -- "$repo/shell/Core/." "$dir/mirror/shell/Core/"
+      ln -s -- "$dir/ui" "$dir/mirror/shell/Ui"
+      ln -s -- "$repo/themes" "$dir/mirror/themes"
+      tests_dir="$dir/mirror/scripts/qml-tests"
+      commons_args=(--commons "$dir/mirror/shell/Commons")
+      core_args=(--core "$dir/mirror/shell/Core") ;;
+    standins)
+      mkdir -p -- "$dir/mirror/scripts"
+      cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+      tests_dir="$dir/mirror/scripts/qml-tests" ;;
+    smoke)
+      mkdir -p -- "$dir/mirror/scripts/smoke"
+      cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+      cp -- "$repo/scripts/smoke/Probe.qml" "$dir/mirror/scripts/smoke/Probe.qml"
+      tests_dir="$dir/mirror/scripts/qml-tests" ;;
+  esac
+}
+
+mkdir -- "$tmp/baseline"
+
+# One baseline case per distinct (layout, test) pair baseline_pairs names,
+# run once before the mutation cases. Every mutation of that pair reads
+# this recorded exit status instead of running its own unmutated copy.
+baseline_case() { # INDEX
+  local index="$1" pair_key="${baseline_pairs[$1]}" layout test dir status out tests_dir
+  local -a commons_args=() core_args=()
+  layout="${pair_key%%|*}"
+  test="${pair_key#*|}"
+  dir="$tmp/baseline-$index"
+  mkdir -- "$dir"
+  mutation_tree "$layout" "$dir"
+  status=0
+  out="$("$runner" --ui "$dir/ui" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || status=$?
+  printf '%s\n' "$status" >"$tmp/baseline/$pair_key.status"
+  if [[ $status -ne 0 ]]; then
+    fail "baseline $layout $test: the unmutated copy failed with runner exit $status"
+    printf '%s\n' "$out"
+  else
+    ok "baseline $layout $test"
+  fi
+  rm -rf -- "$dir"
+}
+
 # One mutation row, in a directory of its own, removed after the run.
 mutation_case() { # INDEX
-  local index="$1" label file needle replacement test intended_test dir target count baseline_status mutant_status baseline_out out tests_dir
+  local index="$1" label file needle replacement test intended_test dir target layout pair_key count baseline_status mutant_status out tests_dir
   local -a commons_args=() core_args=()
   IFS='|' read -r -d '' label file needle replacement test intended_test < <(printf '%s\0' "${mutations[index]}")
   # A `|` inside a field shifts the rest, and a runner handed a test that is
@@ -2498,57 +2600,26 @@ mutation_case() { # INDEX
   if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; return 0; fi
   dir="$tmp/mutation-$index"
   mkdir -- "$dir"
-  fresh "$dir/ui"
-  target="$dir/ui/$file"
-  tests_dir="$repo/scripts/qml-tests"
-  if [[ $file == ../Commons/* ]]; then
-    cp -R -- "$repo/shell/Commons" "$dir/commons"
-    target="$dir/commons/${file#../Commons/}"
-    commons_args=(--commons "$dir/commons")
-  fi
-  if [[ $file == ../Core/* ]]; then
-    cp -R -- "$repo/shell/Core" "$dir/core"
-    target="$dir/core/${file#../Core/}"
-    core_args=(--core "$dir/core")
-  fi
-  if [[ $file == ../plugins/* ]]; then
-    mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins" "$dir/mirror/shell/Commons" "$dir/mirror/shell/Core"
-    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
-    # Tests can read manifests from sibling plugins through relative paths.
-    cp -R -- "$repo/shell/plugins/." "$dir/mirror/shell/plugins/"
-    cp -R -- "$repo/shell/Commons/." "$dir/mirror/shell/Commons/"
-    cp -R -- "$repo/shell/Core/." "$dir/mirror/shell/Core/"
-    ln -s -- "$dir/ui" "$dir/mirror/shell/Ui"
-    ln -s -- "$repo/themes" "$dir/mirror/themes"
-    target="$dir/mirror/shell/${file#../}"
-    tests_dir="$dir/mirror/scripts/qml-tests"
-    commons_args=(--commons "$dir/mirror/shell/Commons")
-    core_args=(--core "$dir/mirror/shell/Core")
-  fi
-  if [[ $file == ../stand-ins/* ]]; then
-    mkdir -p -- "$dir/mirror/scripts"
-    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
-    target="$dir/mirror/scripts/qml-tests/stand-ins/${file#../stand-ins/}"
-    tests_dir="$dir/mirror/scripts/qml-tests"
-  fi
-  if [[ $file == ../smoke/Probe.qml ]]; then
-    mkdir -p -- "$dir/mirror/scripts/smoke"
-    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
-    cp -- "$repo/scripts/smoke/Probe.qml" "$dir/mirror/scripts/smoke/Probe.qml"
-    target="$dir/mirror/scripts/smoke/Probe.qml"
-    tests_dir="$dir/mirror/scripts/qml-tests"
-  fi
+  layout="$(mutation_layout "$file")"
+  mutation_tree "$layout" "$dir"
+  case "$layout" in
+    commons) target="$dir/commons/${file#../Commons/}" ;;
+    core) target="$dir/core/${file#../Core/}" ;;
+    plugins) target="$dir/mirror/shell/${file#../}" ;;
+    standins) target="$dir/mirror/scripts/qml-tests/stand-ins/${file#../stand-ins/}" ;;
+    smoke) target="$dir/mirror/scripts/smoke/Probe.qml" ;;
+    *) target="$dir/ui/$file" ;;
+  esac
   count="$(python3 - "$target" "$needle" <<'PY'
 import sys
 print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))
 PY
 )"
   if [[ $count -ne 1 ]]; then fail "$label: the text to replace occurs $count times in $file"; return 0; fi
-  baseline_status=0
-  baseline_out="$("$runner" --ui "$dir/ui" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || baseline_status=$?
-  if [[ $baseline_status -ne 0 ]]; then
-    fail "$label: unchanged baseline failed with runner exit $baseline_status"
-    printf '%s\n' "$baseline_out"
+  pair_key="$(mutation_pair_key "$file" "$test")"
+  baseline_status="$(cat -- "$tmp/baseline/$pair_key.status" 2>/dev/null)" || baseline_status=""
+  if [[ $baseline_status != 0 ]]; then
+    fail "$label: unchanged baseline failed with runner exit ${baseline_status:-unreadable}"
     rm -rf -- "$dir"
     return 0
   fi
@@ -2573,6 +2644,26 @@ PY
     *) fail "$label: the runner exited $mutant_status, so no test judged the mutated copy"; printf '%s\n' "$out" | tail -n 5 ;;
   esac
   rm -rf -- "$dir"
+}
+
+# Control, run once after every other case has ended: force a real row's
+# pair to a recorded failure and drive the real mutation_case on it, which
+# must fail the row rather than count a kill. mutation_case runs inside a
+# command substitution, so the fail it prints to prove this never reaches
+# the outer failures count; only this case's own verdict does.
+baseline_block_case() {
+  local index=0 file test pair_key saved out _label _needle _replacement _intended
+  IFS='|' read -r -d '' _label file _needle _replacement test _intended < <(printf '%s\0' "${mutations[index]}")
+  pair_key="$(mutation_pair_key "$file" "$test")"
+  saved="$(cat -- "$tmp/baseline/$pair_key.status" 2>/dev/null)" || saved=""
+  printf '1\n' >"$tmp/baseline/$pair_key.status"
+  out="$(mutation_case "$index" 2>&1)" || true
+  if [[ -n $saved ]]; then printf '%s\n' "$saved" >"$tmp/baseline/$pair_key.status"; else rm -f -- "$tmp/baseline/$pair_key.status"; fi
+  if grep -Fq -- '  FAIL  ' <<<"$out" && grep -Fq -- 'unchanged baseline failed with runner exit 1' <<<"$out"; then
+    ok "control: a mutation whose pair's baseline failed is reported as a failure, not a kill"
+  else
+    fail "control: a mutation whose pair's baseline failed: got [$out]"
+  fi
 }
 
 # Rows: label | name of the planted tst_<name>.qml | the runner's exit |
@@ -2776,6 +2867,7 @@ run_case() { # KIND [INDEX]
         printf '%s\n' "$out" | tail -n 20
       fi ;;
     mutation) mutation_case "$2" ;;
+    baseline) baseline_case "$2" ;;
     missing-runner)
       if out="$(QML_UNIT_RUNNER=/nonexistent/qmltestrunner "$runner" --ui "$copy" 2>&1)"; then
         fail "a missing runner passed"
@@ -2794,50 +2886,64 @@ run_case() { # KIND [INDEX]
   esac
 }
 
-# The cases run side by side, at most jobs_max at once, as the
+# Run the current cases side by side, at most jobs_max at once, as the
 # parallel_cases of scripts/test-validate.sh runs its own: each job writes
 # its lines to its own log and its failure count beside it, and the logs
 # print in case order, so the lines read as one case after another. A job
 # that ended before writing its count is one failure. A job resets INT and
-# QUIT, which a bare `&` ignores, so a Ctrl-C reaches every runner.
+# QUIT, which a bare `&` ignores, so a Ctrl-C reaches every runner. Called
+# once for the baseline cases, which must all finish before any mutation
+# reads a baseline status, and once for the cases after them; PHASE keys
+# the log and failure-count files so a crashed job's missing file in one
+# call is never read as the other call's leftover file at the same index.
+run_cases() { # PHASE
+  local phase="$1" i count active=0
+  for i in "${!cases[@]}"; do
+    (
+      trap - INT QUIT
+      # shellcheck disable=SC2030 # the job's own count, by design
+      failures=0
+      # shellcheck disable=SC2086 # a case is its kind and its index
+      run_case ${cases[i]}
+      printf '%s\n' "$failures" >"$tmp/case-$phase-$i.failures"
+    ) >"$tmp/case-$phase-$i.log" 2>&1 &
+    active=$((active + 1))
+    if ((active >= jobs_max)); then
+      wait -n || true
+      active=$((active - 1))
+    fi
+  done
+  wait
+  for i in "${!cases[@]}"; do
+    cat -- "$tmp/case-$phase-$i.log"
+    if count="$(cat -- "$tmp/case-$phase-$i.failures" 2>/dev/null)" && [[ $count =~ ^[0-9]+$ ]]; then
+      # shellcheck disable=SC2031 # the parent's count, which the jobs left alone
+      failures=$((failures + count))
+    else
+      fail "${cases[i]}: the case's job ended before it reported"
+    fi
+  done
+}
+
+cases=()
+for index in "${!baseline_pairs[@]}"; do cases+=("baseline $index"); done
+run_cases baseline
+
 cases=(copy)
 for index in "${!mutations[@]}"; do
   [[ ${mutation_plan[index]} == skip\ * ]] || cases+=("mutation $index")
 done
 cases+=(missing-runner unknown-argument xvfb-lock gc-mode cleanup)
 for index in "${!logs[@]}"; do cases+=("log $index"); done
-active=0
-for i in "${!cases[@]}"; do
-  (
-    trap - INT QUIT
-    # shellcheck disable=SC2030 # the job's own count, by design
-    failures=0
-    # shellcheck disable=SC2086 # a case is its kind and its index
-    run_case ${cases[i]}
-    printf '%s\n' "$failures" >"$tmp/case-$i.failures"
-  ) >"$tmp/case-$i.log" 2>&1 &
-  active=$((active + 1))
-  if ((active >= jobs_max)); then
-    wait -n || true
-    active=$((active - 1))
-  fi
-done
-wait
-for i in "${!cases[@]}"; do
-  cat -- "$tmp/case-$i.log"
-  if count="$(cat -- "$tmp/case-$i.failures" 2>/dev/null)" && [[ $count =~ ^[0-9]+$ ]]; then
-    # shellcheck disable=SC2031 # the parent's count, which the jobs left alone
-    failures=$((failures + count))
-  else
-    fail "${cases[i]}: the case's job ended before it reported"
-  fi
-done
+run_cases main
 
 count="$(count_qml_unit_roots "$TMPDIR")" || count=unreadable
 printf 'test-qml-unit: temporary-roots=%s scope=world\n' "$count"
 if [[ $count != 0 ]]; then
   fail "the world's temporary directory holds [$count] qml-unit folders, want zero"
 fi
+
+baseline_block_case
 
 if [[ $failures -eq 0 ]]; then
   echo "test-qml-unit: ok mutations=$ran_mutations skipped=$skipped_mutations logs=${#logs[@]}"
