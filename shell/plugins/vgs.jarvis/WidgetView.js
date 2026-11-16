@@ -98,7 +98,10 @@ var FAULT_TEXT = {
     "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
     "home": { title: "Jarvis cannot use the home folder", action: "See what to change in [Setup > Home folder](page:vgs.jarvis/Setup/setupHome)." },
     "brain": { title: "The AI model did not answer", action: RESTART },
-    "voiceConnection": { title: "Jarvis Voice lost its connection", action: "Check your network, then turn Jarvis Voice off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." },
+    "voiceConnection": { title: "The voice service could not finish the request", action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)." },
+    "voiceNetwork": { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
+    "voiceInput": { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
+    "voiceReply": { title: "The voice reply stopped too early", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
     "voice": { title: "Local voice stopped working", action: RESTART },
@@ -204,7 +207,12 @@ function faultKind(fault) {
     if (fault === null || typeof fault !== "object" || ["error", "retrying", "voice-connection"].indexOf(fault.kind) === -1
             || typeof fault.reason !== "string") refuse("fault", fault);
     if (fault.reason === "live=key-refused") return "keyRefused";
-    if (fault.kind === "voice-connection") return "voiceConnection";
+    if (fault.kind === "voice-connection") {
+        if (/^live=disconnected code=|^net=socket-not-open$/.test(fault.reason)) return "voiceNetwork";
+        if (/^live=(input-overflow|send-backlog)$/.test(fault.reason)) return "voiceInput";
+        if (/^live=response status=incomplete(?: |$)/.test(fault.reason)) return "voiceReply";
+        return "voiceConnection";
+    }
     for (var i = 0; i < FAULT_KINDS.length; i++)
         if (FAULT_KINDS[i][0].test(fault.reason)) return FAULT_KINDS[i][1];
     return "other";

@@ -421,7 +421,7 @@ world(async () => {
     // speaks inside the delegation; ackLine distinguishes a fixed progress
     // line from a reply. protocol is the adapter: REALTIME or GEMINI.
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
-        ack, ackLine = true, wallEpoch = 0, usage = () => {} } = {}) {
+        ack, ackLine = true, wallEpoch = 0, usage = () => {}, deferredWrites = false } = {}) {
         const clock = manual(wallEpoch);
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
@@ -447,7 +447,15 @@ world(async () => {
             if (channel.kind !== "channel") return channel;
             w.channelEvents = channel.events;
             let closing = false;
-            return { kind: channel.kind, events: channel.events, send: channel.send, close() {
+            return { kind: channel.kind, events: channel.events, send(frame, grants) {
+                const answer = channel.send(frame, grants);
+                if (deferredWrites) {
+                    const bytes = Buffer.byteLength(frame.content);
+                    w.backlog = (w.backlog ?? 0) + bytes;
+                    queueMicrotask(() => { w.backlog -= bytes; });
+                }
+                return answer;
+            }, close() {
                 if (synchronousClose && !closing) {
                     closing = true;
                     channel.events.dispatchEvent(Object.assign(new Event("close"), { code: 1006, wasClean: false }));
@@ -509,6 +517,7 @@ world(async () => {
         ports.speech = { ...engine.port, open: (e, events) => {
             w.speechOpens.push({ gen: e.gen, op: e.op });
             return engine.port.open(e, { ...events, due: value => { w.dues.push(value); events.due(value); },
+                failed: reason => events.failed(reason, { kind: "none", category: "other" }),
                 inputEnded: value => { w.inputResults.push(value); events.inputEnded(value); },
                 interrupted: value => w.interrupted.push(value),
                 renewal: () => w.renewals.push(Protocol.accept(JSON.stringify({
@@ -1223,6 +1232,28 @@ world(async () => {
 
     // The production adapter FIFO carries native end behind real PCM, before
     // a later segment, through both opening and socket backpressure.
+    async function fragmentedInput(kit, P = REALTIME) {
+        const { w, conn } = await starting(kit, { protocol: P, deferredWrites: true });
+        P.go(conn);
+        await conn.sync();
+        const frame = Buffer.alloc(PCM_RATE * 2 / 50, 5);
+        // Audio.feedCloudInput splits each recorder chunk synchronously.
+        // Native send accounting clears only after that burst yields.
+        for (let burst = 0; burst < 30; burst++) {
+            for (let i = 0; i < 50; i++) {
+                w.sink.write(frame);
+                assert.equal(w.state.fault.kind, "none", "fragmented speech must not outrun its pump");
+            }
+            await turn();
+            w.clock.advance(1000);
+            await conn.sync();
+        }
+        w.sink.endInput();
+        await nativeEnd(conn);
+        assert.ok(P.sent(conn).equals(Buffer.alloc(frame.length * 50 * 30 * P.rate, 5)), "all fragmented PCM arrives once");
+        w.dispatch("toggle");
+    }
+
     async function nativeInput(kit, P = REALTIME) {
         for (const waiting of ["opening", "backpressure"]) {
             const { w, conn } = await starting(kit, { protocol: P });
@@ -2053,7 +2084,7 @@ world(async () => {
     // ToolRouter, Policy, Files, Audit and the duplex speech owner. Only the
     // provider address and clock are instrumented in its disposable tree.
     // Its hello selects the model the local fixture server's catalog offers.
-    async function daemonDelegation(kit, only = "action", P = REALTIME) {
+    async function daemonDelegation(kit, only = "action", P = REALTIME, voiceStage = "active") {
         const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "delegation-daemon-"));
         const plugin = path.join(root, "plugin");
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis"), plugin, { recursive: true });
@@ -2198,6 +2229,24 @@ world(async () => {
             conn.auto = 1;
             assert.equal(P.noTools(await P.open(conn)), true, "the daemon's voice has no tools");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
+            if (only === "voice-fault") {
+                conn.socket.destroy();
+                await wait(() => last()?.restart.kind === "restarted" && rows().filter(row => row.kind === "fault").length === 1,
+                    "a socket close uses the conversation restart and records it");
+                assert.equal(last().fault.kind, "none");
+                assert.deepEqual(rows().filter(row => row.kind === "fault").map(row => [row.category, row.action]), [["connection", "restarted"]]);
+                press();
+                await wait(() => main.conns.some(next => next.rig === null && !next.taken), "the restarted voice reconnects");
+                const next = main.conns.find(next => next.rig === null && !next.taken); next.taken = true;
+                await P.open(next);
+                next.socket.destroy();
+                await wait(() => last()?.fault.kind === "voice-connection" && rows().filter(row => row.kind === "fault").length === 2,
+                    "a second socket close stays stopped and records it");
+                assert.deepEqual(rows().filter(row => row.kind === "fault").map(row => row.action), ["restarted", "stopped"]);
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
             const speech = { gen: last().speech.gen, op: last().speech.op };
             // Every frame the session sent, with its label set and the audit
             // rows written inside its own send callback.
@@ -2215,8 +2264,9 @@ world(async () => {
             await release();
             // What a brain may write around its words: a tool call as an element, a bare JSON value and markup.
             const answer = '<tool_call>{"name": "files_delete"}</tool_call> {"deleted": true} **Completed.** Visit https://example.com.';
-            if (only === "action") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
-                BrainFixture.text(answer));
+            const result = only === "voice-acted" ? "Completed." : answer;
+            if (only === "action" || only === "voice-acted") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
+                only === "voice-acted" ? BrainFixture.text({ wait: heldReply }, result) : BrainFixture.text(result));
             else if (only === "release") server.replies.push(BrainFixture.calls({ id: "read_call", name: "files_read", arguments: { path: victim } }),
                 BrainFixture.text("The private result was withheld."));
             else if (only === "heard") {
@@ -2233,13 +2283,14 @@ world(async () => {
                 server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
                 if (only === "replacement") server.replies.push(BrainFixture.text("Current reply."));
             }
+            if (only === "voice-acted" && voiceStage !== "active") conn.voice = [4800];
             conn.play("turn");
             await wait(() => server.requests[0]?.body !== null && server.requests.length > 0, "the configured brain receives the delegation");
             const first = server.requests[0].body;
             assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is the time?")));
             assert.equal(first.model, "fixture-model");
             assert.ok(Array.isArray(first.tools) && first.tools.some(value => value.function.name === "files_delete"), "the configured router offers its tools");
-            if (only === "action") {
+            if (only === "action" || only === "voice-acted") {
                 await wait(() => last()?.approval.kind === "held", "the router holds the destructive call");
                 assert.equal(fs.existsSync(victim), true, "Policy blocks deletion before approval");
                 const approval = last().approval;
@@ -2248,6 +2299,49 @@ world(async () => {
                 await wait(() => last().approval.shownAt !== null, "the action is drawn");
                 fs.writeFileSync(offset, "1000");
                 send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
+                if (only === "voice-acted") {
+                    await wait(() => !fs.existsSync(victim) && server.requests[1]?.body !== undefined && server.requests[1]?.body !== null,
+                        "the approved action returns its tool result");
+                    let ended = false;
+                    server.requests[1].closed.then(() => { ended = true; });
+                    if (voiceStage === "active") assert.equal(last().turn.kind, "thinking");
+                    else {
+                        await wait(() => conn.count(P.SPEAK) > 0 && last()?.speech.reply.kind === "none" && last()?.playback.kind === "idle",
+                            "the acknowledgement plays before the held brain result");
+                        conn.auto = 0;
+                        const beforeReply = conn.count(P.SPEAK);
+                        releaseReply();
+                        await wait(() => last()?.turn.kind === "none" && conn.count(P.SPEAK) > beforeReply,
+                            "the brain finishes with its acted result still queued for voice");
+                        assert.equal(last().speech.reply.kind, "due");
+                        if (voiceStage !== "queued") {
+                            // Real output moves Session's ownership from due
+                            // words to Audio, until Audio reports it played.
+                            P.begin(conn, "acted_reply");
+                            P.chunk(conn, 4800, 0x11, "acted_reply");
+                            P.said(conn, "Completed.", "acted_reply");
+                            await wait(() => last()?.playback.kind === "playing", "the acted result reaches Audio");
+                            assert.equal(last().speech.reply.kind, "none");
+                            if (voiceStage === "played") {
+                                P.end(conn, "acted_reply");
+                                await wait(() => last()?.playback.kind === "idle" && last()?.speech.reply.kind === "none",
+                                    "the acted result is fully played");
+                            }
+                        }
+                    }
+                    conn.socket.destroy();
+                    const restarted = voiceStage === "played";
+                    await wait(() => rows().filter(row => row.kind === "fault").length === 1,
+                        "the voice fault records its output boundary");
+                    assert.equal(last().restart.kind, restarted ? "restarted" : "none",
+                        "only a fully played acted result permits the idle voice restart");
+                    assert.equal(last().fault.kind, restarted ? "none" : "voice-connection");
+                    assert.deepEqual(rows().filter(row => row.kind === "fault").map(row => row.action), [restarted ? "restarted" : "stopped"]);
+                    if (voiceStage === "active") await wait(() => ended, "the fault closes the active brain request");
+                    child.stdin.end();
+                    assert.equal((await closed)[0], 0, stderr);
+                    return;
+                }
                 await wait(() => fs.existsSync(victim) === false && server.requests.length === 2 && conn.count(P.SPEAK) > 0
                     || ["error", "voice-connection"].includes(last()?.fault.kind),
                     "the approved result returns as spoken words");
@@ -2817,7 +2911,7 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    const cases = { roundTrip, preview, vocabulary, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, interruptPlaying,
+    const cases = { roundTrip, preview, vocabulary, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, interruptPlaying,
         capIdle, capActive, capAutomatic, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
@@ -2826,13 +2920,17 @@ world(async () => {
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
         daemonFailover: kit => daemonDelegation(kit, "failover"),
+        daemonVoiceFault: kit => daemonDelegation(kit, "voice-fault"),
+        daemonVoiceActedFault: async kit => {
+            for (const stage of ["active", "queued", "playing", "played"]) await daemonDelegation(kit, "voice-acted", REALTIME, stage);
+        },
         groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures, gcapWarnings,
         gredirect, gstartTimeout, gkeys,
         ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
     // The session rules both adapters keep, which run once for each: the
     // Realtime rows above take the adapter as their second argument.
-    const SHARED = ["nativeInput", "inputOutcomes", "quietInput", "stoppedInput", "inputFrame", "nativeResultsBound", "keyRefused", "closing", "interruptPlaying", "interruptQueued",
+    const SHARED = ["fragmentedInput", "nativeInput", "inputOutcomes", "quietInput", "stoppedInput", "inputFrame", "nativeResultsBound", "keyRefused", "closing", "interruptPlaying", "interruptQueued",
         "capIdle", "capActive", "capAutomatic", "capUnfinished", "capConnectingInput", "capQueuedSpeech", "capCutSpeech", "capTeardown", "capStop",
         "replacedReply", "heardAccount", "replyDue", "replyDueCarried", "releaseDue", "labels", "responseTimeout", "responseEnded", "opening",
         "releaseLifetime", "pacing", "replyQueue", "backlog", "lineQueue", "violations"];
@@ -3031,6 +3129,8 @@ world(async () => {
                 'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")],
             ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "",
                 as("opening")],
+            ["fragmented-input", "while (Buffer.isBuffer(session.pending[0]) && bytes < APPEND_BYTES)",
+                "while (Buffer.isBuffer(session.pending[0]) && bytes < APPEND_BYTES && frames.length === 0)", as("fragmentedInput")],
             ["input-order", 'if (session.state.kind === "running" && session.pending.length === 0 && session.channel.bufferedAmount === 0) return append(session, pcm);',
                 'if (session.state.kind === "running") return append(session, pcm);', as("opening")],
             ["drain", " && session.channel.bufferedAmount === 0) {", ") {", as("nativeInput")],
@@ -3165,7 +3265,13 @@ world(async () => {
             await control("gemini-copy-" + name, needle, replacement, check, GEMINI);
         }
         assert.deepEqual(uncovered, [], "every Realtime rule Gemini Live copies has a Gemini Live control");
-        for (const [name, needle, replacement, scenario, P = REALTIME] of [
+        for (const [name, needle, replacement, scenario, P = REALTIME, voiceStage = "active"] of [
+            ["daemon-voice-restart", "events.failed(reason, restart);",
+                "events.failed(reason, unrestarted(reason));", "voice-fault"],
+            ["daemon-voice-acted", "const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);",
+                "const restart = restartOf(reason, { acted: false });", "voice-acted"],
+            ["daemon-voice-result", "const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);",
+                "const restart = restartFor(c, c.turn, reason);", "voice-acted", REALTIME, "queued"],
             ["daemon-live-selection", "if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {", "if (false) {", "action"],
             ["daemon-gemini-selection", "if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {", "if (false) {", "action", GEMINI],
             ["daemon-gemini-row", '    gemini: Object.freeze({ id: "gemini-live", account: "gemini", adapter: GeminiLive })\n', "", "action", GEMINI],
@@ -3211,7 +3317,7 @@ world(async () => {
                 : name === "daemon-stream-recipients-reset"
                     ? error => error instanceof assert.AssertionError && error.actual?.check === "failover-reconnection-audit" && error.actual.rows === 0
                     : assert.AssertionError;
-            await assert.rejects(() => daemonDelegation(kit, scenario, P), failed, name + " must turn red");
+            await assert.rejects(() => daemonDelegation(kit, scenario, P, voiceStage), failed, name + " must turn red");
             controls++;
             console.log("control=" + name + " detected");
         }

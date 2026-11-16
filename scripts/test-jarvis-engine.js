@@ -3539,6 +3539,21 @@ function brainPlan(Engine) {
 function restartTable(Engine) {
     const clean = { acted: false, answered: true, remote: true };
     const rows = [
+        ["live=input-overflow", clean, "restart", "connection"],
+        ["live=disconnected code=1006", clean, "restart", "connection"],
+        ["net=socket-not-open", clean, "restart", "connection"],
+        ["live=start-timeout", clean, "restart", "connection"],
+        ["live=response-timeout", clean, "restart", "reply-cut"],
+        ["live=response status=incomplete reason=max_output_tokens", clean, "restart", "reply-cut"],
+        ["live=response status=incomplete", clean, "restart", "reply-cut"],
+        ["live=response status=incomplete reason=content_filter", clean, "none", "other"],
+        ["live=response status=incomplete reason=unrecognized", clean, "none", "other"],
+        ["live=response status=failed type=server_error code=inference_error", clean, "restart", "service"],
+        ["live=server-error type=invalid_request_error code=invalid_value", clean, "none", "other"],
+        ["live=server-error type=server_error code=insufficient_quota", clean, "none", "account"],
+        ["live=key-refused", clean, "none", "account"],
+        ["live=voice", clean, "none", "setup"],
+        ["live=event type=unrecognized", clean, "none", "other"],
         // Transient: restarts after a clean turn, under its own further condition.
         ["brain=stream-failed", clean, "restart", "reply-cut"],
         ["brain=stream-truncated", { acted: false, answered: false, remote: false }, "restart", "reply-cut"],
@@ -3987,6 +4002,8 @@ async function groupSelection(root, server) {
         ["restart-acted", "judged.class === \"transient\" && !facts.acted && ", "judged.class === \"transient\" && "],
         ["restart-needs", "(judged.needs === null || facts[judged.needs] === true)", "true"],
         ["restart-quota", "[\"rate-limited 429\", ACCOUNT]", "[\"rate-limited 429\", SERVICE]"],
+        ["voice-restart-cause", '[/^live=(?:disconnected code=\\d+|start-timeout|input-overflow|send-backlog)$/, () => cause("transient", "connection", false)]',
+            '[/^live=(?:disconnected code=\\d+|start-timeout|input-overflow|send-backlog)$/, () => PERMANENT]'],
         ["restart-stream-error", "[/^brain=stream-error$/, () => UNKNOWN]", "[/^brain=stream-error$/, () => cause(\"transient\", \"reply-cut\", true)]"],
         ["restart-setup-exit", "programEnd(/ code=127 | cause=(?:home-missing|not-started)$/)", "programEnd(/ cause=(?:home-missing|not-started)$/)"]]) {
         const { Engine } = Fixture.copy(root, [[needle, replacement]]);

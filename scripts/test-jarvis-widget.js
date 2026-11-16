@@ -271,9 +271,12 @@ function verifyVoiceFaults(logic, view) {
     };
     const voice = { company: "OpenAI" };
     const connection = {
-        title: "Jarvis Voice lost its connection",
-        action: "Check your network, then turn Jarvis Voice off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."
+        title: "The voice service could not finish the request",
+        action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)."
     };
+    const network = { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
+    const input = { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
+    const reply = { title: "The voice reply stopped too early", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
     const brain = {
         title: "The AI model did not answer",
         action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."
@@ -284,8 +287,11 @@ function verifyVoiceFaults(logic, view) {
     };
     const sharedOrigins = ["speech", "brain-chained", "brain-duplex"];
     for (const [reason, speechText, origins] of [
-        ["net=closed", connection, sharedOrigins], ["net=socket-not-open", connection, ["speech"]], ["net=recipient", connection, sharedOrigins],
-        ["live=failed", connection, ["speech"]], ["live=key-refused", key, ["speech"]]
+        ["net=closed", connection, sharedOrigins], ["net=socket-not-open", network, ["speech"]], ["net=recipient", connection, sharedOrigins],
+        ["live=failed", connection, ["speech"]], ["live=key-refused", key, ["speech"]],
+        ["live=input-overflow", input, ["speech"]], ["live=send-backlog", input, ["speech"]],
+        ["live=disconnected code=1006", network, ["speech"]], ["live=start-timeout", connection, ["speech"]],
+        ["live=response status=incomplete reason=max_output_tokens", reply, ["speech"]]
     ]) {
         for (const origin of origins) {
             let s;
@@ -298,7 +304,7 @@ function verifyVoiceFaults(logic, view) {
             }
             const speech = origin === "speech";
             const event = callback(speech ? "speech-failed" : "brain-failed", speech ? s.speech : s.turn, 30,
-                { reason, ...(speech ? {} : { restart: { kind: "none", category: "other" } }) });
+                { reason, restart: { kind: "none", category: "other" } });
             const failed = step(s, event);
             assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason } : { kind: "error", reason, retry: 0 },
                 origin + " " + reason + ": retain the admitted fault origin and reason");
@@ -341,8 +347,8 @@ function voiceFaultControls() {
         for (const file of ["SetupGate.js", "Session.js", "WidgetView.js"])
             fs.copyFileSync(path.join(dir, file), path.join(temp, file));
         for (const [label, file, needle, replacement] of [
-            ["Session loses the speech origin", "Session.js", 's.fault = { kind: "voice-connection", reason: e.reason };',
-                's.fault = { kind: "error", reason: e.reason, retry: 0 };'],
+            ["Session loses the speech origin", "Session.js", 'failConversation(s, effects, e, { kind: "voice-connection", reason: e.reason });',
+                'failConversation(s, effects, e, { kind: "error", reason: e.reason, retry: 0 });'],
             ["the view guesses from the reason", "WidgetView.js", 'if (fault.kind === "voice-connection")',
                 'if (false)']
         ]) {

@@ -195,13 +195,13 @@ function restartAnswer(restart) {
 // again (canEngage), ends it with no fault instead; an open conversation, one
 // that listens between turns, opens again through start(). Every failure
 // leaves one record of its cause and what Session did.
-function failBrain(s, effects, e) {
+function failConversation(s, effects, e, fault) {
     var restarting = e.restart.kind === "restart" && s.restart.kind === "none" && !previewConversation(s) && canEngage(s);
     var open = s.input.kind === "conversation";
     effect(s, effects, "fault-record", { reason: e.reason, category: e.restart.category,
         action: restarting ? "restarted" : "stopped" });
     if (!restarting) {
-        s.fault = { kind: "error", reason: e.reason, retry: 0 };
+        s.fault = fault;
         end(s, effects, e.at, "brain-failed", false);
         return;
     }
@@ -870,7 +870,7 @@ function reduce(state, e) {
         if (e.type === "brain-done" && (s.playback.kind === "flushing" || s.playback.kind === "feedback")
                 && s.playback.reply.kind === "waiting")
             s.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;
-        if (e.type === "brain-failed") failBrain(s, effects, e);
+        if (e.type === "brain-failed") failConversation(s, effects, e, { kind: "error", reason: e.reason, retry: 0 });
         break;
     case "cancelled":
         if (!live(s, e, "turn", ["cancelling"])) { stale(s); break; }
@@ -1078,12 +1078,12 @@ function reduce(state, e) {
         break;
     case "speech-failed":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        if (!restartAnswer(e.restart)) throw new Error("jarvis: session=speech-failed");
         // A failed engine has already released its session.
         s.speech = { kind: "closed" };
         // Only duplex speech opens this port; a brain's failure has its own
         // event even under duplex. Keep the origin, not a guess from net=.
-        s.fault = { kind: "voice-connection", reason: e.reason };
-        end(s, effects, e.at, "speech-failed", false);
+        failConversation(s, effects, e, { kind: "voice-connection", reason: e.reason });
         break;
     case "deadline":
         if (live(s, e, "turn", ["collecting", "thinking", "cancelling"])

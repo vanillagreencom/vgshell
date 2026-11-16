@@ -350,11 +350,20 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 } catch (error) { failed(session, reasonOf(error)); return false; }
                 continue;
             }
-            const pcm = queued.subarray(0, APPEND_BYTES);
-            if (pcm.length === queued.length) session.pending.shift();
-            else session.pending[0] = queued.subarray(pcm.length);
-            session.pendingBytes -= pcm.length;
-            if (!append(session, pcm)) return false;
+            // Audio writes 20 ms fragments in synchronous recorder bursts.
+            // Coalesce them: one fragment per 100 ms pump cannot keep up.
+            const frames = [];
+            let bytes = 0;
+            while (Buffer.isBuffer(session.pending[0]) && bytes < APPEND_BYTES) {
+                const frame = session.pending[0];
+                const take = Math.min(frame.length, APPEND_BYTES - bytes);
+                frames.push(frame.subarray(0, take));
+                bytes += take;
+                if (take === frame.length) session.pending.shift();
+                else session.pending[0] = frame.subarray(take);
+            }
+            session.pendingBytes -= bytes;
+            if (!append(session, Buffer.concat(frames, bytes))) return false;
         }
         if (session.pending.length !== 0) progress(session);
         return true;

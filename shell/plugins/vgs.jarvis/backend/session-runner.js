@@ -79,7 +79,7 @@ class SessionRunner {
             transcript: record => done("transcript", record),
             inputEnded: result => done("speech-input-ended", result),
             idle: () => done("speech-idle"),
-            failed: reason => done("speech-failed", { reason })
+            failed: (reason, restart) => done("speech-failed", { reason, restart })
         }); break;
         case "speech-close": this.ports.speech.close(e); break;
         case "speech-flush": this.ports.speech.flush(e); break;

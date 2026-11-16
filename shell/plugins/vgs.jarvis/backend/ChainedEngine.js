@@ -150,6 +150,17 @@ function programEnd(setup) {
         : cause("transient", "app-stopped", true, { ended: true, needs: "answered" });
 }
 const CAUSES = Object.freeze([
+    // Realtime server-events distinguishes server_error from client errors;
+    // incomplete max_output_tokens can retry, content_filter cannot.
+    // https://developers.openai.com/api/reference/resources/realtime/server-events
+    [/^live=(?:disconnected code=\d+|start-timeout|input-overflow|send-backlog)$/, () => cause("transient", "connection", false)],
+    [/^net=socket-not-open$/, () => cause("transient", "connection", false)],
+    [/^live=response-timeout$/, () => cause("transient", "reply-cut", false)],
+    [/^live=response status=incomplete(?: reason=max_output_tokens)?$/, () => cause("transient", "reply-cut", false)],
+    [/^live=(?:server-error|response status=failed) type=[A-Za-z0-9_.-]+ code=(?:insufficient_quota|rate_limit_exceeded|invalid_api_key)$/, () => ACCOUNT],
+    [/^live=(?:server-error|response status=failed) type=server_error code=[A-Za-z0-9_.-]+$/, () => cause("transient", "service", false)],
+    [/^live=key-refused$/, () => ACCOUNT],
+    [/^live=(?:no-key|voice|driver|format)$/, () => SETUP],
     [/^brain=stream-(?:failed|truncated)$/, () => cause("transient", "reply-cut", true)],
     // The provider's error event names no class: it is read unread.
     [/^brain=stream-error$/, () => UNKNOWN],
@@ -1329,17 +1340,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             dispatch({ type: "feedback", gen: turn.gen, op: turn.op });
         }, WORKING_AFTER_MS);
     }
+    function restartFor(c, turn, reason) {
+        const recipient = c.plan.brain.recipient;
+        return restartOf(reason, {
+            acted: turn !== null && (turn.relay !== null || turn.fast !== undefined || turn.routed === true || turn.calls.length !== 0 || turn.released === true),
+            answered: answered.has(c.brainOwner.value),
+            remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback });
+    }
     function failed(c, turn, error) {
         if (turn.stopped) return;
         stop(turn);
         if (c.turn === turn) c.turn = null;
         concluded(c, turn);
         const reason = keyed(error);
-        const recipient = c.plan.brain.recipient;
-        faulted(c, turn.done, reason, restartOf(reason, {
-            acted: turn.relay !== null || turn.fast !== undefined || turn.routed === true || turn.calls.length !== 0 || turn.released === true,
-            answered: answered.has(c.brainOwner.value),
-            remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback }));
+        faulted(c, turn.done, reason, restartFor(c, turn, reason));
     }
     // A failed turn ends its conversation in Session. Its brain closes here,
     // before Session's end reaches observe, so the end retains no faulted
@@ -2347,7 +2361,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const { preview, ...reopen } = e;
                 const own = { ...events, renewal: () => renewal(c.gen), failed: reason => {
                     if (c.stream?.op === e.op) closeStream(c, reason);
-                    events.failed(reason);
+                    // The adapter has released its account, but Session still
+                    // owns queued words and playback after the brain finishes.
+                    const s = state();
+                    const pending = s.speech.kind === "open" && (s.speech.reply.kind !== "none"
+                        || s.playback.kind === "playing" && s.playback.source === s.speech.op);
+                    const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);
+                    freshBrain(c);
+                    events.failed(reason, restart);
                     // A refused key holds Talk with its cause until the key changes.
                     if (reason === "live=key-refused" && !closed) {
                         refusedKey = keyIdentity(c.plan.speech.key);

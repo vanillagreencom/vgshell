@@ -909,7 +909,7 @@ const table = [
         assert.deepEqual([recovered.state.fault.kind, recovered.state.conversation.kind, recovered.state.capture.kind], ["none", "active", "opening"]);
         assert.ok(recovered.state.gen > failed.gen);
         const cloud = duplexListening(logic);
-        const error = step(logic, cloud, callback("speech-failed", cloud.speech, 40, { reason: "live=failed" }));
+        const error = step(logic, cloud, callback("speech-failed", cloud.speech, 40, { reason: "live=failed", restart: STOPPED }));
         assert.deepEqual([error.state.fault.reason, error.state.speech.kind, error.state.conversation.kind], ["live=failed", "closed", "ended"]);
         const playing = speaking(logic);
         const failedPlayback = step(logic, playing, callback("playback-failed", playing.playback, 50, { reason: "playback=failed" }));
@@ -1276,6 +1276,23 @@ const table = [
     // One automatic restart per user conversation (VGS-2408): a cause the
     // engine may restart ends the conversation with no fault and reopens an
     // open one; the restarted conversation's next failure shows the fault.
+    ["voice-restart-once", logic => {
+        for (const restart of [RESTART, STOPPED]) {
+            const s = duplexListening(logic, false);
+            const failed = (state, at) => callback("speech-failed", state.speech, at, { reason: "live=input-overflow", restart });
+            const first = step(logic, s, failed(s, 40));
+            const allowed = restart.kind === "restart";
+            assert.equal(first.state.fault.kind, allowed ? "none" : "voice-connection");
+            assert.equal(first.state.restart.kind, allowed ? "restarted" : "none");
+            assert.deepEqual(record(first, "fault-record").map(e => [e.reason, e.category, e.action]),
+                [["live=input-overflow", restart.category, allowed ? "restarted" : "stopped"]]);
+            if (!allowed) continue;
+            const second = step(logic, first.state, failed(first.state, 50));
+            assert.equal(second.state.fault.kind, "voice-connection", "a second voice fault cannot restart");
+            assert.equal(second.state.conversation.kind, "ended");
+            assert.deepEqual(record(second, "fault-record").map(e => e.action), ["stopped"]);
+        }
+    }],
     ["restart-once", logic => {
         const s = thinking(logic, false);
         assert.equal(s.input.kind, "conversation", "an open conversation listens between turns");
@@ -1579,6 +1596,10 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
+        ["voice-restart-route", 'failConversation(s, effects, e, { kind: "voice-connection", reason: e.reason });',
+            's.fault = { kind: "voice-connection", reason: e.reason }; end(s, effects, e.at, "speech-failed", false);', "voice-restart-once"],
+        ["voice-restart-permanent", 'e.restart.kind === "restart" && s.restart.kind === "none"',
+            's.restart.kind === "none"', "voice-restart-once"],
         ["default-toggle", 'if (s.settings.holdToTalk !== true) { toggle(s, effects, e.at); break; }', 'if (false) { toggle(s, effects, e.at); break; }', "default-talk"],
         ["hold-repeat", 'if (s.input.kind === "held") break;', 'if (false) break;', "hold-release"],
         ["silent-tap-empty", 'if (e.empty) end(s, effects, e.at, "tap", false);', 'if (false) end(s, effects, e.at, "tap", false);', "silent-tap-cloud"],
