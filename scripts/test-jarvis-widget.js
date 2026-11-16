@@ -437,11 +437,12 @@ function verifyRestart(view, history) {
             assert.equal(history.problems([row], "net=request").length, 0, "the keyed cause is not in the row");
         }
     }
-    // A refused Codex feature's row names the feature, so a search finds it.
-    const feature = { time: "2026-11-09T08:00:00.000Z", kind: "fault", cause: "brain=codex-feature name=fixture_tool", status: null,
-        category: "other", action: "stopped" };
-    assert.equal(history.problems([feature], "fixture_tool").length, 1, "the row names the refused feature");
-    assert.equal(KEYED.test(history.problem(feature).body), false, "the row shows no keyed cause");
+    // A refused Codex feature's or catalog key's row names it, so a search finds it.
+    for (const [cause, name] of [["brain=codex-feature name=fixture_tool", "fixture_tool"], ["brain=codex-catalog name=fixture_key", "fixture_key"]]) {
+        const refused = { time: "2026-11-09T08:00:00.000Z", kind: "fault", cause, status: null, category: "other", action: "stopped" };
+        assert.equal(history.problems([refused], name).length, 1, cause + " names the refused setting");
+        assert.equal(KEYED.test(history.problem(refused).body), false, cause + " shows no keyed cause");
+    }
     for (const kind of ["none", "spent"]) assert.equal(view.restartLine({ kind }, true), null, kind);
     for (const restart of [null, { kind: "used" }, { kind: "restarted", category: "unknown" }])
         assert.throws(() => view.restartLine(restart, true), /jarvis widget: (restart|category)=/, JSON.stringify(restart));

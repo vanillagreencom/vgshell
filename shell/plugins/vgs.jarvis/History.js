@@ -68,18 +68,18 @@ function operation(row) {
 
 // A failed turn's record names its cause's category and what Session did
 // (Audit.js fault rows); the row shows the category's plain words and
-// never the keyed cause, except the name of a Codex feature VGS has not
-// checked, which says what to check. A conversation stopped by an account, model or
+// never the keyed cause, except the name of a Codex feature or catalog key
+// VGS has not checked, which says what to check. A conversation stopped by an account, model or
 // setup cause fails the same way when asked again (ChainedEngine.js CAUSES),
 // so its row opens Jarvis Settings, where that cause is fixed.
 var SETTINGS_FAULTS = ["account", "model", "setup"];
-var CODEX_FEATURE = /^brain=codex-feature name=([A-Za-z0-9_-]{1,64})$/;
+var CODEX_NAMED = /^brain=codex-(?:feature|catalog) name=([A-Za-z0-9_-]{1,64})$/;
 function faultProblem(row) {
     if (row.action !== "restarted" && row.action !== "stopped")
         throw new Error("jarvis history: action=" + JSON.stringify(row.action) + " unexpected");
     var settings = row.action === "stopped" && SETTINGS_FAULTS.indexOf(row.category) !== -1;
-    var feature = CODEX_FEATURE.exec(row.cause);
-    var named = feature === null ? "" : "Codex turned on a feature that VGS has not checked: " + feature[1] + ". ";
+    var setting = CODEX_NAMED.exec(row.cause);
+    var named = setting === null ? "" : "Codex turned on a setting that VGS has not checked: " + setting[1] + ". ";
     return { title: View.faultWords(row.category) + ".",
         body: row.action === "restarted" ? named + "VGS restarted Jarvis in a new conversation." : named + "Jarvis stopped the conversation.",
         action: settings ? "Jarvis settings" : "Ask Jarvis again", settings: settings };

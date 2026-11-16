@@ -51,8 +51,8 @@ world(async () => {
         for (const name of ["codex-log", "codex-calls"]) fs.rmSync(path.join(state, name), { force: true });
         fs.writeFileSync(path.join(state, "codex-scenario.json"), JSON.stringify(value));
     }
-    // The latest program start; a login status check is not one.
-    const program = () => read("codex-calls").filter(call => call.args[0] === "app-server").at(-1);
+    // The latest program start; a login status check or a catalog read is not one.
+    const program = () => read("codex-calls").filter(call => call.args.includes("app-server")).at(-1);
     const received = method => read("codex-log").filter(row => row.direction === "in" && row.message.method === method).map(row => row.message);
     // The answer the harness wrote to the stub's server request of this method.
     function answered(method) {
@@ -210,11 +210,20 @@ world(async () => {
             const w = make(folder);
             const events = await drain(w.say("hi"));
             assert.deepEqual(events, [{ kind: "text", text: "Hel" }, { kind: "text", text: "lo." }, { kind: "done", reason: "stop" }]);
-            const [call] = read("codex-calls");
-            assert.deepEqual(call.args, ["app-server", "--listen", "stdio://"]);
+            const [catalogRead, call] = read("codex-calls");
+            assert.deepEqual([catalogRead.args, catalogRead.env.CODEX_HOME, catalogRead.cwd], [["debug", "models"], account, call.cwd],
+                "the account's own program prints its catalog first");
+            const [flag, override, ...rest] = call.args;
+            assert.deepEqual([flag, rest], ["-c", ["app-server", "--listen", "stdio://"]]);
+            const file = JSON.parse(/^model_catalog_json=(".*")$/.exec(override)[1]);
+            assert.equal(path.dirname(file), call.cwd, "the written catalog stays in the private folder");
+            assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { models: [{ slug: "gpt-6.1-sol", display_name: "GPT-6.1-Sol",
+                shell_type: "unified_exec", apply_patch_tool_type: "freeform", supports_search_tool: true,
+                tool_mode: null, multi_agent_version: null, experimental_supported_tools: [] }] },
+                "the catalog's tools are cleared, its search route and access programs left out, the rest kept");
             assert.equal(call.env.CODEX_HOME, account, "the account's own directory");
             for (const name of ["OPENAI_API_KEY", "VGSHELL_RUNNER_PID", "VGS_JARVIS_TOOLS_TOKEN"])
-                assert.equal(Object.hasOwn(call.env, name), false, name + " stays out of the program's environment");
+                for (const child of [catalogRead, call]) assert.equal(Object.hasOwn(child.env, name), false, name + " stays out of " + child.args.join(" "));
             assert.equal(path.dirname(call.cwd), w.runtime, "a private working directory");
             const [start] = received("thread/start");
             const servers = start.params.config.mcp_servers;
@@ -371,11 +380,27 @@ world(async () => {
                 ["feature", { features: [{ name: "fixture_tool", stage: "stable", enabled: true, defaultEnabled: true }] },
                     "jarvis: brain=codex-feature name=fixture_tool"],
                 ["server-name", { servers: { vgs_jarvis: { command: "x" } } }, "jarvis: brain=codex-mcp-name"],
-                ["crash", { crash: "handshake" }, "jarvis: brain=codex-exited code=3 signal=null cause=not-started"]
+                ["crash", { crash: "handshake" }, "jarvis: brain=codex-exited code=3 signal=null cause=not-started"],
+                ["catalog-key", { catalog: JSON.stringify({ models: [{ slug: "gpt-fixture", fixture_key: true }] }) },
+                    "jarvis: brain=codex-catalog name=fixture_key"],
+                ["catalog-unreadable", { catalog: "{\"models\": [" }, "jarvis: brain=codex-catalog json"],
+                // A catalog read that exits keys as the app server's exit, so a missing home stays a setup cause.
+                ["catalog-home", { catalogExit: "WARNING: proceeding, even though we could not create PATH aliases: "
+                    + 'CODEX_HOME points to "/gone", but that path does not exist\nError: CODEX_HOME points to "/gone", but that path does not exist\n' },
+                    "jarvis: brain=codex-exited code=1 signal=null cause=home-missing"],
+                // A catalog read that stalls meets the start's one bound and its key.
+                ["catalog-timeout", { catalogHang: true }, "jarvis: brain=codex-start-timeout"]
             ]) {
                 scenario({ ...value, turns: [[{ complete: "completed" }]] });
-                const w = make(folder);
-                await assert.rejects(drain(w.say("x")), { message }, label);
+                const time = clock();
+                const w = make(folder, { clock: time });
+                const pending = drain(w.say("x"));
+                if (value.catalogHang) {
+                    await until(() => read("codex-calls").some(call => call.args[0] === "debug"), label + " starts its catalog read");
+                    time.advance(30000);
+                }
+                await assert.rejects(pending, { message }, label);
+                assert.equal(program() === undefined, label.startsWith("catalog-"), label + ": the app server starts only with a judged catalog");
                 assert.deepEqual(received("turn/start"), [], label + " starts no turn");
                 await until(() => fs.readdirSync(w.runtime).every(name => !name.startsWith("codex-")), label + " removes its directory");
             }
@@ -888,7 +913,7 @@ world(async () => {
         let controls = 0;
         for (const [name, relative, edits, row] of [
             ["handshake-cause", "backend/CodexHarness.js",
-                [['started.program.abort(new Error("jarvis: brain=codex-start-timeout"))', "started.program.close()"]], "handshakeHang"],
+                [["started.program?.abort(timeout);", "started.program?.close();"]], "handshakeHang"],
             ["provider-status", "backend/CodexAppServer.js", [["httpStatus: httpStatus(error)", "httpStatus: null"]], "providerFault"],
             ["retained-cancel-owner", "backend/ChainedEngine.js",
                 [["if (pending && pending.gen === e.gen && pending.owner === e.target)", "if (false)"]], "retainedTimeout"],
@@ -904,8 +929,13 @@ world(async () => {
             ["exit-log-kept", "backend/HarnessProgram.js", [["        log = \"\";\n", "        process.stderr.write(log);\n        log = \"\";\n"]], "exitCause"],
             ["exit-known", "backend/CodexAppServer.js", [["[/^Error: CODEX_HOME points to", "[/^Never: CODEX_HOME points to"]], "exitCause"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
-            ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
-            ["home-program", "backend/CodexHarness.js", [["extra: { CODEX_HOME: directory }, cwd,", "extra: { CODEX_HOME: directory }, cwd: env.FIXTURE_JARVIS_HOME,"]], "home"],
+            ["account-home", "backend/CodexHarness.js", [["extra: { CODEX_HOME: directory }, cwd, accept", "extra: { CODEX_HOME: env.HOME }, cwd, accept"]], "turn"],
+            ["home-program", "backend/CodexHarness.js", [["extra: { CODEX_HOME: directory }, cwd, accept", "extra: { CODEX_HOME: directory }, cwd: env.FIXTURE_JARVIS_HOME, accept"]], "home"],
+            ["catalog-tools", "backend/CodexAppServer.js", [["return { ...kept, ...CATALOG_TOOLS };", "return kept;"]], "turn"],
+            ["catalog-keys", "backend/CodexAppServer.js", [["if (!CATALOG_KEYS.includes(key))", "if (false)"]], "lockdown"],
+            ["catalog-omitted", "backend/CodexAppServer.js", [["filter(([key]) => !CATALOG_OMITTED.includes(key))", "filter(() => true)"]], "turn"],
+            ["catalog-timeout-key", "backend/HarnessProgram.js", [['error.name === "AbortError" ? signal.reason', 'error.name === "AbortError" ? new Error("jarvis: brain=codex-catalog timeout")']], "lockdown"],
+            ["catalog-exit-cause", "backend/CodexHarness.js", [["signal: bound.signal, cause: Codex.cause });", "signal: bound.signal, cause: () => null });"]], "lockdown"],
             ["home-config", "backend/CodexHarness.js", [["Codex.configRead(id, cwd)", "Codex.configRead(id, env.FIXTURE_JARVIS_HOME)"]], "home"],
             ["home-thread", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model,", "Codex.threadStart(id, { cwd: env.FIXTURE_JARVIS_HOME, model,"]], "home"],
             ["native-memory", "backend/CodexAppServer.js", [['"plugins", "memories", "goals"', '"plugins", "goals"']], "home"],
@@ -931,8 +961,8 @@ world(async () => {
             ["queued-cancel-wait", "backend/ChainedEngine.js", [['turn.phase === "queued" || turn.phase === "relay" || cancelled === null ? c.quiet : cancelled.cancel()',
                 'turn.phase === "queued" || turn.phase === "relay" || cancelled === null ? Promise.resolve() : cancelled.cancel()']], "engineReplacement"],
             ["bridge-close", "backend/CodexHarness.js", [["launch?.close();", ""]], "close"],
-            ["directory-removal", "backend/CodexHarness.js", [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
-                "    await session.program.close();"]], "close"],
+            ["directory-removal", "backend/CodexHarness.js", [["    await session.program?.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
+                "    await session.program?.close();"]], "close"],
             ["context-limit", "backend/CodexHarness.js", [['if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");', ""]], "limit"],
             ["suspended-send", "backend/CodexHarness.js", [['if (suspended) fail("suspended");', ""]], "suspendResume"],
             ["context-key", "backend/CodexHarness.js", [['throw new Error("jarvis: brain=context-limit");', 'fail("context-limit");']], "limit"],

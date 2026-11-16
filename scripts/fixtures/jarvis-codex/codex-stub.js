@@ -3,7 +3,10 @@
 // (app-server.schema.json) and the sanitized recording beside it. It speaks
 // the app-server subset Jarvis uses on stdio and replays a scenario the test
 // writes to $XDG_STATE_HOME/codex-scenario.json:
-//   { servers: {name: config}, thread: {overrides}, features: [extra feature rows],
+//   { catalog: text (`debug models` prints it in place of CATALOG),
+//     catalogExit: text (`debug models` writes it to stderr and exits 1),
+//     catalogHang: true (`debug models` never ends; only a kill stops it),
+//     servers: {name: config}, thread: {overrides}, features: [extra feature rows],
 //     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool | "handshake",
 //     exitOnEof: bool (a hung handshake exits on EOF instead of staying alive),
 //     crash: "handshake" | "thread" (exit 3 at that request, after writing stderr: "text"),
@@ -30,8 +33,25 @@ if (JSON.stringify(args) === JSON.stringify(["login", "status"])) {
     console.error("Logged in using ChatGPT");
     process.exit(0);
 }
-if (JSON.stringify(args) !== JSON.stringify(["app-server", "--listen", "stdio://"])) process.exit(9);
 const scenario = JSON.parse(fs.readFileSync(path.join(state, "codex-scenario.json"), "utf8"));
+// An excerpt of codex-cli 0.169.0's gpt-6.1-sol entry in `codex debug models --bundled`,
+// with two optional ModelInfo fields an account's catalog can carry.
+const CATALOG = { models: [{ slug: "gpt-6.1-sol", display_name: "GPT-6.1-Sol", shell_type: "unified_exec",
+    apply_patch_tool_type: "freeform", supports_search_tool: true, tool_mode: "code_mode_only", multi_agent_version: "v2",
+    experimental_supported_tools: ["send_user_message_async", "clock"], web_search_provider: "search_mcp",
+    available_access_programs: { cyber: [] } }] };
+if (JSON.stringify(args) === JSON.stringify(["debug", "models"])) {
+    if (scenario.catalogHang) for (;;) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+    if (scenario.catalogExit !== undefined) {
+        fs.writeSync(2, scenario.catalogExit);
+        process.exit(1);
+    }
+    process.stdout.write(scenario.catalog ?? JSON.stringify(CATALOG));
+    process.exit(0);
+}
+// The app server takes its catalog file as a launch override.
+if (args.length !== 5 || args[0] !== "-c" || !args[1].startsWith("model_catalog_json=")
+        || JSON.stringify(args.slice(2)) !== JSON.stringify(["app-server", "--listen", "stdio://"])) process.exit(9);
 const recorded = fs.readFileSync(path.join(state, "codex-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));
 const reply = (flow, test) => structuredClone(recorded.find(entry => entry.flow === flow && test(entry.line)).line.result);
 const log = (direction, message) => fs.appendFileSync(path.join(state, "codex-log"), JSON.stringify({ direction, message }) + "\n");

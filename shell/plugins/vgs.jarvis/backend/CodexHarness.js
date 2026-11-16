@@ -24,31 +24,60 @@ const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
 
+// The account's own model catalog, as its program reads it: the cached or
+// fetched list of the account's provider, the binary's bundled list as the
+// fallback, and the last snapshot when a fetch fails (run_debug_models_command
+// in codex-rs/cli/src/main.rs and raw_model_catalog in
+// codex-rs/models-manager/src/manager.rs at rust-v0.169.0). The vendor's
+// program owns that fetch and its sockets.
+const CATALOG = Object.freeze(["codex", "debug", "models"]);
+
 // The program under the shared harness shape, with its account directory.
-function program({ directory, env, cwd }, listener) {
-    return Harness.program({ name: "codex", argv: ["codex", "app-server", "--listen", "stdio://"], env,
+// model_catalog_json replaces the catalog for the whole process and applies
+// at startup only (codex-rs/config/src/config_toml.rs at rust-v0.169.0),
+// so it is a launch override; a JSON string is a TOML basic string.
+function program({ directory, env, cwd, catalog }, listener) {
+    return Harness.program({ name: "codex",
+        argv: ["codex", "-c", "model_catalog_json=" + JSON.stringify(catalog), "app-server", "--listen", "stdio://"], env,
         extra: { CODEX_HOME: directory }, cwd, accept: Codex.accept, lineBytes: Codex.LINE_BYTES, cause: Codex.cause,
         refused: (call, value) => new Error("jarvis: brain=codex-refused method=" + call.method + " code=" + value.code) }, listener);
 }
 
 async function shut(session) {
-    await session.program.close();
+    await session.program?.close();
     fs.rmSync(session.cwd, { recursive: true, force: true });
 }
 
 /**
  * The program in a new private folder under runtime, initialized, as
  * started {program, cwd}: where a thread and a model list read both begin.
- * listener(value, started) receives what the program sends. use(started)
- * runs under the bound: a program that outlives ms faults, and when the
- * start or use fails the program ends and its folder goes.
+ * The program starts only with Codex.catalog's catalog, written in that
+ * folder from the account's own. listener(value, started) receives what the
+ * program sends. The catalog read, the start and use(started) run under
+ * one bound, keyed codex-start-timeout whichever of them it ends, and when
+ * any of them fails the program ends and its folder goes.
  */
 async function start({ directory, env, runtime }, listener, ms, use, clock = Harness.CLOCK) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
-    const started = { program: program({ directory, env, cwd }, value => listener(value, started)), cwd };
-    const timer = clock.set(() => started.program.abort(new Error("jarvis: brain=codex-start-timeout")), ms);
+    const started = { program: null, cwd };
+    const bound = new AbortController();
+    const timer = clock.set(() => {
+        const timeout = new Error("jarvis: brain=codex-start-timeout");
+        bound.abort(timeout);
+        started.program?.abort(timeout);
+    }, ms);
     try {
+        // Its exit is judged as the app server's, so a missing program or
+        // home keeps its setup cause, and its stall is the start's timeout.
+        const text = await Harness.run({ name: "codex", key: "catalog", argv: CATALOG, env, extra: { CODEX_HOME: directory }, cwd,
+            bytes: Codex.LINE_BYTES, signal: bound.signal, cause: Codex.cause });
+        // The bound can fire after the read exited and before its output
+        // closed; the program then never starts past it.
+        if (bound.signal.aborted) throw bound.signal.reason;
+        const catalog = path.join(cwd, "catalog.json");
+        fs.writeFileSync(catalog, Codex.catalog(text), { mode: 0o600 });
+        started.program = program({ directory, env, cwd, catalog }, value => listener(value, started));
         await started.program.call(id => Codex.initialize(id));
         started.program.write(Codex.initialized());
         return await use(started);

@@ -55,6 +55,19 @@ function offers(entries) {
         .map(offer => ({ value: offer.value, label: offer.label, efforts: offer.efforts, effort: offer.effort }));
 }
 
+// The keyed errors of a vendor child's launch failure and of its exit, the
+// words ChainedEngine's CAUSES classes.
+function startError(name, error) { return new Error("jarvis: brain=" + name + "-start cause=" + (error.code ?? "unknown")); }
+function exitError(name, code, signal, word) {
+    return new Error("jarvis: brain=" + name + "-exited code=" + code + " signal=" + signal + (word === null ? "" : " cause=" + word));
+}
+
+// Every vendor child: setpriv ends it with the daemon, and its environment
+// is the daemon's, scrubbed by childEnvironment, with the brain's extra.
+function launch(argv, { env, extra, ...options }) {
+    return cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", ...argv], { ...options, env: { ...childEnvironment(env), ...extra } });
+}
+
 /**
  * Start the program and own its JSON-line connection. name keys every
  * failure, `jarvis: brain=<name>-...`; argv follows setpriv's `--`; env is
@@ -70,8 +83,7 @@ function offers(entries) {
  */
 function program({ name, argv, env, extra, cwd, accept, lineBytes, refused, cause }, listener) {
     const fail = code => { throw new Error("jarvis: brain=" + name + "-" + code); };
-    const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", ...argv], {
-        cwd, env: { ...childEnvironment(env), ...extra }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = launch(argv, { env, extra, cwd, stdio: ["pipe", "pipe", "pipe"] });
     const calls = new Map();
     let next = 1;
     let tail = "";
@@ -88,11 +100,11 @@ function program({ name, argv, env, extra, cwd, accept, lineBytes, refused, caus
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         listener({ kind: "ended", error });
     }
-    child.on("error", error => end(new Error("jarvis: brain=" + name + "-start cause=" + (error.code ?? "unknown"))));
+    child.on("error", error => end(startError(name, error)));
     child.on("close", (code, signal) => {
         const word = cause?.(log, spoke) ?? null;
         log = "";
-        end(new Error("jarvis: brain=" + name + "-exited code=" + code + " signal=" + signal + (word === null ? "" : " cause=" + word)));
+        end(exitError(name, code, signal, word));
     });
     child.stdin.on("error", () => {});
     // The program's log can hold conversation text or a credential: its end
@@ -154,6 +166,41 @@ function program({ name, argv, env, extra, cwd, accept, lineBytes, refused, caus
             return exited.then(() => clearTimeout(timer));
         }
     };
+}
+
+/**
+ * One run of a program that prints its answer and exits: argv follows
+ * setpriv's `--`, and env and extra are launch()'s. Resolves with its
+ * stdout. A launch failure or a non-zero exit rejects as program()'s do,
+ * keyed by name, with cause(log, spoke) judging the end of its stderr and
+ * whether it printed anything. When signal aborts it, it rejects with
+ * signal's reason; when stdout reaches bytes, with
+ * `jarvis: brain=<name>-<key> output-size`.
+ */
+function run({ name, key, argv, env, extra, cwd, bytes, signal, cause }) {
+    return new Promise((resolve, reject) => {
+        const child = launch(argv, { env, extra, cwd, stdio: ["ignore", "pipe", "pipe"], signal, killSignal: "SIGKILL" });
+        const chunks = [];
+        let size = 0;
+        let tail = "";
+        let failure = null;
+        child.on("error", error => { failure ??= error.name === "AbortError" ? signal.reason : startError(name, error); });
+        // As program()'s log, the end of stderr stays in memory for cause() alone.
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", chunk => { tail = (tail + chunk).slice(-LOG_CHARS); });
+        child.stdout.on("data", chunk => {
+            size += chunk.length;
+            if (size >= bytes) {
+                failure ??= new Error("jarvis: brain=" + name + "-" + key + " output-size");
+                child.kill("SIGKILL");
+            } else chunks.push(chunk);
+        });
+        child.on("close", (code, ended) => {
+            if (code !== 0) failure ??= exitError(name, code, ended, cause(tail, size > 0));
+            tail = "";
+            if (failure !== null) reject(failure); else resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+    });
 }
 
 /**
@@ -267,4 +314,4 @@ function stream({ run, interrupt, settled, detach }) {
     return { handle, events };
 }
 
-module.exports = { program, release, stream, isModel, isEffort, offers, MODELS_MS, CLOCK };
+module.exports = { program, run, release, stream, isModel, isEffort, offers, MODELS_MS, CLOCK };
