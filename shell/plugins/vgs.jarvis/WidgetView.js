@@ -94,6 +94,8 @@ var FAULT_TEXT = {
     "account": { title: "The AI account refused the request", action: "Check your [AI model account](page:vgs.jarvis/Settings/brain)." },
     "setup": { title: "The AI model is not set up correctly", action: "Check [AI model settings](page:vgs.jarvis/Settings/brain)." },
     "voiceConnection": { title: "The voice service could not finish the request", action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)." },
+    "voiceAccount": { title: "The voice account refused the request", action: "Check your account under [Voice key](page:vgs.jarvis/Settings/voiceAccount)." },
+    "voiceSetup": { title: "The voice service is not set up correctly", action: "Check [Voice settings](page:vgs.jarvis/Settings/voice)." },
     "voiceNetwork": { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceInput": { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceReply": { title: "The voice reply stopped too early", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
@@ -197,14 +199,16 @@ function gateDown(gate) {
     }
 }
 
-// A specific key recovery precedes the speech port's general connection
-// failure. Other net= reasons still belong to the brain when that port
-// did not fail.
+// A refused key keeps its specific action. Other speech failures use the
+// engine's category for account/setup actions. Other net= reasons still
+// belong to the brain when the speech port did not fail.
 function faultKind(fault) {
     if (fault === null || typeof fault !== "object" || ["error", "voice-connection"].indexOf(fault.kind) === -1
             || typeof fault.reason !== "string" || Session.FAULT_CATEGORIES.indexOf(fault.category) === -1) refuse("fault", fault);
     if (fault.reason === "live=key-refused") return "keyRefused";
     if (fault.kind === "voice-connection") {
+        if (fault.category === "account") return "voiceAccount";
+        if (fault.category === "setup") return "voiceSetup";
         if (/^live=disconnected code=|^net=socket-not-open$/.test(fault.reason)) return "voiceNetwork";
         if (/^live=(input-overflow|send-backlog)$/.test(fault.reason)) return "voiceInput";
         if (/^live=response status=incomplete(?: |$)/.test(fault.reason)) return "voiceReply";

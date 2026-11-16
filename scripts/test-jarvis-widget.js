@@ -6,7 +6,7 @@
 // and forbids shortcut, selected-model and selected-voice details.
 // The service callbacks below protect notice and approval-frame identity.
 // No process, network, audio or real clock is used.
-// --voice-fault-control runs only the duplex fault-origin must-fail controls.
+// --voice-fault-control runs only the duplex fault-presentation must-fail controls.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -295,8 +295,8 @@ function verifyReplyPublication(before, after) {
 }
 
 // SessionRunner's speech port emits speech-failed; its brain port emits
-// brain-failed even for a delegation under duplex. The widget and bubble
-// deliver these words as their result, so their title/action are the contract.
+// brain-failed even for a delegation under duplex. The engine's category
+// selects the stopped action across the bubble, bar and reply card.
 function verifyVoiceFaults(logic, view) {
     const step = (state, event) => copy(logic.reduce(state, event));
     const callback = (type, owner, at, extra = {}) => ({ type, gen: owner.gen, op: owner.op, at, ...extra });
@@ -311,13 +311,31 @@ function verifyVoiceFaults(logic, view) {
     };
     const voice = { company: "OpenAI" };
     const sharedOrigins = ["speech", "brain-chained", "brain-duplex"];
-    for (const [reason, speechKind, origins] of [
-        ["net=closed", "voiceConnection", sharedOrigins], ["net=socket-not-open", "voiceNetwork", ["speech"]], ["net=recipient", "voiceConnection", sharedOrigins],
-        ["live=failed", "voiceConnection", ["speech"]], ["live=key-refused", "keyRefused", ["speech"]],
-        ["live=input-overflow", "voiceInput", ["speech"]], ["live=send-backlog", "voiceInput", ["speech"]],
-        ["live=disconnected code=1006", "voiceNetwork", ["speech"]], ["live=start-timeout", "voiceConnection", ["speech"]],
-        ["live=response status=incomplete reason=max_output_tokens", "voiceReply", ["speech"]]
+    for (const [reason, category, speechKind, tab, origins] of [
+        ["net=closed", "other", "voiceConnection", "Settings", sharedOrigins],
+        ["net=socket-not-open", "connection", "voiceNetwork", "Settings", ["speech"]],
+        ["net=recipient", "other", "voiceConnection", "Settings", sharedOrigins],
+        ["live=key-refused", "account", "keyRefused", "Settings/voiceAccount", ["speech"]],
+        // Realtime.eventOf keeps the provider's typed error on both event forms.
+        ["live=server-error type=server_error code=insufficient_quota", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=server-error type=rate_limit_error code=rate_limit_exceeded", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=server-error type=invalid_request_error code=invalid_api_key", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=server_error code=insufficient_quota", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=rate_limit_error code=rate_limit_exceeded", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=invalid_request_error code=invalid_api_key", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        // Both cloud adapters can refuse the provider's returned audio format.
+        ["live=format", "setup", "voiceSetup", "Settings/voice", ["speech"]],
+        ["live=server-error type=invalid_request_error code=unknown_parameter", "other", "voiceConnection", "Settings", ["speech"]],
+        ["live=response status=failed type=server_error code=inference_error", "service", "voiceConnection", "Settings", ["speech"]],
+        ["live=input-overflow", "connection", "voiceInput", "Settings", ["speech"]],
+        ["live=send-backlog", "connection", "voiceInput", "Settings", ["speech"]],
+        ["live=disconnected code=1006", "connection", "voiceNetwork", "Settings", ["speech"]],
+        ["live=start-timeout", "connection", "voiceConnection", "Settings", ["speech"]],
+        ["live=response status=incomplete reason=max_output_tokens", "reply-cut", "voiceReply", "Settings", ["speech"]]
     ]) {
+        const restart = Engine.restartOf(reason, { acted: false, answered: false, remote: true });
+        const transient = ["connection", "reply-cut", "service"].includes(category);
+        assert.deepEqual(restart, { kind: transient ? "restart" : "none", category }, reason + ": engine judgement");
         for (const origin of origins) {
             let s;
             if (origin === "brain-chained")
@@ -328,10 +346,16 @@ function verifyVoiceFaults(logic, view) {
                     s = step(s, callback("delegation", s.speech, 21, { id: "fixture", text: "fixture request" })).state;
             }
             const speech = origin === "speech";
+            if (transient) {
+                const first = step(s, callback("speech-failed", s.speech, 29, { reason, restart }));
+                assert.deepEqual([first.state.fault.kind, first.state.restart], ["none", { kind: "restarted", category }],
+                    reason + ": the first transient failure recovers");
+                s = first.state;
+            }
             const event = callback(speech ? "speech-failed" : "brain-failed", speech ? s.speech : s.turn, 30,
-                { reason, restart: { kind: "none", category: "other" } });
+                { reason, restart });
             const failed = step(s, event);
-            assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason, category: "other" } : { kind: "error", reason, category: "other" },
+            assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason, category } : { kind: "error", reason, category },
                 origin + " " + reason + ": retain the admitted fault origin and reason");
             assert.equal(logic.validate(failed.state), true, "the fault is an exact state-wire variant");
             if (speech) {
@@ -339,7 +363,8 @@ function verifyVoiceFaults(logic, view) {
                     assert.equal(logic.validate({ ...failed.state, fault }), false, "no extra or unchecked voice fault fields");
             }
             assert.deepEqual([failed.state.speech.kind, failed.state.conversation.kind, failed.state.restart],
-                ["closed", "ended", { kind: "none" }], "a stopped fault does not gain a restart allowance");
+                ["closed", "ended", transient ? { kind: "restarted", category } : { kind: "none" }],
+                "a stopped fault does not gain a restart allowance");
             assert.equal(logic.canEngage(failed.state), false, "the fault blocks capture until a user recovery");
             assert.equal(failed.effects.some(e => ["capture-open", "speech-open"].includes(e.kind)), false, "no automatic voice restart");
             let settled = failed.state;
@@ -348,6 +373,8 @@ function verifyVoiceFaults(logic, view) {
             const expectedKind = speech ? speechKind : "brain";
             const expected = copy(view.faultText(failed.state.fault, failed.state.engine.kind, voice));
             assert.equal(view.faultKind(failed.state.fault), expectedKind);
+            assert.deepEqual(links([expected.action]).map(target => [target.page, target.tab]), [["vgs.jarvis", tab]],
+                origin + " " + reason + ": one action at the failed owner's Settings field");
             assert.deepEqual(copy(view.faultText(settled.fault, settled.engine.kind, voice)), expected,
                 origin + " " + reason + ": the bubble names the failed owner");
             const bar = view.view(up(settled), voice);
@@ -372,12 +399,23 @@ function voiceFaultControls() {
     try {
         for (const file of ["SetupGate.js", "Session.js", "WidgetView.js"])
             fs.copyFileSync(path.join(dir, file), path.join(temp, file));
-        for (const [label, file, needle, replacement] of [
+        const controls = [
             ["Session loses the speech origin", "Session.js", 'failConversation(s, effects, e, { kind: "voice-connection", reason: e.reason });',
                 'failConversation(s, effects, e, { kind: "error", reason: e.reason });'],
+            ["Session loses the engine category", "Session.js", 's.fault = Object.assign({}, fault, { category: e.restart.category });',
+                's.fault = Object.assign({}, fault, { category: "other" });'],
             ["the view guesses from the reason", "WidgetView.js", 'if (fault.kind === "voice-connection")',
-                'if (false)']
-        ]) {
+                'if (false)'],
+            ["Voice loses the account action", "WidgetView.js", 'if (fault.category === "account") return "voiceAccount";',
+                'if (false) return "voiceAccount";'],
+            ["Voice loses the setup action", "WidgetView.js", 'if (fault.category === "setup") return "voiceSetup";',
+                'if (false) return "voiceSetup";'],
+            ["Voice assigns account repair to transient faults", "WidgetView.js", 'if (fault.category === "account") return "voiceAccount";',
+                'if (true) return "voiceAccount";'],
+            ["Voice account action points at the AI account", "WidgetView.js", 'Check your account under [Voice key](page:vgs.jarvis/Settings/voiceAccount).',
+                'Check your account under [Voice key](page:vgs.jarvis/Settings/brain).']
+        ];
+        for (const [label, file, needle, replacement] of controls) {
             const original = fs.readFileSync(path.join(dir, file), "utf8");
             assert.equal(original.split(needle).length, 2, label + ": one mutation target");
             const changed = original.replace(needle, replacement);
@@ -387,7 +425,7 @@ function voiceFaultControls() {
                 assert.AssertionError, label + ": the real origin contract must fail");
             fs.writeFileSync(path.join(temp, file), original);
         }
-        console.log("test-jarvis-widget: voice-fault-controls=2 control=detected");
+        console.log("test-jarvis-widget: voice-fault-controls=" + controls.length + " control=detected");
     } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 
