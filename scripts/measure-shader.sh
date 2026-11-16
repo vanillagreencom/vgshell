@@ -20,8 +20,10 @@
 # each scene line records the world's CPU pressure (harness.sh's cpu_some_us).
 # Vulkan is required for device identity and timestamps. QSG_NO_VSYNC=1
 # requests swap interval 0; Wayland can still pace frameSwapped callbacks.
-# CPU readings above harness.sh's latency_pressure_limit are not measured
-# in check or calibration mode. GPU ceilings and controls still fail.
+# The world's recent CPU pressure gates compilation and each scene; an
+# over-limit or unread gate ends a partial run as not measured. On completed
+# runs, a GPU or control failure outranks CPU pressure in check and calibration
+# mode; CPU readings above harness.sh's latency_pressure_limit are not measured.
 # Exit 77: missing dependency, uncalibrated/software device, CPU pressure,
 # or sandbox fault.
 # Exit 1: missing samples, failed scene, ceiling exceeded, or accepted control.
@@ -69,8 +71,27 @@ if [[ ${choice[0]} == --calibrate ]]; then
 fi
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" "${argv[@]}"
 source_repo="$repo"
+timeout_s=90
+plugin_set=smoke
+harness_scene_only=true
+source "$repo/scripts/smoke/harness.sh"
+# avg10 reads recent contention without adding a sampling wait. The scene's
+# own window still judges its CPU readings; this only admits the next work.
+shader_pressure_gate() {
+  local scene="$1" pressure=unmeasured kind rest result
+  { while read -r kind rest; do
+      if [[ $kind == some && $rest =~ avg10=([0-9]+\.[0-9])[0-9]($|[[:space:]]) ]]; then pressure="${BASH_REMATCH[1]}"; break; fi
+    done <"$world_pressure_file"; } 2>/dev/null || true
+  result="$(latency_pressure_verdict 0 "$pressure" 0)"
+  printf 'shader-cost: pressure-gate scene=%s cpu_some_avg10_pct=%s limit=%s result=%s\n' "$scene" "$pressure" "$latency_pressure_limit" "$result"
+  [[ $result == within ]] || {
+    printf 'shader-cost: status=not-measured reason=cpu-pressure scene=%s cpu_some_avg10_pct=%s limit=%s result=%s\n' "$scene" "$pressure" "$latency_pressure_limit" "$result"
+    exit 77
+  }
+}
+shader_pressure_gate setup
 # The compiler owner has a hyphenated filename; import through its path.
-compiler="$(python3 - "$repo/scripts/check-voiceorb-shader.py" <<'PY'
+compiler="$(python3 - "$source_repo/scripts/check-voiceorb-shader.py" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("shader", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
@@ -81,10 +102,6 @@ PY
 )" || exit 1
 mapfile -t compiler_words <<<"$compiler"
 [[ -n ${compiler_words[0]} ]] || { echo 'shader-cost: status=not-measured missing=qsb'; exit 77; }
-timeout_s=90
-plugin_set=smoke
-harness_scene_only=true
-source "$repo/scripts/smoke/harness.sh"
 cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
 # Each shader's costly copy adds a 256-step dependent loop before its
 # output, each step made of that shader's own work: VoiceOrb's,
@@ -162,6 +179,7 @@ for ((run = 1; run <= runs; run++)); do
     for shader in "${shaders[@]}"; do
       mkdir -p -- "$pass/$shader"
       for scene in off on costly; do
+        shader_pressure_gate "run-$run/$shader/scale-$scale-$scene"
         measure_held_scene "$scale" "$scene" "$pass/$shader/scale-$scale-$scene"
       done
     done

@@ -538,7 +538,12 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             (scripts / "shader/readings.py").write_text(readings)
         for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/Ui/foundation/shaders/glasslens.frag", "shell/plugins/vgs.voice/shaders/plasma.frag", "shell/plugins/vgs.jarvis/shaders/particleorb.frag"):
             shutil.copyfile(ROOT.parent / shader, root / shader)
-        (scripts / "smoke/harness.sh").write_text(harness)
+        (scripts / "smoke/harness.sh").write_text('''
+world_pressure_file="$HOME/pressure"
+printf 'some avg10=7.30 avg60=0.00 avg300=0.00 total=0\\n' >"$world_pressure_file"
+latency_pressure_limit=7.3
+latency_pressure_verdict() { if [[ $2 == 7.3 ]]; then echo within; else echo unmeasured; fi; }
+''' + harness)
         # The runner asks the fence before it makes anything; this stand-in
         # answers that no amdgpu node is visible. scripts/test-gpu-fence.sh
         # holds the runner to the call.
@@ -606,6 +611,44 @@ exit 0
             result = self.runner_copy(Path(scratch) / "mutant", harness, changed, cases[0][0])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("shader-test: harness-reached", result.stdout)
+
+    def test_pressure_stops_before_compilation_or_next_scene(self):
+        harness = '''
+home="$HOME"; sandbox="$HOME/sandbox"; mkdir -p "$sandbox"
+failures=0; mode_hold=()
+first_name() { echo WAYLAND-1; }
+unscaled_mode_of() { echo 1920x1080; }
+hidpi_mode_of() { echo 3840x2160; }
+hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
+release_mode() { mode_hold=(); }
+'''
+        scene = '''
+measure_held_scene() {
+  echo measured >>"$home/scenes"
+  printf 'some avg10=7.40 total=0\\n' >"$world_pressure_file"
+}
+'''
+        text = RUNNER.read_text()
+        needle = '  [[ $result == within ]] || {'
+        self.assertEqual(text.count(needle), 1)
+        mutant = text.replace(needle, '  true || {')
+        with tempfile.TemporaryDirectory() as scratch:
+            for name, seed, count in (("loaded", "some avg10=7.40 total=0", 0),
+                                      ("unread", "full avg10=0.00 total=0", 0),
+                                      ("later", "some avg10=7.30 total=0", 1)):
+                for index, source in enumerate((text, mutant)):
+                    with self.subTest(case=name, mutant=index):
+                        root = Path(scratch) / f"{name}-{index}"
+                        setup = harness + f"printf '%s\\n' '{seed}' >\"$world_pressure_file\"\n"
+                        result = self.runner_copy(root, setup, source, scene=scene, readings="pass\n")
+                        self.assertEqual(result.returncode, 77 if index == 0 else 0, result.stdout + result.stderr)
+                        measured = root / "home/scenes"
+                        self.assertEqual(len(measured.read_text().splitlines()) if measured.exists() else 0,
+                                         count if index == 0 else 36)
+                        if index == 0:
+                            self.assertIn("status=not-measured reason=cpu-pressure", result.stdout)
+                            self.assertIn("scene=run-1/voiceorb/scale-1-on" if count else "scene=setup", result.stdout)
+                            self.assertEqual((root / "home/compiler-calls").exists(), count > 0)
 
     def test_pass_loop(self):
         # The harness, the scene owner and the reader are stand-ins that
