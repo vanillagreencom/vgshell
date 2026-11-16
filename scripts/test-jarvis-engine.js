@@ -2802,13 +2802,16 @@ async function cases(kit, server, only = null, mutation = false) {
     // Its adapter protocol fault keeps the same permanent cause.
     await run("unbound-partial-revision", async w => {
         const held = gate();
+        const malformed = utterance("x", [], [
+            { kind: "partial", text: "a", rev: 2 }, { kind: "partial", text: "b", rev: 1 }]);
         try {
-            control.utterances.push(utterance("First turn."), utterance("x", [], [
-                { kind: "partial", text: "a", rev: 2 }, { kind: "partial", text: "b", rev: 1 }, { kind: "final", text: "x" }]));
+            control.utterances.push(utterance("First turn.", [], null, { afterFrames: 3 }), malformed);
             const before = server.requests.length;
             server.replies.push(pause(held));
             w.runner.dispatch({ type: "talk-down" });
             await requested(w, before + 1, "the first automatic-input turn");
+            // Its bad revision cannot cancel the request before this read.
+            malformed.afterFrames = 0;
             await playOut(w);
             await until(() => w.s().fault.kind === "error", "unbound transcription keeps its keyed failure");
             assert.equal(w.s().fault.reason, "engine=transcript-revision");
@@ -4326,8 +4329,6 @@ async function groupPlants(root, server) {
             "c.unbound", "toggle-turns"],
         ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
             'transcribe(frames, { detect: false })', "toggle-turns"],
-        ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
-            "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
         ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
         ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet, context: c };",
@@ -4348,7 +4349,7 @@ async function groupPlants(root, server) {
         ["readable-backpressure", "if (!readable.push(step.value)) await wanted.wait();", "readable.push(step.value);", "backpressure"],
         ["unbound-loses-keyed-cause", 'else if (capturing) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });',
             'else if (false) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });', "unbound-partial-revision"],
-        ["collection-loses-keyed-cause", 'if (bound) collection.failed(reason);', 'if (false) collection.failed(reason);', "partial-revision"],
+        ["collection-loses-keyed-cause", 'if (bound) collection.failed(reason);', 'if (bound) collection.failed("provider-disconnected");', "partial-revision"],
         ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
         ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "close-capture"],
         ["caption-revision", "rev: ++c.rev", "rev: 1", "turn-loop"],

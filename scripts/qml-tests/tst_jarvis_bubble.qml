@@ -156,7 +156,9 @@ Item {
                 { tag: "more-room-left-move-beside", width: 1200, height: 600, output: "SMOKE-1", side: "left",
                     box: { x: 500, y: 100, width: 600, height: 500 },
                     clear: { output: "SMOKE-1", x: 1200, y: 0, width: 600, height: 600 } },
-                { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
+                // Use a production audio restart title to exercise reflow
+                // without making the other placements depend on its length.
+                { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true, restartCategory: "audio",
                     box: { x: 300, y: 0, width: 600, height: 600 },
                     clear: { output: "SMOKE-1", x: 300, y: 0, width: 600, height: 280 } },
                 { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
@@ -183,7 +185,8 @@ Item {
             bubble.screen = { name: data.output };
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())),
                 { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
-                    restart: data.tight ? { kind: "none" } : { kind: "restarted", category: "reply-cut" } });
+                    restart: data.tight ? { kind: "none" } : { kind: "restarted",
+                        category: data.restartCategory !== undefined ? data.restartCategory : "reply-cut" } });
             compare(bubble.hold, null);
             verify(bubble.shown, "the active conversation keeps the orb shown without a held request");
             const overlay = findChild(bubble, "overlay");

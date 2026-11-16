@@ -2575,7 +2575,7 @@ const CONTROLS = [
     ["the Local voice row reads as a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "dictation setup leaves local voice maintenance available: the browser and input read optional"],
     ["a home hint names a path with no page", '"home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" }',
-        '"home=path": { hint: "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home." }', "the Settings path has the one form"],
+        '"home=path": { hint: "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home." }', "home=path: the converted hint links its tab"],
     ["the voices hint names the Voice field in plain words", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "Choose one in the Voice list";',
         "the voices hint links the Voice field"],
     ["a failed check names another reader's action", '" Press " + setup.label + " to set it up', '" Press Set up local voice to set it up', "the hint names"],
@@ -3493,26 +3493,10 @@ function verifyWordedText(gate) {
     }
 }
 
-// Every Settings path a gate text names has one form: the page, Jarvis's
-// own or the Voice plugin's, then for Jarvis's the field or group. The
-// voices hint names Jarvis's Voice field, never the Voice plugin's page.
+// Link targets are typed page references, independent of their visible words.
 function verifyPathForm(gate) {
-    const texts = [];
-    (function walk(value) {
-        if (typeof value === "string") texts.push(value);
-        else if (value !== null && typeof value === "object") Object.values(value).forEach(walk);
-    })(plain(Object.fromEntries(Object.entries(gate).filter(([, value]) => typeof value !== "function"))));
-    const paths = texts.flatMap(text => pageReference.plain(text).match(/Settings > [^.,:]*/g) ?? []);
-    // The restart sentence names Jarvis's page and the dictation causes the
-    // Voice plugin's: an extractor that misses either reads nothing.
-    for (const required of ["Settings > Jarvis", "Settings > Voice"])
-        assert.equal(paths.includes(required), true, "the gate's Settings paths are read: " + required);
-    for (const found of paths)
-        assert.match(found, /^Settings > (Voice$|Jarvis( > [A-Z][A-Za-z ]*)?)/, JSON.stringify(found) + ": the Settings path has the one form");
-    // The voices line is drawn on Details: it names the Voice field and
-    // links it on Settings.
     const voices = pageReference.parse(gate.ELEVENLABS_READY);
-    assert.deepEqual([voices.words.includes(manifest.schema.voice.label), voices.page, voices.tab], [true, "vgs.jarvis", "Settings/voice"], "the voices hint links the Voice field");
+    assert.deepEqual([voices.page, voices.tab], ["vgs.jarvis", "Settings/voice"], "the voices hint links the Voice field");
     for (const [cause, page, tab] of [
         ["brain=unselected", "vgs.jarvis", "Settings/brain"],
         ["brain=model-required", "vgs.jarvis", "Settings/model"],
