@@ -30,6 +30,50 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# A failed producer must publish no rows, even when it wrote partial output.
+if python3 - "$repo/scripts/sandbox-shots.sh" "$BASH" <<'PYCAUSE'
+from pathlib import Path
+import subprocess
+import sys
+
+text = Path(sys.argv[1]).read_text()
+start = text.index('jarvis_plant_cause() {')
+end = text.index('\n}\n', start) + 3
+consumer = text[start:end]
+fixture = r'''
+set -euo pipefail
+jarvis_cause_status_rows() {
+  [[ $1 == failed ]] || printf 'audio\t{"tone":"ok","text":"fixture"}\n'
+  [[ $1 == ready ]] || return 23
+}
+ipc() { printf 'publish\n' >&2; echo ok; }
+'''
+
+def check(source):
+    for cause, status, output, calls in (
+            ('ready', 0, 'ok\n', 'publish\n'),
+            ('failed', 23, '', ''),
+            ('partial', 23, '', '')):
+        result = subprocess.run([sys.argv[2], '-c', fixture + source + '\njarvis_plant_cause "$1" after', '_', cause],
+                                capture_output=True, text=True, timeout=10)
+        if (result.returncode, result.stdout, result.stderr) != (status, output, calls):
+            return False
+    return True
+
+assert check(consumer), 'producer-error-not-propagated'
+capture = '  rows="$(jarvis_cause_status_rows "$1" "$2")" || return\n'
+feed = '  done <<<"$rows"\n'
+assert consumer.count(capture) == consumer.count(feed) == 1
+old = consumer.replace(capture, '').replace(feed, '  done < <(jarvis_cause_status_rows "$1" "$2")\n')
+assert not check(old), 'process-substitution-control-survived'
+print('cause-producer: successful=published failed=refused partial=refused control=old-consumer-failed')
+PYCAUSE
+then
+  ok "Jarvis cause planting propagates producer failure before publishing"
+else
+  fail "Jarvis cause producer failure propagation"
+fi
+
 # Execute the Google Drive scene's confirmation fixture with the device
 # gum already present. Only confirmation sees the private answer; failure
 # and interruption leave the caller's PATH and command bytes unchanged.

@@ -337,6 +337,9 @@
 # settings, choices, status and tools. It records live state; it does not
 # freeze a service's poller. Pair readers compare these records before
 # claiming equal states across themes or revisions.
+# jarvis-task-ending draws the shutdown notification. jarvis-shell-tools
+# draws the public-runtime failure hint on Details. Both call the selected
+# revision's service handlers with synthetic results and are named-only.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
@@ -671,7 +674,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     restart-owed|font-rewrite|reboot-notice) scenes+=("$1"); shift ;;
-    jarvis-restart) scenes+=("$1"); shift ;;
+    jarvis-restart|jarvis-task-ending|jarvis-shell-tools) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
@@ -863,7 +866,8 @@ scene_ships() {
     clipboard) ships_plugin vgs.clipboard ;;
     jarvis-console|jarvis-reach|jarvis-history) ships_plugin vgs.jarvis ;;
     jarvis-keys|jarvis-states) [[ $manager_scene == settings ]] && ships_plugin vgs.jarvis vgs.settings vgs.bar ;;
-    jarvis-restart) ships_plugin vgs.jarvis vgs.bar vgs.notifications ;;
+    jarvis-restart|jarvis-task-ending) ships_plugin vgs.jarvis vgs.bar vgs.notifications ;;
+    jarvis-shell-tools) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
@@ -5430,6 +5434,52 @@ print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if 
   jarvis_restore_requirements
 }
 
+# Present only Service.taskAnswer's notification for a synthetic result.
+# This calls no task stop, lookup, open, wire request or session command.
+scene_jarvis-task-ending() { # MODE
+  local shot_name="jarvis-task-ending-$1"
+  jarvis_setup_requirements || return
+  rescan "the task-ending capture requirement stand-ins are scanned"
+  notes_on "Jarvis task-ending notice"
+  expect "Jarvis enables for its task-ending notice" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the task-ending notice service answers" ready jarvis_started
+  close_notices
+  notes_clear "Jarvis task-ending notice"
+  jarvis_task_ending_cards() {
+    ipc smoke layerItems vgs.notifications NotificationCard summary,body | py_reply 'import json,sys
+rows=[row for row in json.load(sys.stdin) if row[2].get("summary")=="Coding task not stopped"]
+print(len(rows) if all(isinstance(row[2].get("body"),str) and row[2]["body"] for row in rows) else "unreadable")'
+  }
+  expect "the production task-answer notice handler is called" "" ipc smoke invokeInstanceArgs service vgs.jarvis taskAnswer '{"args":[{"answer":"daemon-ending","task":"fixture"}]}'
+  expect_poll "the production task-ending notice is drawn" 1 jarvis_task_ending_cards
+  ipc smoke layerItems vgs.notifications NotificationCard summary,body >"$SHOT_DIR/$shot_name-state.json" || return
+  take "$shot_name"
+  expect "Jarvis disables after its task-ending notice" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "the task-ending capture daemon is gone" absent ipc smoke jarvisProcess
+  notes_off "Jarvis task-ending notice"
+  jarvis_restore_requirements
+}
+
+scene_jarvis-shell-tools() { # MODE
+  jarvis_setup_requirements || return
+  rescan "the shell-tools capture requirement stand-ins are scanned"
+  expect "Jarvis enables for the shell-tools hint" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the shell-tools capture service answers" ready jarvis_started
+  close_notices
+  expect "Settings opens for the shell-tools hint" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for the shell-tools hint" 1 settings_count
+  expect "Settings opens the Jarvis page for the shell-tools hint" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown for the shell-tools hint" '"vgs.jarvis"' settings_page
+  page_details
+  expect "the production shell-tools status handler publishes" true ipc smoke invokeInstanceArgs service vgs.jarvis shellStatus '{"args":[{"kind":"unavailable","reason":"public-runtime"}]}'
+  jarvis_anchor_shot "jarvis-shell-tools-$1" Label "$(jarvis_status_label shell)"
+  page_state_record "jarvis-shell-tools-$1" "$1" vgs.jarvis
+  settings_close
+  expect "Jarvis disables after the shell-tools hint" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "the shell-tools capture daemon is gone" absent ipc smoke jarvisProcess
+  jarvis_restore_requirements
+}
+
 # A turn whose reply stream breaks off, in an open conversation, twice: the
 # scripted wire driver's stream-failed gate fails the waiting response, and
 # the daemon's real chained engine judges the cause. Each failure is shot
@@ -5678,8 +5728,8 @@ const gate = lib(path.join(repo, "shell/plugins/vgs.jarvis/SetupGate.js"));
 const session = lib(path.join(repo, "shell/plugins/vgs.jarvis/Session.js"));
 const service = fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/Service.qml"), "utf8");
 const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Jarvis is locked; microphone is off" : "([^"]+)"\)/, "ready literal");
-const audioReady = literal(service, /shell\.status\.set\("audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
-const rows = [["audio", { tone: "ok", text: audioReady }], ["setupHome", { hidden: true }]];
+const audioReady = literal(service, /StatusPublication\.write\(shell\.status, "audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
+const rows = [["audio", { tone: "ok", text: audioReady }]];
 function detail(gate) {
   const state = JSON.parse(JSON.stringify(session.initial()));
   state.gate = gate;
@@ -5693,7 +5743,7 @@ function addSetup(answer, check) {
   const values = gate.readiness(answer, { kind: "empty" });
   values.setupVoice = gate.voiceCheck(values.setupVoice, check);
   voiceStep = values.setupVoice;
-  for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
+  for (const key of ["setup", "setupHome", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
 }
 function addReady(answer, gateValue) {
   const planted = detail(gateValue || { kind: "up" });
@@ -5727,11 +5777,12 @@ for (const [key, value] of rows) console.log(key + "\t" + JSON.stringify(value))
 JS
 }
 jarvis_plant_cause() { # CAUSE PHASE
-  local key value reply failed=0
+  local rows key value reply failed=0
+  rows="$(jarvis_cause_status_rows "$1" "$2")" || return
   while IFS=$'\t' read -r key value; do
     reply="$(ipc smoke heldStatusSet "$key" "$value")" || reply=unread
     [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
-  done < <(jarvis_cause_status_rows "$1" "$2")
+  done <<<"$rows"
   [[ $failed == 0 ]] && echo ok || return 1
 }
 # The target revision's own Home refusal value, through its held provider.
@@ -7098,12 +7149,9 @@ PY
   expect "the Jarvis AI model setting is delivered" ok ipc shell reloadConfig
 }
 scene_jarvis-causes() { # MODE
-  local phase cause slug label headline=Setup
+  local phase cause slug label
   phase=after
-  [[ -z $rev ]] || phase=before
-  # The Setup tab draws the summary, which words the cause, in its own
-  # Status section over the steps.
-  ! "$has_setup_tab" || headline=Status
+  tree_has shell/plugins/vgs.jarvis/Service.qml "Gate.startStatus(" || phase=before
   expect "enabling vgs.jarvis for cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "vgs.jarvis is placed for cause sheets" ok ipc shell setPluginPlaced vgs.jarvis true
   expect_poll "the Jarvis service exists for cause sheets" True record_exists vgs.jarvis
@@ -7129,7 +7177,7 @@ scene_jarvis-causes() { # MODE
     take_posed "jarvis-causes-$1-$phase-$slug-widget"
     park_pointer
     expect_poll "the Jarvis tooltip closes for $label" false tooltip_opened vgs.jarvis
-    jarvis_anchor_shot "jarvis-causes-$1-$phase-$slug-setup" SectionHeader "$headline"
+    jarvis_anchor_shot "jarvis-causes-$1-$phase-$slug-setup" SectionHeader Setup
   done
   settings_close
   expect "disabling vgs.jarvis after cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -12109,7 +12157,7 @@ for scene in "${scenes[@]}"; do
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
-    jarvis-causes|jarvis-home-repair) need_setup bar; need_setup settings; need_setup "$scene" ;;
+    jarvis-causes|jarvis-home-repair|jarvis-shell-tools) need_setup bar; need_setup settings; need_setup "$scene" ;;
     ai-usage-states|ai-usage-hide) need_setup ai-usage ;;
     focus) need_setup settings ;;
     info-dialog) need_setup info-dialog ;;
