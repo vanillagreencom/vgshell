@@ -581,9 +581,8 @@ async function completeBuild(command, manager, { completion }, ended, tracking) 
 // The BASES paru's devel state does not track, or null when the bases or
 // that state cannot be read. paru(8)'s --gendb emits progress, and --show
 // has no tracked-set query; -Qua cannot tell an untracked package from a
-// current tracked one. Read only its native state: paru 70f66dc9
-// src/config.rs::new fixes this XDG path; src/devel.rs::DevelInfo defines
-// the repos/url/commit structure.
+// current tracked one. Read only its native state: paru 2.2.0, recorded
+// on cachy in VGS-2604, stores each base as url/branch?/commit entries.
 function untracked(bases) {
     if (bases === null) return null;
     if (bases.length === 0) return [];
@@ -596,8 +595,8 @@ function untracked(bases) {
     let state;
     try { state = JSON.parse(read.stdout); }
     catch (error) { if (error instanceof SyntaxError) return null; throw error; }
-    return bases.filter(base => !Array.isArray(state[base]?.repos) || state[base].repos.length === 0
-        || state[base].repos.some(ref => typeof ref.url !== "string" || ref.url.length === 0 || typeof ref.commit !== "string" || ref.commit.length === 0));
+    return bases.filter(base => !Array.isArray(state[base]) || state[base].length === 0
+        || state[base].some(ref => typeof ref.url !== "string" || ref.url.length === 0 || typeof ref.commit !== "string" || ref.commit.length === 0));
 }
 
 function installed(manager, binary) {

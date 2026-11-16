@@ -62,9 +62,9 @@ const named=(table,key)=>table&&Object.hasOwn(table,key)?table[key]:undefined;
 if(name==="paru"&&args.includes("--gendb")){
  log("devel-completion",{config:effectiveConfig});
  const file=path.join(root,"devel-world.json"),world=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{},untracked=world.untracked||[];
- const sources=Object.entries({"vgshell-git":{url:"https://example.org/vgs.git",commit:"new-vgs-commit"}}).filter(([base])=>!untracked.includes(base));
+ const sources=Object.entries({"vgshell-git":world.ref??{url:"https://example.org/vgs.git",commit:"new-vgs-commit"}}).filter(([base])=>!untracked.includes(base));
  const dir=path.join(process.env.XDG_STATE_HOME,"paru");fs.mkdirSync(dir,{recursive:true});
- fs.writeFileSync(path.join(dir,"devel.toml"),sources.map(([base,source])=>`[[${base}.repos]]\nurl = ${JSON.stringify(source.url)}\ncommit = ${JSON.stringify(source.commit)}\n`).join("\n"));
+ fs.writeFileSync(path.join(dir,"devel.toml"),sources.map(([base,source])=>`[[${base}]]\n`+Object.entries(source).map(([key,value])=>`${key} = ${JSON.stringify(value)}\n`).join("")).join("\n"));
  if(world.error)process.stderr.write("error: failed to parse srcinfo for 'other-git'\n");
  process.exit(0);
 }

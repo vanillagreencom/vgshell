@@ -75,18 +75,22 @@ try{
  // untracked, or an error it prints, is a result line, never a failed
  // install. OWNER, when given, is a control's copy of bin/vgshell-pkg.
  const develError=["devel-error",[],true];
- function devel([name,untracked,error],folder=name,owner=undefined){
+ const develCurrent=["devel-paru-2.2.0",[],false,{url:"https://github.com/vanillagreencom/vgshell.git",branch:"main",commit:"a951440bc274aa8e3121cd95fdaf581071cca879"}];
+ function devel([name,untracked,error,ref,expected=untracked.length],folder=name,owner=undefined){
   const world=create(path.join(scratch,folder),{settings:{agent:"claude",command:""},choices:[]}),order="AUR TARGET vgshell-git vgshell-git";
   if(owner!==undefined)world.owner=owner;
   write(world,"dependency-world.json",{pending:["vgshell-git"],buildOrder:{upgrade:order,"vgshell-git":order}});
-  write(world,"devel-world.json",{untracked,error});
+  write(world,"devel-world.json",{untracked,error,ref});
   const result=tty(world,["run","upgrade","--manager","aur"]);
   assert.equal(result.status,0,name+": "+result.stdout+result.stderr);
   assert.equal(world.calls().filter(call=>call.kind==="devel-completion").length,1,name+": tracking repair after the build");
-  assert.deepEqual(keyed(result,"package-result").filter(line=>line.includes("vgshell-git")).length,untracked.length,name+": untracked devel base result");
+  assert.deepEqual(keyed(result,"package-result").filter(line=>line.includes("vgshell-git")).length,expected,name+": untracked devel base result");
+  if(!error&&expected===0)assert.equal(keyed(result,"package-result").length,0,name+": tracked base prints no result line");
   if(error)assert.equal(keyed(result,"package-result").length,1,name+": the tracking error is one result line");
  }
- for(const row of [["devel-tracked",[],false],["devel-untracked",["vgshell-git"],false],develError])devel(row);
+ for(const row of [["devel-tracked",[],false],develCurrent,["devel-untracked",["vgshell-git"],false],
+  ["devel-empty-url",[],false,{url:"",commit:"new-vgs-commit"},1],["devel-empty-commit",[],false,{url:"https://example.org/vgs.git",commit:""},1],
+  ["devel-no-url",[],false,{commit:"new-vgs-commit"},1],["devel-no-commit",[],false,{url:"https://example.org/vgs.git"},1],develError])devel(row);
  // A flagged base and its pending transitive dependents leave one second
  // call. The clean tree's stored verdict means no repeated VGS question.
  for(const [name,changed,status,agentCount,offerCount] of [["same-tree",false,0,1,2],["changed-tree",true,1,2,3]]){
@@ -275,6 +279,7 @@ try{
  // copy's; the rest of the checkout is linked.
  const repo=path.resolve(__dirname,"../../..");
  for(const [name,needle,replacement,rerun,fails,file="bin/lib/pkg-review.js"] of [
+  ["tracking-old-shape","!Array.isArray(state[base])","!Array.isArray(state[base]?.repos)",owner=>devel(develCurrent,"control-tracking-old-shape",owner),/^devel-paru-2.2.0: untracked devel base result$/,"bin/vgshell-pkg"],
   // helperReviewCovered's named-target branch, which reinstall takes.
   ["reinstall-reviewed","let targets = names;","let targets = [];",owner=>bypass(publisherReinstall,"control-reinstall-reviewed",owner),/^publisher-reinstall: (?:agent count|review questions|helper review choice)$/],
   ["unnamed-agent",'"The " + plan.label + " review stopped without a result."','"The review stopped without a result."',owner=>agentFailure(otherAgent,"control-unnamed-agent",owner),/^other-agent: the offer names the failed agent$/],
