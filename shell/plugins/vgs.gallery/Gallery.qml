@@ -514,9 +514,9 @@ Item {
                     // as several bottom actions, and as an inline link.
                     Repeater {
                         model: [
-                            { tone: "danger", mark: "circle-alert", line: "VPN dropped: traffic blocked" },
-                            { tone: "warning", mark: "triangle-alert", line: "Jarvis cannot forward requests" },
-                            { tone: "info", mark: "info", line: "A new version of VGS is ready" }
+                            { tone: "danger", line: "VPN dropped: traffic blocked" },
+                            { tone: "warning", line: "Jarvis cannot forward requests" },
+                            { tone: "info", line: "A new version of VGS is ready" }
                         ]
                         Column {
                             id: example
@@ -526,7 +526,6 @@ Item {
                             Callout {
                                 level: "raised"
                                 tone: example.modelData.tone
-                                iconName: example.modelData.mark
                                 title: "Callout: " + example.modelData.tone
                                 text: "Read the [setup guide](page:vgs.gallery) before you start. The text wraps to fit the available width."
                                 linkText: "Read the guide"
@@ -536,7 +535,6 @@ Item {
                             Callout {
                                 level: "raised"
                                 tone: example.modelData.tone
-                                iconName: example.modelData.mark
                                 title: "Dismissible callout: " + example.modelData.tone
                                 text: "Read the [setup guide](page:vgs.gallery) before you start."
                                 linkText: "Read the guide"
@@ -549,7 +547,6 @@ Item {
                             Callout {
                                 level: "raised"
                                 tone: example.modelData.tone
-                                iconName: example.modelData.mark
                                 title: "Callout with links"
                                 text: "Each action is a link in one row under the text."
                                 links: ["Show details", "Stop"]
@@ -558,7 +555,6 @@ Item {
                             Callout {
                                 level: "raised"
                                 tone: example.modelData.tone
-                                iconName: example.modelData.mark
                                 text: "Text without a title wraps under its first line, which the icon stays level with."
                                 linkText: "Try again"
                                 onActivated: text = "The action was selected."
@@ -566,7 +562,6 @@ Item {
                             Callout {
                                 level: "raised"
                                 tone: example.modelData.tone
-                                iconName: example.modelData.mark
                                 text: example.modelData.line + ". [Open Settings](page:vgs.gallery/Settings)."
                                 onPageActivated: (page, tab) => text = "The page link was selected."
                             }

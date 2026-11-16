@@ -520,9 +520,9 @@ var TOKENS = {
             pressed: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accentPressed}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})")
         },
         tone: {
-            info: { foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") },
-            warning: { foreground: tone("warning").foreground },
-            danger: { foreground: tone("danger").foreground }
+            info: { icon: { type: "choice", value: "info", options: ["info", "triangle-alert", "circle-alert"] }, foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") },
+            warning: { icon: { type: "choice", value: "triangle-alert", options: ["info", "triangle-alert", "circle-alert"] }, foreground: tone("warning").foreground },
+            danger: { icon: { type: "choice", value: "circle-alert", options: ["info", "triangle-alert", "circle-alert"] }, foreground: tone("danger").foreground }
         }
     },
 

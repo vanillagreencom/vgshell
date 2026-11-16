@@ -68,6 +68,27 @@ Item {
             return rows;
         }
 
+        function test_the_tone_supplies_its_icon_data() {
+            const rows = [];
+            for (const theme of root.themes)
+                for (const entry of [{ tone: "danger", icon: "circle-alert" }, { tone: "warning", icon: "triangle-alert" }, { tone: "info", icon: "info" }])
+                    rows.push({ tag: theme.tag + " " + entry.tone, theme: theme.tokens, tone: entry.tone, icon: entry.icon });
+            return rows;
+        }
+
+        function test_the_tone_supplies_its_icon(data) {
+            compare(UnitTheme.override(data.theme), "ok");
+            const callout = make({ tone: data.tone, text: "A notice" });
+            compare(icon(callout).visible, true);
+            compare(icon(callout).name, data.icon);
+            compare(colour(icon(callout).color), colour(Theme.callout.tone[data.tone].foreground));
+            callout.iconName = "book-open";
+            compare(icon(callout).name, "book-open");
+            callout.iconName = "";
+            compare(icon(callout).name, data.icon);
+            callout.destroy();
+        }
+
         function test_only_the_icon_takes_the_tone(data) {
             compare(UnitTheme.override(data.theme), "ok");
             const callout = make({ level: data.level, tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], dismissible: true, showDontShowAgain: true });
@@ -123,14 +144,14 @@ Item {
         function test_the_inline_variant_and_bottom_actions() {
             const callout = make({ width: root.width, tone: "danger", text: "VPN dropped. [Open Settings](page:vgs.gallery)." });
             const words = body(callout);
-            compare(icon(callout).visible, false);
+            compare(icon(callout).visible, true);
             compare(title(callout).visible, false);
             compare(words.lineCount, 1);
             compare(footer(callout).visible, false);
             compare(callout.firstStop, words);
             compare(colour(words.color), colour(Theme.callout.text));
             compare(colour(words.linkColor), colour(Theme.callout.link.foreground));
-            compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding, "the line starts on the left padding");
+            compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding + icon(callout).width + Theme.callout.iconGap, "the line clears its tone's icon");
             callout.linkText = "Turn VPN off";
             tryVerify(() => link(callout).mapToItem(callout, 0, 0).y >= words.mapToItem(callout, 0, words.height).y + Theme.callout.gap);
             callout.destroy();

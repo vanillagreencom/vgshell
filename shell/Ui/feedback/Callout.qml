@@ -8,7 +8,8 @@ import qs.Ui
 // or `raised`: the banner draws one step above it, surfaceRaised or
 // surfaceHover, with no border. `tone` names a group of
 // `Theme.callout.tone`: `danger`, `warning` or `info`, the default; an
-// unknown name is logged and drawn as `info`. Only the leading `iconName`
+// unknown name is logged and drawn as `info`. The tone supplies the icon
+// when `iconName` is empty. Only the leading icon
 // takes its `foreground`; the title and text use callout.title in
 // bodyStrong and callout.text in body, solved from normal text and muted
 // text to the readability floor on the banner fill. The lines stand
@@ -98,8 +99,7 @@ Rectangle {
 
         Icon {
             id: icon
-            visible: root.iconName !== ""
-            name: root.iconName
+            name: root.iconName !== "" ? root.iconName : root.tokens.icon
             size: Theme.icon.size.md
             color: root.tokens.foreground
             x: Theme.callout.padding

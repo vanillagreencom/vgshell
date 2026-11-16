@@ -81,6 +81,7 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "a notice loses its tone's default icon|feedback/Callout.qml|name: root.iconName !== \"\" ? root.iconName : root.tokens.icon|name: root.iconName|tst_callout.qml|test_the_tone_supplies_its_icon"
   "box top padding returns to the item box|../Commons/ClearingInset.qml|readonly property real topPadding: pad - Math.floor(topInk)|readonly property real topPadding: pad|tst_box_ink.qml|test_equal_drawn_gaps"
   "box ink binds back through its assigned viewport|../Commons/ClearingInset.qml|readonly property real topPadding: pad - Math.floor(topInk)|readonly property real topPadding: pad - Math.floor(observedTopInk)|tst_pane.qml"
   "Stay awake action loses the field height|../plugins/vgs.power/StayAwake.qml|size: \"md\"|size: \"sm\"|tst_power_view.qml|test_field_height_in_both_surfaces"
@@ -1024,7 +1025,7 @@ mutations=(
   "a notice's first stop skips its page link|feedback/Callout.qml|body.visible && body.linked ? body : link.visible|link.visible|tst_callout.qml"
   "the info notice's ink takes the info hue|../Commons/Tokens.js|foreground: color(\"mix({color.text}, contrast({palette.background}), 0.15)\")|foreground: color(\"{color.info}\")|tst_callout.qml"
   "the forwarding warning draws as a line|../plugins/vgs.jarvis/Console.qml|visible: root.tab === 0 && warns|visible: false|tst_jarvis_console.qml"
-  "the forwarding warning draws in another state|../plugins/vgs.jarvis/Console.qml|tone: \"warning\""$'\n'"                iconName: \"triangle-alert\"|tone: \"danger\""$'\n'"                iconName: \"triangle-alert\"|tst_jarvis_console.qml"
+  "the forwarding warning draws in another state|../plugins/vgs.jarvis/Console.qml|tone: \"warning\""$'\n'"                text: warns ?|tone: \"danger\""$'\n'"                text: warns ?|tst_jarvis_console.qml"
   "the forwarding warning's link opens nothing|../plugins/vgs.jarvis/Console.qml|text: warns ? root.reachText(reach) : \"\""$'\n'"                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)|text: warns ? root.reachText(reach) : \"\""$'\n'"                onPageActivated: (page, tab) => {}|tst_jarvis_console.qml"
   "Tab from New conversation skips the forwarding warning's link|../plugins/vgs.jarvis/Console.qml|KeyNavigation.tab: reachNotice.visible && reachNotice.firstStop !== null ? reachNotice.firstStop : root.composerFocus|KeyNavigation.tab: root.composerFocus|tst_jarvis_console.qml"
   "a Repeater takes a gap of its row actions|controls/RowActions.qml|child.visible && child.width > 0 && child.height > 0|child.visible|tst_rowaction.qml"

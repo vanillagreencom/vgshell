@@ -45,7 +45,7 @@ Item {
         Callout {
             text: fixtureRoot.words
             color: "#101010"
-            width: measure.implicitWidth + 24
+            width: measure.implicitWidth + 24 + Theme.icon.size.md + Theme.callout.iconGap
             Label { id: measure; visible: false; text: fixtureRoot.words }
         }
     }
@@ -226,6 +226,15 @@ Item {
             verify(text.length > 0, "the actual component supplies the foreground");
             const gaps = foregroundBounds(box, text);
             verify(gaps !== null, "content ink is present");
+            if (data.box.name === "Callout") {
+                // The leading icon clears its item box; text still
+                // contributes its drawn bounds on any edge it reaches.
+                const icon = fixtureRoot.descendants(box).find(item => item instanceof Icon && item.visible);
+                verify(icon !== undefined, "the notice keeps its leading icon");
+                const origin = icon.mapToItem(box, 0, 0);
+                const iconGaps = [origin.x, origin.y, box.width - origin.x - icon.width, box.height - origin.y - icon.height];
+                for (let i = 0; i < 4; i++) gaps[i] = Math.min(gaps[i], iconGaps[i]);
+            }
             const side = data.box.side === undefined ? data.box.pad : data.box.side;
             const expected = [side, data.box.pad, side, data.box.pad];
             let geometry = "";

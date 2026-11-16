@@ -608,7 +608,6 @@ FocusScope {
                     && (reach.kind === "unavailable" || reach.kind === "satellite" && reach.cause !== "")
                 visible: root.tab === 0 && warns
                 tone: "warning"
-                iconName: "triangle-alert"
                 text: warns ? root.reachText(reach) : ""
                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
