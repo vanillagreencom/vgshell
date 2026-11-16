@@ -13,8 +13,8 @@ import "PolkitModel.js" as PolkitModel
 // throws, so the host refuses it and no prompt shows without a flow.
 //
 // Authenticate and Enter submit the field once PAM asks; the field and the
-// action wait while PAM works. Cancel, Escape and the prompt closing by any
-// other path, a hide or the plugin disabled, cancel the live request. The
+// action wait while PAM works. Cancel, Escape and disabling the plugin cancel
+// the live request. Other hides are held while the request is live. The
 // password lives only in the field: it is cleared on submit and on close,
 // and is never logged, published or held anywhere else.
 Item {
@@ -25,6 +25,12 @@ Item {
     readonly property var agent: shell === null ? null : shell.polkit.agent
     readonly property var flow: agent === null ? null : agent.flow
     readonly property var view: PolkitModel.viewOf(flow)
+
+    function holdsHide() {
+        // Read the agent directly so the service's end hide sees the same state,
+        // before this item's flow binding has to update.
+        return agent !== null && agent.isActive;
+    }
 
     function open(payloadJson) {
         if (flow === null) throw new Error("polkit: refused: flow=none");
