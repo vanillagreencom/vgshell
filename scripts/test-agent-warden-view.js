@@ -19,7 +19,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
-const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
+const modules = { "qs.Commons 1.0": {
+    Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")),
+    TextList: load(path.join(__dirname, "..", "shell", "Commons", "TextList.js"))
+} };
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden");
 const fixtures = path.join(__dirname, "smoke", "fixtures", "agent-warden");

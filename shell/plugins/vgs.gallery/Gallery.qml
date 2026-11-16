@@ -510,15 +510,13 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.group
-                    // Each state with a title, text and a link; with a row
-                    // of links under the text; with wrapped text and no
-                    // title beside a button; and as the one-line banner
-                    // with a button and no icon.
+                    // Each tone as a block, with and without dismissal,
+                    // as several bottom actions, and as an inline link.
                     Repeater {
                         model: [
-                            { tone: "danger", mark: "circle-alert", line: "VPN dropped: traffic blocked", action: "Turn VPN off" },
-                            { tone: "warning", mark: "triangle-alert", line: "Jarvis cannot forward requests", action: "Open Settings" },
-                            { tone: "info", mark: "info", line: "A new version of VGS is ready", action: "Update" }
+                            { tone: "danger", mark: "circle-alert", line: "VPN dropped: traffic blocked" },
+                            { tone: "warning", mark: "triangle-alert", line: "Jarvis cannot forward requests" },
+                            { tone: "info", mark: "info", line: "A new version of VGS is ready" }
                         ]
                         Column {
                             id: example
@@ -526,6 +524,7 @@ Item {
                             width: parent ? parent.width : 0
                             spacing: Theme.stack.inline
                             Callout {
+                                level: "raised"
                                 tone: example.modelData.tone
                                 iconName: example.modelData.mark
                                 title: "Callout: " + example.modelData.tone
@@ -535,6 +534,20 @@ Item {
                                 onPageActivated: (page, tab) => text = "The page link was selected."
                             }
                             Callout {
+                                level: "raised"
+                                tone: example.modelData.tone
+                                iconName: example.modelData.mark
+                                title: "Dismissible callout: " + example.modelData.tone
+                                text: "Read the [setup guide](page:vgs.gallery) before you start."
+                                linkText: "Read the guide"
+                                dismissible: true
+                                showDontShowAgain: true
+                                onActivated: text = "The guide action was selected."
+                                onDismissed: visible = false
+                                onDontShowAgain: visible = false
+                            }
+                            Callout {
+                                level: "raised"
                                 tone: example.modelData.tone
                                 iconName: example.modelData.mark
                                 title: "Callout with links"
@@ -543,22 +556,24 @@ Item {
                                 onActionActivated: index => text = "The link " + links[index] + " was selected."
                             }
                             Callout {
+                                level: "raised"
                                 tone: example.modelData.tone
                                 iconName: example.modelData.mark
-                                text: "Text without a title wraps under its first line, which the icon stays level with, and centres on the button beside it."
-                                buttonText: "Try again"
-                                onButtonActivated: buttonText = "Selected"
+                                text: "Text without a title wraps under its first line, which the icon stays level with."
+                                linkText: "Try again"
+                                onActivated: text = "The action was selected."
                             }
                             Callout {
+                                level: "raised"
                                 tone: example.modelData.tone
-                                text: example.modelData.line
-                                buttonText: example.modelData.action
-                                onButtonActivated: text = "The button was selected"
+                                iconName: example.modelData.mark
+                                text: example.modelData.line + ". [Open Settings](page:vgs.gallery/Settings)."
+                                onPageActivated: (page, tab) => text = "The page link was selected."
                             }
                         }
                     }
-                    Callout { title: "Title only" }
-                    Callout { text: "Text only, in the default info state" }
+                    Callout { level: "raised"; title: "Title only" }
+                    Callout { level: "raised"; text: "Text only, in the default info state" }
                 }
                 Flow {
                     width: parent.width

@@ -679,7 +679,11 @@ Item {
             const notice = collect(jarvisConsole, n => n.objectName === "mainReachNotice", [])[0];
             verify(notice instanceof Callout, "the warning is a notice banner");
             compare([reading.visible, notice.visible], [data.shown && !data.warning, data.shown && data.warning], "a warning shows as the notice, a reading as the line");
-            if (data.warning) compare(notice.tone, "warning");
+            if (data.warning) {
+                compare(notice.tone, "warning");
+                compare(notice.level, "raised");
+                compare(String(Qt.color(notice.color)), String(Qt.color(Theme.color.surfaceHover)));
+            }
             const line = () => data.warning ? notice : reading;
             const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));
             compare(JSON.stringify(links), JSON.stringify(data.link === "" ? [] : [data.link]), "the line links where its route is fixed");

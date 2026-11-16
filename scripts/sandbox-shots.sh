@@ -132,7 +132,7 @@
 # window over the scripted daemon fixture in each conversation state and
 # the package-owned Needs you/History pages, taken only when named;
 # gallery-callouts, taken only when named, is the Gallery's Feedback
-# section from its top, three pages, which hold its Callout examples;
+# section from its top, five pages, which hold its Callout examples;
 # jarvis-reach is its Now tab while the main Jarvis reading, published
 # through the service's own status provider, says requests cannot be
 # forwarded until a Home folder is chosen, taken only when named; jarvis-history draws plain
@@ -1393,7 +1393,7 @@ gallery_lists() { # MODE
 # 40 px apart so each page repeats the last lines of the one before, up to
 # gallery_pages pages.
 gallery_pages=12
-# The Feedback section's first three pages, from its top.
+# The Feedback section's first five pages, from its top.
 scene_gallery-callouts() { # MODE
   local page y span at cy ch h
   expect "the gallery summons for its notices" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
@@ -1401,7 +1401,7 @@ scene_gallery-callouts() { # MODE
   span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery Feedback)" || span=unread
   if [[ $span != "["* ]]; then fail "the gallery Feedback section could not be read: $span"; return; fi
   y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[0]) - 12))' "$span")"
-  for page in 1 2 3; do
+  for page in 1 2 3 4 5; do
     at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; return; fi
     read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
@@ -3318,8 +3318,8 @@ nl_notice() { # INDEX DIR
   case $1 in
     1) nl_plugin VGS core 1 warning triangle-alert '[]' "" "$nl_theme_title" \
          $'Muted text on panel backgrounds\nFaint text on the main background\nKey hints on raised panel backgrounds\nAccent text on inset panel backgrounds\nSelected row text on selected row backgrounds\nTooltip details on tooltip backgrounds' ;;
-    2) nl_plugin "Google Drive" vgs.google-drive 1 warning cloud-alert '["default", "Set up two-way sync"]' "" "Google Drive folder sync stopped" \
-         "Sync stopped for Documents, Photos, Projects. Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm." ;;
+    2) nl_plugin "Google Drive" vgs.google-drive 1 warning cloud-alert '["default", "Set up two-way sync"]' "" "Google Drive sync stopped" \
+         "Documents, Photos and Projects need setup for two-way sync." ;;
     3) nl_send Automations "Back up photos failed" \
          $'Failed 4 times since 07:00\nrsync: [sender] write error: Broken pipe (32) while copying Pictures/2026/11/IMG_4821.HEIC to nas:/volume1/photos/2026' '[]' \
          "{\"urgency\": <byte 2>, \"x-vgs-avatar\": <\"calendar-clock\">, \"x-vgs-icon\": <\"circle-x\">, \"x-vgs-tone\": <\"danger\">, \"x-vgs-click\": <\"open\">, \"x-vgs-open\": <$(nl_q "$2/back-up-photos.log")>}" ;;
@@ -3610,7 +3610,7 @@ scene_notification-limits() { # MODE
     nl_toasts_shot "notification-limits-$mode-toasts-$(( (i + nl_batch - 1) / nl_batch ))"
     if (( i == nl_batch )); then
       nl_hover_shot "notification-limits-$mode-hover-short" "An agent is near its memory limit"
-      nl_hover_shot "notification-limits-$mode-hover-wide" "Google Drive folder sync stopped"
+      nl_hover_shot "notification-limits-$mode-hover-wide" "Google Drive sync stopped"
     fi
     notes_clear "Notification limits batch"
     expect "the batch leaves the history" ok notes clear-history
@@ -11449,14 +11449,17 @@ print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in rows if
 # every pair is paused.
 cs_code() {
   ipc vgs.google-drive invoke status "" | node -e '
-const [lib, logic, ...fields] = process.argv.slice(1);
+const [lib, logic, textList, ...fields] = process.argv.slice(1);
 const text = require("fs").readFileSync(0, "utf8");
 let cloud;
 try { cloud = JSON.parse(text).cloud; } catch (e) { console.log("unreadable=" + text.trim().slice(0, 80)); process.exit(1); }
 if (cloud === undefined || cloud === null) { console.log("unpublished"); process.exit(0); }
-const L = require(lib).load(logic), now = Date.now();
+const { load } = require(lib);
+// A captured tree need not ship bindings its logic never imports.
+const modules = { get "qs.Commons 1.0"() { return { TextList: load(textList) }; } };
+const L = load(logic, modules), now = Date.now();
 const read = { cause: L.headline(cloud, now).cause, kind: cloud.lastError === null ? "none" : cloud.lastError.kind, hidden: L.widgetView(cloud, now).hidden, paused: cloud.paused };
-console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-library.js" "$tree/shell/plugins/vgs.google-drive/GoogleDriveLogic.js" "$@"
+console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-library.js" "$tree/shell/plugins/vgs.google-drive/GoogleDriveLogic.js" "$repo/shell/Commons/TextList.js" "$@"
 }
 # cs_panel_shown: `shown` while the Google Drive popover is up, else
 # `hidden`. cs_notes_line: the line the popover's notes fold into, "" with
@@ -11506,7 +11509,7 @@ cs_gone_row() {
 # click on their line, and at its end when it scrolls then. Each image is
 # the popover's box.
 cs_popover() {
-  local m="$1" s="$2" box notes rect x y at
+  local m="$1" s="$2" box notes notes_open rect x y at
   click_centre "$(bar_key)" vgs.google-drive || { fail "the click on Google Drive's icon failed ($s)"; return; }
   expect_poll "the click on the icon opens the Google Drive popover ($s)" shown cs_panel_shown
   summon_drawn panel vgs.google-drive || fail "the Google Drive popover never drew ($s)"
@@ -11520,18 +11523,20 @@ cs_popover() {
       read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$rect")
       hover "$((x + 1))" "$y" && click "$x" "$y" || fail "the click on the notes line failed ($s)"
       expect_poll "the notes line unfolds the notes ($s)" true ipc smoke readInstance panel vgs.google-drive notesOpen
-      take "googledrive-$m-$s-popover-notes"
-      box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
-      record_item "googledrive-$m-$s-popover-notes" "$box"
-      # The probe's reply is [contentY, contentHeight, height].
-      at="$(ipc smoke scrollTo panel vgs.google-drive 1000000)" || at=""
-      if [[ $at != \[* ]]; then
-        fail "the Google Drive popover did not scroll ($s): ${at:-no reply}"
-      elif [[ $at != \[0,* ]]; then
-        take "googledrive-$m-$s-popover-notes-end"
-        record_item "googledrive-$m-$s-popover-notes-end" "$box"
+      if notes_open="$(ipc smoke readInstance panel vgs.google-drive notesOpen)" && [[ $notes_open == true ]]; then
+        take "googledrive-$m-$s-popover-notes"
+        box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
+        record_item "googledrive-$m-$s-popover-notes" "$box"
+        # The probe's reply is [contentY, contentHeight, height].
+        at="$(ipc smoke scrollTo panel vgs.google-drive 1000000)" || at=""
+        if [[ $at != \[* ]]; then
+          fail "the Google Drive popover did not scroll ($s): ${at:-no reply}"
+        elif [[ $at != \[0,* ]]; then
+          take "googledrive-$m-$s-popover-notes-end"
+          record_item "googledrive-$m-$s-popover-notes-end" "$box"
+        fi
+        [[ $s != 8-one-needs ]] || cs_gone_row "$m" "$s"
       fi
-      [[ $s != 8-one-needs ]] || cs_gone_row "$m" "$s"
     else
       fail "the popover's notes line is not drawn ($s): $rect"
     fi

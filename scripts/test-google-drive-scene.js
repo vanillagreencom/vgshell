@@ -26,7 +26,8 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const root = path.join(__dirname, "..");
 const SHOTS = path.join(root, "scripts", "sandbox-shots.sh");
-const L = load(path.join(root, "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"));
+const L = load(path.join(root, "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"),
+    { "qs.Commons 1.0": { TextList: load(path.join(root, "shell", "Commons", "TextList.js")) } });
 const ISSUE_STATES = ["first-run", "no-keys", "no-pair", "empty-review", "paused", "syncing", "error", "review", "pairs-invalid", "migrated", "renamed"];
 
 // Every cause headline returns over each runner state, unit state, pair

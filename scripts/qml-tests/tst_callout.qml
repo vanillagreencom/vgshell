@@ -4,24 +4,11 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// Callout, the notice banner: each state, danger, warning and info, in a
-// dark and a light theme, fills with its own background and draws its
-// icon, title, text and button label and outline in its own ink, and its
-// links, the inline page link, the RowAction and each of `links`, in its
-// own link colour, never the accent; the danger and warning states keep their palette
-// hue, and the info state takes no hue at all, under a palette whose
-// accent and info are both saturated. An unknown state is logged and
-// drawn as info. The icon centres on the first line of a notice of
-// several lines, the title's or, with no title, the text's, never on the
-// block. A title-less, icon-less banner of one line and a button is as
-// tall as the button and its padding, the line level with the button's
-// label, the button on the banner's right padding and the line clear of
-// it. The page link, the RowAction, each of `links` and the button are
-// Tab stops in that order, each draws the shared focus ring under
-// keyboard focus, Return on each emits its own signal, one of `links`
-// with its index, and `firstStop` names the first shown. A `plain` notice
-// draws its title and text as the characters they are: markup and a page
-// reference in them are no link and no stop.
+// The notice's fill is one surface step above its container in both
+// modes; only its icon takes a tone. Actions stay below the words, the
+// opt-out keeps the right edge, and the X centres on the title line.
+// Each action has its keyboard path and its own signal. Plain text
+// supplied by another program creates no page link.
 Item {
     id: root
     width: 480
@@ -32,7 +19,7 @@ Item {
     // another's colour, or the info state that takes any hue, shows.
     readonly property var themes: [
         { tag: "dark", tokens: { scheme: { mode: "dark" }, palette: { background: "#101010", foreground: "#c8c8c8", accent: "#00ff00", info: "#0000ff", warning: "#ffaa00", danger: "#ff0000", success: "#00ffff" } } },
-        { tag: "light", tokens: { scheme: { mode: "light" }, palette: { background: "#f6f6f6", foreground: "#202020", accent: "#00aa00", info: "#0000cc", warning: "#aa6600", danger: "#cc0000", success: "#008888" } } }
+        { tag: "light", tokens: { scheme: { mode: "light" }, palette: { background: "#f6f6f6", foreground: "#202020", accent: "#00aa00", info: "#0000cc", warning: "#aa6600", danger: "#cc0000", success: "#008888" }, color: { text: "#888888", textMuted: "#999999" } } }
     ]
     readonly property var hues: ({ danger: 0, warning: 40 / 360 })
     readonly property string longText: "This notice runs on for long enough that it has to wrap onto a second line and then a third one at the width the test gives it."
@@ -56,10 +43,13 @@ Item {
         function title(callout) { return lines(callout).children[0]; }
         function body(callout) { return lines(callout).children[1]; }
         function plainBody(callout) { return lines(callout).children[2]; }
-        function link(callout) { return lines(callout).children[3]; }
+        function footer(callout) { return lines(callout).children[3]; }
+        function linkRow(callout) { return footer(callout).children[0]; }
+        function link(callout) { return linkRow(callout).children[0]; }
         // Each of `links`, in order, past the Repeater that makes them.
-        function actions(callout) { return Array.from(lines(callout).children[4].children).filter(child => child.foreground !== undefined); }
-        function button(callout) { return callout.children[0].children[2]; }
+        function actions(callout) { return Array.from(linkRow(callout).children).filter(child => child instanceof RowAction && child !== link(callout)); }
+        function dismissal(callout) { return footer(callout).children[1]; }
+        function close(callout) { return callout.children[0].children[2]; }
         function colour(value) { return String(Qt.color(value)); }
         function descendants(item) { return Array.from(item.children).reduce((all, child) => all.concat([child], descendants(child)), []); }
         function ringOf(control) { return descendants(control).find(item => item.target === control && item.outside !== undefined) || null; }
@@ -69,30 +59,35 @@ Item {
             return callout;
         }
 
-        function test_each_state_draws_its_own_fill_and_ink_data() {
+        function test_only_the_icon_takes_the_tone_data() {
             const rows = [];
             for (const theme of root.themes)
                 for (const tone of ["danger", "warning", "info"])
-                    rows.push({ tag: tone + " " + theme.tag, tone: tone, theme: theme.tokens });
+                    for (const level of ["base", "raised"])
+                        rows.push({ tag: tone + " " + theme.tag + " " + level, tone: tone, theme: theme.tokens, level: level });
             return rows;
         }
 
-        function test_each_state_draws_its_own_fill_and_ink(data) {
+        function test_only_the_icon_takes_the_tone(data) {
             compare(UnitTheme.override(data.theme), "ok");
-            const callout = make({ tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], buttonText: "Try again" });
+            const callout = make({ level: data.level, tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], dismissible: true, showDontShowAgain: true });
             const want = Theme.callout.tone[data.tone];
-            compare(colour(callout.color), colour(want.background), "the fill");
-            compare([icon(callout).color, title(callout).color, body(callout).color, button(callout).foreground, button(callout).borderColor].map(colour),
-                Array(5).fill(colour(want.foreground)), "the icon, title, text, button label and outline draw in the state's ink");
-            compare([colour(body(callout).linkColor), colour(link(callout).foreground)].concat(actions(callout).map(action => colour(action.foreground))), Array(4).fill(colour(want.link.foreground)),
-                "the page link, the RowAction and each of the links draw in the state's link colour");
-            verify(!Qt.colorEqual(link(callout).foreground, Theme.color.accent) && !Qt.colorEqual(body(callout).linkColor, Theme.color.accent), "no link draws in the accent");
-            compare([colour(button(callout).hoverFill), colour(button(callout).pressedFill)], [colour(want.button.hover), colour(want.button.pressed)], "the button's fills");
-            const drawn = [callout.color, want.foreground, want.link.foreground].map(value => Qt.color(value));
+            compare(colour(callout.color), colour(data.level === "raised" ? Theme.color.surfaceHover : Theme.color.surfaceRaised), "the fill");
+            compare(callout.border.width, 0, "no border");
+            compare(colour(icon(callout).color), colour(want.foreground));
+            compare(colour(title(callout).color), colour(Theme.callout.title));
+            compare(colour(body(callout).color), colour(Theme.callout.text));
+            compare([colour(body(callout).linkColor), colour(link(callout).foreground)].concat(actions(callout).map(action => colour(action.foreground))), Array(4).fill(colour(Theme.callout.link.foreground)));
+            for (const action of [link(callout)].concat(actions(callout)))
+                compare(action.tokens, Theme.callout.link);
+            compare([colour(dismissal(callout).color), colour(dismissal(callout).linkColor)], Array(2).fill(colour(Theme.callout.dismiss)));
+            compare(dismissal(callout).role, "calloutDismiss");
+            compare(Theme.text.calloutDismiss.size, Math.round(Theme.font.size * 0.93));
+            const drawn = [callout.color, want.foreground].map(value => Qt.color(value));
             if (data.tone === "info") {
                 for (const value of drawn) compare(value.hslSaturation, 0, "the info state takes no hue: " + value);
             } else {
-                for (const value of drawn) fuzzyCompare(value.hslHue, root.hues[data.tone], 0.02, "the state keeps its own hue: " + value);
+                fuzzyCompare(Qt.color(want.foreground).hslHue, root.hues[data.tone], 0.02, "the icon keeps its hue");
             }
             callout.destroy();
         }
@@ -100,23 +95,21 @@ Item {
         // expected-log: Callout: no tone named "loud" -- the test names an unknown state on purpose
         function test_an_unknown_state_is_logged_and_drawn_as_info() {
             const callout = make({ tone: "loud", text: "x" });
-            compare(colour(callout.color), colour(Theme.callout.tone.info.background));
+            compare(colour(callout.tokens.foreground), colour(Theme.callout.tone.info.foreground));
             callout.destroy();
         }
 
         // The icon's centre lies in the first line box of the lead line and
-        // above the block's centre, with and without a title, and with a
-        // button beside the lines.
+        // above the block's centre, with and without a title.
         function test_the_icon_stays_on_the_first_line_data() {
             return [
-                { tag: "a title over wrapped text", title: "A title", button: "" },
-                { tag: "wrapped text with no title", title: "", button: "" },
-                { tag: "wrapped text with no title beside a button", title: "", button: "Try again" }
+                { tag: "a title over wrapped text", title: "A title" },
+                { tag: "wrapped text with no title", title: "" }
             ];
         }
 
         function test_the_icon_stays_on_the_first_line(data) {
-            const callout = make({ iconName: "info", title: data.title, text: root.longText, buttonText: data.button });
+            const callout = make({ iconName: "info", title: data.title, text: root.longText });
             const lead = data.title === "" ? body(callout) : title(callout);
             verify(body(callout).lineCount >= 3, "the text wraps onto three lines: " + body(callout).lineCount);
             const leadTop = lead.mapToItem(callout, 0, 0).y;
@@ -127,37 +120,53 @@ Item {
             callout.destroy();
         }
 
-        // The sheet's banner: no icon, no title, one line and a button.
-        function test_a_one_line_banner_beside_its_button() {
-            const callout = make({ width: root.width, tone: "danger", text: "VPN dropped: traffic blocked", buttonText: "Turn VPN off" });
+        function test_the_inline_variant_and_bottom_actions() {
+            const callout = make({ width: root.width, tone: "danger", text: "VPN dropped. [Open Settings](page:vgs.gallery)." });
             const words = body(callout);
-            const control = button(callout);
             compare(icon(callout).visible, false);
             compare(title(callout).visible, false);
             compare(words.lineCount, 1);
-            verify(control.height > words.height, "the button is taller than the line");
-            compare(callout.height, control.height + 2 * Theme.callout.padding, "the banner is as tall as the button and its padding");
-            compare(control.x + control.width, callout.width - Theme.callout.padding, "the button stands on the right padding");
+            compare(footer(callout).visible, false);
+            compare(callout.firstStop, words);
+            compare(colour(words.color), colour(Theme.callout.text));
+            compare(colour(words.linkColor), colour(Theme.callout.link.foreground));
             compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding, "the line starts on the left padding");
-            verify(words.mapToItem(callout, 0, 0).x + words.width <= control.x - Theme.callout.buttonGap, "the line stays clear of the button");
-            const lineCentre = words.mapToItem(callout, 0, 0).y + words.height / 2;
-            fuzzyCompare(lineCentre, control.mapToItem(callout, 0, control.height / 2).y, 1, "the line is level with the button");
+            callout.linkText = "Turn VPN off";
+            tryVerify(() => link(callout).mapToItem(callout, 0, 0).y >= words.mapToItem(callout, 0, words.height).y + Theme.callout.gap);
+            callout.destroy();
+        }
+
+        function test_dismissal_placement_data() {
+            return [{ tag: "wide", width: 480, stacked: false }, { tag: "narrow", width: 240, stacked: true }];
+        }
+        function test_dismissal_placement(data) {
+            const callout = make({ width: data.width, title: "A title", text: root.longText, linkText: "Open Setup", dismissible: true, showDontShowAgain: true });
+            tryCompare(footer(callout), "stacked", data.stacked);
+            const x = close(callout);
+            compare([x.iconName, x.size], ["x", "sm"]);
+            compare(x.x + x.width, callout.width - Theme.callout.padding);
+            fuzzyCompare(x.y, title(callout).y + title(callout).topForLeadingIcon(x.height, title(callout).y, true), 1);
+            verify(title(callout).mapToItem(callout, title(callout).width, 0).x + Theme.callout.iconGap <= x.x, "the title clears the X");
+            compare(dismissal(callout).x + dismissal(callout).width, footer(callout).width);
+            if (data.stacked) verify(dismissal(callout).y >= linkRow(callout).height + Theme.callout.gap);
             callout.destroy();
         }
 
         // Tab walks the page link, the RowAction, each of the links and
-        // the button in order, each under the shared ring; Return emits
+        // the opt-out and X in order, each under the shared ring; Return emits
         // each one's own signal.
-        function test_the_links_and_the_button_take_the_keyboard() {
-            const callout = make({ tone: "warning", text: "Choose a [Home folder](page:vgs.jarvis/Settings/home).", linkText: "Open Setup", links: ["Show", "Stop"], buttonText: "Try again" });
+        function test_the_links_and_dismissals_take_the_keyboard() {
+            const callout = make({ tone: "warning", title: "A title", text: "Choose a [Home folder](page:vgs.jarvis/Settings/home).", linkText: "Open Setup", links: ["Show", "Stop"], dismissible: true, showDontShowAgain: true });
             const pages = [];
             const chosen = [];
             let links = 0;
-            let buttons = 0;
+            let dismissed = 0;
+            let suppressed = 0;
             callout.pageActivated.connect((page, tab) => pages.push([page, tab]));
             callout.activated.connect(() => links++);
             callout.actionActivated.connect(index => chosen.push(index));
-            callout.buttonActivated.connect(() => buttons++);
+            callout.dismissed.connect(() => dismissed++);
+            callout.dontShowAgain.connect(() => suppressed++);
             compare(callout.firstStop, body(callout), "the page link is the first stop");
             callout.firstStop.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
@@ -175,13 +184,18 @@ Item {
             }
             compare(JSON.stringify(chosen), JSON.stringify([0, 1]), "Return on each of the links names its index");
             keyClick(Qt.Key_Tab);
-            tryCompare(button(callout), "visualFocus", true);
-            verify(ringOf(button(callout)) !== null && ringOf(button(callout)).visible, "the button draws its ring");
+            tryCompare(dismissal(callout), "visualFocus", true);
+            verify(ringOf(dismissal(callout)) !== null && ringOf(dismissal(callout)).visible);
+            keyClick(Qt.Key_Return);
+            compare(suppressed, 1);
+            keyClick(Qt.Key_Tab);
+            tryCompare(close(callout), "visualFocus", true);
+            verify(ringOf(close(callout)) !== null && ringOf(close(callout)).visible);
             keyClick(Qt.Key_Return);
             keyClick(Qt.Key_Space);
-            compare(buttons, 2, "Return and Space press the button");
-            const plain = make({ text: "No link here", buttonText: "Try again" });
-            compare(plain.firstStop, button(plain), "with no link the button is the first stop");
+            compare(dismissed, 2, "Return and Space dismiss");
+            const plain = make({ text: "No link here", dismissible: true });
+            compare(plain.firstStop, close(plain), "with no link the X is the first stop");
             const listed = make({ text: "No link here", links: ["Show"] });
             compare(listed.firstStop, actions(listed)[0], "with only links the first of them is the first stop");
             const none = make({ text: "Nothing to do" });
@@ -196,11 +210,13 @@ Item {
         // page reference draw as the characters they are, so the banner
         // takes no stop for them.
         function test_a_plain_notice_draws_its_words_as_they_are() {
+            compare(UnitTheme.override(root.themes[1].tokens), "ok");
             const words = "Read the [guide](page:vgs.gallery) <b>now</b>.";
             const callout = make({ plain: true, iconName: "info", title: "<b>A</b> title", text: words });
             compare(title(callout).textFormat, Text.PlainText, "the title draws its markup as characters");
             compare(body(callout).visible, false, "the linked text is not drawn");
             compare([plainBody(callout).visible, plainBody(callout).text, plainBody(callout).textFormat], [true, words, Text.PlainText], "the text draws as it came");
+            compare(colour(plainBody(callout).color), colour(Theme.callout.text));
             compare(callout.firstStop, null, "the page reference is no stop");
             callout.destroy();
         }

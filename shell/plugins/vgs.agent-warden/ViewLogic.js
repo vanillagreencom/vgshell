@@ -68,12 +68,6 @@ function grouped(n) {
     return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-// A list of names as a sentence reads it: "a", "a and b", "a, b and c".
-function listed(names) {
-    if (names.length <= 1) return names.join("");
-    return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-}
-
 // BYTES as the plugin writes a memory figure: WardenLogic.gib's number.
 function gb(bytes) {
     return String(WardenLogic.gib(bytes));
@@ -152,7 +146,7 @@ function sentence(detail, vsysMissing) {
         var counts = [];
         if (problems > 0) counts.push(plural(problems, "problem", "problems"));
         if (warnings > 0) counts.push(plural(warnings, "warning", "warnings"));
-        return listed(counts) + (problems + warnings === 1 ? " needs" : " need") + " your attention.";
+        return Commons.TextList.listed(counts) + (problems + warnings === 1 ? " needs" : " need") + " your attention.";
     case "not-checking":
         switch (detail.reason) {
         case "stale": return "Agent Warden has stopped checking.";
@@ -381,7 +375,7 @@ function summaryRows(causes) {
         if (cause.names.length > 0) {
             var names = cause.names.slice(0, MAX_PROGRAMS);
             if (cause.names.length > MAX_PROGRAMS) names.push(plural(cause.names.length - MAX_PROGRAMS, "other", "others"));
-            text = (cause.names.length === 1 ? "The main program is " : "The main programs are ") + listed(names) + ".";
+            text = (cause.names.length === 1 ? "The main program is " : "The main programs are ") + Commons.TextList.listed(names) + ".";
         }
         var actions = [{ label: cause.open.length === 0 ? "Open vsys" : "Show in vsys", args: cause.open.slice() }];
         return { key: "summary:" + i, tone: look.tone, icon: look.icon, title: title, text: text, actions: actions };

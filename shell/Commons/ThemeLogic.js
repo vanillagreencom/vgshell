@@ -51,7 +51,8 @@ var REFERENCE_PATTERN = /^\{([A-Za-z0-9.]*)\}$/;
 // token the expression is written for.
 var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
-    contrastMix: { args: ["color", "color", "color", "number"], result: "color" },
+    // A fifth argument judges the mix at the drawn text role's weight.
+    contrastMix: { args: ["color", "color", "color", "number", "weight"], minArgs: 4, result: "color" },
     // contrastMix, but COLOR itself where no mix meets RATIO: a margin over
     // the drawn floor that a mid-tone background cannot reach costs the
     // margin, never the theme. The readability floor still judges it.
@@ -212,9 +213,10 @@ function contrastRatio(a, b) {
 
 // Furthest mix toward TARGET that meets RATIO on BACKGROUND, or null.
 // Judge published bytes: rounding a continuous solution can break its floor.
+// A supplied text WEIGHT judges those bytes through the sampled ink model.
 // Opposing RGB channels can reverse luminance, so inspect every colour
 // interval instead of assuming contrast changes in one direction.
-function contrastMix(color, target, background, ratio) {
+function contrastMix(color, target, background, ratio, weight) {
     var points = [0, 1];
     var channels = ["r", "g", "b"];
     for (var c = 0; c < channels.length; c++) {
@@ -239,7 +241,7 @@ function contrastMix(color, target, background, ratio) {
                 g: color.g + (target.g - color.g) * amounts[a],
                 b: color.b + (target.b - color.b) * amounts[a], a: 1
             }));
-            if (contrastRatio(mix, background) >= ratio)
+            if ((weight === undefined ? contrastRatio(mix, background) : drawnTextRatio(mix, background, weight)) >= ratio)
                 return mix;
         }
     }
@@ -376,15 +378,10 @@ var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
 // from the theme, so both caption colours read the selected role's weight.
 function readabilityWeights(values) {
     var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";
-    // A callout's ink draws its title, its text with its page references,
-    // and its button's label in the secondary variant's weight; its link
-    // is a RowAction in the body role.
-    var calloutInk = ["text.body.weight", "text.bodyStrong.weight", "button.variant.secondary.weight"];
-    var calloutLink = ["text.body.weight"];
     return {
         "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "avatarGroup.weight", "text.pathChip.weight"],
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
-        "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.calendarWeekday.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
+        "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.calendarWeekday.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", "text.calloutDismiss.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
         "text.keyHint.color": ["text.keyHint.weight"],
         "kbd.foreground": ["text.keyName.weight"],
@@ -405,14 +402,14 @@ function readabilityWeights(values) {
         "badge.tone.info.foreground": ["text.label.weight", "text.kbd.weight"],
         "badge.unread.tone.neutral.foreground": ["text.label.weight", "text.bar.weight"],
         "badge.unread.tone.normal.foreground": ["text.label.weight", "text.bar.weight"],
-        "callout.tone.info.foreground": calloutInk,
-        "callout.tone.warning.foreground": calloutInk,
-        "callout.tone.danger.foreground": calloutInk,
-        "callout.tone.info.link.foreground": calloutLink,
-        "callout.tone.warning.link.foreground": calloutLink,
-        "callout.tone.danger.link.foreground": calloutLink,
         "badge.unread.tone.warning.foreground": ["text.label.weight", "text.bar.weight"],
         "badge.unread.tone.danger.foreground": ["text.label.weight", "text.bar.weight"],
+        "callout.title": ["text.bodyStrong.weight"],
+        "callout.text": ["text.body.weight"],
+        "callout.dismiss": ["text.calloutDismiss.weight"],
+        "callout.link.foreground": ["text.body.weight"],
+        "callout.link.hover": ["text.body.weight"],
+        "callout.link.pressed": ["text.body.weight"],
         "carousel.hint": ["text.itemHint.weight", "text.h3.weight"],
         "carousel.hintActive": ["text.itemHint.weight", "text.h3.weight", "text.display.weight", "text.bodyStrong.weight"],
         "carousel.hintDanger": ["text.body.weight"],
@@ -449,12 +446,18 @@ var READABILITY_PAIRS = [
     ["badge.unread.tone.normal.foreground", "badge.unread.tone.normal.background"],
     ["badge.unread.tone.warning.foreground", "badge.unread.tone.warning.background"],
     ["badge.unread.tone.danger.foreground", "badge.unread.tone.danger.background"],
-    ["callout.tone.info.foreground", "callout.tone.info.background"],
-    ["callout.tone.info.link.foreground", "callout.tone.info.background"],
-    ["callout.tone.warning.foreground", "callout.tone.warning.background"],
-    ["callout.tone.warning.link.foreground", "callout.tone.warning.background"],
-    ["callout.tone.danger.foreground", "callout.tone.danger.background"],
-    ["callout.tone.danger.link.foreground", "callout.tone.danger.background"],
+    ["callout.title", "color.surfaceRaised"],
+    ["callout.text", "color.surfaceRaised"],
+    ["callout.dismiss", "color.surfaceRaised"],
+    ["callout.link.foreground", "color.surfaceRaised"],
+    ["callout.link.hover", "color.surfaceRaised"],
+    ["callout.link.pressed", "color.surfaceRaised"],
+    ["callout.title", "color.surfaceHover"],
+    ["callout.text", "color.surfaceHover"],
+    ["callout.dismiss", "color.surfaceHover"],
+    ["callout.link.foreground", "color.surfaceHover"],
+    ["callout.link.hover", "color.surfaceHover"],
+    ["callout.link.pressed", "color.surfaceHover"],
     ["screensaver.foreground", "screensaver.background"],
     ["screensaver.gradientStart", "screensaver.background"],
     ["screensaver.gradientEnd", "screensaver.background"]
@@ -479,7 +482,13 @@ var BOUNDARY_PAIRS = [
     ["toggle.knobOn", "toggle.on"],
     ["checkbox.mark", "checkbox.checked"],
     ["segmented.indicatorColor", "segmented.selected"],
-    ["segmented.indicatorColor", "segmented.background"]
+    ["segmented.indicatorColor", "segmented.background"],
+    ["callout.tone.info.foreground", "color.surfaceRaised"],
+    ["callout.tone.warning.foreground", "color.surfaceRaised"],
+    ["callout.tone.danger.foreground", "color.surfaceRaised"],
+    ["callout.tone.info.foreground", "color.surfaceHover"],
+    ["callout.tone.warning.foreground", "color.surfaceHover"],
+    ["callout.tone.danger.foreground", "color.surfaceHover"]
 ];
 var BOUNDARY_FLOOR = 3;
 // A modal card shows over the scrim, which dims the page under it. On each
@@ -521,6 +530,7 @@ var READABILITY_NAMES = {
     "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
     "color.background": "the main background", "color.surface": "panel backgrounds",
     "color.surfaceRaised": "raised panel backgrounds", "color.surfaceSunken": "inset panel backgrounds",
+    "color.surfaceHover": "window notice backgrounds",
     "segmented.foreground": "Choice text", "segmented.selectedForeground": "Selected choice text",
     "segmented.background": "choice backgrounds", "segmented.selected": "selected choice backgrounds",
     "listItem.selectedForeground": "Selected row text", "listItem.selected": "selected row backgrounds",
@@ -542,12 +552,15 @@ var READABILITY_NAMES = {
     "badge.unread.tone.normal.foreground": "Count figures", "badge.unread.tone.normal.background": "count badges",
     "badge.unread.tone.warning.foreground": "Warning count figures", "badge.unread.tone.warning.background": "warning count badges",
     "badge.unread.tone.danger.foreground": "Error count figures", "badge.unread.tone.danger.background": "error count badges",
-    "callout.tone.info.foreground": "Information notice text", "callout.tone.info.link.foreground": "Information notice links",
-    "callout.tone.info.background": "information notice backgrounds",
-    "callout.tone.warning.foreground": "Warning notice text", "callout.tone.warning.link.foreground": "Warning notice links",
-    "callout.tone.warning.background": "warning notice backgrounds",
-    "callout.tone.danger.foreground": "Error notice text", "callout.tone.danger.link.foreground": "Error notice links",
-    "callout.tone.danger.background": "error notice backgrounds"
+    "callout.tone.info.foreground": "Information notice icon",
+    "callout.tone.warning.foreground": "Warning notice icon",
+    "callout.tone.danger.foreground": "Error notice icon",
+    "callout.title": "Notice title",
+    "callout.text": "Notice text",
+    "callout.dismiss": "Notice opt-out",
+    "callout.link.foreground": "Notice links",
+    "callout.link.hover": "Hovered notice links",
+    "callout.link.pressed": "Pressed notice links"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 
@@ -862,8 +875,9 @@ function resolve(tokens, overrides) {
         if (!hasOwn(FUNCTIONS, tree.name))
             return fail("unknown-function", token, "function=" + tree.name);
         var signature = FUNCTIONS[tree.name];
-        if (tree.args.length !== signature.args.length)
-            return fail("arity", token, "function=" + tree.name + " want=" + signature.args.length + " got=" + tree.args.length);
+        var minimumArgs = signature.minArgs === undefined ? signature.args.length : signature.minArgs;
+        if (tree.args.length < minimumArgs || tree.args.length > signature.args.length)
+            return fail("arity", token, "function=" + tree.name + " want=" + minimumArgs + (minimumArgs === signature.args.length ? "" : ".." + signature.args.length) + " got=" + tree.args.length);
         var result = signature.result === "same" ? want : signature.result;
         if (result !== want || (signature.result === "same" && NUMERIC_TYPES.indexOf(want) === -1))
             return fail("type", token, "want=" + want + " got=" + tree.name);
@@ -881,7 +895,7 @@ function resolve(tokens, overrides) {
                 return fail("range", token, "function=" + tree.name + " ratio=" + args[3]);
             if (args[0].a < 1 || args[1].a < 1 || args[2].a < 1)
                 return fail("contrast-translucent", token, "function=" + tree.name);
-            var solved = contrastMix(args[0], args[1], args[2], args[3]);
+            var solved = contrastMix(args[0], args[1], args[2], args[3], args[4]);
             if (solved !== null) return solved;
             return tree.name === "reachMix" ? args[0] : fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]);
         case "mix":

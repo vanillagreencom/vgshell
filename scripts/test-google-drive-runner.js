@@ -2267,7 +2267,8 @@ function snapshot(dirs) {
 // What the Google Drive Settings Setup tab and Details page read from the
 // runner's status record and probe, through the plugin's own judge.
 function setupValues(w, runner) {
-    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"));
+    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"),
+        { "qs.Commons 1.0": { TextList: load(path.join(__dirname, "..", "shell", "Commons", "TextList.js")) } });
     const statusOut = cli(w, ["status"], runner);
     const probeOut = cli(w, ["probe"], runner);
     assert.equal(statusOut.status + probeOut.status, 0, statusOut.stderr + probeOut.stderr);
@@ -2333,7 +2334,8 @@ const RENAME_ROWS = [
 // previous timer enabled; a locked keyring holds its own step alone, and
 // every reader takes the held items as locked, never as absent.
 function assertRenameHeld(w, row, runner, out, before) {
-    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"));
+    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"),
+        { "qs.Commons 1.0": { TextList: load(path.join(__dirname, "..", "shell", "Commons", "TextList.js")) } });
     const old = oldPlaces(w);
     if (row.hold.exit === "held") {
         assert.equal(out.status, Logic.RUNNER_HELD, out.stderr);

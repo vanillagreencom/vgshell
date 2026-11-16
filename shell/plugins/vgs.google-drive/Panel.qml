@@ -332,9 +332,9 @@ Item {
         Callout {
             width: layout.contentWidth
             visible: root.callout !== null
+            plain: true
             tone: root.callout === null ? "danger" : root.callout.tone
-            title: root.callout === null ? "" : root.callout.title
-            text: root.callout === null ? "" : root.callout.text
+            text: root.callout === null ? "" : PageReference.plain(root.callout.text)
             linkText: root.callout === null || root.callout.action === null ? "" : root.callout.action.label
             onActivated: root.fix(root.callout.action)
         }

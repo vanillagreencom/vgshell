@@ -4,44 +4,48 @@ import qs.Ui
 
 // The notice banner: one thing a reader needs before the rows under it,
 // such as an error that stops a feature, a warning that limits one, or a
-// guide to read first. `tone` names its state, a group of
+// guide to read first. The container supplies its Surface `level`, `base`
+// or `raised`: the banner draws one step above it, surfaceRaised or
+// surfaceHover, with no border. `tone` names a group of
 // `Theme.callout.tone`: `danger`, `warning` or `info`, the default; an
-// unknown name is logged and drawn as `info`. The state's `background`
-// fills the banner, inside `callout.padding`, and its `foreground` draws
-// every part: the leading `iconName`, the `title` in the strong body role,
-// the `text` in the body role under it, and the label and outline of the
-// trailing button. The lines stand `callout.gap` apart, `callout.iconGap`
+// unknown name is logged and drawn as `info`. Only the leading `iconName`
+// takes its `foreground`; the title and text use callout.title in
+// bodyStrong and callout.text in body, solved from normal text and muted
+// text to the readability floor on the banner fill. The lines stand
+// `callout.gap` apart, `callout.iconGap`
 // after the icon. The icon centres on the first shown line as a leading
 // icon centres (Label.topForLeadingIcon), the title's, or the text's when
 // there is no title, so on several lines it stays at the top.
 //
 // The text may hold page references, `[words](page:<plugin id>/<tab>)`,
-// drawn as links in running text (LinkText) in the state's
-// `link.foreground`; activating one emits `pageActivated` with its page
+// drawn as links in running text (LinkText) in callout.link.foreground,
+// solved from the accent to the same floor;
+// activating one emits `pageActivated` with its page
 // and tab. `plain` draws the title and the text as the characters they
 // are, with no markup and no page or file reference, for words another
 // program supplies: Text's default AutoText draws text that looks like
 // markup as rich text
 // (https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop).
-// `linkText`, when set, is a RowAction under the lines in the state's
-// link colours, which emits `activated`. `links`, a list of labels, are
-// RowActions in one RowActions row under the lines, after `linkText`'s,
-// in the state's link colours, wrapping at the banner's width; activating
+// `linkText`, when set, is a RowAction at the bottom in callout.link inks,
+// which emits `activated`. `links`, a list of labels, are
+// RowActions in that same bottom row, after `linkText`,
+// wrapping at the banner's width; activating
 // one emits `actionActivated` with its index in the list; each carries the
-// title as its accessible description. `buttonText`,
-// when set, is a secondary Button `callout.buttonGap` after the lines at
-// the banner's right end, in the state's ink with its hover and pressed
-// fills, which emits `buttonActivated`. The lines and the button centre
-// on each other, so one line of text beside the button sits level with
-// its label. Each link, each of `links` and the button is its own Tab
-// stop, in that order, with the shared focus ring; `firstStop` is the
+// title as its accessible description. `dismissible` offers a small
+// IconButton X at the top right, centred on the title's first ink line, or the
+// first text line when there is no title, and emits `dismissed`.
+// `showDontShowAgain` offers a muted text link at the bottom right, in the
+// calloutDismiss role and callout.dismiss ink, and emits `dontShowAgain`. The caller hides the
+// banner and owns any saved choice. That link drops below the actions
+// when they cannot fit beside it. Page links, bottom actions, Don't show
+// this again and the X are independent Tab stops, in that order, with the
+// shared focus ring; `firstStop` is the
 // first one shown, or null, for a host that routes Tab into the banner.
-// A title-less, icon-less banner of one line and a button is the
-// sheet-style error banner.
+// A title-less banner can keep its link inside its single text line.
 //
 // The banner has no motion of its own: it shows, hides and changes state
 // at once, and the surface or layout that holds it moves it, under that
-// owner's motion tokens. Its button's fill moves as every Button's does.
+// owner's motion tokens.
 // It takes its parent's width and wraps its lines.
 Rectangle {
     id: root
@@ -50,19 +54,22 @@ Rectangle {
     property string title: ""
     property string text: ""
     property string linkText: ""
-    property string buttonText: ""
+    property string level: "base"
     property string tone: "info"
     property bool plain: false
+    property bool dismissible: false
+    property bool showDontShowAgain: false
     property var links: []
     readonly property var tokens: toneOf(tone)
-    readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : button.visible ? button : null
+    readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : dismissal.visible ? dismissal : close.visible ? close : null
     // The first shown line, which the icon leads.
     readonly property Item leadLine: titleLabel.visible ? titleLabel : plain ? plainBody : body
 
     signal activated()
     signal actionActivated(int index)
     signal pageActivated(string page, string tab)
-    signal buttonActivated()
+    signal dismissed()
+    signal dontShowAgain()
 
     function toneOf(name) {
         const found = Theme.callout.tone[name];
@@ -71,13 +78,11 @@ Rectangle {
         return Theme.callout.tone.info;
     }
 
-    // The height the lines and the button share, each centred in it.
-    readonly property real band: Math.max(lines.implicitHeight, button.visible ? button.height : 0)
-
     width: parent ? parent.width : implicitWidth
-    implicitHeight: band + inset.topPadding + inset.bottomPadding
+    implicitHeight: content.height + inset.topPadding + inset.bottomPadding
     radius: Theme.callout.radius
-    color: tokens.background
+    border.width: 0
+    color: level === "raised" ? Theme.color.surfaceHover : Theme.color.surfaceRaised
 
     ClearingInset {
         id: inset
@@ -88,7 +93,7 @@ Rectangle {
     Item {
         id: content
         width: root.width
-        height: root.band
+        height: Math.max(lines.implicitHeight, close.visible ? close.y + close.height : 0)
         y: inset.topPadding
 
         Icon {
@@ -104,81 +109,97 @@ Rectangle {
         Column {
             id: lines
             x: Theme.callout.padding + (icon.visible ? icon.width + Theme.callout.iconGap : 0)
-            y: Math.round((root.band - implicitHeight) / 2)
-            width: Math.max(0, (button.visible ? button.x - Theme.callout.buttonGap : root.width - Theme.callout.padding) - x)
+            width: Math.max(0, root.width - Theme.callout.padding - x)
             spacing: Theme.callout.gap
 
             Label {
                 id: titleLabel
-                width: parent.width
+                width: Math.max(0, parent.width - (close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
                 role: "bodyStrong"
-                color: root.tokens.foreground
+                color: Theme.callout.title
                 textFormat: root.plain ? Text.PlainText : Text.AutoText
                 text: root.title
                 wrapMode: Text.Wrap
             }
             LinkText {
                 id: body
-                width: parent.width
+                width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
                 role: "body"
-                color: root.tokens.foreground
-                linkColor: root.tokens.link.foreground
+                color: Theme.callout.text
+                linkColor: Theme.callout.link.foreground
                 text: root.plain ? "" : root.text
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.pageActivated(page, tab)
             }
             Label {
                 id: plainBody
-                width: parent.width
+                width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
                 role: "body"
-                color: root.tokens.foreground
+                color: Theme.callout.text
                 textFormat: Text.PlainText
                 text: root.plain ? root.text : ""
                 wrapMode: Text.Wrap
             }
-            RowAction {
-                id: link
-                visible: root.linkText !== ""
-                text: root.linkText
-                tokens: root.tokens.link
-                onClicked: root.activated()
-            }
-            RowActions {
-                id: linkRow
+            Item {
+                id: footer
                 width: parent.width
-                visible: root.links.length > 0
-                Repeater {
-                    id: linkRepeater
-                    model: root.links
+                // Read inputs, not effective child visibility: a hidden
+                // parent's children are hidden too:
+                // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
+                visible: root.linkText !== "" || root.links.length > 0 || root.showDontShowAgain
+                readonly property bool stacked: dismissal.visible && linkRow.lineWidth > width - dismissal.width - Theme.rowAction.gap
+                implicitHeight: Math.max(linkRow.height, dismissal.visible ? dismissal.y + dismissal.height : 0)
+                RowActions {
+                    id: linkRow
+                    width: footer.stacked || !dismissal.visible ? parent.width : Math.max(0, parent.width - dismissal.width - Theme.rowAction.gap)
                     RowAction {
-                        required property string modelData
-                        required property int index
-                        text: modelData
-                        // The title tells a screen reader which banner's
-                        // action this is, so two banners' Stop links differ.
-                        Accessible.description: root.title
-                        tokens: root.tokens.link
-                        onClicked: root.actionActivated(index)
+                        id: link
+                        visible: root.linkText !== ""
+                        text: root.linkText
+                        tokens: Theme.callout.link
+                        onClicked: root.activated()
                     }
+                    Repeater {
+                        id: linkRepeater
+                        model: root.links
+                        RowAction {
+                            required property string modelData
+                            required property int index
+                            text: modelData
+                            tokens: Theme.callout.link
+                            Accessible.description: root.title
+                            onClicked: root.actionActivated(index)
+                        }
+                    }
+                }
+                LinkText {
+                    id: dismissal
+                    visible: root.showDontShowAgain
+                    text: "Don't show this again"
+                    link: text
+                    role: "calloutDismiss"
+                    color: Theme.callout.dismiss
+                    linkColor: Theme.callout.dismiss
+                    width: Math.min(implicitWidth, parent.width)
+                    x: parent.width - width
+                    y: footer.stacked ? linkRow.height + Theme.callout.gap : Math.max(0, (linkRow.height - height) / 2)
+                    onActivated: root.dontShowAgain()
                 }
             }
         }
 
-        Button {
-            id: button
-            visible: root.buttonText !== ""
+        IconButton {
+            id: close
+            visible: root.dismissible
             x: root.width - Theme.callout.padding - width
-            y: Math.round((root.band - height) / 2)
-            variant: "secondary"
-            text: root.buttonText
-            textColor: root.tokens.foreground
-            borderColor: root.tokens.foreground
-            hoverFill: root.tokens.button.hover
-            pressedFill: root.tokens.button.pressed
-            onClicked: root.buttonActivated()
+            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)
+            size: "sm"
+            iconName: "x"
+            label: "Dismiss notice"
+            onClicked: root.dismissed()
         }
     }
 }

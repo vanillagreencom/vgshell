@@ -80,26 +80,6 @@ function tone(role) {
     return { background: color("{color." + role + "Subtle}"), foreground: color("mix({color." + role + "}, contrast({palette.background}), 0.28)") };
 }
 
-// One callout tone, NAME, from BASE's `background` and `foreground`: the
-// link and the button derive from that tone's own foreground.
-function calloutTone(name, base) {
-    var ink = "{callout.tone." + name + ".foreground}";
-    var link = "{callout.tone." + name + ".link.foreground}";
-    return {
-        background: base.background,
-        foreground: base.foreground,
-        link: {
-            foreground: color("mix(" + ink + ", contrast({palette.background}), 0.3)"),
-            hover: color("mix(" + link + ", {palette.foreground}, 0.18)"),
-            pressed: color("mix(" + link + ", {palette.background}, 0.18)")
-        },
-        button: {
-            hover: color("alpha(" + ink + ", 0.12)"),
-            pressed: color("alpha(" + ink + ", 0.2)")
-        }
-    };
-}
-
 function merge() {
     var out = {};
     for (var i = 0; i < arguments.length; i++)
@@ -129,6 +109,8 @@ var TEXT = {
     subheading: role("sans", 1.07, 400, 0, 1.75, false, "textMuted"),
     body: role("sans", 1, 400, 0, 1.6, false, "text"),
     bodyStrong: role("sans", 1, 600, 0, 1.6, false, "text"),
+    // The notice's muted opt-out, one pixel under its action at font.size 15.
+    calloutDismiss: role("sans", 0.93, 400, 0, 1.714, false, "textMuted"),
     // One line of text in a control's row, a select's choice or a list
     // item: body, hint and code at line height 1, so the row centres its
     // glyphs as it centres its icon and its inline label.
@@ -512,29 +494,35 @@ var TOKENS = {
 
     // A callout, the notice banner, stands out from a page's rows to say
     // one thing a reader needs before them: its lines `gap` apart beside
-    // its icon, `iconGap` from them, a trailing button `buttonGap` after
-    // them, `padding` inside the fill of its tone, its corner `radius`.
-    // Each tone holds its `background`, the `foreground` its icon, title,
-    // text and button draw in, its link's colours at rest, on hover and
-    // pressed, and its button's hover and pressed fills, all from the
-    // tone's own `foreground`, so a theme that sets one ink keeps the
-    // rest in its tone. `danger` and `warning` take a badge's faint tone
-    // fill and ink (tone); `info` takes neutral shades and no hue: a wash
-    // of the foreground under the body text moved 0.15 toward black or
-    // white, whichever the background contrasts with, which holds the
-    // readability floor on that wash in every catalog theme. A link moves
-    // 0.3 from the ink the same way, so it reads stronger than the words
-    // round it in the same tone.
+    // its icon, `iconGap` from them, and links at the bottom.
+    // `padding` clears its neutral surface fill, one step above its
+    // container, and `radius` rounds its corner. Each tone holds only the
+    // icon's foreground: danger and warning keep the badge's ink; info
+    // keeps neutral ink with no hue. Title, text, opt-out and link inks
+    // start from normal text, muted text and each accent state. contrastMix
+    // keeps each readable ink unchanged, otherwise taking the nearest
+    // mix toward the contrasting endpoint that holds 4.5:1 at its drawn
+    // weight on surfaceHover, the harder window fill; the same ink holds
+    // on surfaceRaised, the panel fill. Solve opaque bytes even from a
+    // translucent preference; the judge still reads each actual fill.
+    // No theme-wide colour changes.
     callout: {
         radius: length("{radius.md}"),
         padding: length("{space.lg}"),
         gap: length("{row.lineGap}"),
         iconGap: length("{space.md}"),
-        buttonGap: length("{space.lg}"),
+        title: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.text}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.bodyStrong.weight})"),
+        text: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.textMuted}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
+        dismiss: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.textMuted}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.calloutDismiss.weight})"),
+        link: {
+            foreground: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accent}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
+            hover: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accentHover}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
+            pressed: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accentPressed}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})")
+        },
         tone: {
-            info: calloutTone("info", { background: color("alpha({palette.foreground}, 0.1)"), foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") }),
-            warning: calloutTone("warning", tone("warning")),
-            danger: calloutTone("danger", tone("danger"))
+            info: { foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") },
+            warning: { foreground: tone("warning").foreground },
+            danger: { foreground: tone("danger").foreground }
         }
     },
 

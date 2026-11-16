@@ -434,7 +434,7 @@ Item {
             for (const uuid of [root.home, root.office])
                 verify(row(uuid).mapToItem(view, 0, 0).y > top, "the notice stands above " + uuid);
             verify(named("vpn-kill-switch").mapToItem(view, 0, 0).y > top, "and above the kill switch row");
-            verify(notice.firstStop !== null && notice.buttonText !== "", "it offers one button");
+            verify(notice.firstStop instanceof RowAction && notice.linkText !== "", "it offers one bottom link");
             root.calls = [];
             notice.firstStop.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
@@ -496,7 +496,7 @@ Item {
             publish(root.payload(["Office VPN"]), killState(ready, valid(root.home, "block"), holding));
             const unlisted = named("vpn-blocked");
             verify(unlisted !== null, "the notice still shows for a profile no longer listed");
-            compare(unlisted.buttonText, "");
+            compare(unlisted.linkText, "");
             verify(unlisted.firstStop === null, "with no button to press");
             if (data.tag === "flyout")
                 verify(named("vpn-subtitle").text !== Logic.summary(root.values.profiles, null), "the header reads the drop for an unlisted profile");

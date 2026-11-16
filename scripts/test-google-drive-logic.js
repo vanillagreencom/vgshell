@@ -32,6 +32,7 @@ const file = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", 
 const MANIFEST = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "manifest.json");
 const Core = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
+const modules = { "qs.Commons 1.0": { TextList: load(path.join(__dirname, "..", "shell", "Commons", "TextList.js")) } };
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
@@ -231,12 +232,13 @@ function verifyTwoWay(L) {
     const attention = L.notification(tw({ state: "initialization-required", pairs: [required],
         attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } }));
     assert.equal(attention.tone, "warning");
-    // VGS-2449 makes the delivered explanation and exact setup target the
+    // VGS-2435 makes the delivered explanation and exact setup target the
     // product contract: name stopped folders, explain the stop and offer
     // their setup directly, with no internal sync terminology.
-    for (const [label, pairs, ids] of [
-        ["one stopped folder", [required, Object.assign({}, ready, { id: "ready", label: "Already ready" })], ["docs"]],
-        ["several stopped folders", [required, Object.assign({}, required, { id: "inbox", label: "Agent uploads" }), Object.assign({}, ready, { id: "ready", label: "Already ready" })], []]
+    for (const [label, pairs, ids, words] of [
+        ["one stopped folder", [required, Object.assign({}, ready, { id: "ready", label: "Already ready" })], ["docs"], "Documents needs setup for two-way sync."],
+        ["several stopped folders", [required, Object.assign({}, required, { id: "inbox", label: "Agent uploads" }), Object.assign({}, ready, { id: "ready", label: "Already ready" })], [], "Documents and Agent uploads need setup for two-way sync."],
+        ["three stopped folders", [required, Object.assign({}, required, { id: "inbox", label: "Agent uploads" }), Object.assign({}, required, { id: "photos", label: "Photos" })], [], "Documents, Agent uploads and Photos need setup for two-way sync."]
     ]) {
         const rec = tw({ state: "initialization-required", pairs,
             attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } });
@@ -246,24 +248,23 @@ function verifyTwoWay(L) {
         const setup = L.initializationValue(cloud, signedIn);
         same(callout.action, { label: "Set up two-way sync", tui: "initialize", args: ids }, label + ": callout target");
         same(notification.action, callout.action, label + ": notification target");
+        same([callout.text, notification.message, notification.title], [words, words, "Google Drive sync stopped"], label + ": delivered copy");
+        assert.equal(callout.title, undefined, label + ": the header alone names the state");
         const messages = [callout.text, notification.message, setup.lines.join("\n")];
         for (const message of messages) {
             for (const pair of pairs.filter(p => p.initialization.state === "required"))
                 assert.ok(message.includes(pair.label), label + ": stopped folder is named");
             assert.ok(!message.includes("Already ready"), label + ": ready folder is not called stopped");
-            assert.match(message, /sync stopped/i, label + ": stop is explicit");
             assert.match(message, /two-way sync/i, label + ": reason is explicit");
             assert.doesNotMatch(message, /baseline|initializ|settle/i, label + ": plain explanation");
-        }
-        for (const surface of [callout, notification]) {
-            assert.match(surface.text || surface.message, /review.*confirm/i, label + ": action explains the preview");
-            assert.doesNotMatch(surface.title, /baseline|initializ|settle/i, label + ": plain title");
         }
     }
     const manyRequired = Array.from({ length: 64 }, (_, i) => Object.assign({}, required, { id: "p" + i, label: "A long stopped folder name with documents and photos number " + i }));
     const longNotice = L.notification(tw({ state: "initialization-required", pairs: manyRequired,
         attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } }));
     assert.ok(longNotice.message.length <= 600, "stopped-folder notice fits the core notification contract");
+    assert.ok(longNotice.message.startsWith(manyRequired[0].label + ", " + manyRequired[1].label), "the bounded notification keeps the first folders");
+    assert.match(longNotice.message, / and \d+ more folders need setup for two-way sync\.$/, "the bounded notification names the rest");
     same(longNotice.action.args, [], "a long folder list still opens its chooser");
     const noSignIn = L.statusValues(tw({ pairs: [required] }), null, "", "", NOW, HOME).initialization;
     same([noSignIn.available, noSignIn.action], [false, undefined], "initialization waits for a readable sign-in probe");
@@ -728,7 +729,7 @@ function verify(L) {
     const callout = rec => {
         const c = L.problemCallout(L.cloudValue(rec, ""), NOW);
         if (c === null) return null;
-        assert.ok(c.title !== "" && c.text !== "" && !c.text.includes("](") && !c.title.includes("]("), "a callout's words are plain text: " + JSON.stringify(c));
+        assert.ok(c.title === undefined && c.text !== "", "a callout has no duplicate title: " + JSON.stringify(c));
         if (c.action !== null && c.action.tui !== undefined) assert.ok(Object.prototype.hasOwnProperty.call(driveManifest.tui, c.action.tui), "the manifest declares " + c.action.tui);
         if (c.action !== null && c.action.tab !== undefined) assert.ok(["Settings", "Setup", "Details"].includes(c.action.tab), "a tab of the page: " + c.action.tab);
         return [c.tone, c.action === null ? null : c.action.tui !== undefined ? "tui:" + c.action.tui : "tab:" + c.action.tab];
@@ -755,8 +756,8 @@ function verify(L) {
         ["an hourly sync out of date", well({ units: "stale" }), ["warning", "tab:Setup"]]
     ];
     for (const [label, rec, want] of CALLOUT_ROWS) same(callout(rec), want, "callout: " + label);
-    const titleOf = rec => L.problemCallout(L.cloudValue(rec, ""), NOW).title;
-    assert.notEqual(titleOf(SIGNED_OUT), titleOf(REFUSED), "a sign-in never made reads apart from one Google refused");
+    const textOf = rec => L.problemCallout(L.cloudValue(rec, ""), NOW).text;
+    assert.notEqual(textOf(SIGNED_OUT), textOf(REFUSED), "a sign-in never made reads apart from one Google refused");
 
     // A review row's open ends as the core file route answers: opened, a
     // file that is gone, or anything else.
@@ -1006,7 +1007,7 @@ function verify(L) {
     assert.equal(L.nextStale(record({ staleAfter: null, pairs: [] }), NOW), null);
 }
 
-verify(load(file));
+verify(load(file, modules));
 
 const controls = [
     ["a warning count takes the normal fill", 'return tone === "warning" || tone === "danger" ? tone : "normal";', 'return tone === "danger" ? tone : "normal";'],
@@ -1131,7 +1132,7 @@ const controls = [
     ["historical copy removal is not reattributed", 'if (conflict.operation === "two-way") {\n        if (conflict.kind === "removed-on-drive"', 'if (conflict.operation === "two-way" || conflict.kind === "removed-locally") {\n        if (conflict.kind === "removed-on-drive"'],
     ["operation outcome and recovery reach their consumer", 'if (hasOwn(c, key)) out[key] = c[key];', ""],
     ["Setup offers the declared initialization step", 'text: "Sync stopped", action: true, hint:', 'text: "Sync stopped", hint:'],
-    ["stopped folders replace the earlier generic advice", 'return "Sync stopped for " + stoppedFolders(pairs) + ". Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm.";', 'return "Settle earlier removals and native-document copies with Jarvis, then initialize the matching folders on Setup.";'],
+    ["stopped folders replace the earlier generic advice", 'return stoppedFolders(pairs) + (pairs.length === 1 ? " needs" : " need") + " setup for two-way sync.";', 'return "Settle earlier removals and native-document copies with Jarvis, then initialize the matching folders on Setup.";'],
     ["a single stopped folder opens directly", 'args: pairs.length === 1 ? [pairs[0].id] : []', 'args: []'],
     ["several stopped folders open the chooser", 'args: pairs.length === 1 ? [pairs[0].id] : []', 'args: [pairs[0].id]'],
     ["initialization-needed pairs cannot run ordinary sync", 'if (pair.state === "initialization-required") return false;\n    if (pair.route === "two-way" && pair.initialization.state === "required") return false;', ""]
@@ -1148,7 +1149,7 @@ try {
         fs.writeFileSync(mutant, source.replace(needle, replacement));
         assert.notEqual(fs.readFileSync(mutant, "utf8"), source);
         let red = false;
-        try { verify(load(mutant)); } catch (e) { red = e instanceof assert.AssertionError; }
+        try { verify(load(mutant, modules)); } catch (e) { red = e instanceof assert.AssertionError; }
         assert.equal(red, true, "control fails without rule: " + label);
     }
 } finally {

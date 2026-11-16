@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // vgs.google-drive's pure decisions, run under node by
 // scripts/test-google-drive-logic.js: the one judge of the runner's status
@@ -79,10 +80,10 @@ var ERROR_TEXT = {
     "secret-tool-failed": "VGS cannot read your keyring.",
     "secret-tool-timeout": "VGS cannot read your keyring.",
     interrupted: "The last sync stopped before it finished.",
-    "initialization-required": "Sync stopped because two-way sync is not set up. Select Set up two-way sync to review and confirm the changes.",
+    "initialization-required": "Sync stopped because two-way sync is not set up. Set up two-way sync to review and confirm the changes.",
     "baseline-evidence-unreadable": "VGS cannot read the earlier sync records. Keep the folders paused and review them before initialization.",
     "deletion-limit": "The sync would remove more than half of a folder, so it stopped. Review the removals or large rename with Jarvis before a one-run allowance.",
-    "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then select Set up two-way sync on Setup.",
+    "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then use Set up two-way sync on the [Setup tab](page:vgs.google-drive/Setup).",
     "pairs-invalid": "The folder pair list is not valid, so VGS copies nothing."
 };
 var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
@@ -808,11 +809,11 @@ function setupAction(pairs) {
 }
 
 function stoppedFolders(pairs) {
-    return pairs.map(function (p) { return p.label; }).join(", ");
+    return Commons.TextList.listed(pairs.map(function (p) { return p.label; }));
 }
 
 function setupMessage(pairs) {
-    return "Sync stopped for " + stoppedFolders(pairs) + ". Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm.";
+    return stoppedFolders(pairs) + (pairs.length === 1 ? " needs" : " need") + " setup for two-way sync.";
 }
 
 // The values the service publishes (the manifest's `status`): from the
@@ -923,15 +924,16 @@ function panelHeader(cloud, now, timeText) {
 // happened and offers its one fix, an `action` { label, tui } that opens
 // the plugin's own TUI or { label, tab } that opens that tab of the
 // plugin's page, or null where the fix is the user's alone or the
-// footer's Sync now. Its words are plain text: a callout draws no link.
+// footer's Sync now. Panel draws any page reference as plain words because
+// the bottom action already opens that page: each notice has at most one link.
 var CALLOUTS = {
-    "signed-out": { tone: "danger", title: "Google Drive is not signed in", text: "Your files are safe here and in Google Drive. Sign in to start the sync.", action: { label: "Sign in", tui: "connect" } },
-    "sign-in-refused": { tone: "danger", title: "Google signed this computer out", text: "Your files are safe here and in Google Drive. Sign in again to resume the sync.", action: { label: "Sign in again", tui: "connect" } },
-    "keys-missing": { tone: "danger", title: "Google Drive needs its keys", text: "Add the Client ID and the Client secret, then sign in. Your files are safe here and in Google Drive.", action: { label: "Add the keys", tab: "Setup" } },
-    "keyring-locked": { tone: "danger", title: "Your keyring is locked", text: "VGS cannot read the Google Drive keys. Unlock your keyring, then select Sync now.", action: null },
-    offline: { tone: "warning", title: "Google Drive cannot be reached", text: "Your files stay as the last complete sync left them. VGS tries again at the next sync.", action: null },
-    "not-set-up": { tone: "warning", title: "The hourly sync is not on", text: "VGS could not turn on the hourly sync, so Google Drive does not sync. Select Set up again beside Hourly sync.", action: { label: "Open Setup", tab: "Setup" } },
-    stale: { tone: "warning", title: "The hourly sync is out of date", text: SCHEDULE_HINTS.stale, action: { label: "Open Setup", tab: "Setup" } }
+    "signed-out": { tone: "danger", text: "Your files are safe here and in Google Drive. Sign in to start the sync.", action: { label: "Sign in", tui: "connect" } },
+    "sign-in-refused": { tone: "danger", text: "Your files are safe here and in Google Drive. Sign in again to resume the sync.", action: { label: "Sign in again", tui: "connect" } },
+    "keys-missing": { tone: "danger", text: "Add the Client ID and the Client secret, then sign in. Your files are safe here and in Google Drive.", action: { label: "Add the keys", tab: "Setup" } },
+    "keyring-locked": { tone: "danger", text: "VGS cannot read the Google Drive keys. Unlock your keyring, then use Sync now.", action: null },
+    offline: { tone: "warning", text: "Your files stay as the last complete sync left them. VGS tries again at the next sync.", action: null },
+    "not-set-up": { tone: "warning", text: "VGS could not turn on the hourly sync, so Google Drive does not sync. Turn it on again on the [Setup tab](page:vgs.google-drive/Setup).", action: { label: "Open Setup", tab: "Setup" } },
+    stale: { tone: "warning", text: SCHEDULE_HINTS.stale, action: { label: "Open Setup", tab: "Setup" } }
 };
 var PAIRS_STOPPED = "VGS copies nothing until you start the list again.";
 // A failed sync's fix by its error kind, where one place holds it.
@@ -979,12 +981,12 @@ function problemCallout(cloud, now) {
         var kind = error === null ? "" : error.kind;
         if (head.cause === "authorization-required" || SIGN_IN_KINDS.indexOf(kind) !== -1) return signInCallout(error);
         if (kind === "pairs-invalid")
-            return { tone: "danger", title: "The folder pair list cannot be read", text: pairListProblem(error) + " " + PAIRS_STOPPED, action: { label: "Start the list again", tui: "reset-pairs" } };
-        return { tone: "danger", title: error !== null && error.operation === "exports" ? "Native-document copies did not finish" : "Google Drive could not sync", text: errorText(error), action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
+            return { tone: "danger", text: pairListProblem(error) + " " + PAIRS_STOPPED, action: { label: "Start the list again", tui: "reset-pairs" } };
+        return { tone: "danger", text: errorText(error), action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
     }
     if (head.cause === "initialization-required") {
         var required = setupPairs(cloud);
-        return { tone: "warning", title: "Folder sync stopped", text: setupMessage(required), action: setupAction(required) };
+        return { tone: "warning", text: setupMessage(required), action: setupAction(required) };
     }
     if (head.cause === "not-set-up") return CALLOUTS["not-set-up"];
     if (cloud.state === "offline") return CALLOUTS.offline;
@@ -1148,9 +1150,9 @@ function notification(record) {
                 names.push(pair.label);
                 remaining--;
             }
-            message = "Sync stopped for " + names.join(", ") + " and " + remaining + " more folders. Two-way sync needs setup. Select Set up two-way sync to choose a folder and review the changes before you confirm.";
+            message = Commons.TextList.listed(names.concat([remaining + " more folders"])) + " need setup for two-way sync.";
         }
-        return { title: "Google Drive folder sync stopped", message: message, tone: "warning", action: setupAction(required) };
+        return { title: "Google Drive sync stopped", message: message, tone: "warning", action: setupAction(required) };
     }
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". " + NEEDS_HINT, tone: "warning" };

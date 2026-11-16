@@ -19,7 +19,10 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const root = path.join(__dirname, "..");
 const dir = path.join(root, "shell", "plugins", "vgs.agent-debug");
-const modules = { "qs.Commons 1.0": { SettingValues: load(path.join(root, "shell", "Commons", "SettingValues.js")) } };
+const modules = { "qs.Commons 1.0": {
+    SettingValues: load(path.join(root, "shell", "Commons", "SettingValues.js")),
+    TextList: load(path.join(root, "shell", "Commons", "TextList.js"))
+} };
 const core = load(path.join(root, "shell", "Core", "PluginLogic.js"));
 const loaded = core.validateManifest(JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")), dir);
 assert.equal(loaded.ok, true, "the manifest validates: " + (loaded.error || ""));

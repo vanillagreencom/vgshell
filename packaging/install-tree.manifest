@@ -96,6 +96,7 @@ f share/vgshell/shell/Commons/Paths.qml
 f share/vgshell/shell/Commons/Reply.js
 f share/vgshell/shell/Commons/SessionLockState.js
 f share/vgshell/shell/Commons/SettingValues.js
+f share/vgshell/shell/Commons/TextList.js
 f share/vgshell/shell/Commons/Theme.qml
 f share/vgshell/shell/Commons/ThemeLogic.js
 f share/vgshell/shell/Commons/ThemeSource.qml

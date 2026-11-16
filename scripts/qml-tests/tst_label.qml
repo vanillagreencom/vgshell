@@ -208,6 +208,7 @@ Item {
                 { tag: "itemCode", family: mono, size: 13, weight: 500, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "menuItem", family: sans, size: 14, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "menuItemHint", family: sans, size: 12, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
+                { tag: "calloutDismiss", family: sans, size: 14, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.714 },
                 { tag: "hint", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.55 },
                 { tag: "eyebrow", family: mono, size: 12, weight: 700, spacing: 0.18, uppercase: true, lineHeight: 1 },
                 { tag: "label", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },

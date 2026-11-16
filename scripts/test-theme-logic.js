@@ -444,6 +444,10 @@ const ACCEPTED = [
     { tokens: { palette: { accent: "contrastMix(#000,#f00,#fff,3)" } }, want: [["palette.accent", "#ff0000ff"]] },
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,21)" } }, want: [["palette.accent", "#000000ff"]] },
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,1)" } }, want: [["palette.accent", "#ffffffff"]] },
+    // At regular weight, 113 draws as 118 on white; 114 draws as 119,
+    // below 4.5:1. On black, 121 draws as 117; 120 draws as 116.
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,4.5,400)" } }, want: [["palette.accent", "#717171ff"]] },
+    { tokens: { palette: { accent: "contrastMix(#fff,#000,#000,4.5,400)" } }, want: [["palette.accent", "#797979ff"]] },
     // reachMix solves as contrastMix, and keeps its first colour where no
     // mix meets the ratio.
     { tokens: { palette: { accent: "reachMix(#000,#fff,#fff,4.5)" } }, want: [["palette.accent", "#767676ff"]] },
@@ -482,6 +486,8 @@ const REFUSED = [
     { tokens: { palette: { accent: "mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, #fff, 1), 1), 1), 1), 1), 1), 1), 1)" } }, reason: "too-deep", token: "palette.accent" },
     { tokens: { palette: { accent: "darken(#fff, 0.5)" } }, reason: "unknown-function", token: "palette.accent" },
     { tokens: { palette: { accent: "mix(#000, #fff)" } }, reason: "arity", token: "palette.accent" },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff)" } }, reason: "arity", token: "palette.accent" },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,4.5,400,400)" } }, reason: "arity", token: "palette.accent" },
     { tokens: { palette: { accent: "{palette.acent}" } }, reason: "unknown-reference", token: "palette.accent" },
     { tokens: { palette: { accent: "{palette}" } }, reason: "unknown-reference", token: "palette.accent" },
     { tokens: { palette: { accent: "{color.accent}" } }, reason: "cycle", token: "palette.accent" },
@@ -694,12 +700,21 @@ const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, 
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "text.keyHint.color", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "segmented.border", "tileGroup.border", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
+const CALLOUT_INKS = [
+    ["title", "text", "bodyStrong"],
+    ["text", "textMuted", "body"],
+    ["dismiss", "textMuted", "calloutDismiss"],
+    ["link.foreground", "accent", "body"],
+    ["link.hover", "accentHover", "body"],
+    ["link.pressed", "accentPressed", "body"]
+];
 const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["kbd.valueForeground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
     ...["neutral", "normal", "warning", "danger"].map(level => [`badge.unread.tone.${level}.foreground`, `badge.unread.tone.${level}.background`]),
-    ...["info", "warning", "danger"].flatMap(tone => [[`callout.tone.${tone}.foreground`, `callout.tone.${tone}.background`], [`callout.tone.${tone}.link.foreground`, `callout.tone.${tone}.background`]]),
+    ...["surfaceRaised", "surfaceHover"].flatMap(fill => CALLOUT_INKS.map(([ink]) => [`callout.${ink}`, `color.${fill}`])),
     ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
-const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
+const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"],
+    ...["surfaceRaised", "surfaceHover"].flatMap(fill => ["info", "warning", "danger"].map(tone => [`callout.tone.${tone}.foreground`, `color.${fill}`]))];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -953,15 +968,21 @@ function verify(judge) {
     assert.equal(opaqueFill.ok, true, opaqueFill.ok ? "" : judge.refusalLine(opaqueFill));
     assert.deepEqual(plain(readability(judge, opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
 
-    // A notice's ink and its link, in each state, are judged on the
-    // state's translucent fill laid over each resting surface: an ink the
-    // colour of the background fails on every one, and the link, which
-    // derives from the ink, fails with it.
+    // Notice icons alone use the boundary floor, on both banner fills.
+    // Each solved text ink is independently judged on both banner fills.
     for (const tone of ["info", "warning", "danger"]) {
         const dark = judge.accept(TOKENS, document({ callout: { tone: { [tone]: { foreground: "#000000" } } } }));
         assert.equal(dark.ok, true, dark.ok ? "" : judge.refusalLine(dark));
-        assert.deepEqual(plain(readability(judge, dark.values).map(row => [row.text, row.surface])),
-            ["foreground", "link.foreground"].flatMap(ink => READABILITY_SURFACES.map(surface => [`callout.tone.${tone}.${ink}`, `callout.tone.${tone}.background over ${surface}`])), tone + ": a notice's ink is judged on its fill");
+        assert.deepEqual(plain(readability(judge, dark.values).map(row => [row.text, row.surface, row.floor])),
+            ["surfaceRaised", "surfaceHover"].map(fill => [`callout.tone.${tone}.foreground`, `color.${fill}`, 3]), tone + ": the icon is judged on each banner fill");
+    }
+    for (const [ink] of CALLOUT_INKS) {
+        const parts = ink.split(".");
+        const override = parts.length === 1 ? { [ink]: "#000000" } : { [parts[0]]: { [parts[1]]: "#000000" } };
+        const dark = judge.accept(TOKENS, document({ callout: override }));
+        assert.equal(dark.ok, true);
+        assert.deepEqual(plain(readability(judge, dark.values).map(row => [row.text, row.surface, row.floor])),
+            ["surfaceRaised", "surfaceHover"].map(fill => [`callout.${ink}`, `color.${fill}`, 4.5]));
     }
 
     // The resolved tree holds exactly the table's tokens, each with a value
@@ -1538,6 +1559,7 @@ function verifyDrawingWeightSources(judge) {
         ["color.text", "avatarGroup.weight"],
         ["color.warning", "text.bar.weight"], // BarItem's warning reading
         ["color.danger", "text.bar.weight"], // BarItem's danger reading
+        ...CALLOUT_INKS.map(([ink, , role]) => [`callout.${ink}`, `text.${role}.weight`]),
         ["carousel.hintActive", "text.bodyStrong.weight"], // WallpaperView's chosen scope word
         ["tooltip.detail", "text.itemHint.weight"],
         ["color.accent", "text.itemCode.weight", "itemCode"],
@@ -1582,6 +1604,12 @@ function verifyDrawingWeightSources(judge) {
         const accepted = judge.accept(TOKENS, fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
         assert.equal(accepted.ok, true, name);
         assert.deepEqual(plain(readability(judge, accepted.values)), [], name + ": every readability rule passes");
+        for (const [ink, preferred, role] of CALLOUT_INKS) {
+            const values = accepted.values;
+            const ratio = judge.drawnTextRatio(judge.parseColor(values.color[preferred]), judge.parseColor(values.color.surfaceHover), values.text[role].weight);
+            if (ratio >= 4.5)
+                assert.equal(at(values.callout, ink), values.color[preferred], name + ": a readable " + ink + " stays identical");
+        }
     }
 }
 
@@ -2179,7 +2207,7 @@ const CONTROLS = [
     ["expression depth", "if (depth > MAX_EXPRESSION_DEPTH)", "if (false)"],
     ["trailing text", "if (at !== text.length)", "if (false)"],
     ["unknown function", "if (!hasOwn(FUNCTIONS, tree.name))", "if (false)"],
-    ["arity", "if (tree.args.length !== signature.args.length)", "if (false)"],
+    ["arity", "if (tree.args.length < minimumArgs || tree.args.length > signature.args.length)", "if (false)"],
     ["readable holds the text floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? BOUNDARY_FLOOR : BOUNDARY_FLOOR;'],
     ["discernible holds the mark floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? READABILITY_FLOOR : 1;'],
     ["discernible keeps a mark under the text floor", 'tree.name === "readable" ? READABILITY_FLOOR : BOUNDARY_FLOOR;', 'tree.name === "readable" ? READABILITY_FLOOR : READABILITY_FLOOR;'],
@@ -2196,7 +2224,7 @@ const CONTROLS = [
     ["function result type", 'if (result !== want || (signature.result === "same" && NUMERIC_TYPES.indexOf(want) === -1))', "if (false)"],
     ["cycle", "if (visiting.indexOf(path) !== -1)", "if (false)"],
     ["mix amount", "if (args[2] < 0 || args[2] > 1)", "if (false)"],
-    ["contrast mix floor", "if (contrastRatio(mix, background) >= ratio)", "if (true)"],
+    ["contrast mix floor", "if ((weight === undefined ? contrastRatio(mix, background) : drawnTextRatio(mix, background, weight)) >= ratio)", "if (true)"],
     ["alpha amount", "if (args[1] < 0 || args[1] > 1)", "if (false)"],
     ["translucent contrast", "if (args[0].a < 1)", "if (false)"],
     ["contrast choice", "1.05 / (light + 0.05) > (light + 0.05) / 0.05", "true"],
@@ -2287,7 +2315,7 @@ const CONTROLS = [
     ["readability floor", "var READABILITY_FLOOR = 4.5;", "var READABILITY_FLOOR = 1;"],
     ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
     ["readability badge pairs", "    [\"badge.tone.success.foreground\", \"badge.tone.success.background\"],\n", ""],
-    ["readability notice pairs", "    [\"callout.tone.danger.foreground\", \"callout.tone.danger.background\"],\n", ""],
+    ["readability notice pairs", "    [\"callout.title\", \"color.surfaceRaised\"],\n", ""],
     ["readability count badge pairs", "    [\"badge.unread.tone.warning.foreground\", \"badge.unread.tone.warning.background\"],\n", ""],
     ["readability translucent fill over a surface", "if (fill === null || fill.a === 1)", "if (true)"],
     ["readability fill blend", "r: base.r + (fill.r - base.r) * fill.a,", "r: fill.r,"],

@@ -602,6 +602,7 @@ FocusScope {
             Callout {
                 id: reachNotice
                 objectName: "mainReachNotice"
+                level: "raised"
                 readonly property var reach: root.values.mainReach
                 readonly property bool warns: reach !== undefined && reach !== null
                     && (reach.kind === "unavailable" || reach.kind === "satellite" && reach.cause !== "")

@@ -957,6 +957,7 @@ FocusScope {
                     // (press), and the steps draw none (Steps.stepAction).
                     // An always-on plugin is never off.
                     Callout {
+                        level: "raised"
                         width: body.width
                         visible: !page.plugin.enabled && page.hasSetup
                         iconName: "power"
@@ -971,6 +972,7 @@ FocusScope {
                     // (PluginLogic.setupGuideRow); a plugin with no README
                     // to open draws it with no link.
                     Callout {
+                        level: "raised"
                         readonly property var guide: page.hasSetup && page.row !== null ? page.row.guide : null
                         width: body.width
                         visible: guide !== null

@@ -334,11 +334,12 @@ FocusScope {
         Callout {
             id: blocked
             objectName: "vpn-blocked"
+            level: root.expanded ? "raised" : "base"
             visible: root.notice !== null && root.listed
             tone: "danger"
             text: root.notice === null ? "" : root.notice.text
-            buttonText: root.held !== "" ? "Turn VPN off" : ""
-            onButtonActivated: {
+            linkText: root.held !== "" ? "Turn VPN off" : ""
+            onActivated: {
                 const uuid = root.held;
                 const keyed = firstStop !== null && firstStop.activeFocus;
                 if (root.act("profile-down", uuid, "VGS could not turn the VPN off.") === "ok" && keyed) root.focusSwitch(uuid);

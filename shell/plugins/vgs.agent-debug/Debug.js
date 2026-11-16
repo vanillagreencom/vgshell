@@ -223,12 +223,6 @@ function mutedRows(list) {
     return list.map(function (name) { return { id: name, label: name, actions: ["unmute"] }; });
 }
 
-// A list of names as a sentence reads it: "a", "a and b", "a, b and c".
-function listed(names) {
-    if (names.length <= 1) return names.join("");
-    return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-}
-
 // The notification for a crash of PROGRAM.
 function crashNotice(program) {
     return { title: fact(program) + " crashed", body: "", urgency: "critical", tone: "danger", mute: true };
@@ -237,7 +231,7 @@ function crashNotice(program) {
 // The notification for FAILURE, a doctor.installFailures entry. The title
 // names no plugin, since the doctor capability lends no plugin name.
 function taskNotice(failure) {
-    var sentence = listed(failure.packages) + ".";
+    var sentence = Commons.TextList.listed(failure.packages) + ".";
     return {
         title: failure.action === "update" ? "Could not update tools" : "Could not install tools",
         body: failure.packages.length > 0 && sentence.length <= BODY_PACKAGES_MAX ? sentence : "",
