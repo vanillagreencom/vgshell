@@ -164,7 +164,7 @@ if copy_tree notice-reference-retained \
   expect_poll "control: the editor is launched before reading focus" busy key_idle core/edit
   notice_reference_mapped() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.exists() and "mapped org.vgs.tui" in p.read_text().splitlines())' "$tui_record.window"; }
   expect_poll "control: the editor's native window maps" True notice_reference_mapped
-  expect "control: the same reader rejects the editor behind its originating notice" notice-mapped notice_reference_focus
+  expect_poll "control: the same reader rejects the editor behind its originating notice" notice-mapped notice_reference_focus
   release_runs
   expect_run_end "control: the editor ends" core/edit
   stop_shell
@@ -185,3 +185,112 @@ expect_poll "Connect adds the loading line exactly once" 1 wire_count
 expect_poll "Connect keeps the loading line first" "$wire_line" head -n 1 -- "$hypr_lua"
 expect_poll "Connect changes no other hyprland.lua byte" same tail_matches_harness
 expect_poll "Hyprland reloads the consent-wired layer without config errors" '[]' hypr_reload_errors
+
+# Hold only the acceptance callback until the editor has mapped. The
+# source-first yield must already have released its keyboard at that
+# barrier; restoring the late yield is the same native reader's control.
+notice_order_saved="$sandbox/notice-order-user.json"
+cp -- "$home/.config/vgshell/shell.json" "$notice_order_saved"
+notice_order_newer() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as source:
+    doc = json.load(source)
+doc["version"] += 1
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PY
+}
+notice_order_mapped() { hypr -j clients | py_reply 'import json,sys; print(sum(c["class"] == "org.vgs.tui" for c in json.load(sys.stdin)))'; }
+for notice_order in early late; do
+  stop_shell
+  cp -- "$notice_order_saved" "$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+  copy_tree "notice-order-$notice_order"
+  edit_tree "notice-order-$notice_order" shell/Hosts/NoticeHost.qml 'property var reference: null' 'property var reference: null; property var heldOpen: null; property var heldDone: null'
+  edit_tree "notice-order-$notice_order" shell/Hosts/NoticeHost.qml 'const answer = open(done);' 'host.heldOpen = () => open(answer => { host.heldDone = () => done(answer); }); const answer = "ok";'
+  # Probe is injected into the disposable tree, outside edit_tree's shipped-source inventory.
+  python3 - "$sandbox/tree-notice-order-$notice_order/shell/Probe.qml" <<'PYPROBE'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+needle = "function noticeFocused(): bool {"
+assert text.count(needle) == 1, "the probe insertion must match once"
+methods = """function noticeOrderHeld(): bool { return Plugins.hosts.notice.heldDone !== null; }
+        function noticeOrderPending(): bool { const host = Plugins.hosts.notice; return host.reference !== null && host.reference.opening; }
+        function noticeOrderOpen(): string { const host = Plugins.hosts.notice; const open = host.heldOpen; host.heldOpen = null; return open === null ? "absent" : open(); }
+        function noticeOrderRelease(): string { const host = Plugins.hosts.notice; const done = host.heldDone; host.heldDone = null; if (done === null) return "absent"; done(); return "ok"; }
+        """
+path.write_text(text.replace(needle, methods + needle))
+PYPROBE
+  if [[ $notice_order == late ]]; then
+    edit_tree notice-order-late shell/Hosts/NoticeHost.qml 'if (loader.item !== null) loader.item.visible = false;
+        reference = continuation;' 'host.reference = null;'
+  fi
+  start_shell "$sandbox/tree-notice-order-$notice_order" "$sandbox/notice-order-$notice_order.log" || fail "the $notice_order yield fixture starts"
+  terminal_ready "$notice_order yield"
+  notice_order_newer
+  expect_poll "$notice_order yield: the running shell reads the newer file" newer notice_reference_config_state
+  expect_poll "$notice_order yield: the newer notice has the keyboard" true ipc smoke noticeFocused
+  expect "$notice_order yield: Settings opens behind the notice" ok ipc shell summon window vgs.settings '{}'
+  expect_poll "$notice_order yield: Settings maps behind the notice" 1 window_count Plugins
+  hold_runs
+  forget_record
+  rm -f -- "${tui_record:?}.window"
+  expect "$notice_order yield: the message activates its file" ok ipc smoke noticeReference "" ""
+  if [[ $notice_order == early ]]; then
+    expect_poll "the notice yields before the file probe starts" 0 layer_count vgs:notice
+    expect "Settings closes while the file open is pending" ok ipc shell hide window vgs.settings
+    expect_poll "Settings is gone while the file open is pending" 0 window_count Plugins
+    expect "the continuation survives an unrelated window closing before its probe" true ipc smoke noticeOrderPending
+    expect_poll "an unrelated window closing does not remap the pending notice" 0 layer_count vgs:notice
+    expect "Settings opens again while the file open is pending" ok ipc shell summon window vgs.settings '{}'
+    expect_poll "Settings is present before releasing the file probe" 1 window_count Plugins
+    expect "the continuation survives an unrelated window opening before its probe" true ipc smoke noticeOrderPending
+    expect_poll "an unrelated window opening does not remap the pending notice" 0 layer_count vgs:notice
+  fi
+  expect "$notice_order yield: the file probe starts after the pending barrier" ok ipc smoke noticeOrderOpen
+  expect_poll "$notice_order yield: acceptance waits at the barrier" true ipc smoke noticeOrderHeld
+  expect_poll "$notice_order yield: the editor maps before acceptance is delivered" 1 notice_order_mapped
+  if [[ $notice_order == early ]]; then
+    expect_poll "the source-first yield gives the mapped editor native keyboard focus before acceptance" native notice_reference_focus
+    notice_order_before="$(notice_reference_keys)"
+    type_keys -k F8 || fail "typing at the early-editor barrier failed"
+    expect_poll "the source-first yield delivers both key events before acceptance" "$((notice_order_before + 2))" notice_reference_keys
+  else
+    (
+      failures=0
+      expect "the mapped editor has native keyboard focus before acceptance" native notice_reference_focus
+      printf 'control-failures=%s\n' "$failures"
+    ) >"$sandbox/notice-order-control.log"
+    control_output "$sandbox/notice-order-control.log"
+    expect "control: today's late yield fails the native-focus assertion" 1 sed -n 's/^control-failures=//p' "$sandbox/notice-order-control.log"
+    expect "control: the notice still owns the keyboard after the editor maps" true ipc smoke noticeFocused
+  fi
+  expect "$notice_order yield: the accepted callback is released" ok ipc smoke noticeOrderRelease
+  expect_poll "$notice_order yield: the notice closes after acceptance" 0 layer_count vgs:notice
+  release_runs
+  expect_run_end "$notice_order yield: the editor ends" core/edit
+  expect_poll "$notice_order yield: the pending notice returns with the keyboard" true ipc smoke noticeFocused
+  expect "$notice_order yield: Settings closes" ok ipc shell hide window vgs.settings
+done
+cp -- "$sandbox/notice-order-control.log" "$smoke_log_dir/notice-order-control.log"
+stop_shell
+cp -- "$notice_order_saved" "$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+start_shell "$repo" "$sandbox/notice-order-restored.log" || fail "the source-first yield returns after its control"
+terminal_ready "refused early yield"
+notice_order_newer
+expect_poll "the refusal fixture's running shell reads the newer file" newer notice_reference_config_state
+expect_poll "the newer notice holds the keyboard before a refused open" true ipc smoke noticeFocused
+forget_record
+expected_errors+=('notices: reference refused: file=.*notice-order-missing\.txt.* reason=missing')
+expect "the refused file uses the source-first yield" ok ipc smoke noticeReference "file:$sandbox/notice-order-missing.txt" ""
+expect_log "the refused early open reaches the existing refusal path" 1 'notices: reference refused: file=.*notice-order-missing\.txt.* reason=missing'
+expect_poll "a refused early open returns the notice and its keyboard" true ipc smoke noticeFocused
+expect "a refused early open starts no editor" absent recorded
+expect "a refused early open preserves the newer-file state" newer notice_reference_config_state
+cp -- "$notice_order_saved" "$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+expect_poll "the user file is restored after the ordered hand-off" loaded notice_reference_config_state
+expect_poll "the connected notice is gone after the ordered hand-off" 0 layer_count vgs:notice

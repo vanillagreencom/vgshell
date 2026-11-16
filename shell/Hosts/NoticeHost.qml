@@ -44,14 +44,24 @@ Scope {
     }
 
     function settleReference() {
-        if (reference !== null && !referenceLive(reference)) reference = null;
+        if (reference !== null && !reference.opening && !referenceLive(reference)) reference = null;
     }
 
     function activateReference(open, continuation) {
         const id = Notices.shownId;
+        continuation.opening = true;
+        // As SummonLayer.unmap, hide the native layer before its deferred
+        // teardown, so the continuation cannot map under its keyboard hold.
+        if (loader.item !== null) loader.item.visible = false;
+        reference = continuation;
         const done = answer => {
-            if (answer !== "ok") console.warn("notices: reference " + answer);
+            continuation.opening = false;
+            if (answer !== "ok") {
+                if (host.reference === continuation) host.reference = null;
+                console.warn("notices: reference " + answer);
+            }
             else if (Notices.shownId === id && referenceLive(continuation)) host.reference = continuation;
+            else if (host.reference === continuation) host.reference = null;
         };
         const answer = open(done);
         if (answer !== "ok") done(answer);
