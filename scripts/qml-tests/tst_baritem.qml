@@ -35,10 +35,7 @@ import qs.Unit
 // which it reads above 9 while its name keeps the count, with no badge
 // for ""; it takes no room, so an icon-only item stays square as it
 // comes and goes; its fill and figures follow its level, its ring is the corner
-// border in the bar's background, and the icon takes its level colour. A
-// leading glyph, built only while named, draws the bar icon before the
-// icon or caption in the item's tone at every level, `bar.item.iconGap`
-// before what follows, and widens the item by that much.
+// border in the bar's background, and the icon takes its level colour.
 Item {
     id: root
     width: 300
@@ -80,12 +77,7 @@ Item {
             return out;
         }
         function firstIcon(item) {
-            const walk = node => { for (const child of node.children) { if (child.objectName === "bar-item-leading") continue; if (child.name !== undefined && child.paths !== undefined) return child; const found = walk(child); if (found) return found; } return null; };
-            return walk(item.contentItem);
-        }
-        // The leading glyph's Loader.
-        function leadingOf(item) {
-            const walk = node => { for (const child of node.children) { if (child.objectName === "bar-item-leading") return child; const found = walk(child); if (found) return found; } return null; };
+            const walk = node => { for (const child of node.children) { if (child.name !== undefined && child.paths !== undefined) return child; const found = walk(child); if (found) return found; } return null; };
             return walk(item.contentItem);
         }
         // The icons the stacked lines draw, the text line's first: every
@@ -539,7 +531,8 @@ Item {
 
         // Each (text, detail) level pair, with and without a detail shown: the
         // values draw their own level, the separator draws its own token,
-        // and the icon draws the most severe level of the values shown.
+        // and the icon draws the most severe level of the values shown, in
+        // its own `iconTone` at the normal level while the values keep `tone`.
         function test_the_icon_draws_the_most_severe_value_data() {
             const order = ["normal", "warning", "danger"];
             const cases = [];
@@ -555,9 +548,10 @@ Item {
 
         function test_the_icon_draws_the_most_severe_value(data) {
             const tone = "#123456";
+            const iconTone = "#654321";
             const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
             const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", detail: data.detail, separator: "/",
-                tone: tone, textLevel: data.textLevel, detailLevel: data.detailLevel });
+                tone: tone, iconTone: iconTone, textLevel: data.textLevel, detailLevel: data.detailLevel });
             verify(item !== null);
             const found = labels(item);
             compare(found[0].color, colours[data.textLevel]);
@@ -568,7 +562,7 @@ Item {
             } else {
                 compare(found.length, 1);
             }
-            compare(firstIcon(item).color, colours[data.icon]);
+            compare(firstIcon(item).color, data.icon === "normal" ? Qt.color(iconTone) : colours[data.icon]);
         }
 
         function test_a_caption_takes_the_icon_place_and_colour() {
@@ -590,39 +584,6 @@ Item {
             compare(alone.leftPadding, Theme.bar.item.paddingX);
             compare(alone.Accessible.name, "GPU graphics");
             compare(labels(alone)[0].color, Qt.color(Theme.bar.foreground));
-        }
-
-        // The leading glyph before an icon with a danger reading, an icon
-        // alone and a caption: none while unnamed; named, the bar icon in
-        // the item's tone at every level, centred on the item's height,
-        // `iconGap` before what follows, and the item that much wider.
-        function test_the_leading_icon_data() {
-            return [
-                { tag: "reading", properties: { iconName: "battery-warning", text: "8%", textLevel: "danger", label: "Battery" } },
-                { tag: "icon-alone", properties: { iconName: "gauge", label: "Power profile" } },
-                { tag: "caption", properties: { iconName: "gpu", caption: "GPU", text: "5%", label: "GPU" } }
-            ];
-        }
-
-        function test_the_leading_icon(data) {
-            const tone = "#123456";
-            const plain = createTemporaryObject(readingCase, root, Object.assign({ tone: tone }, data.properties));
-            const marked = createTemporaryObject(readingCase, root, Object.assign({ tone: tone, leadingIconName: "coffee", y: 40 }, data.properties));
-            verify(plain !== null && marked !== null);
-            compare(leadingOf(plain).item, null, "an item without one builds no leading glyph");
-            const box = leadingOf(marked);
-            const lead = box.item;
-            verify(lead !== null, "a named leading glyph is built");
-            compare(box.visible, true, "the leading glyph shows");
-            compare([lead.name, lead.size], ["coffee", Theme.bar.item.icon]);
-            compare(lead.color, Qt.color(tone), "the leading glyph keeps the item's tone");
-            fuzzyCompare(lead.mapToItem(marked, 0, 0).y + lead.height / 2, marked.height / 2, 0.5);
-            const next = data.properties.caption !== undefined ? labels(marked)[0] : firstIcon(marked).parent;
-            fuzzyCompare(next.mapToItem(marked, 0, 0).x - lead.mapToItem(marked, lead.width, 0).x, Theme.bar.item.iconGap, 0.5);
-            fuzzyCompare(marked.width - plain.width, Theme.bar.item.icon + Theme.bar.item.iconGap, 1);
-            marked.leadingIconName = "";
-            compare(box.item, null, "clearing the name drops the glyph");
-            tryCompare(marked, "width", plain.width, 1000, "and the item's width returns");
         }
 
         // Stacked readings at item heights around the shipped 24 and an odd

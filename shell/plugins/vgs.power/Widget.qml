@@ -6,10 +6,12 @@ import "PowerLogic.js" as Logic
 // The Power item in the bar: battery level where a laptop battery exists,
 // and the active power-profile icon where none does, or beside the battery
 // while the `barProfile` setting is on (Logic.widgetView). While Stay
-// awake is on, a cup glyph leads the first item shown, in the item's own
-// foreground, or stands alone where neither shows, and the tooltip reads
-// its time left. It reads only the service's status value and its
-// settings, and it opens or closes the flyout on a click.
+// awake is on, the cup takes the first shown item's icon, or stands alone
+// where neither shows, drawn in `bar.active`, the focused workspace's
+// colour, while the battery level keeps the bar's text colour; the
+// tooltip reads its time left. It reads only the
+// service's status value and its settings, and it opens or closes the
+// flyout on a click.
 BarWidget {
     id: widget
 
@@ -20,10 +22,10 @@ BarWidget {
         if (Logic.stayAwakeView(power).active) Time.now;
         return Logic.widgetView(power, setting("barProfile", false), Date.now());
     }
-    readonly property string cup: "coffee"
-    // The cup draws no text, so the item it leads names the state in its
+    // The cup draws no text, so the item it marks names the state in its
     // accessible name.
     readonly property string awakeName: "Stay awake on"
+    readonly property color tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
 
     visible: view.shown
     implicitWidth: view.shown ? row.implicitWidth : 0
@@ -45,9 +47,9 @@ BarWidget {
             visible: widget.view.batteryShown
             label: widget.view.cupHost === "battery" ? "Battery, " + widget.awakeName : "Battery"
             iconName: widget.view.batteryIcon
-            leadingIconName: widget.view.cupHost === "battery" ? widget.cup : ""
             text: widget.view.levelText
-            tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
+            tone: widget.tone
+            iconTone: widget.view.cupHost === "battery" ? Theme.bar.active : widget.tone
             tooltip: widget.view.tooltip
             tooltipDetails: widget.view.tooltipDetails
             onClicked: widget.toggle()
@@ -58,8 +60,8 @@ BarWidget {
             visible: widget.view.profileShown
             label: widget.view.cupHost === "profile" ? "Power profile, " + widget.awakeName : "Power profile"
             iconName: widget.view.profileIcon
-            leadingIconName: widget.view.cupHost === "profile" ? widget.cup : ""
-            tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
+            tone: widget.tone
+            iconTone: widget.view.cupHost === "profile" ? Theme.bar.active : widget.tone
             tooltip: widget.view.tooltip
             tooltipDetails: widget.view.tooltipDetails
             onClicked: widget.toggle()
@@ -69,8 +71,9 @@ BarWidget {
             id: stayAwakeItem
             visible: widget.view.cupHost === "alone"
             label: "Stay awake"
-            iconName: widget.cup
-            tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground
+            iconName: Logic.CUP
+            tone: widget.tone
+            iconTone: Theme.bar.active
             tooltip: widget.view.tooltip
             tooltipDetails: widget.view.tooltipDetails
             onClicked: widget.toggle()

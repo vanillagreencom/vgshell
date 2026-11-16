@@ -10,14 +10,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // side, is an optional icon `bar.item.icon` wide at full opacity or a
 // spinner in its place, or a short `caption` word there instead, an
 // optional `text`, and an optional second reading, `detail`, drawn in the
-// `bar` role in `tone`, the same way in every widget. A state the widget
-// holds, such as Stay awake, draws as `leadingIconName`, one more glyph
-// before the icon or caption in the item's foreground, never a level
-// colour, and it takes room in the row. A value at
+// `bar` role in `tone`, the same way in every widget. A value at
 // `textLevel` or `detailLevel` "warning" or "danger" draws in that state
 // colour, and the icon or caption draws in the most severe level of the
 // values shown and the count, so it turns red exactly when a value beside
-// it or the count does. A `separator` draws flush between text and detail
+// it or the count does. At the normal level the icon draws in `iconTone`,
+// `tone` unless set, so a state the widget holds, such as Stay awake, can
+// mark its icon in `bar.active` while the values keep `tone`. A `separator` draws flush between text and detail
 // in `bar.item.separator`, never a state colour; without one the two keep
 // the item gap. A reading that changes, `text` with `textSample` or
 // `detail` with `detailSample`, is a `Reading` whose sample is the widest
@@ -117,11 +116,6 @@ T.AbstractButton {
     InputWidth { target: root }
 
     property string iconName: ""
-    // A glyph of its own before the icon or caption, for a state the
-    // widget holds, such as Stay awake: `bar.item.icon` wide, in the
-    // item's foreground whatever level its values draw in, `iconGap` from
-    // what follows. It takes room in the row; "" draws none.
-    property string leadingIconName: ""
     property string detailIconName: ""
     property string detail: ""
     // The corner badge's whole number, "" for none.
@@ -153,6 +147,7 @@ T.AbstractButton {
     property color spinnerColor: Theme.spinner.color
     property bool active: false
     property color tone: Theme.bar.foreground
+    property color iconTone: tone
     property string tooltip: ""
     property var tooltipDetails: []
     property bool focusPreview: false
@@ -161,6 +156,7 @@ T.AbstractButton {
     // widget's name for an item that draws an icon alone.
     property string label: text
     readonly property color foreground: active ? Theme.bar.onActive : tone
+    readonly property color iconForeground: active ? Theme.bar.onActive : iconTone
     // The most severe level among the values and the count shown; an
     // unknown level ranks as normal.
     readonly property var levels: ["normal", "warning", "danger"]
@@ -210,21 +206,6 @@ T.AbstractButton {
             anchors.verticalCenter: parent.verticalCenter
             spacing: root.spacing
 
-            // Built only while named, so an item without one holds no
-            // second Icon for a reader of its icon to find. The Loader
-            // takes the Icon's size
-            // (https://doc.qt.io/qt-6/qml-qtquick-loader.html#loader-sizing-behavior).
-            Loader {
-                objectName: "bar-item-leading"
-                active: root.leadingIconName !== ""
-                visible: active
-                anchors.verticalCenter: parent.verticalCenter
-                sourceComponent: Icon {
-                    name: root.leadingIconName
-                    size: Theme.bar.item.icon
-                    color: root.foreground
-                }
-            }
             Label {
                 role: "bar"
                 visible: root.caption !== "" && !root.spinning && !root.lineCaptions
@@ -244,7 +225,7 @@ T.AbstractButton {
                     visible: !root.spinning
                     name: root.iconName
                     size: Theme.bar.item.icon
-                    color: root.levelColor(root.level)
+                    color: root.level === "normal" ? root.iconForeground : root.levelColor(root.level)
                 }
                 Spinner {
                     anchors.centerIn: parent

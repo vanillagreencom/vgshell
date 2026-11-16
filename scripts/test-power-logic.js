@@ -248,11 +248,13 @@ function verify(logic) {
             { battery: { present: false }, profile: { available: false, active: "balanced" }, stayAwake: awake }
         ].map(power => logic.widgetView(power, false, at));
         same(views.map(view => view.cupHost), hosts, "widgetView cup: " + label);
+        same([views[0].batteryIcon, views[1].profileIcon], awake.active ? ["coffee", "coffee"] : ["battery-medium", "gauge"], "widgetView cup replaces the host's icon: " + label);
         same(views.map(view => view.shown), [true, true, awake.active], "widgetView shown: " + label);
         same(views[0].tooltipDetails, left === null ? [] : ["Stay awake: " + left], "widgetView tooltip: " + label);
         if (left !== null) assert.equal(logic.stayAwakeLeft(logic.stayAwakeView({ stayAwake: awake }), at), left, "stayAwakeLeft: " + label);
     }
-    same(logic.widgetView({ battery: laptop.battery, profile: laptop.profile, stayAwake: { active: true, endsAt: 0, minutes: 0 } }, true, now).cupHost, "battery", "widgetView cup: barProfile keeps the cup on the battery");
+    const besideProfile = logic.widgetView({ battery: laptop.battery, profile: laptop.profile, stayAwake: { active: true, endsAt: 0, minutes: 0 } }, true, now);
+    same([besideProfile.cupHost, besideProfile.batteryIcon, besideProfile.profileIcon], ["battery", "coffee", "gauge"], "widgetView cup: barProfile keeps the cup on the battery");
     // The duration each stored value or IPC argument names, and the one
     // the control offers first.
     for (const [value, duration, first] of [

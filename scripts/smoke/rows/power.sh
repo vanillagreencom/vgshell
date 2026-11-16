@@ -454,14 +454,14 @@ power_profile_available() { power_status | py_reply 'import json,sys; print(json
 power_icons() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem iconName,text,visible | py_reply 'import json,sys; print(json.dumps([r["iconName"] for r in json.load(sys.stdin) if r["visible"]]))'; }
 # Stay awake: the plugin id of each hold in the lending record; the
 # published [active, has an end, minutes]; each shown bar item that draws
-# the cup, [label, leading glyph], the cup alone reading its own name;
+# the cup as its icon, [label, icon], the cup alone reading its own name;
 # the Stay awake list's [shown, current index] on SURFACE (panel or
 # window); and whether the user file still holds the bytes kept in
 # power_stay_saved.
 power_stay_holds() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["idlePause"]["stayAwake"]))'; }
 power_stay_status() { power_status | py_reply 'import json,sys; s=json.load(sys.stdin).get("stayAwake") or {}; print(json.dumps([s.get("active"), s.get("endsAt", 0) > 0, s.get("minutes")]))'; }
-power_cups() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem label,iconName,leadingIconName,visible | py_reply 'import json,sys
-print(json.dumps([[r["label"], r["leadingIconName"] or r["iconName"]] for r in json.load(sys.stdin) if r["visible"] and (r["leadingIconName"] or r["iconName"] == "coffee")]))'; }
+power_cups() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem label,iconName,visible | py_reply 'import json,sys
+print(json.dumps([[r["label"], r["iconName"]] for r in json.load(sys.stdin) if r["visible"] and r["iconName"] == "coffee"]))'; }
 power_stay_list() { ipc smoke itemValues "$1" vgs.power Select currentIndex,visible,Accessible.name | py_reply 'import json,sys
 print(json.dumps(next(([r["visible"], r["currentIndex"]] for r in json.load(sys.stdin) if r["Accessible.name"] == "Stay awake for"), None)))'; }
 power_stay_saved="$sandbox/power-stay-awake-shell.json"
@@ -985,7 +985,7 @@ power_stay_awake() {
   expect_poll "Start in the flyout holds the pause" '["vgs.power"]' power_stay_holds
   expect_poll "the service publishes Stay awake on for an hour" '[true, true, 60]' power_stay_status
   expect_poll "the flyout reads an hour left" True power_label_has "1 h left"
-  expect_poll "with a battery the cup leads the battery item and its name" '[["Battery, Stay awake on", "coffee"]]' power_cups
+  expect_poll "with a battery the cup is the battery item's icon and its name" '[["Battery, Stay awake on", "coffee"]]' power_cups
   expect "a start of the duration offered first leaves the user file unchanged" unchanged power_stay_file
   click_item panel vgs.power Button End || fail "the click on the flyout's End failed"
   expect_poll "End in the flyout ends the pause" '[]' power_stay_holds
@@ -1029,7 +1029,7 @@ power_stay_awake() {
   power_no_battery
   expect_poll "with no battery for Stay awake the widget draws the profile item" 1 power_item_count
   expect "Stay awake with no battery is taken" ok ipc vgs.power invoke stay-awake 0
-  expect_poll "with no battery the cup leads the profile item and its name" '[["Power profile, Stay awake on", "coffee"]]' power_cups
+  expect_poll "with no battery the cup is the profile item's icon and its name" '[["Power profile, Stay awake on", "coffee"]]' power_cups
   expect "disabling vgs.power while it holds Stay awake is allowed" ok ipc shell setPluginEnabled vgs.power false
   expect_poll "disabling vgs.power ends its hold" '[]' power_stay_holds
   expect "enabling vgs.power after its hold is allowed" ok ipc shell setPluginEnabled vgs.power true
@@ -1094,7 +1094,7 @@ power_stay_awake_controls() {
   expect "the short fixture takes a 10 s Stay awake" ok ipc acme.power-short invoke stay-awake 60
   expect "the short fixture holds the pause" '["acme.power-short"]' power_stay_holds
   expect_poll "the short fixture publishes Stay awake on" '[true, true, 60]' power_stay_status
-  expect_poll "the short fixture's cup leads the battery item" '[["Battery, Stay awake on", "coffee"]]' power_cups
+  expect_poll "the short fixture's cup is the battery item's icon" '[["Battery, Stay awake on", "coffee"]]' power_cups
   expect_poll "the core's timer ends the short fixture's hold" '[]' power_stay_holds
   expect_poll "after the timer end the short fixture publishes Stay awake off" '[false, false, 60]' power_stay_status
   expect_poll "after the timer end the short fixture's cup hides" '[]' power_cups
@@ -1565,8 +1565,8 @@ PY_REVISE
   power_move_away "$power_relatch_dir"
 
   power_install_fixture acme.power-nocharge "$power_nocharge_dir" PowerLogic.js \
-    'batteryIcon: batteryIcon(Number(battery.level || 0), battery.charging === true),' \
-    'batteryIcon: batteryIcon(Number(battery.level || 0), false),'
+    'batteryIcon(Number(battery.level || 0), battery.charging === true),' \
+    'batteryIcon(Number(battery.level || 0), false),'
   rescan "rescan after adding the nocharge fixture answers ok"
   expect "enabling the nocharge fixture is allowed" ok ipc shell setPluginEnabled acme.power-nocharge true
   expect "placing the nocharge fixture is allowed" ok ipc shell setPluginPlaced acme.power-nocharge true

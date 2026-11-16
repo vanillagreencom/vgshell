@@ -157,8 +157,9 @@ function durationText(seconds, suffix) {
 // The bar shows the profile item where there is no battery, and beside the
 // battery only while the `barProfile` setting is on; the flyout still
 // shows and changes the profile either way. While Stay awake is on, the
-// cup glyph leads the first item shown, or stands alone where neither
+// cup is the first shown item's icon, or stands alone where neither
 // shows, and the tooltip's detail line reads its time left at NOWMS.
+var CUP = "coffee";
 function widgetView(power, barProfile, nowMs) {
     var battery = power && power.battery ? power.battery : { present: false };
     var profile = power && power.profile ? power.profile : { available: false, active: PROFILE.balanced };
@@ -173,8 +174,8 @@ function widgetView(power, barProfile, nowMs) {
         shown: batteryShown || profileShown || awake.active,
         batteryShown: batteryShown,
         profileShown: profileShown,
-        batteryIcon: batteryIcon(Number(battery.level || 0), battery.charging === true),
-        profileIcon: profileIcon(profile.active),
+        batteryIcon: cupHost === "battery" ? CUP : batteryIcon(Number(battery.level || 0), battery.charging === true),
+        profileIcon: cupHost === "profile" ? CUP : profileIcon(profile.active),
         cupHost: cupHost,
         levelText: String(Number(battery.level || 0)) + "%",
         tooltip: parts.length > 0 ? parts.join(" · ") : "Stay awake",
