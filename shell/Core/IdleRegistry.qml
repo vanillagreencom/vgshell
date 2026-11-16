@@ -15,14 +15,11 @@ import "PluginLogic.js" as Logic
 // with ticketFor. Input, the watch's disposal (a disable, a rebuild or a new
 // watch for the stage) and a change of the stage's owner or time revoke it.
 //
-// The pause holds every watch while any of its sources holds (D116): each
-// monitor is disabled, which reads as input, and counts again from the
-// pause's end. Its sources are `screensaver`, live while an application's
-// org.freedesktop.ScreenSaver inhibit is, which bin/vgshell-idle-inhibit
-// answers while a stage can fire, and `stayAwake`, live while a plugin's
-// Stay awake hold is (VGS-2257). Each hold belongs to its instance
-// lifetime: its wall-clock end, its `end()`, a disable or a rebuild ends
-// it, and nothing stores it, so a restart ends it too.
+// ScreenSaver inhibits hold every watch (D116). Stay awake holds sleep
+// and the stages its options select. A held monitor is disabled, reads as
+// input and counts again from release; unaffected monitors keep counting.
+// Each live hold belongs to its instance; its owner may persist intent
+// and take a new hold with the same absolute end after a restart.
 //
 // The core holds one logind idle inhibitor while the pause holds, and while
 // the seat has had a minute without input and the inhibitor-obeying view
@@ -73,7 +70,7 @@ Scope {
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
     readonly property bool idleLockWanted: paused || (sessionIdle.isIdle && !inhibitedIdle.isIdle)
     onIdleLockWantedChanged: Qt.callLater(idleInhibitor.follow)
-    // `<plugin id>#<serial>` -> true for each live Stay awake hold,
+    // `<plugin id>#<serial>` -> scope for each live Stay awake hold,
     // replaced whole on every change; any hold holds the `stayAwake` source.
     property var stayAwakeHolds: ({})
     // The helper's hold on org.freedesktop.ScreenSaver: `taken` while it
@@ -94,9 +91,9 @@ Scope {
     // changes, so a binding that reads it follows it.
     function provider(ctx) {
         return Object.freeze({
-            watch: (seconds, onChange) => root.watch(ctx, seconds, onChange),
+            watch: (seconds, onChange, stage) => root.watch(ctx, seconds, onChange, stage),
             watchStage: (stage, onChange) => root.watchStage(ctx, stage, onChange),
-            stayAwake: (seconds, onEnd) => root.stayAwake(ctx, seconds, onEnd),
+            stayAwake: (seconds, onEnd, options) => root.stayAwake(ctx, seconds, onEnd, options),
             get stages() { return root.stageRecord.stages; }
         });
     }
@@ -135,10 +132,15 @@ Scope {
 
     // idle: `onChange(isIdle)` each time the user has given no input for
     // `seconds` and each time input returns. Returns the disposer.
-    function watch(ctx, seconds, onChange) {
+    function watch(ctx, seconds, onChange, stage) {
         const refusal = Logic.idleWatchRefusal(seconds, onChange);
         if (refusal !== "") throw new Error(refusal);
-        return ctx.onDispose(addMonitor(ctx, "", seconds, onChange).dispose);
+        const named = stage === undefined ? "" : stage;
+        if (named !== "") {
+            const stageRefusal = Logic.idleStageWatchRefusal(currentStages(), ctx.id, named, onChange);
+            if (stageRefusal !== "") throw new Error(stageRefusal);
+        }
+        return ctx.onDispose(addMonitor(ctx, named, seconds, onChange).dispose);
     }
 
     // The stage owner's watch on STAGE at the stage's current time,
@@ -237,12 +239,13 @@ Scope {
     // end it late by every suspend, so the timer waits at most a step
     // (Logic.stayAwakeWait) and judges the end from the wall clock each
     // time it fires.
-    function stayAwake(ctx, seconds, onEnd) {
+    function stayAwake(ctx, seconds, onEnd, options) {
         const refusal = Logic.stayAwakeRefusal(seconds, onEnd);
         if (refusal !== "") throw new Error(refusal);
         const key = ctx.id + "#" + (++serial);
-        const endsAt = seconds === 0 ? 0 : Date.now() + seconds * 1000;
-        const timer = seconds === 0 ? null : holdTimer.createObject(root, { interval: Logic.stayAwakeWait(endsAt, Date.now()) });
+        const endsAt = options !== undefined && options.endsAt !== undefined ? options.endsAt : seconds === 0 ? 0 : Date.now() + seconds * 1000;
+        if (!Number.isSafeInteger(endsAt) || endsAt < 0) throw new Error("refused: stay-awake-end-time=" + JSON.stringify(endsAt));
+        const timer = endsAt === 0 ? null : holdTimer.createObject(root, { interval: Math.max(1, Logic.stayAwakeWait(endsAt, Date.now())) });
         let ended = false;
         const end = () => {
             if (ended) return;
@@ -271,11 +274,23 @@ Scope {
             });
             timer.start();
         }
-        const next = Object.assign({}, stayAwakeHolds);
-        next[key] = true;
-        stayAwakeHolds = next;
+        const update = scope => {
+            if (ended) return;
+            const next = Object.assign({}, root.stayAwakeHolds);
+            next[key] = { keepDisplaysAwake: scope !== undefined && scope.keepDisplaysAwake === true, keepLockingOn: scope === undefined || scope.keepLockingOn !== false };
+            root.stayAwakeHolds = next;
+        };
+        update(options);
         setPause("stayAwake", true);
-        return Object.freeze({ endsAt: endsAt, end: release });
+        return Object.freeze({ endsAt: endsAt, end: release, update: update });
+    }
+
+    // REVISIT(D136): add a stage here only when a source needs to hold it.
+    function holdsStage(stage) {
+        if (Logic.hasOwn(pauseSources, "screensaver")) return true;
+        return Object.values(stayAwakeHolds).some(scope => stage === "sleep"
+            || (scope.keepDisplaysAwake && ["dim", "screensaver", "displayOff"].indexOf(stage) !== -1)
+            || (!scope.keepLockingOn && stage === "lock"));
     }
 
     function setPause(source, holds) {
@@ -320,7 +335,7 @@ Scope {
             // again it creates a notification that counts from then
             // (Quickshell 2b4501a, src/wayland/idle_notify/monitor.cpp;
             // scripts/smoke/rows/idle-inhibit.sh reads both).
-            enabled: !root.paused
+            enabled: !root.holdsStage(stage)
             onIsIdleChanged: handler(isIdle)
         }
     }

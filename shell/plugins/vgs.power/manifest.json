@@ -138,9 +138,24 @@
     "barProfile": false,
     "wakeOnLan": false,
     "wakeOnLanChosen": false,
-    "stayAwakeMinutes": 60
+    "stayAwakeMinutes": 60,
+    "stayAwakeUntil": -1,
+    "stayAwakeKeepDisplaysAwake": false,
+    "stayAwakeKeepLockingOn": true
   },
   "schema": {
+    "stayAwakeKeepDisplaysAwake": {
+      "type": "boolean",
+      "label": "Keep displays awake",
+      "description": "Pause the screensaver, dimming and display off during Stay awake",
+      "group": "Stay awake"
+    },
+    "stayAwakeKeepLockingOn": {
+      "type": "boolean",
+      "label": "Keep locking on",
+      "description": "Lock after you stop using the computer, even during Stay awake",
+      "group": "Stay awake"
+    },
     "displayOffSeconds": {
       "type": "number",
       "label": "Turn displays off",

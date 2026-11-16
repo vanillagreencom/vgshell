@@ -96,9 +96,9 @@ Item {
     // Stay awake: the core's hold through `idle` (shell.idle.stayAwake),
     // { endsAt, end }, which this instance alone keeps; the core owns its
     // end time and its timer, and the status value publishes that time.
-    // Nothing stores the hold, so a restart ends it. The duration last
-    // started is the one setting it writes, `stayAwakeMinutes`; it writes
-    // no idle or sleep setting.
+    // stayAwakeUntil keeps user intent through the existing configure
+    // writer: -1 inactive, 0 indefinite, otherwise the absolute end.
+    // Instance disposal releases only the handle; turnedOff clears intent.
     property var stayAwakeHold: null
     readonly property int stayAwakeMinutes: Logic.stayAwakeMinutes(shell === null ? undefined : shell.settings.stayAwakeMinutes)
     readonly property bool batteryCritical: shell !== null && Logic.batteryCritical(battery.level, Logic.batteryDischarging(battery), shell.settings.criticalThreshold)
@@ -145,9 +145,7 @@ Item {
     property bool wakeStale: false
 
     onShellChanged: {
-        watchDisplayOff();
-        watchLockedDisplayOff();
-        watchSleep();
+        if (shell !== null && stayAwakeHold !== null) stayAwakeHold.update(stayAwakeOptions());
         if (shell === null || registered) return;
         wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
@@ -164,6 +162,7 @@ Item {
         shell.shortcut.register("power-menu", "Open the power menu", () => root.toggleMenu());
         shell.ipc.handle("read-actions", () => { root.readSleepActions(); return "ok"; });
         shell.ipc.handle("action", arg => root.requestAction(String(arg || "")));
+        restoreStayAwake();
         profileWatch.running = true;
         prepareForSleepWatch.running = true;
         shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
@@ -205,28 +204,62 @@ Item {
     // reaching that level ends one (batteryCritical).
     function stayAwakeRequest(arg) {
         if (arg === "end") {
-            endStayAwake();
-            return "ok";
+            return endStayAwake();
         }
         const minutes = Logic.stayAwakeDuration(arg);
         if (minutes === -1) return "refused: stay-awake=" + JSON.stringify(arg) + " want=end|" + Logic.STAY_AWAKE_DURATIONS.map(d => d.minutes).join("|");
         if (batteryCritical) return "refused: stay-awake=battery-critical";
-        endStayAwake();
+        const until = minutes === 0 ? 0 : Date.now() + minutes * 60000;
+        const savedHold = saveStayAwake(until);
+        if (savedHold !== "ok") return savedHold;
         if (minutes !== stayAwakeMinutes) {
             const saved = shell.configure.set("stayAwakeMinutes", minutes);
             if (saved !== "ok") console.warn("power: configure " + saved);
         }
-        const hold = shell.idle.stayAwake(minutes * 60, () => {
-            root.stayAwakeHold = null;
-        });
-        stayAwakeHold = hold;
+        takeStayAwake(until);
         return "ok";
+    }
+
+    function stayAwakeOptions() {
+        return { keepDisplaysAwake: shell.settings.stayAwakeKeepDisplaysAwake, keepLockingOn: shell.settings.stayAwakeKeepLockingOn };
+    }
+
+    function saveStayAwake(until) {
+        if (shell.settings.stayAwakeUntil === until) return "ok";
+        const reply = shell.configure.set("stayAwakeUntil", until);
+        if (reply !== "ok") console.warn("power: Stay awake persistence " + reply);
+        return reply;
+    }
+
+    function restoreStayAwake() {
+        const until = shell.settings.stayAwakeUntil;
+        if (until === -1) return;
+        if (!Number.isSafeInteger(until) || until < 0 || (until > 0 && until <= Date.now()) || batteryCritical) {
+            saveStayAwake(-1);
+            return;
+        }
+        takeStayAwake(until);
+    }
+
+    function takeStayAwake(until) {
+        if (stayAwakeHold !== null) stayAwakeHold.end();
+        const options = stayAwakeOptions();
+        options.endsAt = until;
+        stayAwakeHold = shell.idle.stayAwake(0, () => {
+            root.stayAwakeHold = null;
+            root.saveStayAwake(-1);
+        }, options);
     }
 
     function endStayAwake() {
         const hold = stayAwakeHold;
         stayAwakeHold = null;
         if (hold !== null) hold.end();
+        return saveStayAwake(-1);
+    }
+
+    function turnedOff() {
+        endStayAwake();
     }
 
     // As vgs.lock's watchIdle: dispose before replacing. The core owns
@@ -238,14 +271,14 @@ Item {
         if (displayOffDisposer !== null) displayOffDisposer();
         displayOffDisposer = null;
         if (shell === null || displayOffSeconds <= 0) return;
-        displayOffDisposer = shell.idle.watch(displayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); });
+        displayOffDisposer = shell.idle.watch(displayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); }, "displayOff");
     }
 
     function watchLockedDisplayOff() {
         if (lockedDisplayOffDisposer !== null) lockedDisplayOffDisposer();
         lockedDisplayOffDisposer = null;
         if (shell === null || displayOffSeconds <= 0 || !locked) return;
-        lockedDisplayOffDisposer = shell.idle.watch(lockedDisplayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); });
+        lockedDisplayOffDisposer = shell.idle.watch(lockedDisplayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); }, "displayOff");
     }
 
     function turnDisplaysOff() {
@@ -264,7 +297,7 @@ Item {
                 root.sleepAttempted = true;
                 root.requestSleep(root.sleepAction);
             }
-        });
+        }, "sleep");
     }
 
     function requestSleep(action) {

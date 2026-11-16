@@ -142,8 +142,11 @@
 # no battery, and that item's name says Stay awake is on, only while it
 # holds; the duration last started is offered first; a discharging battery
 # at the critical level ends it and refuses a start; a disable ends it and
-# the plugin built again holds none; the user file reads byte-identical
-# after each end. power_stay_awake_controls runs acme.power-short, a copy
+# the plugin built again holds none. Holds survive shell restart with their
+# original end, and overdue intent clears on startup. Other preferences
+# remain unchanged. Scope cases observe every stage under the two options,
+# while the real display-off and sleep paths run under the default hold.
+# power_stay_awake_controls runs acme.power-short, a copy
 # whose hold lasts 10 s, through the core timer's end: status, cup and
 # lending record clear. Its controls, acme.power-noend,
 # acme.power-nocritical and acme.power-writes, are
@@ -460,13 +463,24 @@ power_icons() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarIt
 # power_stay_saved.
 power_stay_holds() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["idlePause"]["stayAwake"]))'; }
 power_stay_status() { power_status | py_reply 'import json,sys; s=json.load(sys.stdin).get("stayAwake") or {}; print(json.dumps([s.get("active"), s.get("endsAt", 0) > 0, s.get("minutes")]))'; }
+power_stay_end() { power_status | py_reply 'import json,sys; print((json.load(sys.stdin).get("stayAwake") or {}).get("endsAt", "unread"))'; }
 power_cups() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem label,iconName,visible | py_reply 'import json,sys
 print(json.dumps([[r["label"], r["iconName"]] for r in json.load(sys.stdin) if r["visible"] and r["iconName"] == "coffee"]))'; }
 power_stay_list() { ipc smoke itemValues "$1" vgs.power Select currentIndex,visible,Accessible.name | py_reply 'import json,sys
 print(json.dumps(next(([r["visible"], r["currentIndex"]] for r in json.load(sys.stdin) if r["Accessible.name"] == "Stay awake for"), None)))'; }
 power_stay_saved="$sandbox/power-stay-awake-shell.json"
 power_stay_keep() { cp -- "$home/.config/vgshell/shell.json" "$power_stay_saved"; }
-power_stay_file() { if cmp -s -- "$power_stay_saved" "$home/.config/vgshell/shell.json"; then echo unchanged; else echo changed; fi; }
+power_stay_file() { python3 - "$power_stay_saved" "$home/.config/vgshell/shell.json" <<'PY_STAY_FILE'
+import json, sys
+def preferences(path):
+    config = json.load(open(path))
+    for row in config.get("plugins", []):
+        row.pop("stayAwakeUntil", None)
+    config["plugins"] = [row for row in config.get("plugins", []) if set(row) != {"id"}]
+    return config
+print("unchanged" if preferences(sys.argv[1]) == preferences(sys.argv[2]) else "changed")
+PY_STAY_FILE
+}
 # The section's Stay awake field: its label and its time left.
 power_pane_stay() { ipc smoke itemTexts window vgs.power Field | py_reply 'import json,sys
 rows = [r for r in json.load(sys.stdin) if "Time left" in r or "Duration" in r]
@@ -741,8 +755,11 @@ power_sleep_after_idle() {
   expect "the default Never creates no idle watch" '[]' power_idle_watches
   expect "Never makes no sleep call past the short timeout" 0 power_sleep_no_call_for 3000
   type_keys -k Shift_L || fail "the sleep check's nested input failed"
+  expect "Stay awake starts over the idle sleep watch" ok ipc vgs.power invoke stay-awake 0
   expect "sleep accepts a two-second idle time" ok power_idle_set vgs.power sleepAfterSeconds 2
   expect_poll "sleep holds exactly one two-second watch" '[2]' power_idle_watches
+  expect "Stay awake prevents idle sleep past its deadline" 0 power_sleep_no_call_for 3000
+  expect "End releases the idle sleep watch" ok ipc vgs.power invoke stay-awake end
   expect_poll "the first idle period makes one sleep request" 1 power_sleep_count
   expect "suspend uses the exact system-bus noninteractive logind request" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' power_sleep_calls
   expect "one idle period never repeats its sleep request" 1 power_sleep_no_call_for 2500
@@ -856,6 +873,7 @@ power_display_off() {
   expect_poll "the disabled lock reads its test inputs before the next write" '[2, false]' power_idle_lock_inputs
   : >"$power_gdbus_calls"
   expect "Power enables for display-off checks" ok ipc shell setPluginEnabled vgs.power true
+  expect "Stay awake starts with display and locking defaults" ok ipc vgs.power invoke stay-awake 0
   expect_poll "Power owns one gdbus monitor of logind" 1 power_logind_watch_count
   expect_poll "Power holds its default idle watch" '[600]' power_idle_watches
   expect "display off accepts a custom two-second timeout" ok power_idle_set vgs.power displayOffSeconds 2
@@ -971,8 +989,8 @@ EOF_IDLE
 # the bar's first item with and without a battery, the duration last
 # started offered first, the critical battery end and a start refused at
 # that level, and vgs.power's disable ending its hold. Each end leaves the
-# user file byte-identical to its bytes before the start: a start writes
-# only `stayAwakeMinutes`, and only when another duration is started.
+# other preferences unchanged: the hold's absolute end is saved separately
+# from idle/sleep times, and another duration updates stayAwakeMinutes.
 # The core's hold, its timer and its release are
 # scripts/smoke/rows/stay-awake.sh's.
 power_stay_awake() {
@@ -986,23 +1004,29 @@ power_stay_awake() {
   expect_poll "the service publishes Stay awake on for an hour" '[true, true, 60]' power_stay_status
   expect_poll "the flyout reads an hour left" True power_label_has "1 h left"
   expect_poll "with a battery the cup is the battery item's icon and its name" '[["Battery, Stay awake on", "coffee"]]' power_cups
-  expect "a start of the duration offered first leaves the user file unchanged" unchanged power_stay_file
+  expect "a start of the duration offered first preserves other preferences" unchanged power_stay_file
   click_item panel vgs.power Button End || fail "the click on the flyout's End failed"
   expect_poll "End in the flyout ends the pause" '[]' power_stay_holds
   expect_poll "the service publishes Stay awake off" '[false, false, 60]' power_stay_status
   expect_poll "the cup hides when Stay awake ends" '[]' power_cups
-  expect "after End the user file is byte-identical" unchanged power_stay_file
+  expect "End preserves other preferences" unchanged power_stay_file
   expect "the Power panel closes after Stay awake" ok ipc shell hide panel vgs.power
 
   expect "a start for 30 minutes is taken" ok ipc vgs.power invoke stay-awake 30
   expect_poll "the start remembers 30 minutes" 30 power_setting stayAwakeMinutes
+  local until
+  until="$(power_setting stayAwakeUntil)"
+  stop_shell
+  start_shell "$repo" "$sandbox/power-stay-timed-restart.log"
+  expect_poll "the timed Stay awake returns after shell restart" '[true, true, 30]' power_stay_status
+  expect "the timed restart restores its original end" "$until" power_stay_end
   power_stay_keep
   expect "System Settings opens on Power's section for Stay awake" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted for Stay awake" '["vgs.power"]' window_panes
   expect_poll "Power's section reads the flyout's hold and its time left" '["30 min left", "Time left"]' power_pane_stay
   power_pane_pick "Time left" Button End || fail "the click on the section's End failed"
   expect_poll "End in Power's section ends the pause" '[]' power_stay_holds
-  expect "after End in the section the user file is byte-identical" unchanged power_stay_file
+  expect "End in the section preserves other preferences" unchanged power_stay_file
   expect_poll "Power's section offers the duration last started" '[true, 1]' power_stay_list window
   power_pane_pick "Duration" Button Start || fail "the click on the section's Start failed"
   expect_poll "Start in Power's section holds the pause" '["vgs.power"]' power_stay_holds
@@ -1016,11 +1040,15 @@ power_stay_awake() {
   expect_poll "Stay awake until ended holds the pause" '["vgs.power"]' power_stay_holds
   expect_poll "the service publishes it with no end" '[true, false, 0]' power_stay_status
   expect_poll "the start remembers until ended" 0 power_setting stayAwakeMinutes
+  stop_shell
+  start_shell "$repo" "$sandbox/power-stay-indefinite-restart.log"
+  expect_poll "an indefinite Stay awake returns after shell restart" '[true, false, 0]' power_stay_status
   power_stay_keep
   power_discharging 9.0 1200
   expect_poll "the service reads the critical level for Stay awake" 9 power_level
   expect_poll "a discharging battery at the critical level ends Stay awake" '[]' power_stay_holds
-  expect "after the critical end the user file is byte-identical" unchanged power_stay_file
+  expect "the critical end preserves other preferences" unchanged power_stay_file
+  expect "the critical end clears saved intent" -1 power_setting stayAwakeUntil
   expect "a start at the critical level is refused" "refused: stay-awake=battery-critical" ipc vgs.power invoke stay-awake 60
   expect "the refused start holds nothing" '[]' power_stay_holds
   power_discharging 64.0 7200
@@ -1035,8 +1063,97 @@ power_stay_awake() {
   expect "enabling vgs.power after its hold is allowed" ok ipc shell setPluginEnabled vgs.power true
   expect_poll "vgs.power built again publishes Stay awake off" '[false, false, 0]' power_stay_status
   expect "vgs.power built again holds nothing" '[]' power_stay_holds
+  expect "deliberate disable clears saved intent" -1 power_setting stayAwakeUntil
+  expect "a timed hold is started before overdue restoration" ok ipc vgs.power invoke stay-awake 30
+  stop_shell
+  jq '(.plugins[] | select(.id == "vgs.power") | .stayAwakeUntil) = 1' "$home/.config/vgshell/shell.json" >"$sandbox/power-stay-expired.json"
+  cp -- "$sandbox/power-stay-expired.json" "$home/.config/vgshell/shell.json"
+  start_shell "$repo" "$sandbox/power-stay-expired-restart.log"
+  expect_poll "an overdue hold is inactive immediately after restart" '[false, false, 30]' power_stay_status
+  expect "overdue restoration clears saved intent" -1 power_setting stayAwakeUntil
   power_discharging 64.0 7200
   expect_poll "the service reads the battery again after Stay awake" 64 power_level
+}
+
+# Core scope with the real Power hold and its real display/sleep watches.
+# The existing dim/away fixtures observe stage callbacks without drawing or
+# locking. Each option uses the same live monitors; no negative sleep
+# result is inferred from a single immediate reading.
+power_scope_state() { ipc shell lent | py_reply 'import json,sys
+ids = {"acme.power-dim", "acme.power-away", "vgs.power"}
+print(json.dumps(sorted([[r["stage"], r["idle"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"])))'; }
+power_scope_generations() { ipc shell lent | py_reply 'import json,sys
+ids = {"acme.power-dim", "acme.power-away", "vgs.power"}
+print(json.dumps(sorted([[r["stage"], r["generation"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"])))'; }
+power_stay_scope() {
+  local config="$home/.config/vgshell/shell.json" displays locking wanted generations original_watches
+  local defaults='[["dim", true], ["displayOff", true], ["lock", true], ["screensaver", true], ["sleep", false]]'
+  cp -- "$config" "$sandbox/power-scope-config.json"
+  original_watches="$(power_idle_watches)"
+  power_stage_owners "$home/.config/vgshell/plugins"
+  cat >"$power_dim_dir/Service.qml" <<'QML_SCOPE_DIM'
+import QtQuick
+Item {
+    property var shell: null
+    property bool registered: false
+    onShellChanged: {
+        if (shell === null || registered) return;
+        registered = true;
+        shell.idle.watch(2, () => {}, "dim");
+    }
+}
+QML_SCOPE_DIM
+  cat >"$power_away_dir/Service.qml" <<'QML_SCOPE_AWAY'
+import QtQuick
+Item {
+    property var shell: null
+    property bool registered: false
+    onShellChanged: {
+        if (shell === null || registered) return;
+        registered = true;
+        shell.idle.watch(2, () => {}, "screensaver");
+        shell.idle.watch(2, () => {}, "lock");
+    }
+}
+QML_SCOPE_AWAY
+  rescan "the stage callback fixtures are rebuilt"
+  expect "the dim callback fixture enables" ok ipc shell setPluginEnabled acme.power-dim true
+  expect "the screensaver and lock callback fixture enables" ok ipc shell setPluginEnabled acme.power-away true
+  expect "Settings opens for Stay awake scopes" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect "Stay awake takes one indefinite scope hold" ok ipc vgs.power invoke stay-awake 0
+  expect "display off uses the scope test's short time" ok power_idle_set vgs.power displayOffSeconds 2
+  expect "sleep uses the scope test's short time" ok power_idle_set vgs.power sleepAfterSeconds 2
+  generations="$(power_scope_generations)"
+  while IFS='|' read -r displays locking wanted; do
+    expect "Keep displays awake accepts $displays" ok power_idle_set vgs.power stayAwakeKeepDisplaysAwake "$displays"
+    expect "Keep locking on accepts $locking" ok power_idle_set vgs.power stayAwakeKeepLockingOn "$locking"
+    type_keys -k Shift_L || fail "the scope case's nested input failed"
+    expect_poll "the scope displays=$displays locking=$locking selects only its named stages" "$wanted" power_scope_state
+    expect "scope edits preserve all live watch generations" "$generations" power_scope_generations
+    if [[ $displays == true ]]; then
+      (
+        failures=0
+        expect "the default scope assertion rejects a display hold" "$defaults" power_scope_state
+        printf 'control-failures=%s\n' "$failures"
+      ) >"$sandbox/power-scope-control.log"
+      expect "control: a display hold fails the default assertion once" 1 sed -n 's/^control-failures=//p' "$sandbox/power-scope-control.log"
+      control_output "$sandbox/power-scope-control.log"
+    fi
+  done <<SCOPES
+false|true|$defaults
+true|true|[["dim", false], ["displayOff", false], ["lock", true], ["screensaver", false], ["sleep", false]]
+false|false|[["dim", true], ["displayOff", true], ["lock", false], ["screensaver", true], ["sleep", false]]
+SCOPES
+  expect "the scope hold ends" ok ipc vgs.power invoke stay-awake end
+  expect "Settings hides after scopes" ok ipc shell hide window vgs.settings
+  expect "the dim callback fixture disables" ok ipc shell setPluginEnabled acme.power-dim false
+  expect "the screensaver and lock callback fixture disables" ok ipc shell setPluginEnabled acme.power-away false
+  power_move_away "$power_dim_dir"
+  power_move_away "$power_away_dir"
+  cp -- "$sandbox/power-scope-config.json" "$config.power-scope"
+  mv -T -- "$config.power-scope" "$config"
+  rescan "the scope fixtures and preferences return"
+  expect_poll "Power acknowledges its original preferences before another write" "$original_watches" power_idle_watches
 }
 
 # Stay awake fixtures, each a copy of vgs.power with one edit, enabled
@@ -1083,8 +1200,8 @@ power_stay_awake_controls() {
   power_move_away "$power_nocritical_dir"
 
   power_install_fixture acme.power-short "$power_short_dir" Service.qml \
-    '        const hold = shell.idle.stayAwake(minutes * 60, () => {' \
-    '        const hold = shell.idle.stayAwake(minutes === 0 ? 0 : 10, () => {'
+    '        options.endsAt = until;' \
+    '        options.endsAt = until === 0 ? 0 : Date.now() + 10000;'
   rescan "rescan after adding the short fixture answers ok"
   expect "enabling the short fixture is allowed" ok ipc shell setPluginEnabled acme.power-short true
   expect "placing the short fixture is allowed" ok ipc shell setPluginPlaced acme.power-short true
@@ -1098,7 +1215,7 @@ power_stay_awake_controls() {
   expect_poll "the core's timer ends the short fixture's hold" '[]' power_stay_holds
   expect_poll "after the timer end the short fixture publishes Stay awake off" '[false, false, 60]' power_stay_status
   expect_poll "after the timer end the short fixture's cup hides" '[]' power_cups
-  expect "after the timer end the user file is byte-identical" unchanged power_stay_file
+  expect "the timer end preserves other preferences" unchanged power_stay_file
   unset power_id
   expect "unplacing the short fixture is allowed" ok ipc shell setPluginPlaced acme.power-short false
   expect "disabling the short fixture is allowed" ok ipc shell setPluginEnabled acme.power-short false
@@ -1534,6 +1651,7 @@ PY_REVISE
   expect "the Settings window hides after Power's fields" ok ipc shell hide window vgs.settings
   expect_poll "the Settings window is gone after Power's fields" 0 window_count Plugins
   power_stay_awake
+  power_stay_scope
 
   expect "disabling vgs.power for controls is allowed" ok ipc shell setPluginEnabled vgs.power false
   power_stay_awake_controls

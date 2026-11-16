@@ -1,6 +1,6 @@
 # Stay awake (VGS-2257): `shell.idle.stayAwake` holds the core's idle
-# pause through its `stayAwake` source, the one pause every idle watch
-# obeys (D116), for a whole number of seconds or until it is ended. The
+# source through its `stayAwake` hold, whose stage scope is D136,
+# for a whole number of seconds or until it is ended. The
 # fixture acme.stayawake takes holds through capability `idle`, read
 # through the lending record's `idlePause`; that every watch obeys the
 # pause is scripts/smoke/rows/idle-inhibit.sh's. The row reads:
@@ -179,17 +179,17 @@ if sa_copy stay-awake-unarmed "${sa_step[@]}" shell/Core/IdleRegistry.qml $'    
   sa_must_fail "a timer that never re-arms ends a hold at its first check" "a 4 s hold checked every second is held at 2 s" sa_rearm_check
 fi
 stop_shell || :
-if sa_copy stay-awake-whole "${sa_step[@]}" "${sa_slept[@]}" shell/Core/IdleRegistry.qml '{ interval: Logic.stayAwakeWait(endsAt, Date.now()) }' '{ interval: seconds * 1000 }'; then
+if sa_copy stay-awake-whole "${sa_step[@]}" "${sa_slept[@]}" shell/Core/IdleRegistry.qml '{ interval: Math.max(1, Logic.stayAwakeWait(endsAt, Date.now())) }' '{ interval: seconds * 1000 }'; then
   sa_must_fail "a first wait of the whole hold misses an end that passed asleep" "a 600 s hold whose end passed asleep ends at its first check" sa_slept_check
 fi
 stop_shell || :
 sa_control stay-awake-unpaused '        setPause("stayAwake", true);' '' \
   "a hold that sets no pause source pauses nothing" "a hold pauses the idle source" sa_hold_check
 stop_shell || :
-sa_control stay-awake-untimed $'            timer.start();\n        }\n        const next' $'        }\n        const next' \
+sa_control stay-awake-untimed $'            timer.start();\n        }\n        const update' $'        }\n        const update' \
   "a timer that never starts keeps the hold" "the timer ends the hold" sa_timer_check
 stop_shell || :
-sa_control stay-awake-kept '        return Object.freeze({ endsAt: endsAt, end: release });' '        return Object.freeze({ endsAt: endsAt, end: () => {} });' \
+sa_control stay-awake-kept '        return Object.freeze({ endsAt: endsAt, end: release, update: update });' '        return Object.freeze({ endsAt: endsAt, end: () => {}, update: update });' \
   "an end that ends nothing keeps the hold" "the end ends the hold" sa_held_release_check
 stop_shell || :
 sa_control stay-awake-unowned '        const release = ctx.onDispose(end);' '        const release = end;' \
