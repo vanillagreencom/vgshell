@@ -887,7 +887,7 @@ for n, i in enumerate(sources):
     if abs(got - want) > 1: bad.append("row%d.trailing=%.2f want=%.2f" % (n, got, want))
 if len(sources) < 2: out.append("rows=%d" % len(sources))
 out += bad
-buttons = [r for j, r in enumerate(rows) if r["type"] == "Button" and shown(r) and not any(inside(j, i) for i in sources)]
+buttons = [r for j, r in enumerate(rows) if r["type"] in ("Button", "IconButton") and shown(r) and not any(inside(j, i) for i in sources)]
 if len(buttons) < 3: out.append("buttons=%d" % len(buttons))
 for n, r in enumerate(buttons):
     b = r["box"]

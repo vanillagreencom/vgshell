@@ -669,8 +669,8 @@ function rebootNoticeRequested(request, value) {
     return value !== null && value !== undefined && typeof value.action === "string" && request === value.action;
 }
 
-// A needed hook with no saved answer offers the choice before Update
-// everything, and on the first Settings page visit.
+// A needed hook with no saved answer offers the choice before Update all,
+// and on the first Settings page visit.
 function offerRebootNotice(step, answered) {
     return !!step && step.state === "needed" && answered !== true;
 }
@@ -861,7 +861,7 @@ function rowReading(row) {
     var note = row.note === undefined ? null : row.note;
     if (note !== null) {
         switch (note.kind) {
-        case "installHelper": return { badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. This action installs paru, then updates VGS. The update window asks for your password if needed." };
+        case "installHelper": return { badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. The update window asks for your password if needed." };
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
             return { badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
@@ -897,7 +897,7 @@ function windowRows(values) {
             icon: sourceIcon(row.source),
             badge: checking ? "" : reading.badge,
             spinning: checking,
-            badgeTone: checking ? "neutral" : reading.badgeTone,
+            badgeTone: reading.badgeTone,
             updatable: !checking && !historical && reading.updatable,
             actionText: reading.actionText,
             detail: checking ? "" : reading.detail,

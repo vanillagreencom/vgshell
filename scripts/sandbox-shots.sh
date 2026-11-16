@@ -2674,24 +2674,29 @@ now = int(time.time() * 1000) - 60000
 rows = snapshot["sources"]
 for row in rows:
     row.update(label={"pacman":"System", "aur":"AUR", "flatpak":"Flatpak", "mise":"mise", "vgs":"VGS", "plugins":"Plugins", "themes":"Themes"}[row["source"]], checkedAt=now)
-    for key in ("packages", "checkedAt", "error"): row.pop(key, None)
+    row["packages"] = []
     if state == "current": row["count"] = 0
     if row["source"] == "vgs" and state != "current": row.update(count=0, note={"kind":"aurUpgrade"})
     if state == "failed" and row["source"] == "pacman": row.update(count=None, error="exit=1 connection refused")
-values = {"admission":"online", "checking":state=="checking", "pending":sum(r["count"] or 0 for r in rows), "lastCheck":now,
-          "sources":rows, "checkState":{"tone":"warning" if state=="failed" else "ok", "text":"System failed" if state=="failed" else "Up to date"}}
+values = {"snapshot":{"args":[json.dumps({"checkedAt":now, "error":None, "sources":rows}), True]}, "admission":"online", "checking":state=="checking", "pending":sum(r["count"] or 0 for r in rows), "lastCheck":now,
+          "checkState":{"tone":"warning" if state=="failed" else "ok", "text":"System failed" if state=="failed" else "Up to date"}}
 for key, value in values.items(): print(key + "\t" + json.dumps(value, separators=(",",":")))
 PYSTATE
 )" || { fail "the flyout status fixture is unreadable"; return; }
     while IFS=$'\t' read -r key value; do
-      # qs ipc call strips brackets when an argument opens with `[`
-      # (Probe.qml invokeInstanceArgs); JSON accepts leading whitespace.
-      expect "the $state flyout fixture writes $key" ok ipc smoke heldStatusSet "$key" " $value"
+      if [[ $key == snapshot ]]; then
+        # invokeInstanceArgs wraps the argument list in an object: qs IPC
+        # strips the brackets of an argument that opens with `[`, as its
+        # Probe.qml header records. The production snapshot judge owns rows.
+        expect "the $state flyout fixture reads its snapshot" true ipc smoke invokeInstanceArgs service vgs.updates acceptText "$value"
+      else
+        expect "the $state flyout fixture writes $key" ok ipc smoke heldStatusSet "$key" "$value"
+      fi
     done <<<"$values"
     expect_poll "the $state flyout draws its sources" open updates_window
     park_pointer
     take "updates-flyout-$mode-$state"
-    record_item "updates-flyout-$mode-$state" "$(ipc smoke instanceGeometry window vgs.updates)"
+    record_item "updates-flyout-$mode-$state" "$(surface_box window:Updates)"
   done
   expect "Updates closes after its flyout pictures" ok ipc shell hide window vgs.updates
 }

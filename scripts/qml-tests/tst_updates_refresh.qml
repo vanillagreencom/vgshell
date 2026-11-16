@@ -85,6 +85,8 @@ Item {
             const log = controls.find(item => item.label === "Open last log" && item.iconName === "scroll-text");
             verify(all !== undefined && refresh !== undefined && log !== undefined);
             compare(all.parent, refresh.parent); compare(refresh.parent, log.parent);
+            compare(Math.round(all.y + all.height / 2), Math.round(refresh.y + refresh.height / 2));
+            compare(Math.round(refresh.y + refresh.height / 2), Math.round(log.y + log.height / 2));
             compare(refresh.tooltip, "Refresh"); compare(log.tooltip, "Open last log");
             compare(refresh.text, ""); compare(log.text, "");
             verify(all.width > refresh.width);
@@ -96,7 +98,7 @@ Item {
             }
             verify(reachedRefresh && reachedLog, "both icon actions take keyboard focus");
             view.open("{}"); admission(4);
-            compare(refresh.enabled, false);
+            compare(refresh.lock.locked, true);
             verify(refresh.disabledReason !== "");
             wait(0);
             const source = descendants(view).find(item => item.modelData !== undefined && item.modelData.source === "pacman" && item.trailing !== undefined);

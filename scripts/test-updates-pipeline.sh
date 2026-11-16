@@ -580,7 +580,7 @@ row_full() {
   assert "a finished run records its end before its check" test -e "$fix/ended-at-check"
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "Snapshot failed."
-  assert "the log keeps the plan box" grep -qF "Update everything" "$log"
+  assert "the log keeps the plan box" grep -qF "Update all" "$log"
   assert "a full run lists each source installed" result_has "System installed."
   assert "a full run lists each plugin installed" result_has "Plugin acme.one installed."
   assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"

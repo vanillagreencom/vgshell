@@ -427,12 +427,11 @@ Item {
                 fuzzyCompare(sides[1] - sides[0], looks[1] - looks[0], 0.5, "the look's sides follow its gap: " + sides);
         }
 
-        // A caller that binds a button's width owns that allocation, as
-        // Updates' Update everything fills its footer: the button follows
-        // its row narrower than the control maximum and past it.
+        // A caller that binds a button's width owns that allocation. The
+        // button follows its row narrower than the control maximum and past it.
         function test_a_stretched_button_follows_its_row() {
             const row = createTemporaryQmlObject("import QtQuick; Item { height: 40 }", root);
-            const button = createTemporaryQmlObject("import qs.Ui; Button { text: 'Update everything'; width: parent.width }", row);
+            const button = createTemporaryQmlObject("import qs.Ui; Button { text: 'Update all'; width: parent.width }", row);
             for (const width of [Theme.control.minWidth + 120, 2 * Theme.control.maxWidth]) {
                 row.width = width;
                 // Process any Qt.callLater allocation before reading:

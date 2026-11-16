@@ -1167,7 +1167,7 @@ check "the width is the terminal's, 80 when it reports none" columns_row
 long_line="Review: paru checks 6 third-party packages: 1password, agent-browser-bin, vsys-git, vgshell-git, visual-studio-code-bin, and 1 more"
 header_row() { # COLS FITS|FILLS
   rm -f -- "${tmp:?}/captured"
-  local snippet='vgs_tui_header "Update everything" "" "$LONG" "" "Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log"'
+  local snippet='vgs_tui_header "Update all" "" "$LONG" "" "Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log"'
   [[ $2 == FITS ]] && snippet='vgs_tui_header "Short" "a line"'
   "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" LONG="$long_line" CAPTURE="$tmp/captured" \
     script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); stty cols $1 </dev/tty; $snippet >\"\$CAPTURE\"")" /dev/null \
@@ -1184,7 +1184,7 @@ if not (rows[0][0] + rows[0][-1] == "┌┐" and rows[-1][0] + rows[-1][-1] == "
     sys.exit(1)
 text = "".join("".join(r[1:-1].split()) for r in rows[1:-1])
 want = "".join(("Short a line" if mode == "FITS" else
-                "Update everything " + long_line + " Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log").split())
+                "Update all " + long_line + " Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log").split())
 sys.exit(0 if text == want and (len(rows[0]) < cols) == (mode == "FITS") else 1)
 PY
 }
