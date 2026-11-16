@@ -79,7 +79,8 @@ Item {
         name: "devicerow"
         when: windowShown
 
-        function trailing(row) { return row.contentItem.children[2].children; }
+        // The row's accessories: its badge, its actions and its overflow button.
+        function trailing(row) { return row.contentItem.children[2].children[0].children; }
         function badgeOf(row) { return trailing(row)[0]; }
         function lineOf(row) { return row.contentItem.children[1].children[1]; }
 

@@ -2,11 +2,13 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// One device of a list, of any kind: a ListItem with the device's icon,
-// its name as `text`, its state as `secondary`, then at the row's end a
-// level or battery Badge, the `actions` slot for the device's own buttons,
-// such as Connect, and an overflow IconButton that opens a Menu of
-// `menuEntries`, the MenuItems the caller supplies. The row takes keyboard
+// One device of a list, of any kind: a NavigationRow with the device's
+// icon, its name as `text`, its state as `secondary`, then at the row's
+// end, as its accessories, a level or battery Badge, the `actions` slot
+// for the device's own buttons, such as Connect, and an overflow
+// IconButton that opens a Menu of `menuEntries`, the MenuItems the caller
+// supplies. Its click acts in place, so it draws no chevron; a row that
+// opens a page names one in `chevronName`. The row takes keyboard
 // focus and draws its FocusRing while focus is visual; Enter, Return and
 // Space emit `clicked`, the row's primary action, as a click does, and
 // Shift+F10 and the Menu key open the overflow menu, as KeyNavLogic reads
@@ -21,10 +23,11 @@ import qs.Ui
 // icon, `warning` at or below `deviceRow.battery.warning` and `danger` at
 // or below `deviceRow.battery.danger`; a battery that is not a number
 // draws none. Otherwise `badge` draws in `badgeTone` with `badgeIcon`, for
-// a level such as a signal's. The row owns `trailing`; a list names its
-// ListCursor in `cursor`, as for every ListItem.
+// a level such as a signal's. The row owns `trailing` and
+// `accessories`; a list names its ListCursor in `cursor`, as for every
+// ListItem.
 // focus-indicator: ListItem draws its FocusRing for the row
-ListItem {
+NavigationRow {
     id: root
 
     property real battery: NaN
@@ -47,6 +50,7 @@ ListItem {
         return true;
     }
 
+    chevronName: ""
     focusPolicy: Qt.StrongFocus
     Keys.onPressed: event => {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "vertical", false);
@@ -54,7 +58,7 @@ ListItem {
         else if (action === "menu") event.accepted = root.openMenu("key");
     }
 
-    trailing: [
+    accessories: [
         Badge {
             id: levelBadge
             visible: root.hasBattery || root.badge !== ""

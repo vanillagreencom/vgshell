@@ -839,7 +839,7 @@ expect "the flyout opens before Tailscale answers" ok ipc shell summon panel vgs
 expect_poll "the first poll is held" held tailscale_held
 expect_poll "the checking flyout's state line reads Checking Tailscale" '["Checking Tailscale"]' tailscale_label tailscale-state
 expect "the checking flyout draws no header switch" '[false]' tailscale_header_switch
-for tailscale_row in Card:tailscale-accounts-card DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row; do
+for tailscale_row in Card:tailscale-accounts-card DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices NavigationRow:tailscale-exit-row; do
   expect "the checking flyout draws no ${tailscale_row#*:}" hidden tailscale_shown_of panel "${tailscale_row%%:*}" "${tailscale_row#*:}"
 done
 expect "the checking flyout closes" ok ipc shell hide panel vgs.tailscale
@@ -1151,7 +1151,7 @@ expect_poll "Down reaches the other own exit node" '["DeviceRow","gateway"]' tai
 for tailscale_country in 'DE|Germany|Berlin|Frankfurt' 'SE|Sweden|Gothenburg|Malmö|Stockholm' 'US|United States|Ashburn|Chicago|Los Angeles|New York'; do
   IFS='|' read -ra tailscale_country_parts <<<"$tailscale_country"
   tailscale_code="${tailscale_country_parts[0]}"
-  expect "Tab reaches ${tailscale_country_parts[1]}'s Disclosure" reached tailscale_tab_until "[\"ListItem\",\"${tailscale_country_parts[1]}\"]" window
+  expect "Tab reaches ${tailscale_country_parts[1]}'s Disclosure" reached tailscale_tab_until "[\"NavigationRow\",\"${tailscale_country_parts[1]}\"]" window
   tailscale_key space
   expect_poll "${tailscale_country_parts[1]} expands inline" true ipc smoke readMatchingDescendant window vgs.tailscale Disclosure objectName "tailscale-exit-country-$tailscale_code" expanded
   tailscale_tab "Tab reaches ${tailscale_country_parts[1]}'s Best available" '["DeviceRow","Best available"]' window
@@ -1210,7 +1210,7 @@ expect "the account card stays open above its rows" shown tailscale_shown_of pan
 expect "this device reads its name and address" "$(words desk "This device · 100.64.0.1")" tailscale_drawn panel DeviceRow tailscale-this-device
 expect "this device draws its copy icon alone" '[["tailscale-self-copy", "Copy"]]' tailscale_row_icons
 expect "the network devices row reads 3 of 5 online, closed" '["Network devices", "3 of 5 online"]' tailscale_drawn panel Disclosure tailscale-network-devices
-expect "the exit node row reads the node in use" '["Exit node", "Stockholm, Sweden"]' tailscale_drawn panel ListItem tailscale-exit-row
+expect "the exit node row reads the node in use" '["Exit node", "Stockholm, Sweden"]' tailscale_drawn panel NavigationRow tailscale-exit-row
 expect "the footer offers Open admin console" '["Open admin console"]' tailscale_drawn panel Button tailscale-admin-console
 expect "the footer offers Tailscale settings" '["Tailscale settings"]' tailscale_drawn panel Button tailscale-settings
 expect "the main view draws no Check every" 0 tailscale_check_every
@@ -1223,9 +1223,9 @@ tailscale_tab "Tab reaches the card Add account" '["IconButton","Add account"]'
 tailscale_tab "Tab reaches the card Sign out" '["IconButton","Sign out"]'
 tailscale_tab "Tab reaches the saved accounts" '["DeviceRow","amelie@example.com"]'
 tailscale_tab "Tab reaches this device" '["DeviceRow","desk"]'
-tailscale_tab "Tab passes this device's copy icon by to who is connected" '["ListItem","Connected to this device"]'
-tailscale_tab "Tab reaches the network devices row" '["ListItem","Network devices"]'
-tailscale_tab "Tab reaches the exit node row" '["ListItem","Exit node"]'
+tailscale_tab "Tab passes this device's copy icon by to who is connected" '["NavigationRow","Connected to this device"]'
+tailscale_tab "Tab reaches the network devices row" '["NavigationRow","Network devices"]'
+tailscale_tab "Tab reaches the exit node row" '["NavigationRow","Exit node"]'
 tailscale_tab "Tab reaches Open admin console" '["Button","Open admin console"]'
 tailscale_tab "Tab reaches Tailscale settings" '["Button","Tailscale settings"]'
 
@@ -1253,8 +1253,8 @@ expect_poll "Return on the row reads Copied while CopyText confirms" '[true, "Co
 expect_poll "the nested clipboard holds this device's IPv4 address" 100.64.0.1 tailscale_clipboard
 expect_poll "the copy icon reads Copy again once the confirmation ends" '[false, "Copy"]' tailscale_copy_reading
 # The network devices, opened by keys.
-tailscale_tab "Tab reaches who is connected on the way" '["ListItem","Connected to this device"]'
-tailscale_tab "Tab reaches the network devices row to open it" '["ListItem","Network devices"]'
+tailscale_tab "Tab reaches who is connected on the way" '["NavigationRow","Connected to this device"]'
+tailscale_tab "Tab reaches the network devices row to open it" '["NavigationRow","Network devices"]'
 tailscale_key space
 expect_poll "the network devices list each peer with its address, online first" \
   "$(words "Network devices" "3 of 5 online" attic-nas 100.64.0.3 gateway 100.64.0.2 pixel 100.64.0.4 ipad "100.64.0.7 · Offline" old-laptop "100.64.0.9 · Offline")" \
@@ -1323,7 +1323,7 @@ expect_poll "the copy icon leaves this device's IPv4 address on the clipboard" m
 expect_poll "this device's copy icon reads Copied" '"Copied"' ipc smoke readMatchingDescendant panel vgs.tailscale IconButton objectName tailscale-self-copy label
 rest_pointer || fail "tailscale: moving the pointer off the copy icon failed"
 expect "the click leaves the keys on attic-nas" '["DeviceRow","attic-nas"]' tailscale_focus
-expect "Tab reaches the exit node row after the devices" reached tailscale_tab_until '["ListItem","Exit node"]'
+expect "Tab reaches the exit node row after the devices" reached tailscale_tab_until '["NavigationRow","Exit node"]'
 
 # The Exit nodes view: Recommended, None, your exit nodes, Mullvad by
 # country, read on its open; search, no match, a country, Back and Escape.
@@ -1372,7 +1372,7 @@ expect_poll "the keys return to Sweden among the Mullvad countries" '["DeviceRow
 expect "the countries keep Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-countries currentKey
 tailscale_key Escape
 expect_poll "Escape leaves the Exit nodes view" '"main"' tailscale_view
-expect_poll "Escape returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
+expect_poll "Escape returns the keys to the exit node row" '["NavigationRow","Exit node"]' tailscale_focus
 tailscale_key Return
 expect_poll "Enter opens the Exit nodes view again" '"exit-nodes"' tailscale_view
 expect_poll "the search field takes the keys again" '["TextField",""]' tailscale_focus
@@ -1383,7 +1383,7 @@ type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab failed"
 expect_poll "Shift+Tab reaches Back" '["IconButton","Back"]' tailscale_focus
 tailscale_key Return
 expect_poll "Back leaves the Exit nodes view" '"main"' tailscale_view
-expect_poll "Back returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
+expect_poll "Back returns the keys to the exit node row" '["NavigationRow","Exit node"]' tailscale_focus
 
 # A search past the ceiling: Mullvad's United States and United Kingdom
 # cities, 21 matches for "united", draw 20 rows and say so.
@@ -1400,7 +1400,7 @@ expect_poll "Escape leaves the long search for the main view" '"main"' tailscale
 tailscale_use sheet.json
 expect "a refresh reads the design's tailnet after the long search" ok tailscale_refresh
 expect_poll "the service publishes the design's four countries again" 4 tailscale_country_count
-expect_poll "the keys rest on the exit node row after the long search" '["ListItem","Exit node"]' tailscale_focus
+expect_poll "the keys rest on the exit node row after the long search" '["NavigationRow","Exit node"]' tailscale_focus
 
 # An offline exit node of your own is refused and no `set` runs; an
 # online one is set by its DNS name and the view returns to the main view.
@@ -1431,7 +1431,7 @@ expect_poll "Up reaches attic-nas" '["DeviceRow","attic-nas"]' tailscale_focus
 tailscale_key Return
 expect_poll "Enter on attic-nas sets it by its DNS name" '[["set", "--exit-node=attic-nas.tail-fixture.ts.net"]]' tailscale_changes "$tailscale_calls_mark"
 expect_poll "the ended change returns to the main view" '"main"' tailscale_view
-expect_poll "the keys return to the exit node row after the change" '["ListItem","Exit node"]' tailscale_focus
+expect_poll "the keys return to the exit node row after the change" '["NavigationRow","Exit node"]' tailscale_focus
 expect "the change leaves no problem" '""' tailscale_value problem
 tailscale_use sheet.json
 expect "a refresh reads gateway online again" ok tailscale_refresh
@@ -1460,18 +1460,18 @@ expect "the hidden search field keeps no keyboard focus" false ipc smoke readMat
 expect_poll "the off flyout's state line reads Off" '["Off"]' tailscale_label tailscale-state
 expect "the off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
 expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device
-expect "the off flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "the off flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices NavigationRow:tailscale-exit-row
 expect "a refresh reads Tailscale starting with the flyout open" ok tailscale_sheet_as Starting
 expect_poll "the starting flyout's state line reads Starting" '["Starting"]' tailscale_label tailscale-state
 expect "the starting flyout's switch is shown and on" '[true, true, true]' tailscale_header_switch
 expect "the starting flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device
-expect "the starting flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "the starting flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices NavigationRow:tailscale-exit-row
 expect "a refresh reads Tailscale waiting for approval" ok tailscale_sheet_as NeedsMachineAuth
 expect_poll "the approval flyout's state line reads Waiting for approval" '["Waiting for approval"]' tailscale_label tailscale-state
 expect "the approval flyout draws no header switch" '[false]' tailscale_header_switch
 expect "the approval flyout names the tailnet's admin" '["An admin of example.com must approve this device."]' tailscale_label tailscale-state-hint
 expect "the approval flyout offers Open admin console" '["Open admin console"]' tailscale_drawn panel RowAction tailscale-approval-console
-expect "the approval flyout retains its account card" '["shown", "hidden", "hidden", "hidden"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "the approval flyout retains its account card" '["shown", "hidden", "hidden", "hidden"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices NavigationRow:tailscale-exit-row
 device_reply tailscale 1 "" status --json
 expect "a refresh reads Tailscale not answering" ok tailscale_refresh
 expect_poll "the flyout's state line reads Not answering" '["Not answering"]' tailscale_label tailscale-state

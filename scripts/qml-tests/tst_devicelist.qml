@@ -120,7 +120,8 @@ Item {
         name: "devicelist"
         when: windowShown
 
-        function trailing(row) { return row.contentItem.children[2].children; }
+        // The row's accessories: its badge, its actions and its overflow button.
+        function trailing(row) { return row.contentItem.children[2].children[0].children; }
         function spinnerOf(row) { return trailing(row)[1].children[0]; }
         function actionOf(row) { return trailing(row)[1].children[1]; }
         // The menu hangs from the overflow button, or from the actions
@@ -635,7 +636,8 @@ Item {
             compare(made.current, 2);
         }
 
-        function chevronOf(row) { return trailing(row)[1].children.find(child => child.name !== undefined && child.label === undefined); }
+        // The row's own chevron, after its accessories.
+        function chevronOf(row) { return row.contentItem.children[2].children[1]; }
 
         // SearchRows rebuilds plain objects on each publish. Kept items
         // and focus survive, and moved items draw the new publication's text.
@@ -751,6 +753,9 @@ Item {
             const made = createTemporaryObject(mixedList, root);
             made.iconActionsOf = row => [{ key: "copy", iconName: "copy", label: "Copy" }];
             tryVerify(() => made.rowAt(2).y >= made.rowAt(1).y + made.rowAt(1).height, 1000, "the rows are laid out");
+            // The opening row's chevron places the icon's Row a polish
+            // later, so the click waits for a drawn frame.
+            renderedFrame(made);
             const spy = createTemporaryObject(spyComponent, root, { target: made, signalName: "chose" });
             // Emitted, not clicked: the locked list's reason tooltip opens
             // under the pointer, and the guard is the icon's own.

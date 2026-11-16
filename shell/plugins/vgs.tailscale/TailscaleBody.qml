@@ -583,8 +583,8 @@ FocusScope {
                         sourceComponent: networkContents
                     }
                 }
-                // focus-indicator: ListItem draws its FocusRing for the row
-                ListItem {
+                // focus-indicator: the row draws ListItem's FocusRing
+                NavigationRow {
                     id: exitRow
                     objectName: "tailscale-exit-row"
                     width: parent.width
@@ -598,7 +598,6 @@ FocusScope {
                     Keys.onReturnPressed: root.exitNodesRequested()
                     Keys.onEnterPressed: root.exitNodesRequested()
                     Keys.onSpacePressed: root.exitNodesRequested()
-                    trailing: [Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-right"; size: Theme.icon.size.md; color: Theme.color.textMuted }]
                 }
             }
         }

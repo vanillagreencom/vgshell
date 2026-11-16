@@ -762,6 +762,12 @@ tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_s
 # The Plugins list's rows are NavigationRows, or ListItems in an older tree.
 list_row=ListItem
 tree_has shell/plugins/vgs.settings/ListPage.qml "NavigationRow {" && list_row=NavigationRow
+# A Disclosure's row is a NavigationRow, or a ListItem in an older tree.
+disclosure_row=ListItem
+tree_has shell/Ui/layout/Disclosure.qml "NavigationRow {" && disclosure_row=NavigationRow
+# The Tailscale flyout's Exit node row is a NavigationRow, or a ListItem in an older tree.
+exit_row=ListItem
+tree_has shell/plugins/vgs.tailscale/TailscaleBody.qml "NavigationRow {" && exit_row=NavigationRow
 # A tree whose plugin page has two pages draws Status and Requirements on
 # Details; page_details moves the open page there, and an older tree's one
 # page needs no move.
@@ -1367,6 +1373,46 @@ gallery_menu_first() { # MODE
   park_pointer
 }
 
+# The gallery's Folder field, a PathField, with its picker open and the
+# keyboard on its first folder. The picker opens on the home StandardPaths
+# names; where that reads as a file URL the folder model does not find, it
+# lists the shell's working directory, the tree root, so its rows are read
+# by the tree's own shell folder, or else by a folder planted in the
+# sandbox home, which holds hidden ones only. Rows are found by their
+# names' Text, whatever row type the tree draws them with.
+gallery_picker_folder=Projects
+gallery_picker_shown() {
+  local name
+  for name in shell "$gallery_picker_folder"; do
+    [[ $(ipc smoke popupItemGeometry "$gallery_kind" vgs.gallery "" "" QQuickText "$name") == \[* ]] && { echo shown; return; }
+  done
+  echo closed
+}
+gallery_folder_picker() { # MODE
+  local box y planted=""
+  if [[ ! -e $home/$gallery_picker_folder ]]; then
+    mkdir -- "$home/$gallery_picker_folder" && planted="$home/$gallery_picker_folder" || fail "the picker's folder was not planted"
+  fi
+  ipc smoke scrollTo "$gallery_kind" vgs.gallery 0 >/dev/null || fail "the gallery did not scroll to its top"
+  if box="$(ipc smoke windowGeometry "$gallery_kind" vgs.gallery Button Browse)" && [[ $box == \[* ]]; then
+    y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[1]) - 200))' "$box")"
+    ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y" >/dev/null || fail "the gallery did not scroll to its Browse button"
+    if click_in "$gallery_surface" "$gallery_kind" vgs.gallery Button Browse; then
+      expect_poll "the folder picker lists its folders" shown gallery_picker_shown
+      park_pointer
+      take_posed "gallery-$1-folder-picker"
+      type_keys -k Escape || fail "sending Escape to the folder picker failed"
+      expect_poll "the folder picker closes" closed gallery_picker_shown
+    else
+      fail "the click on the gallery's Browse button failed"
+    fi
+  else
+    fail "the gallery's Browse button has no box: ${box:-}"
+  fi
+  park_pointer
+  [[ -z $planted ]] || rmdir -- "$planted" || fail "the picker's folder was not removed"
+}
+
 # The gallery's Lists section, which lies past gallery_pages, one shot per
 # page as the pages above take them, then its KeyNav list focus example
 # holding the keyboard. Both preview focus, so the pointer is parked and
@@ -1449,6 +1495,7 @@ scene_gallery() { # MODE
   gallery_lists "$1"
   gallery_error_focus "$1"
   gallery_menu_first "$1"
+  gallery_folder_picker "$1"
   if [[ $title_inventory == true ]]; then
     ipc smoke revealText "$gallery_kind" vgs.gallery Button "Open a popover" >/dev/null || fail "the Gallery popover launcher was not revealed"
     click_in "$gallery_surface" "$gallery_kind" vgs.gallery Button "Open a popover" || fail "the Gallery title popover did not open"
@@ -3818,13 +3865,13 @@ scene_panels() { # MODE
   expect_poll "the widget opens the Updates window" open updates_window
   park_pointer
   take "panels-$1-updates"
-  click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
+  click_in window:Updates window vgs.updates "$disclosure_row" System || fail "the click on the window's System row failed"
   park_pointer
   take "panels-$1-updates-open"
   # The open System row pushes VGS below the fold of a window at its cap
   # (OverlayState.windowRoom).
-  [[ $(ipc smoke revealText window vgs.updates ListItem VGS) =~ ^[0-9.]+$|^unscrolled$ ]] || fail "the window's VGS row was not revealed"
-  hover_on "the pointer rests on the window's VGS row" window vgs.updates ListItem VGS window:Updates && take_posed "panels-$1-updates-hover"
+  [[ $(ipc smoke revealText window vgs.updates "$disclosure_row" VGS) =~ ^[0-9.]+$|^unscrolled$ ]] || fail "the window's VGS row was not revealed"
+  hover_on "the pointer rests on the window's VGS row" window vgs.updates "$disclosure_row" VGS window:Updates && take_posed "panels-$1-updates-hover"
   park_pointer
   expect "the Updates window hides" ok ipc shell hide window vgs.updates
   expect_poll "the Updates window is gone" closed updates_window
@@ -8931,7 +8978,7 @@ DNSCAPTURES
   click_in 'window:System Settings' window vgs.network Button Cancel || fail "the form did not close after its shot"
   expect_poll "the Other Network shot releases its form" absent ipc smoke readDescendant window vgs.network NetworkJoin result
   expect "enp10s0 scrolls into view" scrolled network_shot_reveal
-  click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "the click on enp10s0 failed"
+  click_in "window:System Settings" window vgs.network "$disclosure_row" enp10s0 || fail "the click on enp10s0 failed"
   expect_poll "enp10s0's details draw" True network_shot_details
   park_pointer
   take "network-$1-pane-details"
@@ -9068,7 +9115,7 @@ tailscale_shot_views() { # MODE
   local inbound
   inbound="$(tailscale_shot_inbound visible)" || { fail "the Tailscale dropdown's Connected to this device row is unreadable"; return 0; }
   if [[ $inbound == true ]]; then
-    tailscale_flyout_tab_to '["ListItem","Connected to this device"]' || return 0
+    tailscale_flyout_tab_to "[\"$disclosure_row\",\"Connected to this device\"]" || return 0
     type_keys -k space || fail "Space on the Connected to this device row failed"
     expect_poll "the Connected to this device row opens" true tailscale_shot_inbound expanded
     park_pointer
@@ -9235,7 +9282,7 @@ tailscale_flyout_shots() { # MODE DIR
   tailscale_flyout_take "tailscale-flyout-$mode-sign-out-confirm" posed
   type_keys -k Return || fail "Return on Cancel failed"
   expect_poll "Cancel returns the keys to Sign out" '["IconButton","Sign out"]' tailscale_flyout_focus
-  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return 0
+  tailscale_flyout_tab_to "[\"$disclosure_row\",\"Network devices\"]" || return 0
   type_keys -k space || fail "Space on the network devices row failed"
   expect_poll "the network devices row opens" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
   # This device's row, the Tab stop before the network devices row, copies
@@ -9246,7 +9293,7 @@ tailscale_flyout_shots() { # MODE DIR
   local inbound
   inbound="$(tailscale_flyout_named Disclosure tailscale-inbound visible)" || { fail "the flyout's Connected to this device row is unreadable"; return 0; }
   if [[ $inbound == true ]]; then
-    expect_poll "the keys reach who is connected" '["ListItem","Connected to this device"]' tailscale_flyout_focus
+    expect_poll "the keys reach who is connected" "[\"$disclosure_row\",\"Connected to this device\"]" tailscale_flyout_focus
     type_keys -M shift -k Tab -m shift || fail "Shift+Tab past who is connected failed"
   fi
   expect_poll "the keys reach this device" '["DeviceRow","desk"]' tailscale_flyout_focus
@@ -9258,7 +9305,7 @@ tailscale_flyout_shots() { # MODE DIR
   # terminal before copy on the devices that run an ssh server, copy alone
   # on a phone; each icon's tooltip, and Copied after a click.
   tailscale_flyout_open "the device row shots" || return 0
-  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return 0
+  tailscale_flyout_tab_to "[\"$disclosure_row\",\"Network devices\"]" || return 0
   type_keys -k space || fail "Space on the network devices row failed"
   expect_poll "the network devices row opens for the row shots" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
   expect_poll "attic-nas draws Connect in terminal" true tailscale_flyout_named IconButton nSHEET0003CNTRL/connect visible
@@ -9275,7 +9322,7 @@ tailscale_flyout_shots() { # MODE DIR
   type_keys -k Escape || fail "Escape from attic-nas's menu failed"
   expect_poll "the menu closes" false tailscale_flyout_menu_shown
   type_keys -M shift -k Tab -m shift || fail "Shift+Tab to the network devices row failed"
-  expect_poll "the keys return to the network devices row" '["ListItem","Network devices"]' tailscale_flyout_focus
+  expect_poll "the keys return to the network devices row" "[\"$disclosure_row\",\"Network devices\"]" tailscale_flyout_focus
   expect "the device rows scroll to their end" moved tailscale_flyout_scroll_end
   tailscale_flyout_take "tailscale-flyout-$mode-device-rows-end"
   ipc smoke scrollTo panel vgs.tailscale 0 >/dev/null || fail "the flyout did not scroll back to its top"
@@ -9297,7 +9344,7 @@ tailscale_flyout_shots() { # MODE DIR
   # The Exit nodes view, Sweden's view, a search and no match
   # (tailscale-flyout-a and -b).
   tailscale_flyout_open "the Exit nodes shots" || return 0
-  tailscale_flyout_tab_to '["ListItem","Exit node"]' || return 0
+  tailscale_flyout_tab_to "[\"$exit_row\",\"Exit node\"]" || return 0
   type_keys -k Return || fail "Return on the exit node row failed"
   expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_flyout_focus
   expect_poll "the Exit nodes view lists Recommended first" '"recommended"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-top currentKey
@@ -9314,7 +9361,7 @@ tailscale_flyout_shots() { # MODE DIR
   expect_poll "Escape returns to the Exit nodes view" '"exit-nodes"' tailscale_flyout_view
   type_keys -k Escape || fail "Escape from the Exit nodes view failed"
   expect_poll "Escape returns to the main view" '"main"' tailscale_flyout_view
-  expect_poll "the exit node row holds the keys" '["ListItem","Exit node"]' tailscale_flyout_focus
+  expect_poll "the exit node row holds the keys" "[\"$exit_row\",\"Exit node\"]" tailscale_flyout_focus
   type_keys -k Return || fail "Return on the exit node row failed"
   expect_poll "the search field takes the keys" '["TextField",""]' tailscale_flyout_focus
   type_keys zur || fail "typing the search failed"
@@ -9485,8 +9532,8 @@ tailscale_section_shots() { # MODE DIR
   [[ $exit_y =~ ^[0-9.]+$ ]] || { fail "the section exit-node field did not scroll: $exit_y"; return; }
   tailscale_section_take "$mode" exit-node "System Settings › Tailscale · Exit node overview"
   if tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
-    expect "Sweden scrolls into the section" shown tailscale_section_reveal ListItem Sweden
-    click_item "window:System Settings" window vgs.tailscale ListItem Sweden || fail "Sweden's exit Disclosure click failed"
+    expect "Sweden scrolls into the section" shown tailscale_section_reveal "$disclosure_row" Sweden
+    click_item "window:System Settings" window vgs.tailscale "$disclosure_row" Sweden || fail "Sweden's exit Disclosure click failed"
   else
     expect "Sweden scrolls into the earlier section" shown tailscale_section_reveal DeviceRow Sweden
     click_item "window:System Settings" window vgs.tailscale DeviceRow Sweden || fail "Sweden's exit country click failed"
@@ -10358,7 +10405,7 @@ PY
 # vpn_shot_expand HOST LOOKUP_SURFACE NAME UUID OPEN: the profile row NAME
 # clicked until its Disclosure reads OPEN; a row already there is left.
 vpn_shot_expand() {
-  local lookup=("$1" vgs.vpn ListItem "$3")
+  local lookup=("$1" vgs.vpn "$disclosure_row" "$3")
   [[ -n $2 ]] && lookup=("$2" "${lookup[@]}")
   [[ $(vpn_shot_read "$1" ProfileRow "vpn-profile:$4" expanded) == "$5" ]] && return 0
   click_item "${lookup[@]}" || { fail "the click on $3 failed"; return 1; }
@@ -10549,7 +10596,7 @@ network_shot_shown() {
 }
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+network_shot_reveal() { ipc smoke revealText window vgs.system "$disclosure_row" enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_panel() {
   local box
   box="$(ipc smoke instanceGeometry panel vgs.network)" || return

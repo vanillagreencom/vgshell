@@ -840,7 +840,7 @@ app_window_rows Updates vgs.updates
 open_updates
 expect_poll "the window draws one row per source" \
   '[["pacman", true, 2, false], ["aur", true, 1, false], ["flatpak", true, 1, false], ["mise", true, 1, false], ["vgs", true, 1, false], ["plugins", true, 1, false], ["themes", false, 0, false]]' updates_rows
-click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
+click_in window:Updates window vgs.updates NavigationRow System || fail "the click on the window's System row failed"
 expect_poll "a click on a row lists its packages" 2 updates_package_lines
 # The window's geometry with a row expanded: each source row's last
 # trailing item, the chevron, the Update button or the count badge, ends on
@@ -872,7 +872,7 @@ panel = rows[0]["box"]
 sources = [i for i, r in enumerate(rows) if r["type"] == "Disclosure" and shown(r)]
 bad = []
 for n, i in enumerate(sources):
-    items = [j for j, r in enumerate(rows) if r["type"] == "ListItem" and inside(j, i) and shown(r)]
+    items = [j for j, r in enumerate(rows) if r["type"] == "NavigationRow" and inside(j, i) and shown(r)]
     if len(items) != 1: out.append("row%d listItems=%d" % (n, len(items))); continue
     item = rows[items[0]]
     controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "RowAction", "Icon") and inside(j, items[0]) and drawn(r)]

@@ -234,6 +234,7 @@ FocusScope {
                 badgeTone: entry.badgeTone === undefined ? "neutral" : entry.badgeTone
                 badgeIcon: entry.badgeIcon === undefined ? "" : entry.badgeIcon
                 drawnEntries: busy ? 0 : iconActions.length
+                chevronName: opens ? "chevron-right" : ""
                 function act() {
                     if (busy || locked) return;
                     list.acted(row.key);
@@ -280,13 +281,6 @@ FocusScope {
                             hoverEnabled: row.clickable
                             onClicked: if (row.clickable) list.chose(row.key, modelData)
                         }
-                    },
-                    Icon {
-                        visible: row.opens
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: "chevron-right"
-                        size: Theme.icon.size.md
-                        color: Theme.color.textMuted
                     }
                 ]
                 menuEntries: [

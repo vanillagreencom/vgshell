@@ -203,7 +203,7 @@ vpn_row() { # UUID NAME
   checked="$(ipc smoke readMatchingDescendant window vgs.vpn Switch objectName "vpn-profile-toggle:$1" checked)" || return 1
   reason="$(ipc smoke readMatchingDescendant window vgs.vpn Switch objectName "vpn-profile-toggle:$1" disabledReason)" || return 1
   spinner="$(ipc smoke readMatchingDescendant window vgs.vpn Spinner objectName "vpn-profile-spinner:$1" visible)" || return 1
-  tone="$(ipc smoke readMatchingDescendant window vgs.vpn ListItem text "$2" secondaryTone)" || return 1
+  tone="$(ipc smoke readMatchingDescendant window vgs.vpn NavigationRow text "$2" secondaryTone)" || return 1
   py_reply 'import json,sys; v=json.load(sys.stdin); print("|".join([v["key"], sys.argv[1], "locked" if sys.argv[2] not in ("\"\"", "absent") else "free", sys.argv[3], json.loads(sys.argv[4]) if sys.argv[4].startswith("\"") else sys.argv[4]]))' \
     "$checked" "$reason" "$spinner" "$tone" <<<"$view"
 }
@@ -383,7 +383,7 @@ vpn_scoped_press() {
 vpn_press() { vpn_scoped_press ProfileRow "$@"; }
 vpn_expand() { # LABEL UUID NAME
   [[ $(vpn_expanded "$2") == true ]] && return 0
-  vpn_press "$3" ListItem "$3" || { fail "$1: the row of $3 could not be pressed"; return 0; }
+  vpn_press "$3" NavigationRow "$3" || { fail "$1: the row of $3 could not be pressed"; return 0; }
   expect_poll "$1: $3 expands" true vpn_expanded "$2"
 }
 vpn_dialog_press() { click_item "window:System Settings" window vgs.vpn Button "$1"; }
@@ -748,7 +748,7 @@ vpn_plant "$vpn_home=" "$vpn_campus=-"
 vpn_release vpn-delete-hold
 expect_poll "the removed profile leaves the pane" absent vpn_row "$vpn_campus" "Campus AnyConnect"
 expect "Remove hands NetworkManager one delete by uuid" "[[\"connection\", \"delete\", \"uuid\", \"$vpn_campus\"]]" vpn_changes "$vpn_ask_mark"
-expect_poll "the focus moves to the next profile's row" '["ListItem","Branch IPsec"]' vpn_focus
+expect_poll "the focus moves to the next profile's row" '["NavigationRow","Branch IPsec"]' vpn_focus
 expect_poll "the delete ends" null vpn_profiles action
 vpn_unhold vpn-delete-hold
 

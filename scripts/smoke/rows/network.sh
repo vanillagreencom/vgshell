@@ -1110,13 +1110,13 @@ expect "the permission-notice flyout closes" ok ipc shell hide panel vgs.network
 # enp10s0 connected with its cable in, enp11s0 with no cable.
 net_wired() { net_snapshot | py_reply 'import json,sys; print(json.dumps([[r["name"],r["state"]] for r in json.load(sys.stdin)["network"]["ethernet"]]))'; }
 net_wired_text() { node -e 'const { load } = require(process.argv[1] + "/bin/lib/qml-library.js"); console.log(load(process.argv[1] + "/shell/plugins/vgs.network/NetworkLogic.js", { "qs.Commons 1.0": { Nmcli: load(process.argv[1] + "/shell/Commons/Nmcli.js") } }).ethernetText(process.argv[2]));' "$repo" "$1"; }
-net_wired_rows() { ipc smoke itemValues "$1" vgs.network ListItem text,secondary | py_reply 'import json,sys; print(json.dumps([[r["text"],r["secondary"]] for r in json.load(sys.stdin) if r["text"].startswith("enp")]))'; }
+net_wired_rows() { ipc smoke itemValues "$1" vgs.network NavigationRow text,secondary | py_reply 'import json,sys; print(json.dumps([[r["text"],r["secondary"]] for r in json.load(sys.stdin) if r["text"].startswith("enp")]))'; }
 net_wired_listed() { net_wired_rows "$1" | py_reply 'import json,sys; print(json.dumps([[t, s != ""] for t,s in json.load(sys.stdin)]))'; }
 # The System window's ScrollArea holds the pane, so its instance reveals.
-net_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+net_reveal() { ipc smoke revealText window vgs.system NavigationRow enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 # To a tenth of a pixel: a row still ending its entrance (ListEntrance)
 # reads a fraction of a pixel off its place.
-net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(round(json.load(sys.stdin)[1], 1))'; }
+net_below() { ipc smoke itemGeometry window vgs.network NavigationRow enp11s0 | py_reply 'import json,sys; print(round(json.load(sys.stdin)[1], 1))'; }
 # net_settled_below: net_below once two reads 0.2 s apart agree, so the
 # row has ended its entrance and the reveal's scroll. A failed read is
 # retried as expect_poll retries; with no two agreeing reads within
@@ -1149,7 +1149,7 @@ net_details_layout() {
   expect "$1: enp10s0 scrolls into view" scrolled net_reveal
   before="$(net_settled_below)" || true
   touch -- "$net_hold"
-  click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "$1: the click on enp10s0 failed"
+  click_in "window:System Settings" window vgs.network NavigationRow enp10s0 || fail "$1: the click on enp10s0 failed"
   expect_poll "$1: the held read is loading" "enp10s0 loading" net_detail_state
   expect_poll "$1: the expanded row shows one spinner" 1 net_spinners
   during="$(net_below)" || during=unread

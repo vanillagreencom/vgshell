@@ -161,7 +161,8 @@ Item {
                 // step or a new listing takes it back from a resting pointer.
                 ListCursor { id: plate; parent: list.contentItem }
                 onCurrentIndexChanged: plate.disarm()
-                delegate: ListItem {
+                // A folder's row opens that folder, so it is a NavigationRow.
+                delegate: NavigationRow {
                     required property int index
                     property string filePath: root.entryPath(index)
                     property string fileName: filePath === "" ? "" : filePath.slice(filePath.lastIndexOf("/") + 1)

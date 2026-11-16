@@ -3,10 +3,11 @@ import qs.Commons
 import qs.Ui
 
 // A list row that shows or hides the content declared inside it: a
-// `ListItem` whose click or Space toggles `expanded`, with its `trailing`
-// items and then a chevron that points down while the content is hidden
-// and up while it shows. A row that cannot expand draws no chevron and keeps
-// no chevron room, so trailing items end on the row's content edge. The
+// NavigationRow whose click or Space toggles `expanded`, with its
+// `trailing` items as the row's accessories and then its chevron, which
+// points down while the content is hidden and up while it shows. A row
+// that cannot expand draws no chevron and keeps no chevron room, so
+// trailing items end on the row's content edge. The
 // content stacks under the row and takes no height while hidden. A control
 // among the trailing items takes its own click, so pressing it toggles
 // nothing. While `expandable` is false, as
@@ -26,7 +27,7 @@ Column {
     property alias iconName: row.iconName
     // A shared corner count over the icon, "" for none; it takes no row room.
     property string iconCount: ""
-    property alias trailing: extra.data
+    property alias trailing: row.accessories
     property bool expanded: false
     property bool expandable: true
     property alias cursor: row.cursor
@@ -34,9 +35,10 @@ Column {
     default property alias content: body.data
 
     // focus-indicator: ListItem draws its FocusRing for the disclosure row
-    ListItem {
+    NavigationRow {
         id: row
         width: root.width
+        chevronName: !root.expandable ? "" : root.expanded ? "chevron-up" : "chevron-down"
         focusPolicy: Qt.StrongFocus
         clickable: root.expandable
         active: contentHover.hovered
@@ -57,20 +59,6 @@ Column {
                 border.color: Theme.surface.level.base.background
             }
         }
-        trailing: [
-            Row {
-                id: extra
-                spacing: Theme.listItem.gap
-                anchors.verticalCenter: parent.verticalCenter
-            },
-            Icon {
-                visible: root.expandable
-                name: root.expanded ? "chevron-up" : "chevron-down"
-                size: Theme.icon.size.md
-                color: Theme.color.textMuted
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        ]
     }
 
     Column {
