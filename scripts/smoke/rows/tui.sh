@@ -25,7 +25,9 @@
 # presenter copy that writes no ended
 # record, whose run the core's `vgshell-tui wait` ends, and a disabled plugin's
 # list and hold gone.
-# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
+# Shell focus IPC: one layer flyout and a retained Settings window, native
+# focus and a delivered key; an unread result expires after 5 seconds.
+# inputs: scripts/smoke/fixtures/plugins/acme.tui/* scripts/smoke/fixtures/plugins/acme.surfaces/* shell/shell.qml shell/Core/Compositor.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
 set -euo pipefail
 tui_dir="$home/.config/vgshell/plugins/acme.tui"
 mkdir -p "$tui_dir"
@@ -229,6 +231,53 @@ expect "the core holds no done once it fired" '[]' lent tui.waiters
 expect_poll "the run's window closes with the presenter" 0 wait_window
 expect "the run's done fired once" '[["wait",3,null]]' tui_done
 kill -TERM -- "$other_pid" 2>/dev/null || true
+
+# An IPC-summoned flyout is a layer whose absence j/layers can prove.
+# Anchored xdg_popup grabs retain Compositor's conservative refusal.
+focus_fixture="$home/.config/vgshell/plugins/acme.focuswindow"
+mkdir -p "$focus_fixture"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.surfaces/." "$focus_fixture/"
+python3 - "$focus_fixture/manifest.json" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+data = json.loads(p.read_text())
+assert data['id'] == 'acme.surfaces'
+data['id'] = 'acme.focuswindow'
+data['kinds'] = ['panel']
+data['entryPoints'] = {'panel': 'Summoned.qml'}
+del data['defaultSection']
+p.write_text(json.dumps(data))
+PY
+rescan "the focus flyout fixture is scanned"
+expect "the focus flyout fixture is enabled" ok ipc shell setPluginEnabled acme.focuswindow true
+focus_log="$sandbox/toplevel-focuswindow.log"
+spawn_display "$focus_log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.focuswindow FocusWindow
+focus_pid="$spawn_pid"
+focus_address() { hypr -j clients | py_reply 'import json,sys; cs=[c["address"] for c in json.load(sys.stdin) if c["pid"]==int(sys.argv[1])]; print(cs[0] if len(cs)==1 else "absent")' "$focus_pid"; }
+expect_poll "the focus test client maps" '"org.example.focuswindow"' active_class
+focus_target="$(focus_address)"
+settings_page_open acme.tui
+expect "the focus flyout opens above Settings" ok ipc shell summon panel acme.focuswindow '{}'
+expect_poll "the flyout has a keyboard layer" 1 layer_count vgs:panel
+expect "focusWindow starts with an unproved pending reply" pending ipc shell focusWindow "$focus_target"
+expect_poll "focusWindow proves the target took focus" ok ipc shell focusWindow "$focus_target"
+expect_poll "focusWindow hides the flyout through its host" absent ipc smoke readInstance panel acme.focuswindow opened
+expect "focusWindow retains the Settings window" '"acme.tui"' ipc smoke readInstance window vgs.settings page
+expect "focusWindow makes the test client active" '"org.example.focuswindow"' active_class
+type_keys -k a || fail "sending the focus proof key failed"
+# wtype supplies virtual keycodes; this fresh client has no earlier press.
+focus_key() { if grep -Eq '^key [0-9]+ pressed$' "$focus_log"; then echo delivered; else echo absent; fi; }
+expect_poll "the focus proof key reaches the test client" delivered focus_key
+# This real wait tests the result-expiry Timer's wiring, not focus latency.
+# A missing expiry leaves stale ok here; polling would consume and mask it.
+expect "a consumed result permits a new focus request" pending ipc shell focusWindow "$focus_target"
+sleep 6
+expect "an unread completed focus result expires" pending ipc shell focusWindow "$focus_target"
+expect_poll "the request after expiry completes" ok ipc shell focusWindow "$focus_target"
+settings_page_close acme.tui
+expect "the focus fixture is disabled after its check" ok ipc shell setPluginEnabled acme.focuswindow false
+kill -TERM -- "$focus_pid" 2>/dev/null || true
+wait "$focus_pid" 2>/dev/null || true
 
 # A destroyed instance's done is dropped and its run still ends; the
 # instance built after it reads the run from the state.

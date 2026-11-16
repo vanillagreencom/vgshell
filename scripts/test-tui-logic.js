@@ -891,8 +891,10 @@ function sshSuite(source, compositorSource, summonHostSource, logic, check) {
             let releaseLayer = null;
             const compositor = vm.createContext({
                 Dispatch: load(path.join(CORE, "Dispatch.js")), Hyprland: { usingLua: true },
-                Quickshell: { processId: 8111 }, OverlayState: overlays, keyboardLayers: [], revealing: null,
+                Quickshell: { processId: 8111, screens: [screen] }, OverlayState: overlays, keyboardLayers: [], revealing: null,
                 Qt: { callLater: callback => calls.jobs.push(callback) }, focusedScreen: () => screen,
+                readWindows: callback => calls.jobs.push(() => callback({ ok: true,
+                    clients: [{ address: "0xa1", mapped: true, monitor: 1 }], monitors: [{ id: 1, name: screen.name }] })),
                 Plugins: { yieldToWindow: output => {
                     host.yieldToWindow(output);
                     if (row.releaseLayer) releaseLayer();
@@ -981,7 +983,7 @@ sshSuite(RUNNER, COMPOSITOR, SUMMON_HOST, load(LOGIC), report);
 for (const [name, source, needle, replacement, target, reddens] of [
     ["reuse focuses before success", RUNNER, "reader.running = true;", 'root.sshFocusEnded(done, null, "");', "runner"],
     ["focus requires truthful release and active readback", COMPOSITOR,
-        'done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),\n                    Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));',
+        'done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),\n                        Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));',
         'done({ ok: true });', "compositor"],
     ["reuse does not prove launcher presence", RUNNER,
         'if (result.kind === "launched" || (result.kind === "failed" && result.done.reason !== "launcher-reply"))',

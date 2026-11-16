@@ -963,7 +963,7 @@ Singleton {
     }
 
     function yieldToWindow(screen) {
-        for (const kind of ["panel", "menu"]) {
+        for (const kind of ["panel", "menu", "overlay"]) {
             if (Logic.hasOwn(hosts, kind)) hosts[kind].yieldToWindow(screen);
         }
     }

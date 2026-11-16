@@ -40,6 +40,7 @@ Manifest text must not become executable Lua. One layer gives user configuration
 ### Dispatch
 
 - Dispatch only through `Compositor`. Build and validate both dialects in `Dispatch.js`, judge reply text and read state back before claiming an effect. `scripts/test-dispatch.js` checks builders and replies; `scripts/smoke/rows/compositor-dispatchers.sh` checks effects.
+- Route shell IPC `focusWindow <address>` through `Compositor.focusWindow`, preserving normal hide and window presentations; its pending/poll contract is in the [IPC reference](../../.agents/skills/vgs-plugin/references/api.md#ipc), and only focus-state proof permits `ok`.
 - Restrict plugin calls to `Dispatch.PLUGIN_DISPATCHERS`, `togglePad` and `placeWindow`. Keep key pass-through core-only. Review holds the API boundary.
 - Restore native keyboard input through `Compositor.activateWindow` after intentional menu close by trigger or Escape, preserving pointer position. Outside-click dismissal changes visibility alone. An active-window record is insufficient proof of keyboard focus. `scripts/smoke/rows/bluetooth.sh` checks native input.
 - Resize and restore a floating window's top-left through `placeWindow` in one batch. Read existing windows from `j/clients`, not `Hyprland.toplevels`; read state for one moment in one batch. `scripts/test-dispatch.js` checks request construction.

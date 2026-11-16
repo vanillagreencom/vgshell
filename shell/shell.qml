@@ -30,6 +30,41 @@ ShellRoot {
     // The runner reads its tree once per child; IPC keeps that start reading.
     readonly property string startedVersion: guarded ? (Quickshell.env("VGSHELL_VERSION") || "") : ""
 
+    // IpcHandler returns synchronously; only the callback's readback may
+    // publish success. Repeating the address polls and consumes its result.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/IpcHandler/
+    property var focusRequest: null
+    Timer {
+        id: focusExpiry
+        interval: 5000
+        // A non-repeating Timer stops after triggered (Qt Timer reference).
+        // https://doc.qt.io/qt-6/qml-qtqml-timer.html
+        onTriggered: root.focusRequest = null
+    }
+
+    function requestWindowFocus(address) {
+        if (focusRequest !== null && focusRequest.address === address) {
+            if (focusRequest.reply === "pending") return "pending";
+            const reply = focusRequest.reply;
+            focusExpiry.stop();
+            focusRequest = null;
+            return reply;
+        }
+        if (focusRequest !== null && focusRequest.reply === "pending") return "refused: focus=busy";
+        focusExpiry.stop();
+        const request = { address: address, reply: "pending" };
+        focusRequest = request;
+        const queued = Compositor.focusWindow(address, Compositor.focusBoundary(), answer => {
+            request.reply = answer.ok ? "ok" : "refused: focus=" + answer.reason;
+            focusExpiry.restart();
+        });
+        if (queued !== "ok") {
+            focusRequest = null;
+            return "refused: focus=focus-failed";
+        }
+        return "pending";
+    }
+
     function ifGuarded(reply) {
         return guarded ? reply() : guardRefusal;
     }
@@ -168,6 +203,7 @@ ShellRoot {
         function movePluginWidget(id: string, section: string, index: int): string { return root.ifGuarded(() => Plugins.moveWidget(id, section, index, null)); }
         function summon(kind: string, id: string, payloadJson: string): string { return root.ifGuarded(() => Plugins.route("summon", kind, id, payloadJson, null)); }
         function hide(kind: string, id: string): string { return root.ifGuarded(() => Plugins.route("hide", kind, id, "", null)); }
+        function focusWindow(address: string): string { return root.ifGuarded(() => root.requestWindowFocus(address)); }
         function toggle(kind: string, id: string, payloadJson: string): string { return root.ifGuarded(() => Plugins.route("toggle", kind, id, payloadJson, null)); }
         function listTuis(): string { return JSON.stringify(Capabilities.tuis.entries); }
         function openTui(key: string): string { return root.ifGuarded(() => Capabilities.tuis.open(key)); }

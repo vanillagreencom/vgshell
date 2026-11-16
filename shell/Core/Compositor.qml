@@ -480,17 +480,31 @@ Singleton {
     // DONE takes { ok } or { ok: false, reason, error } after one attempt.
     function focusWindow(address, boundary, done) {
         if (typeof done !== "function") throw new Error("refused: focus=callback");
-        const unobservableGrab = boundary.unobservableGrab || OverlayState.grabs > 0;
+        const request = Dispatch.request("focusWindow", [address], Hyprland.usingLua);
+        if (!request.ok) return request.error;
+        let unobservableGrab = boundary.unobservableGrab || OverlayState.grabs > 0;
         const namespaces = boundary.namespaces.concat(keyboardLayers.map(layer => layer.namespace));
-        Plugins.yieldToWindow(root.focusedScreen());
-        return enqueueRequest(Dispatch.request("focusWindow", [address], Hyprland.usingLua), answer => {
-            if (answer !== "ok") { done({ ok: false, reason: "focus-failed", error: answer }); return; }
-            const queued = root.enqueue(["hyprctl", "--batch", Dispatch.FOCUS_STATE_REQUEST], text => {
-                done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),
-                    Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));
+        // The target can live on another output. Read its current monitor
+        // through the existing windows owner before asking hosts to hide.
+        readWindows(state => {
+            if (!state.ok) { done({ ok: false, reason: "focus-unread", error: state.error }); return; }
+            const target = state.clients.find(client => client.mapped && client.address === address);
+            const monitor = target && state.monitors.find(output => output.id === target.monitor);
+            const screen = monitor && Array.from(Quickshell.screens).find(output => output.name === monitor.name);
+            if (!screen) { done({ ok: false, reason: "focus-unread", error: "refused: focus=target-screen" }); return; }
+            unobservableGrab = unobservableGrab || OverlayState.grabs > 0;
+            Plugins.yieldToWindow(screen);
+            const focused = root.enqueueRequest(request, answer => {
+                if (answer !== "ok") { done({ ok: false, reason: "focus-failed", error: answer }); return; }
+                const queued = root.enqueue(["hyprctl", "--batch", Dispatch.FOCUS_STATE_REQUEST], text => {
+                    done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),
+                        Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));
+                }, true);
+                if (queued !== "ok") done({ ok: false, reason: "focus-failed", error: queued });
             }, true);
-            if (queued !== "ok") done({ ok: false, reason: "focus-failed", error: queued });
-        }, true);
+            if (focused !== "ok") done({ ok: false, reason: "focus-failed", error: focused });
+        });
+        return "ok";
     }
 
     // Switch every keyboard's layout: `next`, `prev` or an index. Returns
