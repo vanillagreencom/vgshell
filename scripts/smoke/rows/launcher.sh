@@ -503,8 +503,8 @@ launcher_pick_row() {
 }
 update_words() {
   local update_snapshot="$1"
-  words --app-id=org.vgs.tui.tall "--title=VGS · Update everything" -- "$tui_self" present --presentation full --plugin vgs.updates --dir "$update_snapshot" \
-    --record vgs.updates/update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui.tall --window-title "VGS · Update everything" -- tui/update.sh
+  words --app-id=org.vgs.tui.tall "--title=VGS · Update all" -- "$tui_self" present --presentation full --plugin vgs.updates --dir "$update_snapshot" \
+    --record vgs.updates/update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui.tall --window-title "VGS · Update all" -- tui/update.sh
 }
 packages_menu() {
   expect "the launcher opens Packages for $1" ok ipc shell summon overlay vgs.launcher '{"menu":"packages"}'

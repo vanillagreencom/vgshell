@@ -62,7 +62,7 @@
 # choice of the notice in place hands the terminal nothing, its control,
 # and VGS only hands it the core's `system apply reboot-notice`, which the
 # stand-in terminal replaces with `true`; the service clears the setting
-# after each choice. Update everything while unanswered opens the offer
+# after each choice. Update all while unanswered opens the offer
 # without a run. Keep and dismissal start the update; VGS only starts it
 # after the held setup terminal ends. A saved answer starts it directly.
 # inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
@@ -318,7 +318,7 @@ for answer in both vgsOnly dismiss; do
   expect "the Updates window opens for $answer" ok ipc shell summon window vgs.updates '{}'
   expect_poll "the open-time check ends before the $answer offer" idle updates_idle
   forget_record
-  expect "Update everything asks the $answer choice" ok ipc smoke invokeInstance window vgs.updates run all
+  expect "Update all asks the $answer choice" ok ipc smoke invokeInstance window vgs.updates run all
   expect_poll "the unanswered run opens the $answer panel" '""' updates_offer
   expect "the unanswered $answer offer starts no terminal" absent recorded
   hold_runs
@@ -336,9 +336,9 @@ for answer in both vgsOnly dismiss; do
       "$(core_words core/system "System setup" org.vgs.tui system apply reboot-notice)" recorded
     expect "the held setup starts no update terminal" false updates_all_running
     release_runs
-    expect_poll "the setup's end starts Update everything" '["update.sh"]' launched
+    expect_poll "the setup's end starts Update all" '["update.sh"]' launched
   else
-    expect_poll "$answer starts Update everything" '["update.sh"]' launched
+    expect_poll "$answer starts Update all" '["update.sh"]' launched
     release_runs
   fi
   expect_run_end "the $answer update ends" vgs.updates/update
@@ -348,8 +348,8 @@ expect "the direct run fixture has a saved answer" ok ipc smoke invokeInstance w
 expect "the answered Updates window opens" ok ipc shell summon window vgs.updates '{}'
 expect_poll "the answered window's check ends" idle updates_idle
 forget_record
-expect "answered Update everything starts directly" ok ipc smoke invokeInstance window vgs.updates run all
-expect_poll "answered Update everything launches the update" '["update.sh"]' launched
+expect "answered Update all starts directly" ok ipc smoke invokeInstance window vgs.updates run all
+expect_poll "answered Update all launches the update" '["update.sh"]' launched
 expect "the answered run opens no offer" absent updates_offer
 expect_run_end "the answered update ends" vgs.updates/update
 expect_poll "the service is idle after the answered run" idle updates_idle
@@ -823,12 +823,12 @@ type_keys -k Tab -k Return || fail "sending Tab and Return to the source Update 
 expect_poll "Return on the source Update button opens the source update TUI" '["update-source.sh", "pacman"]' launched
 expect_run_end "the keyboard source Update run ends" vgs.updates/update-source
 expect_poll "the service is idle after the keyboard source update run" idle updates_idle
-fresh_updates "the Update everything keyboard path"
+fresh_updates "the Update all keyboard path"
 expect_poll "the reopened Updates window starts without a ring" '[false, false, true]' updates_focused
 forget_record
-type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Return || fail "sending Tab and Return to Update everything failed"
-expect_poll "Return on Update everything opens the update TUI with no argument" '["update.sh"]' launched
-expect_run_end "the keyboard Update everything run ends" vgs.updates/update
+type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Return || fail "sending Tab and Return to Update all failed"
+expect_poll "Return on Update all opens the update TUI with no argument" '["update.sh"]' launched
+expect_run_end "the keyboard Update all run ends" vgs.updates/update
 expect_poll "the service is idle after the keyboard update run" idle updates_idle
 fresh_updates "Escape"
 type_keys -k Escape || fail "sending Escape to the Updates window failed"
@@ -968,15 +968,15 @@ expect_poll "the failed launcher is released" '[]' lent tui.launching
 cp -- "$updates_state/vgshell-tui.shipped" "$repo/bin/vgshell-tui"
 open_updates
 forget_record
-click_in window:Updates window vgs.updates Button "Update everything" || fail "the click on the refused update failed"
+click_in window:Updates window vgs.updates Button "Update all" || fail "the click on the refused update failed"
 updates_problem() { ipc smoke readInstance window vgs.updates problem | py_reply 'import json,sys; print(bool(json.load(sys.stdin)))'; }
 expect_poll "a refused update retains its feedback" True updates_problem
 expect "a refused update keeps the Updates window actionable" open updates_open
 expect "a refused update starts no terminal" absent launched
 expect_poll "the refusal's probe finds the restored launcher" '"present"' lent tui.launcher
 press_and_launch Update vgs.updates/update-source '["update-source.sh", "pacman"]' RowAction
-press_and_launch "Update everything" vgs.updates/update '["update.sh"]'
-press_and_launch "Open last log" vgs.updates/log '["log.sh"]'
+press_and_launch "Update all" vgs.updates/update '["update.sh"]'
+press_and_launch "Open last log" vgs.updates/log '["log.sh"]' IconButton
 before="$(checks)"
 forget_record
 expect "the widget's middle-click function opens the update TUI" ok ipc smoke invokeInstance "$widget_key" vgs.updates updateAll ''
@@ -986,7 +986,7 @@ expect_poll "the widget's run's end starts one check" "$((before + 1))" checks
 expect_poll "the service is idle after the widget's run" idle updates_idle
 open_updates
 before="$(checks)"
-click_in window:Updates window vgs.updates Button Refresh || fail "the click on the window's Refresh failed"
+click_in window:Updates window vgs.updates IconButton Refresh || fail "the click on the window's Refresh failed"
 expect_poll "Refresh starts the service's check" "$((before + 1))" checks
 expect_poll "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after Refresh" idle updates_idle

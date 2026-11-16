@@ -139,7 +139,7 @@ function verify(logic) {
   const clean = JSON.parse(JSON.stringify(snapshot));
   clean.sources[3].error = null;
   clean.sources[3].count = 0;
-  same(logic.checkState(clean, false, now, 6 * 60 * 60 * 1000, ""), { tone: "ok", text: "Updates waiting" });
+  same(logic.checkState(clean, false, now, 6 * 60 * 60 * 1000, ""), { tone: "ok", text: "Updates available" });
   clean.sources.forEach(s => { s.count = 0; });
   same(logic.checkState(clean, false, now, 6 * 60 * 60 * 1000, ""), { tone: "ok", text: "Up to date" });
   same(logic.checkState(clean, true, now, 6, ""), { tone: "info", text: "Checking" });
@@ -288,23 +288,20 @@ function verifySelf(logic) {
     const values = logic.publishValues(reread.snapshot, false, now, 6 * 60 * 60 * 1000, "");
     const row = Object.assign({ values: values }, logic.windowRows(values).find(r => r.source === "vgs"));
     same({ updatable: row.updatable, badgeTone: row.badgeTone }, want, name);
-    assert.ok(row.secondary.length > 0, name);
-    assert.equal(row.detail !== "", note !== null || count === null, name + ": a note or a failure has its detail");
+    assert.equal(Object.hasOwn(row, "secondary"), false, name);
+    assert.equal(row.detail !== "", (note !== null && note.kind !== "aurUpgrade") || count === null, name + ": a note or a failure has its detail");
     assert.equal(row.lines.length, count !== null && status.behind === true ? 1 : 0, name);
     seen[name] = row;
   }
   // Each reason and a failed check read apart from an update and from up
   // to date.
-  const current = seen["a current package"].secondary;
   const update = seen["vgshell-git behind with a helper rebuilds"];
   const setup = seen["vgshell-git behind without a helper installs one"];
   assert.notEqual(setup.actionText, update.actionText, "helper setup names its own action");
   same(logic.tuiRequest("source", setup.source), { name: "update-source", args: ["vgs"] }, "helper setup uses the existing floating TUI");
   same([setup.values.pending, logic.widgetView(setup.values, true).hidden], [1, false], "helper setup counts as an available update");
   const unreached = seen["a compare GitHub cannot answer"];
-  const noted = ["the release package without a helper", "the release package updates with the system", "paru's tracked vgshell-git offers Update", "a Nix tree updates with its flake", "a compare GitHub cannot answer"];
-  for (const name of noted) assert.ok(![current, update.secondary].includes(seen[name].secondary), name + " reads apart from an update and from up to date");
-  assert.equal(new Set(noted.map(name => seen[name].detail)).size, noted.length, "each VGS detail is its own");
+  assert.equal(seen["paru's tracked vgshell-git offers Update"].detail, "", "the New badge and Update action need no detail");
   // The `aurCommand` setting is read when the service publishes, not in the
   // snapshot. Each row: [name, package, aurCommand, published reason].
   const helperless = Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" });
@@ -324,7 +321,7 @@ function verifySelf(logic) {
   }
   // A release package reads behind from GitHub's latest release, which its
   // package manager may not offer yet: the text promises no time.
-  assert.equal(seen["the release package updates with the system"].detail, "Your package manager may not offer it yet. Update everything installs it when it does.");
+  assert.equal(seen["the release package updates with the system"].detail, "Your package manager may not offer it yet. Update all installs it when it does.");
   assert.equal(unreached.detail, logic.errorText(unanswered.error, true), "a compare GitHub cannot answer names its cause");
   // A behind tree no step here installs names the new version in the
   // summary, though it counts none; up to date is the control.
@@ -345,10 +342,10 @@ function verifyView(logic) {
   const widgetRows = [
     ["current", { pending: 0, checkState: ok, checking: false }, false, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }],
     ["current hidden", { pending: 0, checkState: ok, checking: false }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: true }],
-    ["pending", { pending: 7, checkState: { tone: "ok", text: "Updates waiting" }, checking: false }, true, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "7", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["pending", { pending: 7, checkState: { tone: "ok", text: "Updates available" }, checking: false }, true, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "7", badgeTone: "accent", countLevel: "normal", hidden: false }],
     ["a new VGS version no step installs", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, true, { state: "newVersion", icon: "refresh-cw", tone: "accent", spinning: false, badge: "", badgeTone: "accent", countLevel: "normal", hidden: false }],
     ["a VGS row with no note", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: null }] }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: true }],
-    ["pending past the badge", { pending: 150, checkState: { tone: "ok", text: "Updates waiting" } }, false, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "150", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["pending past the badge", { pending: 150, checkState: { tone: "ok", text: "Updates available" } }, false, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "150", badgeTone: "accent", countLevel: "normal", hidden: false }],
     ["failed source", { pending: 3, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "3", badgeTone: "warning", countLevel: "warning", hidden: false }],
     ["failed check", { pending: 0, checkState: { tone: "danger", text: "exit=2 lock" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
     ["stale", { pending: 0, checkState: { tone: "warning", text: "Check stale" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
@@ -361,10 +358,10 @@ function verifyView(logic) {
 
   const summaryRows = [
     [{ pending: 0, checkState: ok }, "Up to date"],
-    [{ pending: 1, checkState: ok }, "1 update waiting"],
-    [{ pending: 7, checkState: ok }, "7 updates waiting"],
+    [{ pending: 1, checkState: ok }, "1 update"],
+    [{ pending: 7, checkState: ok }, "7 updates"],
     [{ pending: 0, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "New VGS version"],
-    [{ pending: 2, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "2 updates waiting"],
+    [{ pending: 2, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "2 updates"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check stale" } }, "Check stale"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "stale recovery hint" } }, "stale recovery hint"],
     [{ checkState: { tone: "danger", text: "Failed", hint: "failure recovery hint" } }, "failure recovery hint"],
@@ -393,6 +390,14 @@ function verifyView(logic) {
   assert.equal(logic.checkedText(today, now, when), "Checked 28m ago");
   assert.equal(logic.checkedText(yesterday, now, when), "Checked Mon 28 Sep, 23:59");
   assert.equal(logic.checkedText(undefined, now, when), "Never checked");
+  // The flyout's heading is the product result requested by VGS-2587.
+  for (const [pending, summary] of [[7, "7 updates"], [0, "Up to date"]]) {
+    const values = { pending, lastCheck: today, checkState: ok };
+    assert.equal(logic.windowSummaryText(values, now, when), summary + " - Checked 28m ago");
+    assert.equal(logic.windowSummaryText(Object.assign({}, values, { checking: true }), now, when), "Checking for updates");
+    assert.equal(logic.windowSummaryText(Object.assign({}, values, { admission: "offline" }), now, when), pending + " updates - No internet connection - Checked 28m ago");
+    assert.equal(logic.widgetTooltip(values, now, when).title, summary);
+  }
 
   const sources = [
     { source: "pacman", label: "System", count: 2, packages: [{ name: "linux", old: "6.1", new: "6.2" }, { name: "mesa", old: null, new: "25.2" }], checkedAt: today, error: null, more: 3 },
@@ -415,11 +420,11 @@ function verifyView(logic) {
   });
   same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
   same(logic.windowRows(values).map(row => { const made = Object.assign({}, row); delete made.spinning; return made; }), [
-    { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, detail: "", lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
-    { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "Could not check", badge: "Failed", badgeTone: "warning", updatable: false, detail: logic.errorText(sources[1].error, true), lines: [], more: "" },
-    { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, detail: "", lines: [], more: "" },
-    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: "1 update", badge: "1", badgeTone: "warning", updatable: true, detail: logic.errorText(sources[3].error, true), lines: ["acme.one: 2 commits behind"], more: "" },
-    { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, detail: "", lines: ["x"], more: "" }
+    { key: "pacman", source: "pacman", label: "System", icon: "package", badge: "2", badgeTone: "accent", updatable: true, detail: "", lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
+    { key: "aur", source: "aur", label: "AUR", icon: "package-open", badge: "Failed", badgeTone: "warning", updatable: false, detail: logic.errorText(sources[1].error, true), lines: [], more: "" },
+    { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", badge: "0", badgeTone: "neutral", updatable: false, detail: "", lines: [], more: "" },
+    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", badge: "1", badgeTone: "warning", updatable: true, detail: logic.errorText(sources[3].error, true), lines: ["acme.one: 2 commits behind"], more: "" },
+    { key: "later", source: "later", label: "later", icon: "package", badge: "1", badgeTone: "accent", updatable: true, detail: "", lines: ["x"], more: "" }
   ]);
   same(logic.windowRows({}), []);
   same(logic.windowRows({ sources: [{ source: "pacman", count: 150, packages: [], checkedAt: today, error: null, more: 0 }] })[0].badge, "99+",
@@ -627,8 +632,8 @@ const controls = [
   ["a failure's sentence is the row's detail", "detail: Commons.PageReference.plain(errorText(error, true)) };", "detail: \"\" };"],
   ["a row's failure names the window's button", "detail: Commons.PageReference.plain(errorText(error, true)) };", "detail: Commons.PageReference.plain(errorText(error)) };"],
   ["the window ending names Refresh, not Open", 'return cause + " " + RETRY_ENDINGS[ending][inWindow === true ? "window" : "hint"];', 'return cause + " " + RETRY_ENDINGS[ending].hint;'],
-  ["the heading counts failed sources", 'if (check.tone === "warning" && failing > 0) return', "if (false) return"],
-  ["the heading reads the window's sentence", "return check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);", "return String(check.hint !== undefined ? check.hint : check.text);"],
+  ["the heading counts failed sources", 'check.tone === "warning" && failing > 0 ?', "false ?"],
+  ["the heading reads the window's sentence", "Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);", "String(check.hint) : String(check.text);"],
   ["the heading draws a page link's words alone", "Commons.PageReference.plain(windowHintText(check.hint))", "windowHintText(check.hint)"],
   ["a hint from no table row is refused", 'throw new Error("updates: check hint "', 'return hint; throw new Error("updates: check hint "'],
   ["an AUR command updates the release package", '&& row.packages[0].name === "vgshell" && /\\S/.test(String(aurCommand || ""))', '&& row.packages[0].name === "vgshell" && false'],
@@ -638,7 +643,7 @@ const controls = [
   ["VGS counts an update only for a step that runs", "var counted = behind && row.step !== \"none\" && row.step !== \"aur-upgrade\";", "var counted = behind;"],
   ["the AUR row alone counts paru's tracked vgshell-git", "row.step !== \"none\" && row.step !== \"aur-upgrade\";", "row.step !== \"none\";"],
   ["paru's tracked vgshell-git keeps its own note", 'else if (behind && row.step === "aur-upgrade") note = { kind: "aurUpgrade" };', ""],
-  ["paru's tracked vgshell-git offers Update", 'case "aurUpgrade": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: true,', 'case "aurUpgrade": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: false,'],
+  ["paru's tracked vgshell-git offers Update", 'case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: true,', 'case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: false,'],
   ["the status's step and reason are narrowed", "if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return", "if (false) return"],
   ["the status's error decides the VGS row", "if (row.error !== null && row.error !== undefined) return sourceRow(\"vgs\", null, [], checkedAt, row.error);", ""],
   ["a reason makes the VGS note", "if (behind && row.reason !== null) note = { kind: \"reason\", reason: row.reason };", "if (false) note = null;"],

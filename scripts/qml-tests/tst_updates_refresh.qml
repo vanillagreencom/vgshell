@@ -67,6 +67,47 @@ Item {
             view = createTemporaryObject(windowComponent, root, { shell: root.facade });
         }
         function cleanup() { view.destroy(); service.destroy(); wait(0); }
+        function descendants(item) {
+            let found = [];
+            for (const child of item.children) found = found.concat([child], descendants(child));
+            return found;
+        }
+        // The production footer stays one keyboard path; checking replaces
+        // a source badge with a bare spinner, not a spinner inside a badge.
+        function test_flyout_footer_and_checking_row() {
+            startup();
+            view.width = 700; view.height = 700;
+            view.forceActiveFocus();
+            wait(0);
+            const controls = descendants(view);
+            const all = controls.find(item => item.text === "Update all" && item.iconName === "download");
+            const refresh = controls.find(item => item.label === "Refresh" && item.iconName === "refresh-cw");
+            const log = controls.find(item => item.label === "Open last log" && item.iconName === "scroll-text");
+            verify(all !== undefined && refresh !== undefined && log !== undefined);
+            compare(all.parent, refresh.parent); compare(refresh.parent, log.parent);
+            compare(refresh.tooltip, "Refresh"); compare(log.tooltip, "Open last log");
+            compare(refresh.text, ""); compare(log.text, "");
+            verify(all.width > refresh.width);
+            let reachedRefresh = false, reachedLog = false;
+            for (let step = 0; step < 24 && !(reachedRefresh && reachedLog); step++) {
+                keyClick(Qt.Key_Tab);
+                reachedRefresh = reachedRefresh || refresh.activeFocus;
+                reachedLog = reachedLog || log.activeFocus;
+            }
+            verify(reachedRefresh && reachedLog, "both icon actions take keyboard focus");
+            view.open("{}"); admission(4);
+            compare(refresh.enabled, false);
+            verify(refresh.disabledReason !== "");
+            wait(0);
+            const source = descendants(view).find(item => item.modelData !== undefined && item.modelData.source === "pacman" && item.trailing !== undefined);
+            verify(source !== undefined);
+            const accessories = Array.from(source.trailing);
+            const badge = accessories.find(item => item.badgeTone !== undefined || item.tone !== undefined && item.text !== undefined);
+            const spinner = accessories.find(item => item.running !== undefined && item.size !== undefined);
+            verify(badge !== undefined && spinner !== undefined);
+            compare(badge.visible, false); compare(spinner.visible, true);
+            compare(spinner.parent, badge.parent);
+        }
         function test_open_waits_for_startup_and_never_unmasks_a_mixed_result() {
             view.open("{}");
             compare(view.view.state, "checking", "the opening frame is masked before startup reads answer");

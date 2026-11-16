@@ -106,7 +106,7 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
-        shell.shortcut.register("update-all", "Update everything", () => {
+        shell.shortcut.register("update-all", "Update all", () => {
             const reply = root.updateAll();
             if (reply !== "ok") root.showUpdateRefusal(reply);
         });

@@ -351,7 +351,7 @@ function checkState(snapshot, checking, now, intervalMs, checkFailure, admission
     var source = firstSourceError(snapshot);
     if (source !== null) return { tone: "warning", text: ((source.label || source.source) + " failed").slice(0, 200), hint: errorText(source.error) };
     if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: checkText(CHECK_OLD[0], CHECK_OLD[1], false) };
-    if (pendingCount(snapshot) > 0) return { tone: "ok", text: "Updates waiting" };
+    if (pendingCount(snapshot) > 0) return { tone: "ok", text: "Updates available" };
     return { tone: "ok", text: newVersionNoted(snapshot.sources) ? "New VGS version" : "Up to date" };
 }
 
@@ -378,7 +378,7 @@ function connectivityAdmission(done, text) {
 
 // ROW's note as the service publishes it. The release `vgshell` package
 // with no AUR helper still updates when the `aurCommand` setting holds a
-// word: Update everything then runs those words for the AUR
+// word: Update all then runs those words for the AUR
 // (tui/pipeline.sh), so its reason reads `package-manager`. `vgshell-git`
 // keeps its helper installation action. The VGS row's one package carries the status's
 // package name (normalizeSelf). The setting is read here, not in the
@@ -768,12 +768,12 @@ function summaryText(values) {
     var state = widgetState(values);
     var v = valuesOf(values);
     if (state !== "checking") {
-        if (v.admission === "offline") return (typeof v.lastCheck === "number" ? countText(pendingOf(v), "update") + " waiting - " : "") + "No internet connection";
+        if (v.admission === "offline") return (typeof v.lastCheck === "number" ? countText(pendingOf(v), "update") + " - " : "") + "No internet connection";
         if (v.admission === "unavailable") return "Internet access could not be checked. Select Refresh to try again.";
     }
     switch (state) {
     case "current": return "Up to date";
-    case "pending": return countText(pendingOf(values), "update") + " waiting";
+    case "pending": return countText(pendingOf(values), "update");
     case "newVersion": return "New VGS version";
     case "attention":
         var check = valuesOf(values).checkState;
@@ -791,13 +791,17 @@ function summaryText(values) {
 // ending, with a page link's words alone, since the heading is no link.
 // checkState gives a warning with a failed source only for that source,
 // before an old check.
-function windowSummaryText(values) {
-    if (valuesOf(values).admission === "offline" || valuesOf(values).admission === "unavailable") return summaryText(values);
-    if (widgetState(values) !== "attention") return summaryText(values);
-    var check = valuesOf(values).checkState;
-    var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
-    if (check.tone === "warning" && failing > 0) return countText(failing, "update source") + " could not be checked";
-    return check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);
+function windowSummaryText(values, now, timeText) {
+    var v = valuesOf(values);
+    var summary = summaryText(values);
+    if (v.admission !== "offline" && v.admission !== "unavailable" && widgetState(values) === "attention") {
+        var check = v.checkState;
+        var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
+        summary = check.tone === "warning" && failing > 0 ? countText(failing, "update source") + " could not be checked"
+            : check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);
+    }
+    return summary + (v.checking !== true && typeof v.lastCheck === "number" && typeof timeText === "function"
+        ? " - " + checkedText(v.lastCheck, now, timeText) : "");
 }
 
 // `Checked <time>` for `lastCheck` at NOW, or `Never checked`. `timeText`
@@ -842,38 +846,36 @@ function packageLine(pkg) {
 // package reads behind from GitHub's latest release, which its package
 // manager may not offer yet, so the `package-manager` text promises no time.
 var SELF_REASON_TEXT = {
-    "package-manager": "Your package manager may not offer it yet. Update everything installs it when it does.",
+    "package-manager": "Your package manager may not offer it yet. Update all installs it when it does.",
     "nix": "Nix manages VGS on this computer. Update the VGS input of your flake to get it.",
     "no-aur-helper": "This computer needs an AUR helper, paru or yay, to update VGS."
 };
 
-// A row's line, badge, Update and detail: an error first, then the VGS
-// row's note, then the count. The line is one elided line beside the
-// badge, so a sentence that must be read whole is the `detail`, which the
-// window wraps under the row, "" for none.
+// A row's badge, Update and detail: an error first, then the VGS
+// row's note, then the count. The window wraps unique detail under the row.
 function rowReading(row) {
     var failed = row.count === null;
     var error = row.error === null || row.error === undefined ? "" : String(row.error);
-    if (error !== "") return { secondary: failed ? "Could not check" : countText(row.count, "update"), badge: failed ? "Failed" : badgeText(row.count), badgeTone: "warning", updatable: !failed && row.count > 0, detail: Commons.PageReference.plain(errorText(error, true)) };
-    if (failed) return { secondary: "Could not count updates", badge: "Failed", badgeTone: "neutral", updatable: false, detail: "" };
+    if (error !== "") return { badge: failed ? "Failed" : badgeText(row.count), badgeTone: "warning", updatable: !failed && row.count > 0, detail: Commons.PageReference.plain(errorText(error, true)) };
+    if (failed) return { badge: "Failed", badgeTone: "neutral", updatable: false, detail: "" };
     var note = row.note === undefined ? null : row.note;
     if (note !== null) {
         switch (note.kind) {
-        case "installHelper": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. This action installs paru, then updates VGS. The update window asks for your password if needed." };
+        case "installHelper": return { badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. This action installs paru, then updates VGS. The update window asks for your password if needed." };
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
-            return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
+            return { badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
         // The AUR row counts this update, so this row counts none and
         // still offers its own Update.
-        case "aurUpgrade": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: true, detail: "The AUR updates include this version. Select Update to install it." };
+        case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: true, detail: "" };
         default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason");
         }
     }
-    return { secondary: row.count === 0 ? "Up to date" : countText(row.count, "update"), badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
+    return { badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
 }
 
 // The window's rows, one per published source in the service's order:
-// { key, source, label, icon, secondary, badge, badgeTone, updatable, actionText,
+// { key, source, label, icon, badge, badgeTone, updatable, actionText,
 // detail, lines, more }. `detail` is rowReading's, `lines` the packages
 // the shared status lists, `more` the `+N more` it omitted, "" for none. A
 // source with an error keeps its row and names the error; only a source
@@ -893,7 +895,6 @@ function windowRows(values) {
             source: row.source,
             label: row.label,
             icon: sourceIcon(row.source),
-            secondary: checking ? "Checking" : historical ? "Last known" : reading.secondary,
             badge: checking ? "" : reading.badge,
             spinning: checking,
             badgeTone: checking ? "neutral" : reading.badgeTone,
