@@ -2869,7 +2869,7 @@ try {
             'if (false && (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped"))) startFailure = null;', "no-account / fresh package block / next stopped"],
         ["session-boot-choice-clearing", 'if (!wanted) startFailure = null;', 'if (false && !wanted) startFailure = null;', "no-account / boot choice / back on"],
         ["session-automatic-retry", 'attempt !== null && !attempt.retried', 'false && attempt !== null && !attempt.retried', "launch-failed / build: automatic start"],
-        ["session-read-only", 'answer.startAttempt === true && !current.superseded', '!current.superseded', "build: a read of an earlier failure starts nothing"],
+        ["session-read-only", 'answer.startAttempt === true && !current.superseded', '(answer.startAttempt === true || current.verb !== "status") && !current.superseded', "build: a read of an earlier failure starts nothing"],
         ["session-retry-allowance", '!attempt.retried && ', '', "the second answer launches no third attempt"],
         ["session-follow-bound", 'Date.now() >= following.until', 'false', "the launch follow ends at its bound"],
         ["session-repaired-placement", '(answer.block === "no-account" || answer.block === "not-app")', '(true || answer.block === "no-account" || answer.block === "not-app")', "repair re-probes package"]
