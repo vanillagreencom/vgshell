@@ -94,22 +94,22 @@ traffic_inspect_pids() { ipc vgs.traffic invoke inspect "{\"name\":\"$1\"}" | py
 # place while the pointer rests on HOVERED and the plate shows.
 traffic_hover_mark() { # FIRST HOVERED
   rest_pointer
-  traffic_first_box="$(ipc smoke itemGeometry panel vgs.traffic ListItem "$1")"
-  point_item panel vgs.traffic ListItem "$2" >/dev/null || fail "Traffic row hover failed"
+  traffic_first_box="$(ipc smoke itemGeometry panel vgs.traffic ContentRow "$1")"
+  point_item panel vgs.traffic ContentRow "$2" >/dev/null || fail "Traffic row hover failed"
   expect_poll "a hovered row shows the list's plate" true ipc smoke readDescendant panel vgs.traffic ListCursor visible
 }
-traffic_hover_kept() { expect "a hover moves no row" "$traffic_first_box" ipc smoke itemGeometry panel vgs.traffic ListItem "$1"; } # FIRST
+traffic_hover_kept() { expect "a hover moves no row" "$traffic_first_box" ipc smoke itemGeometry panel vgs.traffic ContentRow "$1"; } # FIRST
 # A click on ROW opens its actions; once Escape closes them and the panel
 # holds the keyboard again, ROW is not highlighted, which it is only while
 # the list holds the keyboard.
 traffic_click_mark() { # ROW
-  click_item panel vgs.traffic ListItem "$1" || fail "Traffic row click failed"
+  click_item panel vgs.traffic ContentRow "$1" || fail "Traffic row click failed"
   expect_poll "a row click opens its actions" true traffic_menu_open
   type_keys -k Escape
   expect_poll "Escape closes the row's actions" false traffic_menu_open
   expect_poll "the panel holds the keyboard again" true ipc smoke activeFocusIn panel vgs.traffic
 }
-traffic_click_kept() { expect "a row click leaves the list without keyboard focus" false ipc smoke readMatchingDescendant panel vgs.traffic ListItem text "$1" highlighted; } # ROW
+traffic_click_kept() { expect "a row click leaves the list without keyboard focus" false ipc smoke readMatchingDescendant panel vgs.traffic ContentRow text "$1" highlighted; } # ROW
 traffic_panel_edit() { # OLD NEW
   python3 - "$traffic_source/Panel.qml" "$1" "$2" <<'PY'
 import pathlib,sys
@@ -169,7 +169,7 @@ traffic_hover_kept Player
 traffic_click_mark Browser
 expect "a row click selects its app" '"app:Browser"' ipc smoke readInstance panel vgs.traffic currentKey
 traffic_click_kept Browser
-click_item panel vgs.traffic ListItem Player || fail "Traffic Inspect row click failed"
+click_item panel vgs.traffic ContentRow Player || fail "Traffic Inspect row click failed"
 expect_poll "the Inspect row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Inspect || fail "Traffic Inspect click failed"
 expect_poll "Inspect shows the app's command line" true traffic_popup_reads Label "sleep 600"
@@ -181,7 +181,7 @@ expect_poll "Escape closes Inspect" false traffic_popup_reads Label "sleep 600"
 expect "the service names the row's own pid" "[$traffic_child]" traffic_inspect_pids Player
 expect "a kill of a pid outside the row is refused" "refused: kill=changed" ipc vgs.traffic invoke kill '{"name":"Player","pids":[42]}'
 expect "a refused kill runs no kill" 0 traffic_kills
-click_item panel vgs.traffic ListItem Player || fail "Traffic Kill row click failed"
+click_item panel vgs.traffic ContentRow Player || fail "Traffic Kill row click failed"
 expect_poll "the Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic Kill click failed"
 expect_poll "Kill asks first, naming the app" true traffic_popup_reads Label "Kill Player?"
@@ -192,7 +192,7 @@ expect_poll "Kill sends SIGTERM to the row's process" "-TERM $traffic_child" tra
 expect_poll "the panel learns the request was sent" '{"name": "Player", "state": "sent"}' traffic_ending
 # The question opens with Cancel focused: Return cancels, and Tab then
 # Return presses Kill.
-click_item panel vgs.traffic ListItem Player || fail "Traffic cancelled Kill row click failed"
+click_item panel vgs.traffic ContentRow Player || fail "Traffic cancelled Kill row click failed"
 expect_poll "the cancelled Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic cancelled Kill click failed"
 expect_poll "the cancelled Kill asks first" true traffic_popup_reads Label "Kill Player?"
@@ -200,7 +200,7 @@ type_keys -k Return
 expect_poll "Return presses the focused Cancel" false traffic_popup_reads Label "Kill Player?"
 expect "a cancelled Kill runs no kill" 1 traffic_kills
 : >"$traffic_dir/kill-fail"
-click_item panel vgs.traffic ListItem Player || fail "Traffic failing Kill row click failed"
+click_item panel vgs.traffic ContentRow Player || fail "Traffic failing Kill row click failed"
 expect_poll "the failing Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic failing Kill click failed"
 expect_poll "the failing Kill asks first" true traffic_popup_reads Label "Kill Player?"

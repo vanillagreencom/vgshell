@@ -251,10 +251,11 @@ FocusScope {
                         id: sourceRows
                         model: root.rows
                         // keyboard-path: sourceKeys moves and activates the list's selection
-                        ListItem {
+                        ContentRow {
                             required property int index
                             required property var modelData
                             width: sourceColumn.width
+                            clickable: true
                             text: root.tab === 1 ? modelData.title : modelData.name
                             secondary: root.tab === 1 ? modelData.class : modelData.width + " × " + modelData.height + (modelData.model && modelData.model !== modelData.name ? " · " + modelData.model : "")
                             iconName: root.tab === 1 ? "app-window" : "monitor"

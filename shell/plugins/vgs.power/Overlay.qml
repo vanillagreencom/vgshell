@@ -300,11 +300,12 @@ Item {
                             objectProp: "id"
                         }
 
-                        ListItem {
+                        ContentRow {
                             required property var modelData
                             required property int index
                             readonly property string actionId: modelData.id
                             width: column.width
+                            clickable: true
                             text: modelData.label
                             iconName: modelData.icon
                             highlighted: actionId === root.selected

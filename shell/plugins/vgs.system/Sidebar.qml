@@ -222,7 +222,7 @@ FocusScope {
                                 objectProp: "id"
                             }
 
-                            ListItem {
+                            NavigationRow {
                                 required property var modelData
                                 readonly property int entryIndex: page.shown.findIndex(p => p.id === modelData.id)
                                 width: section.width
@@ -244,9 +244,12 @@ FocusScope {
                     visible: page.shown.length > 0
                 }
 
-                ListItem {
+                // It opens the separate Plugins window, not a page here, so it
+                // ends in the leaving arrow rather than a chevron.
+                ContentRow {
                     id: footer
                     width: parent.width
+                    clickable: true
                     text: "Shell & Plugins"
                     iconName: "blocks"
                     highlighted: page.current === page.footerIndex

@@ -96,12 +96,9 @@ FocusScope {
             Repeater {
                 model: root.profiles
 
-                ListItem {
+                ContentRow {
                     required property var modelData
                     width: computers.width
-                    leftPadding: 0
-                    rightPadding: 0
-                    clickable: false
                     iconName: "monitor"
                     text: modelData.host
                     secondary: Remote.summary(modelData, root.shell.manifest.schema.profiles.items)

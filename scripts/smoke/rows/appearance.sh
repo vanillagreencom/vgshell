@@ -356,7 +356,7 @@ expect_poll "the row reads Set by theme once the user's line is gone" '"theme"' 
 # A section a click on the sidebar opens takes the keys with no focus ring.
 expect "the Motion section summons before the click" ok ipc shell summon window vgs.system '{"pane":"vgs.motion"}'
 expect_poll "the Motion section is mounted before the click" '["vgs.motion"]' window_panes
-app_entry="$(ipc smoke windowGeometry window vgs.system ListItem "Windows")" || app_entry=""
+app_entry="$(ipc smoke windowGeometry window vgs.system NavigationRow "Windows")" || app_entry=""
 if read -r ex ey < <(at_centre "window:System Settings" "$app_entry"); then
   hover "$ex" "$ey" || fail "hovering the Windows entry failed"
   click "$ex" "$ey" || fail "clicking the Windows entry failed"

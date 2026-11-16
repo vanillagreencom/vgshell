@@ -441,10 +441,11 @@ Item {
                 width: parent.width + 2 * notesFold.ringRoom
                 height: foldLine.height
                 ListCursor { id: foldCursor }
-                // focus-indicator: ListItem draws its FocusRing for the fold line
-                ListItem {
+                // focus-indicator: the row draws ListItem's FocusRing for the fold line
+                ContentRow {
                     id: foldLine
                     width: parent.width
+                    clickable: true
                     leftPadding: notesFold.ringRoom
                     rightPadding: notesFold.ringRoom
                     cursor: foldCursor

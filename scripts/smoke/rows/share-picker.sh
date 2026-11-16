@@ -103,7 +103,7 @@ share_sources_shown() {
 import json,sys
 rows,scroll,sources=map(json.loads,sys.argv[1:])
 viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
-items=[r for r in rows if r['type']=='ListItem' and r['visible']]
+items=[r for r in rows if r['type']=='ContentRow' and r['visible']]
 def inside(a,b):
     x,y,w,h=a; X,Y,W,H=b
     return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
@@ -791,7 +791,7 @@ share_area_outputs() {
   modes="$(py_dumps "${values[@]}" "$rows" <<'PY'
 import json,math,sys
 row,stack,gutter,width,top,cap,preview_min,full,preview,room=(float(a) for a in sys.argv[1:11])
-drawn=sum(r['box'][3] for r in json.loads(sys.argv[11]) if r['type']=='ListItem' and r['visible'])
+drawn=sum(r['box'][3] for r in json.loads(sys.argv[11]) if r['type']=='ContentRow' and r['visible'])
 def least(need): return next(h for h in range(need, 4*need) if math.floor(min(cap*h, h-gutter-math.floor(top*h+0.5))) >= need)
 minimum=math.ceil(full-2*(row+stack)-preview+preview_min)
 print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (minimum, math.ceil(full), minimum-math.ceil(room-drawn)-math.ceil(row))))
@@ -936,7 +936,7 @@ def shown(i): return inside(rows[i]['box'], rows[area]['box'] if scrolled(i) els
 preview=next(i for i,r in enumerate(rows) if r['type']=='ScreencopyPreview')
 image=rows[rows[preview]['parent']]['parent']
 hint=next(i for i,r in enumerate(rows) if r['type']=='Label' and r.get('role')=='hint' and r['visible'] and (r.get('text') or '').startswith('Choose'))
-items=[i for i,r in enumerate(rows) if r['type']=='ListItem' and r['visible']]
+items=[i for i,r in enumerate(rows) if r['type']=='ContentRow' and r['visible']]
 row=count>=11 and selected==count-1 and len(items)==count and len(scroll)==1 and scroll[0]['contentY']>0 and shown(items[-1])
 print(row if part=='row' else row and shown(image) and shown(hint))
 PY

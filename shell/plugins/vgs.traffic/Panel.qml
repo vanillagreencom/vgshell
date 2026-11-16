@@ -206,11 +206,12 @@ Item {
                         // row, and each rebuilt row enters again from
                         // nothing. https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel
                         model: ScriptModel { values: root.rows; objectProp: "key" }
-                        ListItem {
+                        ContentRow {
                             id: entry
                             required property var modelData
                             required property int index
                             width: entries.width
+                            clickable: true
                             text: modelData.name
                             cursor: listCursor
                             highlighted: root.current === index && appList.activeFocus
@@ -219,14 +220,18 @@ Item {
                                 appList.focusReason = Qt.MouseFocusReason;
                                 root.act(modelData, "menu", false);
                             }
-                            contentItem: RowLayout {
-                                spacing: 0
-                                // The row the plate sits on draws its text in the accent (ListItem.lit).
-                                Label { role: "item"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.item.color; text: entry.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.down); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
-                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.up); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
-                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: entry.modelData.connections === null ? "--" : String(entry.modelData.connections); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.connectionsWidth }
-                            }
+                            // The readings, in the header's column widths
+                            // with no gap between them, so each ends under
+                            // its header. The row the plate sits on draws
+                            // them in the accent, as its name (ListItem.lit).
+                            trailing: [
+                                Row {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.down); horizontalAlignment: Text.AlignRight; width: table.rateWidth }
+                                    Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.up); horizontalAlignment: Text.AlignRight; width: table.rateWidth }
+                                    Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: entry.modelData.connections === null ? "--" : String(entry.modelData.connections); horizontalAlignment: Text.AlignRight; width: table.connectionsWidth }
+                                }
+                            ]
                             // The open overlay of this row, anchored under it,
                             // built with its request so no binding in it reads
                             // a request that moved on.

@@ -219,7 +219,7 @@ mutations=(
   "a new Tailscale accounts access reads nothing again|../plugins/vgs.tailscale/Service.qml|        rereadAccounts();|        if (false) rereadAccounts();|tst_tailscale_service.qml"
   "a Tailscale accounts read that ends checks no new access|../plugins/vgs.tailscale/Service.qml|            root.rereadAccounts();|            if (false) root.rereadAccounts();|tst_tailscale_service.qml"
   "a Tailscale accounts fault reads again under its own access|../plugins/vgs.tailscale/Service.qml|accountsAccess === accountsReader.access) return;|false) return;|tst_tailscale_service.qml"
-  "a device connected to this one takes a click|../plugins/vgs.tailscale/TailscaleBody.qml|clickable: false|clickable: true|tst_tailscale_flyout.qml"
+  "a device connected to this one takes a click|../plugins/vgs.tailscale/TailscaleBody.qml|component InboundRow: ContentRow {|component InboundRow: ListItem {|tst_tailscale_flyout.qml"
   "the connected-devices row hides its count|../plugins/vgs.tailscale/TailscaleBody.qml|iconCount: root.inboundBadge.count|iconCount: \"\"|tst_tailscale_flyout.qml"
   "a Tailscale widget opening requests a duplicate fresh read|../plugins/vgs.tailscale/Widget.qml|const reply = widget.shell.surfaces.toggle(\"panel\", \"{}\", widget);|widget.shell.ipc.call(\"refresh\", \"\"); const reply = widget.shell.surfaces.toggle(\"panel\", \"{}\", widget);|tst_tailscale_flyout.qml"
   "a Tailscale closing lease requests no fresh read|../plugins/vgs.tailscale/Service.qml|leases = next;"$'\n'"        refresh();|leases = next;"$'\n'"        if (request.open) refresh();|tst_tailscale_flyout.qml"

@@ -39,7 +39,7 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.packages/* shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.packages/* shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/NavigationRow.qml shell/Ui/layout/ContentRow.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 expected_errors+=('system: no section acme[.]nope' 'summon host: vgs[.]system open[(][)] failed: payload ')
 
@@ -73,7 +73,7 @@ def under(j, kind):
         j = rows[j]["parent"]
     return -1
 heads = sorted((r["box"][1], r["text"]) for i, r in enumerate(rows) if r["type"] == "Label" and r.get("role") == "eyebrow" and under(i, "Sidebar") != -1 and shown(i))
-items = sorted((r["box"][1], r["text"]) for i, r in enumerate(rows) if r["type"] == "ListItem" and under(i, "Sidebar") != -1 and shown(i))
+items = sorted((r["box"][1], r["text"]) for i, r in enumerate(rows) if r["type"] in ("NavigationRow", "ContentRow") and under(i, "Sidebar") != -1 and shown(i))
 print(json.dumps([[t for _, t in heads], [t for _, t in items]], separators=(",", ":")))'
 }
 sys_read() { ipc smoke readInstance window vgs.system "$1"; }
@@ -300,7 +300,7 @@ def shown(j):
         j = rows[j]["parent"]
     return True
 plates = [r for i, r in enumerate(rows) if r["type"] == "ListCursor" and under(i, "Sidebar") != -1 and shown(i)]
-items = [r for i, r in enumerate(rows) if r["type"] == "ListItem" and under(i, "Sidebar") != -1 and shown(i)]
+items = [r for i, r in enumerate(rows) if r["type"] in ("NavigationRow", "ContentRow") and under(i, "Sidebar") != -1 and shown(i)]
 on = [r["text"] for p in plates for r in items if abs(r["box"][1] - p["box"][1]) < 1 and abs(r["box"][3] - p["box"][3]) < 1]
 print(on[0] if len(on) == 1 else "none")'
 }
@@ -317,7 +317,7 @@ names = {"Pane Net", "Pane Alt", "Pane", "Shell & Plugins"}
 want = norm(sys.argv[1])
 print(json.dumps(sorted(r["text"] for r in json.load(sys.stdin) if r["role"] == "item" and r["text"] in names and norm(r["color"]) == want)))' "$accent"
 }
-sys_hover_box="$(ipc smoke windowGeometry window vgs.system ListItem "Pane Net")" || sys_hover_box=""
+sys_hover_box="$(ipc smoke windowGeometry window vgs.system NavigationRow "Pane Net")" || sys_hover_box=""
 sys_box="$(surface_box "window:System Settings")" || sys_box=""
 if read -r sys_hx sys_hy < <(at_centre "window:System Settings" "$sys_hover_box") && [[ $sys_box == \[* ]]; then
   expect_poll "before the hover the plate sits on the shown section" Pane sys_plate_row
@@ -387,7 +387,7 @@ rules = [i for i, r in enumerate(rows) if r["type"] == "Divider" and shown(i)]
 if len(side) != 1 or len(rules) != 1: print(json.dumps(["sidebars=%d rules=%d" % (len(side), len(rules))])); sys.exit()
 sb, rule, win = rows[side[0]], rows[rules[0]], rows[0]
 under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and inside(i, side[0]) and shown(i)]
-search, items = under("TextField"), under("ListItem")
+search, items = under("TextField"), sorted(under("NavigationRow") + under("ContentRow"))
 eyebrows = [i for i in under("Label") if rows[i].get("role") == "eyebrow"]
 if len(search) != 1 or len(items) < 2 or not eyebrows: print(json.dumps(["search=%d items=%d eyebrows=%d" % (len(search), len(items), len(eyebrows))])); sys.exit()
 edge_l, edge_r = rows[items[0]]["box"][0], right(rows[items[0]])

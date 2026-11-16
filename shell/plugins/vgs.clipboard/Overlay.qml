@@ -236,10 +236,10 @@ FocusScope {
                         // again and every other row stays.
                         model: ScriptModel { values: root.rows }
 
-                        // An entry on one line, which ListItem draws as
+                        // An entry on one line, which the row draws as
                         // plain text, with an image entry's thumbnail and
                         // the pin of a pinned entry at its end.
-                        ListItem {
+                        ContentRow {
                             id: entryRow
                             required property var modelData
                             required property int index
@@ -248,6 +248,7 @@ FocusScope {
                             readonly property bool inView: y + height > list.contentY && y < list.contentY + list.height
                             property bool seen: false
                             width: list.contentWidth
+                            clickable: true
                             text: modelData.label
                             iconName: modelData.type === "image" ? "image" : "type"
                             cursor: cursorPlate

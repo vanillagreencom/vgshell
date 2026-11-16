@@ -18,7 +18,7 @@
 # early press would have had. Those margins are not latencies; the exact
 # threshold is proved over injected time in scripts/test-power-logic.js.
 # Run lists poll every 0.2 s (expect_poll).
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.launcher/* scripts/smoke/power-fakes.sh scripts/smoke/pointer/* shell/Hosts/SummonLayer.qml shell/Hosts/PluginSlot.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Ui/layout/ListCursor.qml shell/Ui/layout/ListCursorRow.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/foundation/Scrim.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/BindField.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/KeyField.qml shell/Commons/Theme.qml
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.launcher/* scripts/smoke/power-fakes.sh scripts/smoke/pointer/* shell/Hosts/SummonLayer.qml shell/Hosts/PluginSlot.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Ui/layout/ListCursor.qml shell/Ui/layout/ListCursorRow.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/ContentRow.qml shell/Ui/layout/Pane.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/foundation/Scrim.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/BindField.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/KeyField.qml shell/Commons/Theme.qml
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -88,7 +88,7 @@ pm_hold_at() {
 # pm_pointer_hold ROW SECONDS: pm_hold_at on ROW's title.
 pm_pointer_hold() {
   local at x y
-  at="$(point_item overlay vgs.power ListItem "$1")" || return 1
+  at="$(point_item overlay vgs.power ContentRow "$1")" || return 1
   read -r x y <<<"$at" || return 1
   pm_hold_at "$x" "$y" "$2"
 }

@@ -768,6 +768,13 @@ tree_has shell/Ui/layout/Disclosure.qml "NavigationRow {" && disclosure_row=Navi
 # The Tailscale flyout's Exit node row is a NavigationRow, or a ListItem in an older tree.
 exit_row=ListItem
 tree_has shell/plugins/vgs.tailscale/TailscaleBody.qml "NavigationRow {" && exit_row=NavigationRow
+# The System sidebar's Shell & Plugins row is a ContentRow, or a ListItem in
+# an older tree.
+footer_row=ListItem
+tree_has shell/plugins/vgs.system/Sidebar.qml "ContentRow {" && footer_row=ContentRow
+# Google Drive's notes line is a ContentRow, or a ListItem in an older tree.
+notes_row=ListItem
+tree_has shell/plugins/vgs.google-drive/Panel.qml "ContentRow {" && notes_row=ContentRow
 # A tree whose plugin page has two pages draws Status and Requirements on
 # Details; page_details moves the open page there, and an older tree's one
 # page needs no move.
@@ -8228,7 +8235,7 @@ scene_bluetooth() { # MODE
   take "bluetooth-$1"
   # The pointer resting on a sidebar row the selection is not on, then on
   # the Nearby list's second row: each list's one hover.
-  hover_on "the pointer rests on the System sidebar's Shell & Plugins row" window vgs.system ListItem "Shell & Plugins" "window:System Settings" && take_posed "bluetooth-$1-sidebar-hover"
+  hover_on "the pointer rests on the System sidebar's Shell & Plugins row" window vgs.system "$footer_row" "Shell & Plugins" "window:System Settings" && take_posed "bluetooth-$1-sidebar-hover"
   park_pointer
   expect "the System window hides" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone" hidden system_shown
@@ -11583,7 +11590,7 @@ cs_popover() {
   record_item "googledrive-$m-$s-popover" "$box"
   notes="$(cs_notes_line)" || notes=""
   if [[ -n $notes ]]; then
-    rect="$(ipc smoke itemGeometry panel vgs.google-drive ListItem "$notes")" || rect=absent
+    rect="$(ipc smoke itemGeometry panel vgs.google-drive "$notes_row" "$notes")" || rect=absent
     if [[ $rect == \[* ]]; then
       read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$rect")
       hover "$((x + 1))" "$y" && click "$x" "$y" || fail "the click on the notes line failed ($s)"

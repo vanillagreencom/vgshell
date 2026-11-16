@@ -280,10 +280,9 @@ FocusScope {
     // before it destroys it, so a row's width reads its list's id, never
     // `parent`, which the tailscale smoke row's shell log read as null
     // under Qt 6.11 on 2026-11-02.
-    component InboundRow: ListItem {
+    component InboundRow: ContentRow {
         required property var modelData
         objectName: "tailscale-inbound-" + modelData.key
-        clickable: false
         iconName: modelData.iconName
         text: modelData.text
         secondary: modelData.secondary

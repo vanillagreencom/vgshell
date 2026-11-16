@@ -340,11 +340,11 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     expect_poll "the modal has a full shared scrim and full input region" True disp_scrim_matches "$disp_layout"
     expect_poll "the VRR row follows Refresh rate in the display group" true ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
     expect "the disposable body hides for real-page pointer checks" ok ipc smoke popupCall "displays-layout-$disp_layout" hideCopyBody
-    read -r disp_bg_x disp_bg_y < <(at_centre "window:System Settings" "$(control_box window vgs.system ListItem 'Shell & Plugins')")
+    read -r disp_bg_x disp_bg_y < <(at_centre "window:System Settings" "$(control_box window vgs.system ContentRow 'Shell & Plugins')")
     hover "$disp_bg_x" "$disp_bg_y" || fail "hovering behind the trial failed"
     disp_scrim_hovered() { disp_modal_read PaneLayout | py_reply 'import json,sys; print(json.load(sys.stdin).get("scrimHovered") is True)'; }
     expect_poll "the scrim takes background hover" True disp_scrim_hovered
-    expect "the Settings sidebar does not take hover through the scrim" false control_hovered window vgs.system ListItem 'Shell & Plugins'
+    expect "the Settings sidebar does not take hover through the scrim" false control_hovered window vgs.system ContentRow 'Shell & Plugins'
     click "$disp_bg_x" "$disp_bg_y" || fail "clicking the trial scrim failed"
     expect "clicking the trial scrim does not activate the sidebar" 0 window_count Plugins
     expect "clicking the trial scrim calls neither Keep nor Revert" 0 ipc smoke popupRead displays-layout-PaneLayout trialActionCalls
@@ -391,7 +391,7 @@ PY
       disp_modal_read "$disp_layout"
       # The real sidebar action replaces the pane and destroys this copy.
       # Check the native mutant before that action and its teardown after.
-      disp_masked_hover() { hover "$((disp_bg_x+1))" "$disp_bg_y" >/dev/null && hover "$disp_bg_x" "$disp_bg_y" >/dev/null && control_hovered window vgs.system ListItem 'Shell & Plugins'; }
+      disp_masked_hover() { hover "$((disp_bg_x+1))" "$disp_bg_y" >/dev/null && hover "$disp_bg_x" "$disp_bg_y" >/dev/null && control_hovered window vgs.system ContentRow 'Shell & Plugins'; }
       expect_poll "control: a card-only input region lets the sidebar take hover" true disp_masked_hover
       click "$disp_bg_x" "$disp_bg_y" || fail "clicking the masked sidebar control failed"
       expect_poll "control: a card-only input region lets the sidebar open Plugins" 1 window_count Plugins

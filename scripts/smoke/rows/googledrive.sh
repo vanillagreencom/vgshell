@@ -588,7 +588,7 @@ SH
   expect_poll "Needs you draws the file's name as a link" drawn cs_panel_drawn LinkText a.txt
   expect "a folded note is not drawn" absent cs_panel_drawn LinkText n1.txt
   expect "the popover offers Sync now with a folder pair" '[true, true]' cs_panel_footer
-  expect "the notes line is clicked" ok cs_panel_press ListItem "8 files need no action"
+  expect "the notes line is clicked" ok cs_panel_press ContentRow "8 files need no action"
   expect_poll "the notes line unfolds the notes" true cs_notes_open
   expect_poll "an unfolded note draws its name as a link" drawn cs_panel_drawn LinkText n1.txt
 
@@ -620,7 +620,7 @@ SH
   # a PDF note opens in its default application, through `gio open`, and
   # starts no editor, and closes the popover as the editor's file does.
   cs_open_popover "the popover for a gone file"
-  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 files need no action"
+  expect "the notes line is clicked for the gone file" ok cs_panel_press ContentRow "8 files need no action"
   expect_poll "the notes line unfolds for the gone file" true cs_notes_open
   # The last notes sit below the popover's fold, so the body scrolls to
   # them before a click lands on one.
@@ -719,7 +719,7 @@ SH
   # pause section's restart below reads it still out.
   local dismissed_key folded
   cs_open_popover "the popover for Dismiss"
-  expect "the fold line is clicked for Dismiss" ok cs_panel_press ListItem "8 files need no action"
+  expect "the fold line is clicked for Dismiss" ok cs_panel_press ContentRow "8 files need no action"
   expect_poll "the fold line unfolds for Dismiss" true cs_notes_open
   expect_poll "the first Dismiss holds its box" stable cs_item_settled RowAction Dismiss
   dismissed_key="$(cs_first_folded_key)" || dismissed_key=none
