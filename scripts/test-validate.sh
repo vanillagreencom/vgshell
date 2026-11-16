@@ -139,7 +139,23 @@ input_hash_case() {
   mkdir -p "$dir/packaging/arch/vgshell"
   printf 'recipe\n' >"$dir/packaging/arch/vgshell/PKGBUILD"
   printf '#!/bin/sh\nexit 99\n' >"$dir/scripts/arch-packages.sh"
-  [[ $change != nix-flake ]] || hash_area=nix
+  if [[ $change == *-control ]]; then
+    change="${change%-control}"
+    python3 - "$dir/scripts/validate" <<'PYHASH'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+old = '    path="${entry#*$\'\\t\'}"\n'
+assert source.count(old) == 1
+path.write_text(source.replace(old, old + '''    if [[ $path == scripts/validate ]]; then
+      input_records+=("$entry")
+      continue
+    fi
+'''))
+PYHASH
+  fi
+  [[ $change != nix-* ]] || hash_area=nix
   if ! before="$(cd -- "$dir" && "${base_env[@]}" "$BASH" scripts/validate "$hash_area" --input-hash)"; then
     fail "input hash $change: initial hash failed"; return
   fi
@@ -149,6 +165,30 @@ input_hash_case() {
     removed) rm -- "$dir/packaging/arch/vgshell/PKGBUILD" ;;
     mode) chmod +x "$dir/scripts/arch-packages.sh" ;;
     command) printf '# changed\n' >>"$dir/scripts/arch-packages.sh" ;;
+    unrelated-row|nix-unrelated-row)
+      python3 - "$dir/scripts/validate" <<'PYHASH'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+old = 'logic|duration formatter|'
+assert source.count(old) == 1
+path.write_text(source.replace(old, 'logic|unrelated duration formatter|'))
+PYHASH
+      ;;
+    package-row|nix-row)
+      python3 - "$dir/scripts/validate" "$hash_area" <<'PYHASH'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+prefix = '  "' + sys.argv[2] + '|'
+rows = [line for line in source.splitlines() if line.startswith(prefix)]
+assert rows
+old = rows[0]
+path.write_text(source.replace(old, old.replace('|', '|changed ', 1)))
+PYHASH
+      ;;
     unrelated) printf 'documentation\n' >"$dir/README.md" ;;
     other-area|nix-flake) printf 'flake\n' >"$dir/flake.nix" ;;
   esac
@@ -157,7 +197,7 @@ input_hash_case() {
   fi
   if [[ ! $before =~ ^[a-f0-9]{64}$ || ! $after =~ ^[a-f0-9]{64}$ ]]; then
     fail "input hash $change: unreadable hash"
-  elif [[ $change == unrelated || $change == other-area ]]; then
+  elif [[ $change == unrelated || $change == other-area || $change == *unrelated-row ]]; then
     if [[ $before == "$after" ]]; then ok "input hash ignores $change"; else fail "input hash changed for $change"; fi
   elif [[ $before != "$after" ]]; then
     ok "input hash binds $change"
@@ -165,7 +205,17 @@ input_hash_case() {
     fail "input hash missed $change"
   fi
 }
-parallel_cases input_hash_case input-hash content added removed mode command unrelated other-area nix-flake
+parallel_cases input_hash_case input-hash content added removed mode command unrelated other-area nix-flake unrelated-row nix-unrelated-row package-row nix-row
+for change in unrelated-row nix-unrelated-row; do
+  if (failures=0; input_hash_case "$change-control"; ((failures == 0))) >"$tmp/hash-$change-control.log"; then
+    fail "control: hashing the whole validator preserves the $change key"
+  elif grep -qxF "  FAIL  input hash changed for $change" "$tmp/hash-$change-control.log"; then
+    ok "control: an unrelated validator row invalidates the $change key when the whole file is hashed"
+  else
+    cat -- "$tmp/hash-$change-control.log"
+    fail "control: the $change hash failed for another cause"
+  fi
+done
 
 # row NAME DIR WANT_EXIT EXTRA_ENV LINE...: run `scripts/validate repo` in
 # DIR under EXTRA_ENV (words of NAME=VALUE, or "") and assert its exit
@@ -516,17 +566,19 @@ d="$tmp/key-unreadable"; fresh "$d"; printf 'x\n' >"$d/locked.pem"; chmod 000 "$
 row "a file the private-key check cannot read is an error, not a pass" "$d" 1 "" \
   "validate: unreadable: private-key status=1"
 
-# A fresh repository whose feature branch commits a copy of the product
-# tree, so a row diffed against HEAD judges only what it plants.
+# The real manifest and boundary readers, with no unrelated product tree.
 product_fixture() {
-  local dir="$1"
+  local dir="$1" file
   fresh "$dir"
-  cp -R "$repo/scripts/." "$dir/scripts/"
-  cp -R "$repo/shell" "$repo/bin" "$repo/config" "$repo/themes" "$repo/packaging" "$dir/"
-  cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$dir/"
-  # The token check walks the skill templates beside the shell tree.
-  mkdir -p "$dir/.agents/skills/vgs-plugin"
-  cp -R "$repo/.agents/skills/vgs-plugin/templates" "$dir/.agents/skills/vgs-plugin/"
+  mkdir -p "$dir/shell/plugins" "$dir/scripts/smoke/fixtures"
+  cp -R -- "$repo/scripts/smoke/fixtures/plugins" "$dir/scripts/smoke/fixtures/"
+  for file in bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-check-manifests.js scripts/check-plugin-boundary.py \
+      shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js \
+      shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js \
+      shell/Commons/SettingValues.js shell/Commons/PageReference.js; do
+    mkdir -p -- "$dir/$(dirname -- "$file")"
+    cp -- "$repo/$file" "$dir/$file"
+  done
   "${base_env[@]}" git -C "$dir" add -A
   "${base_env[@]}" git -C "$dir" commit -q -m product
 }
@@ -586,11 +638,11 @@ jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-j
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
 dispatch_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
-session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
+session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
-smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
+smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 jarvis_key_plan="${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-orb_shader_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-flake.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+orb_shader_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-flake.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
 orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\n'"$repo_plan"
 shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
 keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
@@ -701,9 +753,9 @@ cases=(
   "copr-entry|.copr/Makefile|all|scripts/test-fedora-srpm.sh"$'\n'"$repo_plan"
   # test-validate.sh runs the mutation planner of the QML unit controls.
   "qml-unit-planner|scripts/test-qml-unit.sh|tools|scripts/test-validate.sh"
-  "copied-shell-profile|shell/plugins/vgs.vpn/ProfileRow.qml|tools|python3 scripts/check-readme-images.py"$'\nscripts/test-validate.sh'
+  "copied-shell-profile|shell/plugins/vgs.vpn/ProfileRow.qml|tools|python3 scripts/check-readme-images.py"
   "copied-shell-core|shell/Core/Dispatch.js|tools|scripts/test-sandbox-shots.sh"$'\nscripts/test-validate.sh'
-  "copied-shell-ui|shell/Ui/controls/Label.qml|tools|scripts/test-validate.sh"
+  "copied-shell-ui|shell/Ui/controls/Label.qml|tools|"
   "heap|scripts/attribute-heap-profile.py|offline|$heap_plan"
   "suite|scripts/test-attribute-heap-profile.py|offline|$heap_plan"
   "jarvis-env|scripts/lib/jarvis-env.sh|all|$jarvis_owner_plan"$'\nscripts/qml-smoke.sh'
@@ -852,7 +904,7 @@ cases=(
   "capture-worker-suite|scripts/test-capture.py|cli|python3 scripts/test-capture.py"
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
-  "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/test-jarvis-daemon.js"$'\n'"${jarvis_key_plan%$'\nscripts/qml-smoke.sh'}"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
+  "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/test-jarvis-daemon.js"$'\n'"${jarvis_key_plan%$'\nscripts/qml-smoke.sh'}"$'\nscripts/qml-smoke.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-smoke-verdict.sh"$'\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -978,10 +1030,10 @@ if area in ["cli", "offline", "all"] and satellite not in lines and any(fnmatch.
     if router not in lines:
         raise AssertionError("no router row before the satellite row in expected plan: " + file)
     lines.insert(lines.index(router) + 1, satellite)
-# The fatal-row suite starts a real disposable runtime and is the last QML
-# row, so product inputs also select it, without widening non-QML areas.
-fatal_smoke_input = (file.startswith(("shell/", "bin/", "config/", "themes/", "packaging/", "scripts/smoke/", "scripts/fixtures/jarvis/"))
-                     or file in {"scripts/qml-smoke.sh", "scripts/test-qml-smoke.sh", "scripts/lib/jarvis-env.sh", "VERSION", "LICENSE", "README.md"})
+# Product boot belongs to the nested smoke's core rows. Fatal-row controls
+# exercise the runner and its fixtures.
+fatal_smoke_input = (file.startswith(("scripts/smoke/", "scripts/fixtures/jarvis/"))
+                     or file in {"scripts/qml-smoke.sh", "scripts/test-qml-smoke.sh", "scripts/lib/jarvis-env.sh"})
 if area in ["qml", "all"] and fatal_smoke_input and "scripts/test-qml-smoke.sh" not in lines:
     lines.append("scripts/test-qml-smoke.sh")
 print("\n".join(lines), end="")
@@ -1048,7 +1100,7 @@ for i in "${!cases[@]}"; do
     elif [[ $case_plan == *scripts/test-validate.sh* ]]; then
       case_plan="${case_plan/scripts\/test-validate.sh/${additions}scripts/test-validate.sh}"
     else
-      case_plan+=$'\n'"${additions%$'\n'}"
+      case_plan+="${case_plan:+$'\n'}${additions%$'\n'}"
     fi
     cases[i]="$case_name|$case_input|$case_area|$case_plan"
   fi
@@ -1121,10 +1173,10 @@ for variant in text mixed control full unreadable loaded markdown-control; do
         'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
     loaded)
       row "a file the shell loads selects the rows that start it" "$d" 0 "" \
-        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
+        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh' ;;
     markdown-control)
       row "control: a README matched by a qml row's wildcard input starts the shell" "$d" 0 "" \
-        'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
+        'scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh' ;;
   esac
 done
 test_args=()
@@ -1603,31 +1655,56 @@ done
 test_area=manifests
 test_args=()
 
-# product_fixture copies ProfileRow into the real token baseline. The
-# self-check must run when that source changes, even with no validator edit.
-d="$tmp/plan-copied-shell-control"; fresh "$d"
-mkdir -p "$d/shell/plugins/vgs.vpn"
-cp -- "$repo/shell/plugins/vgs.vpn/ProfileRow.qml" "$d/shell/plugins/vgs.vpn/ProfileRow.qml"
-test_area=tools
-test_args=(--changed HEAD --list)
-row "the copied profile source selects the self-check" "$d" 0 "" "scripts/test-validate.sh"
-python3 - "$d/scripts/validate" <<'PYSHELL'
+# Every real file these fixtures consume must select their self-check.
+# Text inputs retain the text-only grant; a mixed change observes the edge.
+for file in shell/Ui/qmldir shell/plugins/vgs.keyboard/Service.qml \
+    shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md \
+    shell/plugins/vgs.screensaver/logo.txt README.md scripts/test-keyboard-logic.js; do
+  d="$tmp/plan-copied-${file//\//-}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$file")"
+  cp -- "$repo/$file" "$d/$file"
+  case "$file" in
+    *.md|*.txt)
+      printf 'changed\n' >"$d/scripts/attribute-heap-profile.py" ;;
+  esac
+  test_area=tools test_args=(--changed HEAD --list)
+  row "the consumed $file selects the self-check" "$d" 0 "" "scripts/test-validate.sh"
+  python3 - "$d/scripts/validate" "$file" <<'PYSHELL'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 source = path.read_text()
 prefix = '  "tools|validate self-check controls|scripts/test-validate.sh|'
 rows = [line for line in source.splitlines() if line.startswith(prefix)]
-assert len(rows) == 1 and rows[0].count(' shell/* ') == 1
-changed = source.replace(rows[0], rows[0].replace(' shell/* ', ' ', 1))
+edge = ' ' + sys.argv[2] + ' '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, ' ', 1))
 assert changed != source
 path.write_text(changed)
 PYSHELL
-# Commit only the control, so the changed list still holds the profile alone.
-"${base_env[@]}" git -C "$d" add scripts/validate
-"${base_env[@]}" git -C "$d" commit -q -m control
-row "control: removing the copied-shell input loses self-check selection" "$d" 0 "" \
-  "python3 scripts/check-readme-images.py" "!scripts/test-validate.sh"
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: removing consumed $file loses self-check selection" "$d" 0 "" "!scripts/test-validate.sh"
+done
+
+# These controls test the runner. Product boot is covered by nested smoke's
+# core rows; a product file these fixtures do not read selects neither.
+for spec in \
+  'product|shell/plugins/acme.widget/Panel.qml|absent' \
+  'driver|scripts/qml-smoke.sh|present' \
+  'harness|scripts/smoke/harness.sh|present'; do
+  IFS='|' read -r name file presence <<<"$spec"
+  d="$tmp/plan-harness-only-$name"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$file")"
+  printf 'changed\n' >>"$d/$file"
+  test_area=all test_args=(--changed HEAD --list)
+  if [[ $presence == absent ]]; then
+    row "product boot selects nested smoke without runner self-tests" "$d" 0 "" \
+      "scripts/qml-smoke.sh" "!scripts/test-qml-smoke.sh" "!scripts/test-validate.sh"
+  else
+    row "$name selects both runner self-tests" "$d" 0 "" "scripts/test-qml-smoke.sh" "scripts/test-validate.sh"
+  fi
+done
 test_area=manifests
 test_args=()
 
@@ -2704,6 +2781,8 @@ reuse_fixture() { # DIR [FILE OLD NEW]
   local dir="$1"
   smoke_fixture "$dir"
   if [[ $# -eq 4 ]]; then plant "$dir/$2" "$3" "$4"; fi
+  # Observe the production wait without changing its lifetime or outcome.
+  plant "$dir/scripts/validate" $'rows_wait() {\n' $'rows_wait() {\n  : > "$(git rev-parse --git-dir)/group-wait"\n'
   cat >"$dir/scripts/qml-smoke.sh" <<'SH'
 #!/usr/bin/env bash
 list="$(dirname -- "$0")/smoke/rows.list"
@@ -2787,6 +2866,8 @@ SH
   chmod +x "$real/gpu-fence.sh"
   printf 'lane\n' >>"$dir/shell/plugins/acme.launcher/Panel.qml"
   printf 'lane\n' >>"$dir/shell/plugins/acme.notify/Panel.qml"
+  # This fixture also exercises the table row after the nested smoke.
+  printf '# lane\n' >>"$dir/scripts/test-qml-smoke.sh"
 }
 # reuse_cut DIR SIGNAL HANG: run `validate qml --changed HEAD` in DIR until
 # the stand-in HANG reports that it waits, then send SIGNAL to validate.
@@ -2797,8 +2878,8 @@ SH
 # validate's first, as the unit holds them in the order they started, so a
 # row's leader ends with the rest of its group. SIGNAL LEADER forces the
 # other order of that stop: it TERMs only the nested smoke row's leader,
-# waits until validate has reaped it and has started the row after it,
-# which shows the run loop has handled the row's end, and only then TERMs
+# waits until validate has reaped it and entered the group wait (or the
+# control started the next row too soon), and only then TERMs
 # the stand-in and its wait, whose teardown then takes the closing
 # reading; validate then ends by itself, red for the stopped row. Asserts
 # the exit SIGNAL gives. HANG `-` lets the run end by itself. The run's log is
@@ -2861,12 +2942,17 @@ reuse_cut() { # DIR SIGNAL HANG
     kill -TERM "$leader"
     # A bound on the wait for the reported states, not a reading.
     for ((tick = 0; tick < 600; tick++)); do
-      [[ -e /proc/$leader || ! -e $git_dir/controls-started ]] || break
+      [[ -e /proc/$leader || ( ! -e $git_dir/group-wait && ! -e $git_dir/controls-started ) ]] || break
       sleep 0.1
     done
-    if [[ -e /proc/$leader || ! -e $git_dir/controls-started ]]; then
-      fail "$dir: validate never reaped the smoke row's leader and started the next row"
+    if [[ -e /proc/$leader || ( ! -e $git_dir/group-wait && ! -e $git_dir/controls-started ) ]]; then
+      fail "$dir: validate never reaped the smoke row's leader and handled its group"
       kill -KILL "$pid" "${hung[@]}" 2>/dev/null || true; wait "$pid" || true; return 0
+    fi
+    if [[ -e $git_dir/controls-started ]]; then
+      [[ -e $git_dir/expect-no-wait ]] || fail "$dir: the next row started before the smoke group ended"
+    else
+      [[ ! -e $git_dir/expect-no-wait ]] || fail "$dir: the no-wait control unexpectedly waited for the group"
     fi
     kill -TERM "${hung[@]}" 2>/dev/null || true
   else
@@ -2918,7 +3004,8 @@ reuse_mutant outside "$judged" '  [[ ${fields[0]-} == 0 ]] || return 1' '  :'
 reuse_mutant rank "$judged" '((smoke_record_failures > worst_count[$row] ||' '((smoke_record_failures < worst_count[$row] ||'
 reuse_mutant reading "$judged" '[[ $judged == true && -n ${smoke_attempt_ended[$row]-} ]] || unproved' '[[ $judged == true ]] || unproved'
 reuse_mutant collect-first scripts/validate "trap 'set +e; stop_rows; records_finish; " "trap 'set +e; records_finish; stop_rows; "
-reuse_mutant reaped scripts/validate $'"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&\n       ! kill -0 -- "-$pid" 2>/dev/null; then' '"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then'
+reuse_mutant reaped scripts/validate '      rows_wait "$pid"' '      :'
+reuse_mutant deferred scripts/validate $'"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then\n      rows_wait "$pid"' $'"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&\n       ! kill -0 -- "-$pid" 2>/dev/null; then'
 # name|signal|stand-in that waits|before the cut|after the cut|mutant|wanted lines, ^ between them
 reuse_cases=(
   "a run cut off at its bound keeps the smoke rows it finished|TERM|notifications||||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^validate: rerun secs=3 reason=core smoke=bar^validate: rerun secs=unknown reason=untraced smoke=bare^$smoke_notify"
@@ -2927,6 +3014,7 @@ reuse_cases=(
   "control: a unit's stop collected before the closing reading keeps no smoke row|UNIT|notifications|teardown||collect-first|validate: rerun secs=3 smoke=launcher^$smoke_both"
   "a stop whose smoke row leader validate reaps before the closing reading keeps the smoke rows that ended before it|LEADER|notifications|teardown|||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
   "control: a smoke row collected as validate reaps its leader keeps no smoke row|LEADER|notifications|teardown||reaped|validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: main defers collection and starts the next row before the smoke group ends|LEADER|notifications|teardown||deferred|validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
   "a call made during the cut row, read by the closing reading alone, leaves passes unproved|TERM|notifications|call-cut|||validate: rerun secs=3 smoke=launcher^$smoke_both"
   "control: the last row reading is final|TERM|notifications|call-cut||unread-close|validate: reused secs=3 smoke=launcher"
   "a refusal in auth-sentinel's window, whose controls plant calls, leaves passes unproved|TERM|fatal-controls|refuse-auth|||validate: rerun secs=3 smoke=launcher^$smoke_both"
@@ -2970,8 +3058,8 @@ reuse_cases=(
   "a run cut off after the nested smoke reuses its smoke rows and runs the core rows again|TERM|fatal-controls||||validate: reused secs=3 smoke=launcher^validate: reused secs=3 smoke=notifications^%validate: rerun secs=[0-9]+ reason=smoke-rows row=nested smoke$^$smoke_none^scripts/test-qml-smoke.sh"
   "control: the nested smoke a cut run passed is reused whole|TERM|fatal-controls|||whole|~validate: reuse=on rows-reused=1 ^!scripts/qml-smoke.sh"
   "a changed input reruns the smoke row it reaches|TERM|fatal-controls||edit||validate: reused secs=3 smoke=notifications^$smoke_launcher"
-  "a changed input reruns a table row a finished run passed|-|-||edit||%validate: rerun secs=[0-9]+ row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
-  "control: a changed input no longer reruns a table row|-|-||edit|row-lines|%validate: reused secs=[0-9]+ row=smoke fatal row controls$^!scripts/test-qml-smoke.sh"
+  "a changed input reruns a table row a finished run passed|-|-||control-file||%validate: rerun secs=[0-9]+ row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
+  "control: a changed input no longer reruns a table row|-|-||control-file|row-lines|%validate: reused secs=[0-9]+ row=smoke fatal row controls$^!scripts/test-qml-smoke.sh"
   "a run whose tree changed while it ran leaves nothing to reuse|TERM|fatal-controls|revert|revert||validate: rerun secs=unknown smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_both"
   "control: a run whose tree changed while it ran no longer withdraws its records|TERM|fatal-controls|revert|revert|void|validate: reused secs=3 smoke=launcher^$smoke_none"
 )
@@ -2999,10 +3087,12 @@ reuse_case() { # SPEC
     harness-line) plant "$d/scripts/smoke/harness.sh" $'# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh\n' '' ;;
     other) plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh' ;;
   esac
+  [[ $mutant != reaped && $mutant != deferred ]] || : >"$git_dir/expect-no-wait"
   reuse_cut "$d" "$signal" "$hang"
   case "$after" in
     edit) printf 'fix\n' >>"$d/shell/plugins/acme.launcher/Panel.qml" ;;
     row-file) printf '# changed\n' >>"$d/scripts/smoke/rows/launcher.sh" ;;
+    control-file) printf '# changed\n' >>"$d/scripts/test-qml-smoke.sh" ;;
     harness-file) printf 'changed\n' >>"$d/scripts/smoke/helper/click.c" ;;
     validate-file) printf '# changed\n' >>"$d/scripts/validate" ;;
     unknown) printf 'source\n' >"$d/new-source.bin" ;;
@@ -3765,6 +3855,22 @@ test_args=()
 # file still selects the area's other rows without the edge, so the escape
 # run judges the tree with the defect in it rather than an empty selection.
 d="$tmp/selected-guard"; product_fixture "$d"
+# Retain the real selector and checker under proof. A neutral second row
+# keeps the boundary area nonempty after the control removes its edge.
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+lines = source.splitlines(keepends=True)
+kept = [line for line in lines if not line.startswith('  "boundary|') or
+        line.startswith(('  "boundary|plugin boundary|', '  "boundary|user command text|'))]
+assert len(kept) < len(lines)
+assert sum(line.startswith('  "boundary|') for line in kept) == 2
+path.write_text(''.join(kept))
+PY
+printf 'raise SystemExit(0)\n' >"$d/scripts/check-user-commands.py"
+commit "$d" boundary-readers
 printf 'import "../plugins/vgs.bar"\nQtObject {}\n' >"$d/shell/Core/Bad.qml"
 test_area=boundary
 test_args=(--changed HEAD)

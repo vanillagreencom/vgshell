@@ -641,7 +641,8 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh scripts/smoke/rows/updates.sh scripts/smoke/rows/agent-warden.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows/gallery.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
+  # Product boot is proved by the nested smoke core rows.
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/rows/* kendex.settings.toml README.md scripts/test-keyboard-logic.js scripts/check-plugin-boundary.py scripts/smoke/reap.sh scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/plugins/vgs.keyboard/Service.qml shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md shell/plugins/vgs.screensaver/logo.txt shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js shell/plugins/vgs.agent-warden/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Popover.qml shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Core/Pads.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/SettingValues.js shell/Ui/qmldir shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/plugins/vgs.bluetooth/PairLine.qml shell/Commons/* shell/Core/Config.qml shell/Core/PluginStatus.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.updates/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.local-sync/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Words.qml shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/Panel.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml shell/Core/HandoffRegistry.qml scripts/smoke/fixtures/plugins/acme.handoff/* scripts/smoke/fixtures/plugins/acme.handoff-sender/* shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/plugins/vgs.jarvis/Composer.js shell/plugins/vgs.power/Panel.qml shell/plugins/vgs.power/Pane.qml shell/plugins/vgs.power/StayAwake.qml shell/plugins/vgs.power/PowerLogic.js"
@@ -655,7 +656,8 @@ rows=(
   "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js @alone|entry"
   "tools|launcher glyph capture controls|python3 scripts/test-launcher-latency.py|scripts/smoke/launcher-latency.py"
   "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/RadialBackdrop.qml shell/Ui/feedback/shaders/* shell/Ui/foundation/GlassSurface.qml shell/Ui/foundation/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg shell/Core/PackageManagers.js @alone|entry"
-  "qml|smoke fatal row controls|scripts/test-qml-smoke.sh|scripts/qml-smoke.sh scripts/smoke/* scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh scripts/test-qml-smoke.sh shell/* bin/* config/* themes/* packaging/* VERSION LICENSE README.md"
+  # Product boot is proved by the nested smoke core rows.
+  "qml|smoke fatal row controls|scripts/test-qml-smoke.sh|scripts/qml-smoke.sh scripts/smoke/* scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh scripts/test-qml-smoke.sh"
 )
 
 # The branch point, printed on stdout: the merge base of COMMIT, HEAD by
@@ -2093,8 +2095,8 @@ for i in "${!rows[@]}"; do
   done
 done
 
-# Use the same input index as selection. Hash the complete input set,
-# rather than a branch-relative record, so unrelated landings keep the key.
+# Use selection's input index and the selected area's row records, so
+# unrelated rows and landings keep the nightly key.
 if [[ $input_hash == true ]]; then
   if ! input_tree="$(worktree_tree)" || [[ $input_tree == unreadable ]]; then
     echo 'validate: input-hash=unreadable-tree' >&2; exit 1
@@ -2115,10 +2117,6 @@ if [[ $input_hash == true ]]; then
   fi
   for entry in "${input_entries[@]}"; do
     path="${entry#*$'\t'}"
-    if [[ $path == scripts/validate ]]; then
-      input_records+=("$entry")
-      continue
-    fi
     index_match row_index "$path"
     for i in $index_hits; do
       if [[ $input_members == *" $i "* ]]; then
@@ -2664,10 +2662,8 @@ smoke_reuse() {
 # group end, so the driver has outlived its attempt's world and the
 # teardown's closing reading is in, or the stop's window has passed and
 # the attempt, with no closing reading, proves no pass. The run loop
-# collects them first only when it reaps the row's leader after the
-# whole group has ended; when the group outlives the leader, as after a
-# unit's stop, the run loop leaves the results here. Then withdraw this
-# run's lines when its tree changed while it ran, or print
+# waits for the group too before collecting them as it reaps the leader.
+# Then withdraw this run's lines when its tree changed while it ran, or print
 # `validate: row-records=unwritten` when the withdrawal cannot be written.
 # A KILL runs neither: the next run collects the results, and the lines
 # stand on the tree the run read at its start.
@@ -2890,8 +2886,7 @@ start_rows() {
 # world among them, still runs. Either validate's exit handling or its run
 # loop can see that leader end first. In the exit handling the row is
 # still in row_of_pid or jobs -p. In the run loop, `wait -n` reaps the
-# leader and the run loop leaves the collection to records_finish while
-# the group still runs, so the group stays in smoke_group. Such a group,
+# leader and the run loop waits for the group before collection. Such a group,
 # whose leader is gone, is waited on but never signalled: the stop
 # reached it, and with its leader gone nothing proves the number still
 # the row's. The wait is what puts each attempt's closing reading before
@@ -2976,11 +2971,9 @@ while :; do
   if [[ -n $record_file ]]; then
     IFS='|' read -r _ label _ <<<"${rows[selected[k]]}"
     record_append "$record_run" "${row_digest[k]}" "${record_point:--}" "$(record_outcome_of "$status")" "$((SECONDS - row_started[k]))" "row=$label"
-    # A group that outlives its leader, as after a unit's stop, may still
-    # owe its attempt's closing reading, so records_finish collects it once
-    # stop_rows has seen the group end.
-    if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&
-       ! kill -0 -- "-$pid" 2>/dev/null; then
+    # A group that outlives its leader still owes its closing reading.
+    if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then
+      rows_wait "$pid"
       smoke_collect "$smoke_results_dir"
       smoke_group=""
     fi
