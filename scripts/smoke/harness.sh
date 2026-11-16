@@ -1328,6 +1328,22 @@ print(json.dumps(doc))
 PY
 }
 
+# Smoke profiles can wait longer than the product idle deadline for row
+# admission or a timed-window hold. Lock tests opt into their own deadline.
+smoke_idle_lock_off() {
+  user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.lock"), None)
+if row is None:
+    row = {"id": "vgs.lock"}
+    rows.append(row)
+row["idleLockSeconds"] = 0
+print(json.dumps(doc))
+PY
+}
+
 # default_set_prepare PLUGINS_JSON [DISABLED_JSON]: what a start over the
 # default set needs before the shell starts. The user file names no bar
 # and disables no first-party plugin, so the shipped bar and every
@@ -1365,6 +1381,7 @@ left = sorted(d for d in os.listdir(installed) if d not in plugins and d not in 
 disabled = disabled + left
 print(json.dumps({"version": 2, "plugins": [{"id": p} for p in plugins], "disabledPlugins": disabled}))
 PY
+  smoke_idle_lock_off
 }
 # updates_cache_fresh: the shipped vgs.updates's status cache written as a
 # check that ended now and listed nothing, so its service starts no check

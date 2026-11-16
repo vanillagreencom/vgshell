@@ -19,6 +19,8 @@
 # each lock wait at that bound and finishes, its window logging hold=none;
 # its control, a harness whose lock waits have no bound, is still waiting
 # at twice the bound.
+# --case idle-lock holds a nested row past a shortened idle deadline before
+# reading its native frame and focus. Its control restores the old profile.
 # Once the holding run is killed, one world's timed window waits for the
 # other world's current row to end, and that world starts no row until the
 # hold ends. Its control takes the hold shared, not exclusively, and its
@@ -44,7 +46,7 @@ end_run() {
 }
 if [[ ${1-} == --case && $# == 2 ]]; then
   selected_case=$2
-  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness|unmeasured|hold) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
+  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness|unmeasured|hold|idle-lock) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
 elif (($#)); then
   echo 'test-qml-smoke: refused: arguments' >&2
   exit 2
@@ -195,6 +197,97 @@ false
 fail past-failed-command
 ROW
 printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
+
+if [[ $selected_case == idle-lock || $selected_case == all ]]; then
+  # Exercise real idle notifications without adding five minutes per world.
+  # Only the disposable manifest's default changes; the profile must defeat
+  # that default, as it defeats the shipped 300-second value.
+  python3 - "$tree/shell/plugins/vgs.lock/manifest.json" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+doc = json.loads(path.read_text())
+assert doc["settings"]["idleLockSeconds"] == 300
+doc["settings"]["idleLockSeconds"] = 2
+path.write_text(json.dumps(doc))
+PY
+  cat >"$tree/scripts/smoke/rows/hyprland-consent.sh" <<'ROW'
+# leaves: layers options
+# inputs: scripts/smoke/harness.sh
+expect_poll 'the profile consent notice has the keyboard' true ipc smoke noticeFocused
+hypr_consent_connect 'the idle profile'
+ROW
+  cat >"$tree/scripts/smoke/rows/idle-profile.sh" <<'ROW'
+# inputs: scripts/smoke/harness.sh
+expect 'the profile enables Lock as Key Hints does' ok ipc shell setPluginEnabled vgs.lock true
+expect_poll 'the lock service is built before waiting' True record_exists vgs.lock
+idle_profile_measure() {
+  expect 'the profile stays unlocked past the idle deadline' false ipc smoke readInstance service vgs.lock secure
+  expect 'the delayed row opens Settings' ok ipc shell summon window vgs.settings '{}'
+  expect_poll 'the delayed row presents its native frame' drawn ipc smoke windowDrawn window vgs.settings
+  expect_poll 'the delayed row has keyboard focus' true window_keyboard vgs.settings
+  type_keys -k Escape || fail 'the delayed row sends native Escape'
+  expect_poll 'the delayed row accepts native Escape' absent ipc smoke windowDrawn window vgs.settings
+}
+# Delay the admission return, while the actual idle clock is running. No
+# input or mapped window resets that clock before the measurement.
+eval "$(declare -f smoke_lock_take | sed '1s/smoke_lock_take/idle_profile_take/')"
+smoke_lock_take() {
+  idle_profile_take "$@" || return
+  if [[ $1 == -x && $2 == hold ]]; then sleep 3; fi
+}
+smoke_hold idle-profile delayed idle_profile_measure
+ROW
+  printf '%s\n' "${core[@]}" idle-profile >"$tree/scripts/smoke/rows.list"
+  python3 - "$tree" "$TMP_ROOT/idle-lock" <<'PY'
+import json, os, pathlib, re, subprocess, sys
+tree, output = map(pathlib.Path, sys.argv[1:])
+output.mkdir()
+harness = tree / "scripts/smoke/harness.sh"
+original = harness.read_text()
+# Use the real default-set writer before the shell starts. Keep its bar
+# and Settings; the row enables Lock only after it answers first-start consent.
+disabled = [json.loads(p.read_text())["id"] for p in (tree / "shell/plugins").glob("*/manifest.json")
+            if json.loads(p.read_text())["id"] not in ("vgs.bar", "vgs.settings")]
+anchor = '\nnow_ms() {'
+assert original.count(anchor) == 1
+fixture = "\ndefault_set_prepare '[]' '" + json.dumps(disabled) + "'\n"
+prepared = original.replace(anchor, fixture + anchor)
+environment = {key: os.environ[key] for key in
+               ("PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+                "XDG_STATE_HOME", "XDG_CACHE_HOME", "VGSHELL_WORLD_ROOT", "VGS_TEST_RUN")}
+environment["VGS_SMOKE_IDLE_SECS"] = "600"
+# Each row can wait for gate and shared admission; the window can also
+# wait for gate/hold and gate/shared on return. Leave setup/teardown room.
+row_count = len((tree / "scripts/smoke/rows.list").read_text().splitlines())
+run_bound = 600 * (2 * row_count + 4) + 300
+def run(name, source):
+    harness.write_text(source)
+    result = subprocess.run([str(tree / "scripts/qml-smoke.sh"), "--rows", "idle-profile",
+                             "--log-dir", str(output / name)],
+                            env=environment, capture_output=True, text=True,
+                            timeout=run_bound)
+    text = result.stdout + result.stderr
+    (output / (name + ".log")).write_text(text)
+    print(''.join(('  CONTROL  ' if name == "old-profile" else '') + line for line in text.splitlines(keepends=True)), end="", flush=True)
+    return result.returncode, text
+try:
+    status, text = run("profile", prepared)
+    assert status == 0, (status, text)
+    assert 'ok    the delayed row presents its native frame' in text, text
+    old, removed = re.subn(r'(?m)^  smoke_idle_lock_off$', '  :', prepared)
+    assert removed == 1 and old != prepared
+    status, text = run("old-profile", old)
+    assert status == 1, (status, text)
+    assert 'the profile stays unlocked past the idle deadline: got true' in text, text
+    print('test-qml-smoke: case=idle-lock profile=pass old-profile=rejected', flush=True)
+finally:
+    harness.write_text(original)
+PY
+  cp -- "$repo/shell/plugins/vgs.lock/manifest.json" "$tree/shell/plugins/vgs.lock/manifest.json"
+  printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/hyprland-consent.sh"
+  printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
+  [[ $selected_case != idle-lock ]] || end_run
+fi
 
 if [[ $selected_case == completion || $selected_case == all ]]; then
   # These cases run the production driver, namespace, teardown, finalizer

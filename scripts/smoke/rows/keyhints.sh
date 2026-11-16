@@ -483,6 +483,9 @@ expect "disabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhin
 expect_poll "the Key Hints service is gone" False record_exists vgs.keyhints
 # The owner's profile includes every shipped plugin. Hardware access and
 # authentication remain the harness's device fakes and private buses.
+smoke_idle_lock_off
+kh_idle_lock_seconds() { ipc shell listShellConfig | py_reply 'import json,sys; print(next((r.get("idleLockSeconds") for r in json.load(sys.stdin)["plugins"] if r["id"] == "vgs.lock"), None))'; }
+expect_poll 'the all-plugin profile reads Never before enabling plugins' 0 kh_idle_lock_seconds
 while IFS= read -r id; do
   expect "the measured profile enables $id" ok ipc shell setPluginEnabled "$id" true
 done < <(python3 - "$repo/shell/plugins" <<'PY_PLUGINS'
