@@ -79,6 +79,7 @@ optdepends=(
   'agent-browser-bin: Jarvis browser actions'
   'wlrctl: Jarvis desktop input'
   'ttfx: animates the Screensaver text art'
+  'upower: reads battery state and controls charging limits in the Power plugin'
   'power-profiles-daemon: switches the power profile in the Power plugin'
   'hdparm: lets idle hard disks stop spinning in the Power plugin'
   'bandwhich: See all network traffic in the Network Traffic plugin'

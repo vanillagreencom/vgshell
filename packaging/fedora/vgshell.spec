@@ -74,6 +74,7 @@ Recommends:     wlrctl
 Recommends:     btop
 Recommends:     bluez
 Recommends:     brightnessctl
+Recommends:     upower
 Recommends:     ppd-service
 Recommends:     hdparm
 Recommends:     cronie

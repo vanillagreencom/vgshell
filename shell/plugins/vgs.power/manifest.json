@@ -58,6 +58,21 @@
   },
   "requirements": [
     {
+      "dbus": {
+        "bus": "system",
+        "name": "org.freedesktop.UPower",
+        "label": "Battery service"
+      },
+      "packages": {
+        "pacman": "upower",
+        "apt": "upower",
+        "dnf": "upower",
+        "nix": "upower"
+      },
+      "optional": true,
+      "purpose": "Reads the battery and changes its charging limit"
+    },
+    {
       "command": "hdparm",
       "packages": {
         "pacman": "hdparm",
@@ -107,7 +122,7 @@
         "nix": "glib"
       },
       "optional": false,
-      "purpose": "Reads and sets power profiles, sleep and Bluetooth wake permission"
+      "purpose": "Reads and sets power profiles, charging limits, sleep and Bluetooth wake permission"
     },
     {
       "command": "nmcli",

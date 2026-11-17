@@ -8,6 +8,11 @@
 # the host's UPower, power-profiles-daemon, battery, charger or system
 # bus. The power profile service's D-Bus name satisfies the requirement
 # probe.
+# Charge-limit probes enumerate a HID battery before the actual system
+# battery, with a second threshold trap on DisplayDevice. The system
+# battery's method applies, succeeds without changing state or refuses;
+# status and the drawn switch must follow readback, external signals and
+# a service restart. Unsupported and absent system batteries hide it.
 #
 # Two stand-ins record the argv the shell runs. notify-send records each
 # notice the core's `notify` capability sends for the plugin. gdbus
@@ -210,6 +215,56 @@ power_has_read() { local n; n="$(power_reads)" || return; [[ $n -gt 0 ]] && echo
 power_status_active() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["active"])'; }
 power_profile_list() { ipc smoke itemValues panel vgs.power TileGroup model,currentIndex | py_reply 'import json,sys; print(json.dumps([[[m["text"] for m in r["model"]], r["currentIndex"]] for r in json.load(sys.stdin)]))'; }
 power_profile_icons() { ipc smoke itemValues panel vgs.power TileGroup model | py_reply 'import json,sys; print(json.dumps([[m["icon"] for m in r["model"]] for r in json.load(sys.stdin)]))'; }
+power_charge_writes() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
+runs = [json.loads(line) for line in sys.stdin]
+print(json.dumps([[run[run.index("--object-path")+1], run[-1]] for run in runs if "org.freedesktop.UPower.Device.EnableChargeThreshold" in run]))' <"$power_gdbus_calls" || echo '[]'; }
+power_charge_limits() {
+  expect_poll "charge limits read the system battery, excluding HID and DisplayDevice" '[true, false, 80, false, false]' power_charge_state
+  expect "the charge-limit panel opens" ok ipc shell summon panel vgs.power '{}'
+  expect_poll "the supported system battery draws its charge switch off" off power_charge_field
+  : >"$power_gdbus_calls"
+  power_charge_mock_mode "$power_charge_battery" unchanged
+  expect "a charge-limit request is accepted before readback" ok ipc vgs.power invoke charge-limit on
+  expect_poll "the charge-limit request reaches only the actual system battery" '[["/org/freedesktop/UPower/devices/mock_BAT0", "true"]]' power_charge_writes
+  expect_poll "an unchanged UPower readback keeps the charge switch off" '[true, false, 80, false, false]' power_charge_state
+  expect "the unchanged readback keeps the drawn switch off" off power_charge_field
+  power_charge_mock_mode "$power_charge_battery" apply
+  expect "the charge limit turns on through UPower" ok ipc vgs.power invoke charge-limit on
+  expect_poll "UPower readback marks the charge switch on" '[true, true, 80, false, false]' power_charge_state
+  expect_poll "the charge switch draws UPower's enabled value" on power_charge_field
+  expect "the charge limit turns off through UPower" ok ipc vgs.power invoke charge-limit off
+  expect_poll "UPower readback marks the charge switch off" '[true, false, 80, false, false]' power_charge_state
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdEnabled': <true>}"
+  expect_poll "an external UPower signal updates the charge switch" '[true, true, 80, false, false]' power_charge_state
+  power_charge_mock_mode "$power_charge_battery" refuse
+  expected_errors+=('power: charge limit write exit=1$')
+  expect "a refused charge-limit write starts" ok ipc vgs.power invoke charge-limit off
+  expect_poll "a refused write retains UPower's enabled state and reports the problem" '[true, true, 80, false, true]' power_charge_state
+  expect "a refused write leaves the drawn switch on" on power_charge_field
+  expect_poll "the refused charge-limit write draws one problem line" shown power_charge_error
+  power_charge_mock_mode "$power_charge_battery" apply
+  expect "a later charge-limit write clears the refusal" ok ipc vgs.power invoke charge-limit on
+  expect_poll "the later write retains the system state and clears the problem" '[true, true, 80, false, false]' power_charge_state
+  expect "the charge-limit panel closes before the service restarts" ok ipc shell hide panel vgs.power
+  expect "the Power service disables before its charge readback restart" ok ipc shell setPluginEnabled vgs.power false
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdEnabled': <false>}"
+  expect "the Power service restarts without a saved charge setting" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "the restarted service reads the value UPower changed while it was stopped" '[true, false, 80, false, false]' power_charge_state
+  expect "the charge-limit panel opens after the service restart" ok ipc shell summon panel vgs.power '{}'
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdSupported': <false>}"
+  expect_poll "an unsupported system battery offers no charge limit despite the HID trap" '[false, false, 0, false, false]' power_charge_state
+  expect_poll "the unsupported battery hides the charge switch" hidden power_charge_field
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdSupported': <true>}"
+  expect_poll "support restored before removing the system battery" '[true, false, 80, false, false]' power_charge_state
+  power_charge_mock_set "$power_charge_battery" "{'IsPresent': <false>}"
+  power_no_battery
+  expect_poll "no system battery offers no charge limit despite the HID trap" '[false, false, 0, false, false]' power_charge_state
+  expect_poll "no battery hides the charge switch" hidden power_charge_field
+  power_charge_mock_set "$power_charge_battery" "{'IsPresent': <true>, 'ChargeThresholdEnabled': <false>}"
+  power_display 2 2 8.0 1000 0 true
+  expect_poll "the charge-limit fixture restores the supported battery" '[true, false, 80, false, false]' power_charge_state
+  expect "the charge-limit panel closes" ok ipc shell hide panel vgs.power
+}
 power_profiles_set_mock() { power_call --dest org.freedesktop.UPower.PowerProfiles --object-path /org/freedesktop/UPower/PowerProfiles --method org.freedesktop.DBus.Properties.Set org.freedesktop.UPower.PowerProfiles Profiles "<[$1]>" >/dev/null; }
 # power_battery_field: the texts of the panel Field that draws the battery, sorted.
 power_battery_field() { ipc smoke itemTexts panel vgs.power Field | py_reply 'import json,sys; print(json.dumps(sorted(next((row for row in json.load(sys.stdin) if "Battery" in row), []))))'; }
@@ -1372,7 +1427,9 @@ EOF_STAND
   expect "enabling without the optional PowerProfiles bus name raises no notice" null notice_shown
   expect "disabling vgs.power after the missing-service proof is allowed" ok ipc shell setPluginEnabled vgs.power false
   power_start_mocks power power-saver
+  power_charge_add_hid
   expect "the mock starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery
+  power_charge_setup
   power_discharging 51.0 5400
   stop_shell || fail "power: the shell stops before the UPower restart"
   start_shell "$repo" "$sandbox/qs-power.log" || return 0
@@ -1454,6 +1511,8 @@ EOF_STAND
   power_on_battery false
   expect_poll "plugging in applies the remembered charger profile" performance power_profile_get
   expect "the Power panel closes" ok ipc shell hide panel vgs.power
+
+  power_charge_limits
 
   power_system_was="$(plugin_enabled vgs.system)" || { fail "power: vgs.system's enabled state is unreadable"; power_system_was=False; }
   power_move_away "$power_dim_dir"

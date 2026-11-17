@@ -97,7 +97,9 @@
 # battery and power profile daemon, its Settings page's tabs, its System
 # Settings section over two idle stage owner fixtures, the section and the
 # page's tabs with no profiles service, then the flyout over the daemon
-# with no battery;
+# with no battery. The flyout also captures a supported charge limit off
+# and on, a refused change and an unsupported battery. Older trees draw
+# the same battery block in those frames, including its original gap;
 # keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
@@ -8465,7 +8467,9 @@ scene_power() { # MODE
   devices_usb_wake disabled
   power_start_mocks shots-power balanced
   tree_rescan "the Power shots' fake daemon is scanned"
+  power_charge_add_hid
   expect "the power shot starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery 64.0 7200
+  power_charge_setup
   power_discharging 64.0 7200
   expect "Power enables for its shot" ok ipc shell setPluginEnabled vgs.power true
   expect "Power's requirement notice is absent" null notice_shown
@@ -8477,6 +8481,7 @@ scene_power() { # MODE
   expect_poll "Power opens its panel" shown power_shot_panel
   park_pointer
   take "power-$1-panel"
+  power_shot_charge_limits "$1"
   expect "Power's panel hides" ok ipc shell hide panel vgs.power
   # A tree that ships Stay awake takes it on, for 2 hours, in the bar and
   # the flyout.
@@ -8503,12 +8508,17 @@ scene_power() { # MODE
   expect_poll "Power sends its critical battery notice" 1 notes_on_screen
   take "power-$1-notice-critical"
   notes_off "Power notice shots"
+  power_charge_mock_set "$power_charge_battery" "{'IsPresent': <false>}"
   power_no_battery
   expect_poll "Power's service reads no battery" False power_shot_battery
   click_centre "$(bar_key)" vgs.power || fail "opening Power with no battery failed"
   expect_poll "Power opens its panel with no battery" shown power_shot_panel
+  if [[ $power_shot_charge_api == true ]]; then
+    expect_poll "the no-battery charge-limit shot reads no supported system battery" '[false, false, 0, false, false]' power_charge_state
+    expect_poll "the no-battery shot hides the charge switch" hidden power_charge_field
+  fi
   park_pointer
-  take "power-$1-panel-no-battery"
+  power_shot_charge_take "power-$1-panel-no-battery"
   expect "Power's panel with no battery hides" ok ipc shell hide panel vgs.power
   if [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; then
     expect "Stay awake starts with no battery for its shot" ok ipc vgs.power invoke stay-awake 0
@@ -8523,6 +8533,7 @@ scene_power() { # MODE
     expect "Stay awake ends with no battery" ok ipc vgs.power invoke stay-awake end
     expect_poll "Power publishes Stay awake off with no battery" False power_shot_stay_awake
   fi
+  power_charge_mock_set "$power_charge_battery" "{'IsPresent': <true>}"
   power_discharging 64.0 7200
   expect_poll "Power's service reads the battery again" 64 power_shot_level
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
@@ -8530,6 +8541,64 @@ scene_power() { # MODE
   power_stop_mocks
   power_logind_stop
   devices_usb_wake remove
+}
+power_shot_charge_limits() { # MODE: the same open flyout and battery on both revisions
+  power_shot_charge_api=false
+  if grep -qF 'handle("charge-limit"' "$tree/shell/plugins/vgs.power/Service.qml"; then
+    power_shot_charge_api=true
+    expect_poll "the charge-limit shot reads the supported system battery off" '[true, false, 80, false, false]' power_charge_state
+    expect_poll "the charge-limit shot draws its switch off" off power_charge_field
+  fi
+  park_pointer
+  power_shot_charge_take "power-$1-panel-charge-limit-off"
+  if [[ $power_shot_charge_api == true ]]; then
+    expect "the charge-limit shot asks UPower to turn the limit on" ok ipc vgs.power invoke charge-limit on
+    expect_poll "the charge-limit shot reads the system's enabled value" '[true, true, 80, false, false]' power_charge_state
+    expect_poll "the charge-limit shot draws its switch on" on power_charge_field
+  else
+    power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdEnabled': <true>}"
+  fi
+  park_pointer
+  power_shot_charge_take "power-$1-panel-charge-limit-on"
+  if [[ $power_shot_charge_api == true ]]; then
+    power_charge_mock_mode "$power_charge_battery" refuse
+    expected_errors+=('power: charge limit write exit=1$')
+    expect "the charge-limit refusal shot starts its refused write" ok ipc vgs.power invoke charge-limit off
+    expect_poll "the charge-limit refusal shot retains UPower's enabled value" '[true, true, 80, false, true]' power_charge_state
+    expect_poll "the charge-limit refusal shot draws one problem line" shown power_charge_error
+    park_pointer
+    power_shot_charge_take "power-$1-panel-charge-limit-refused"
+    power_charge_mock_mode "$power_charge_battery" apply
+    expect "the charge-limit shot clears its refusal" ok ipc vgs.power invoke charge-limit off
+    expect_poll "the charge-limit shot clears the problem after readback" '[true, false, 80, false, false]' power_charge_state
+  else
+    power_shot_charge_take "power-$1-panel-charge-limit-refused"
+    power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdEnabled': <false>}"
+  fi
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdSupported': <false>}"
+  if [[ $power_shot_charge_api == true ]]; then
+    expect_poll "the unsupported charge-limit shot reads no supported system battery" '[false, false, 0, false, false]' power_charge_state
+    expect_poll "the unsupported charge-limit shot hides its switch" hidden power_charge_field
+  fi
+  park_pointer
+  power_shot_charge_take "power-$1-panel-charge-limit-unsupported"
+  power_charge_mock_set "$power_charge_battery" "{'ChargeThresholdSupported': <true>}"
+  if [[ $power_shot_charge_api == true ]]; then
+    expect_poll "the charge-limit shots restore the supported battery off" '[true, false, 80, false, false]' power_charge_state
+  fi
+}
+power_shot_charge_take() { # NAME: record the real flyout for the shared item crop
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.power)" || return
+  record_item "$1" "$box"
+  # The off shot repeats the panel shot above. A tree without this API
+  # also draws identical charge-state frames; each still settles two
+  # new grim captures and checks clean chrome through take/shot.
+  if [[ $1 == power-*-panel-charge-limit-off || ( $power_shot_charge_api == false && $1 == power-*-panel-charge-limit-* ) ]]; then
+    shot_last_hash="" take "$1"
+  else
+    take "$1"
+  fi
 }
 # Power's Settings window page while it is on, power-<mode>-page-<tab>SUFFIX
 # for its Settings, Setup and Details tabs, every screen of each, where the

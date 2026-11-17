@@ -32,6 +32,50 @@ function device(overrides) {
 }
 
 function verify(logic) {
+    const batteryPath = "/org/freedesktop/UPower/devices/battery_BAT0";
+    same(logic.chargeDevicePaths("([objectpath '/org/freedesktop/UPower/devices/DisplayDevice', '/org/freedesktop/UPower/devices/mouse', '" + batteryPath + "'],)"),
+        ["/org/freedesktop/UPower/devices/mouse", batteryPath], "charge discovery excludes the display composite");
+    same(logic.chargeDevicePaths("(@ao [],)"), [], "charge discovery accepts no devices");
+    for (const [error, absent] of [
+        ["GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: no service", true],
+        ["GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: no owner", true],
+        ["GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: denied", false],
+        ["GDBus.Error:org.freedesktop.UPower.Device.GeneralError: driver failed", false],
+        ["", false]
+    ]) assert.equal(logic.chargeServiceAbsent(error), absent, "optional UPower absence differs from an unread device");
+    for (const [line, wanted] of [
+        ["/org/freedesktop/UPower: org.freedesktop.UPower.DeviceAdded (objectpath '" + batteryPath + "',)", true],
+        ["/org/freedesktop/UPower: org.freedesktop.UPower.DeviceRemoved (objectpath '" + batteryPath + "',)", true],
+        [batteryPath + ": org.freedesktop.DBus.Properties.PropertiesChanged ('org.freedesktop.UPower.Device', {}, [])", true],
+        ["The name org.freedesktop.UPower is owned by :1.10", true],
+        ["The name org.freedesktop.UPower does not have an owner", true],
+        ["/org/freedesktop/UPower: org.freedesktop.DBus.Mock.MethodCalled ('EnumerateDevices', [])", false],
+        ["Monitoring signals from all objects owned by org.freedesktop.UPower", false],
+        ["", false]
+    ]) assert.equal(logic.chargeSignal(line), wanted, "charge monitor reacts only to source changes");
+    const threshold = (changes = {}) => {
+        const fields = Object.assign({ Type: "uint32 2", PowerSupply: "true", IsPresent: "true",
+            ChargeThresholdSupported: "true", ChargeThresholdEnabled: "false", ChargeEndThreshold: "uint32 80" }, changes);
+        return "({" + Object.entries(fields).map(([key, value]) => "'" + key + "': <" + value + ">").join(", ") + "},)";
+    };
+    for (const [label, fields, expected] of [
+        ["supported off", {}, { path: batteryPath, enabled: false, end: 80 }],
+        ["supported on", { ChargeThresholdEnabled: "true" }, { path: batteryPath, enabled: true, end: 80 }],
+        ["unsupported", { ChargeThresholdSupported: "false" }, null],
+        ["HID battery", { PowerSupply: "false" }, null],
+        ["HID name cannot supply battery properties", { PowerSupply: "false", Model: '"\'PowerSupply\': <true>"' }, null],
+        ["line power", { Type: "uint32 1" }, null],
+        ["no battery", { IsPresent: "false" }, null],
+        ["unread enabled", { ChargeThresholdEnabled: "" }, null],
+        ["firmware limit", { ChargeEndThreshold: "uint32 0" }, { path: batteryPath, enabled: false, end: 0 }]
+    ]) {
+        const read = logic.chargeDevice(threshold(fields), batteryPath);
+        same(read, expected, "charge device: " + label);
+        const view = logic.chargeLimitView(read, false, "");
+        assert.equal(view.supported, expected !== null, "charge toggle visibility: " + label);
+        assert.equal(view.enabled, expected !== null && expected.enabled, "charge toggle readback: " + label);
+    }
+    same(logic.chargeLimitView(null, false, ""), { supported: false, enabled: false, end: 0, pending: false, problem: "" }, "no battery offers no charge toggle");
     for (const [code, text, allowed] of [
         [0, "('yes',)", true], [0, "('yes',)\n", true],
         [0, "('no',)", false], [0, "('na',)", false], [0, "('challenge',)", false],
@@ -494,6 +538,88 @@ function verifyMenu(logic) {
 
 verify(load(file));
 
+// Execute the service's request and completion methods. The Process and
+// read boundary are supplied here; the sandbox row proves the D-Bus call.
+function verifyChargeService(source) {
+    for (const [arg, enabled, code] of [["on", false, 0], ["off", true, 0], ["on", false, 1], ["off", true, 1]]) {
+        let reads = 0;
+        const scope = {
+            chargeDevice: { path: "/org/freedesktop/UPower/devices/battery_BAT0", enabled: enabled, end: 80 },
+            chargeBus: ["--system", "--dest", "org.freedesktop.UPower"], chargeInterface: "org.freedesktop.UPower.Device",
+            chargePending: false, chargeFailure: code === 0 ? "read" : "write", chargeWriter: { running: false },
+            readChargeLimits() { reads++; }, console: { warn() {} }
+        };
+        scope.root = scope;
+        vm.createContext(scope);
+        for (const name of ["chargeLimitRequest", "finishChargeWrite"]) {
+            const method = source.match(new RegExp("    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?\\n    \\}"));
+            assert.ok(method, "charge service method is readable: " + name);
+            vm.runInContext(method[0], scope);
+        }
+        assert.equal(scope.chargeLimitRequest(arg), "ok");
+        assert.equal(scope.chargeFailure, "none", "an accepted request clears earlier feedback");
+        same(scope.chargeWriter.command, ["gdbus", "call", "--system", "--dest", "org.freedesktop.UPower", "--object-path", scope.chargeDevice.path,
+            "--method", "org.freedesktop.UPower.Device.EnableChargeThreshold", arg === "on" ? "true" : "false"], "charge request uses only UPower's boolean method");
+        assert.equal(scope.chargeDevice.enabled, enabled, "a request does not mark the system state");
+        assert.equal(scope.chargeLimitRequest(arg), "refused: charge-limit=busy");
+        scope.finishChargeWrite(code);
+        assert.equal(reads, 1, "success and refusal both read the system back");
+        assert.equal(scope.chargeDevice.enabled, enabled, "completion retains the readback until another read arrives");
+        assert.equal(scope.chargeFailure, code !== 0 ? "write" : "none", "only a refused write reports a problem");
+        scope.chargePending = false;
+        scope.chargeDevice = null;
+        assert.equal(scope.chargeLimitRequest(arg), "refused: charge-limit=unsupported");
+        assert.equal(scope.chargeLimitRequest("80"), "refused: charge-limit=invalid");
+    }
+}
+const service = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+verifyChargeService(service);
+const chargeNeedle = "        readChargeLimits();\n    }\n\n    function applySourceProfile()";
+assert.equal(service.split(chargeNeedle).length, 2, "charge readback control replaces one completion");
+assert.throws(() => verifyChargeService(service.replace(chargeNeedle, "        /* readChargeLimits(); */\n    }\n\n    function applySourceProfile()")), "charge completion must read back");
+
+// A transient read failure must clear on the next successful read. A
+// write refusal belongs to the user action and survives that readback.
+function verifyChargeReadRecovery(source) {
+    for (const refusedWrite of [false, true]) {
+        const scope = {
+            Logic: load(file), chargeFailure: "none", chargePending: false,
+            chargeDevice: { path: "/org/freedesktop/UPower/devices/battery_BAT0", enabled: true, end: 80 },
+            chargeCandidate: null, chargeQueue: [], chargeReadStale: false,
+            chargeReadingPath: "/org/freedesktop/UPower/devices/battery_BAT0",
+            chargeWriter: { running: false },
+            chargeErrors: { text: "GDBus.Error:org.freedesktop.DBus.Error.NoReply: daemon restarted during read" },
+            chargeOutput: { text: "({'Type': <uint32 2>, 'PowerSupply': <true>, 'IsPresent': <true>, 'ChargeThresholdSupported': <true>, 'ChargeThresholdEnabled': <true>, 'ChargeEndThreshold': <uint32 80>},)" },
+            readChargeLimits() {}, console: { warn() {} }
+        };
+        scope.root = scope;
+        vm.createContext(scope);
+        for (const name of ["finishChargeRead", "finishChargeWrite"]) {
+            const method = source.match(new RegExp("    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?\\n    \\}"));
+            assert.ok(method, "charge recovery method is readable: " + name);
+            vm.runInContext(method[0], scope);
+        }
+        const view = source.match(/readonly property var chargeLimit: ([^\n]+)/);
+        assert.ok(view, "the service charge-limit binding is readable");
+        const reading = () => vm.runInContext(view[1], scope);
+        if (refusedWrite) {
+            scope.chargePending = true;
+            scope.finishChargeWrite(1);
+        }
+        const refusal = refusedWrite ? reading().problem : "";
+        scope.finishChargeRead(1);
+        assert.equal(reading().enabled, true, "a failed read retains the last system state");
+        assert.ok(reading().problem.length > 0, "a failed read reports unavailable feedback");
+        scope.finishChargeRead(0);
+        assert.equal(reading().problem, refusal, "a successful read clears read feedback and retains only a write refusal");
+        assert.equal(reading().enabled, true, "fresh readback retains the system state");
+    }
+}
+verifyChargeReadRecovery(service);
+const readRecoveryNeedle = 'if (chargeFailure === "read") chargeFailure = "none";';
+assert.equal(service.split(readRecoveryNeedle).length, 2, "read recovery control replaces one completion");
+assert.throws(() => verifyChargeReadRecovery(service.replace(readRecoveryNeedle, "/* " + readRecoveryNeedle + " */")), "fresh readback must clear stale read feedback");
+
 // Execute the Overlay's own JavaScript methods and frame callback, with
 // its ElapsedTimer and action IPC supplied by the test boundary. The nested
 // row separately checks Qt's input and rendering wiring.
@@ -552,6 +678,8 @@ for (const [label, needle, replacement] of [
 }
 
 const CONTROLS = [
+    ["HID batteries never offer charging control", "fields.PowerSupply !== \"true\"", "false"],
+    ["unsupported batteries offer no control", "fields.ChargeThresholdSupported !== \"true\"", "false"],
     ["the hold is exactly 2000 ms, not less", "var HOLD_MS = 2000;", "var HOLD_MS = 1999;"],
     ["the hold is exactly 2000 ms, not more", "var HOLD_MS = 2000;", "var HOLD_MS = 3000;"],
     ["a release ends the hold", "if (hold.phase === \"holding\") return source === hold.source ? holdIdle() : hold;", "if (hold.phase === \"holding\") return hold;"],

@@ -3470,25 +3470,38 @@ then ok "capture scenes isolate theme targets, release failed setup, enable Noti
 # follow the panel's.
 power_scene="$tmp/power-scene.sh"
 catalog_extract scene_power "$power_scene"
+power_charge_scene="$tmp/power-charge-scene.sh"
+catalog_extract power_shot_charge_limits "$power_charge_scene"
+power_charge_take="$tmp/power-charge-take.sh"
+catalog_extract power_shot_charge_take "$power_charge_take"
 power_tree="$tmp/power-tree"
 mkdir -p "$power_tree/shell/plugins/vgs.power"
 : >"$power_tree/shell/plugins/vgs.power/Pane.qml"
+: >"$power_tree/shell/plugins/vgs.power/Service.qml"
 power_scene_case() { # SCENE [WANT [TREE]]
-  local want="${2:-$'power-dark-bar\npower-dark-panel\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery'}"
+  local want="${2:-$'power-dark-bar\npower-dark-panel\npower-dark-panel-charge-limit-off\npower-dark-panel-charge-limit-on\npower-dark-panel-charge-limit-refused\npower-dark-panel-charge-limit-unsupported\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery'}"
   env -i PATH="$PATH" tree="${3:-$power_tree}" "$BASH" -c '
     set -euo pipefail
     source "$1"
+    source "$2"
+    source "$3"
+    power_charge_battery=/org/freedesktop/UPower/devices/mock_BAT0
+    expected_errors=()
     devices_ready() { :; }
     devices_usb_wake() { :; }
     power_logind_start() { logind=ready; power_sleep_replies="$tree/replies"; mkdir -p -- "$power_sleep_replies"; }
     power_logind_stop() { logind=stopped; }
     power_start_mocks() { daemon=up; }
+    power_charge_add_hid() { [[ ${daemon:-} == up ]]; }
+    power_charge_setup() { :; }
+    power_charge_mock_set() { :; }
+    power_charge_mock_mode() { :; }
     tree_rescan() { [[ ${daemon:-} == up ]] && scanned=yes; }
     ipc() {
       if [[ $* == "shell setPluginEnabled vgs.power true" ]]; then
         [[ ${daemon:-} == up && ${scanned:-} == yes && ${logind:-} == ready ]] || return 1
       fi
-      echo ok
+      if [[ $* == "smoke instanceGeometry panel vgs.power" ]]; then echo "[0, 0, 200, 300]"; else echo ok; fi
     }
     expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]]; }
     expect_poll() { :; }
@@ -3504,11 +3517,12 @@ power_scene_case() { # SCENE [WANT [TREE]]
     notes_off() { :; }
     power_stop_mocks() { :; }
     power_shot_pane() { take "power-$1-pane"; }
+    record_item() { [[ $2 == "[0, 0, 200, 300]" ]]; }
     fail() { exit 1; }
     take() { printf "%s\n" "$1"; }
     scene_power dark
     [[ $logind == stopped ]]
-  ' _ "$1" >"$tmp/power-scene.out" &&
+  ' _ "$1" "$power_charge_scene" "$power_charge_take" >"$tmp/power-scene.out" &&
     [[ $(<"$tmp/power-scene.out") == "$want" ]]
 }
 if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices and its panel with no battery"; else fail "Power scene order or captures failed"; fi
@@ -3518,7 +3532,8 @@ power_awake_tree="$tmp/power-awake-tree"
 mkdir -p "$power_awake_tree/shell/plugins/vgs.power"
 : >"$power_awake_tree/shell/plugins/vgs.power/Pane.qml"
 : >"$power_awake_tree/shell/plugins/vgs.power/StayAwake.qml"
-if power_scene_case "$power_scene" $'power-dark-bar\npower-dark-panel\npower-dark-bar-stay-awake\npower-dark-panel-stay-awake\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery\npower-dark-bar-no-battery-stay-awake\npower-dark-panel-no-battery-stay-awake' "$power_awake_tree"; then
+printf 'handle("charge-limit"\n' >"$power_awake_tree/shell/plugins/vgs.power/Service.qml"
+if power_scene_case "$power_scene" $'power-dark-bar\npower-dark-panel\npower-dark-panel-charge-limit-off\npower-dark-panel-charge-limit-on\npower-dark-panel-charge-limit-refused\npower-dark-panel-charge-limit-unsupported\npower-dark-bar-stay-awake\npower-dark-panel-stay-awake\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery\npower-dark-bar-no-battery-stay-awake\npower-dark-panel-no-battery-stay-awake' "$power_awake_tree"; then
   ok "a tree with Stay awake adds its bar and flyout shots with and without a battery"
 else
   fail "Power scene Stay awake captures failed"

@@ -81,6 +81,56 @@ PY_UNLINK
 power_bus_has() { power_call --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" | py_reply 'import sys; print("true" if "true" in sys.stdin.read().lower() else "false")'; }
 power_upower() { power_call --dest org.freedesktop.UPower --object-path /org/freedesktop/UPower --method "$@" >/dev/null; }
 power_add_battery() { power_call --dest org.freedesktop.UPower --object-path /org/freedesktop/UPower --method org.freedesktop.DBus.Mock.AddDischargingBattery mock_BAT0 "Smoke Battery" "${1:-51.0}" "${2:-5400}" | py_reply "import re,sys; m=re.search(r\"'([^']+)'\", sys.stdin.read()); print(m.group(1) if m else '')"; }
+power_charge_battery=/org/freedesktop/UPower/devices/mock_BAT0
+power_charge_hid=/org/freedesktop/UPower/devices/mock_HID
+power_charge_call() { # DEVICE METHOD [ARGS...]: sandbox UPower only
+  local path="$1"
+  shift
+  power_call --dest org.freedesktop.UPower --object-path "$path" --method "$@" >/dev/null
+}
+power_charge_mock_mode() { # DEVICE apply|unchanged|refuse
+  local code
+  case "$2" in
+    apply) code='self.UpdateProperties("org.freedesktop.UPower.Device", {"ChargeThresholdEnabled": dbus.Boolean(args[0])})' ;;
+    unchanged) code='' ;;
+    refuse) code='raise dbus.exceptions.DBusException("Charge limit refused by fixture", name="org.freedesktop.UPower.Error.General")' ;;
+    *) echo "power: charge-fixture=unknown-mode value=$2" >&2; return 1 ;;
+  esac
+  power_charge_call "$1" org.freedesktop.DBus.Mock.AddMethod org.freedesktop.UPower.Device EnableChargeThreshold b '' "$code"
+}
+power_charge_mock_add() { # DEVICE SUPPORTED ENABLED END
+  power_charge_call "$1" org.freedesktop.DBus.Mock.AddProperties org.freedesktop.UPower.Device "{'ChargeThresholdSupported': <$2>, 'ChargeThresholdEnabled': <$3>, 'ChargeEndThreshold': <uint32 $4>}" || return
+  power_charge_mock_mode "$1" apply
+}
+power_charge_mock_set() { # DEVICE PROPERTY_DICTIONARY
+  power_charge_call "$1" org.freedesktop.DBus.Mock.UpdateProperties org.freedesktop.UPower.Device "$2"
+}
+power_charge_add_hid() {
+  power_upower org.freedesktop.DBus.Mock.AddDischargingBattery mock_HID "Smoke HID Battery" 73.0 3600 || return
+  power_charge_mock_set "$power_charge_hid" "{'PowerSupply': <false>}" || return
+  power_charge_mock_add "$power_charge_hid" true true 65
+}
+power_charge_setup() {
+  # Both traps advertise limits that differ from the actual system battery.
+  power_charge_mock_add "$power_charge_battery" true false 80 || return
+  power_charge_mock_add /org/freedesktop/UPower/devices/DisplayDevice true true 60
+}
+power_charge_state() { ipc smoke statusValues vgs.power | py_reply 'import json,sys
+limit = json.load(sys.stdin).get("power", {}).get("chargeLimit", {})
+print(json.dumps([limit.get("supported"), limit.get("enabled"), limit.get("end"), limit.get("pending"), bool(limit.get("problem"))]))'; }
+power_charge_field() { ipc smoke itemValues panel vgs.power Switch checked,visible,Accessible.name | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r.get("visible") and r.get("Accessible.name") == "Charge limit"]
+print("hidden" if not rows else "on" if rows[0]["checked"] else "off")'; }
+power_charge_error() {
+  local status texts
+  status="$(ipc smoke statusValues vgs.power)" || return
+  texts="$(ipc smoke itemTexts panel vgs.power Field)" || return
+  ipc smoke itemValues panel vgs.power Field error,visible | py_reply 'import json,sys
+problem = json.loads(sys.argv[1]).get("power", {}).get("chargeLimit", {}).get("problem", "")
+texts = json.loads(sys.argv[2])
+rows = json.load(sys.stdin)
+print("shown" if problem and sum(r.get("visible") and r.get("error") == problem and problem in t for r,t in zip(rows,texts)) == 1 else "hidden")' "$status" "$texts"
+}
 power_profile_get() { power_call --dest org.freedesktop.UPower.PowerProfiles --object-path /org/freedesktop/UPower/PowerProfiles --method org.freedesktop.DBus.Properties.Get org.freedesktop.UPower.PowerProfiles ActiveProfile | py_reply "import re,sys; m=re.search(r\"'([^']+)'\", sys.stdin.read()); print(m.group(1) if m else '')"; }
 power_profile_set_mock() { power_call --dest org.freedesktop.UPower.PowerProfiles --object-path /org/freedesktop/UPower/PowerProfiles --method org.freedesktop.DBus.Properties.Set org.freedesktop.UPower.PowerProfiles ActiveProfile "<'$1'>" >/dev/null; }
 power_on_battery() { power_upower org.freedesktop.DBus.Properties.Set org.freedesktop.UPower OnBattery "<$1>"; }

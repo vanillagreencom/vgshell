@@ -16,6 +16,7 @@ FocusScope {
     readonly property var power: shell === null || shell.status.values.power === undefined ? null : shell.status.values.power
     readonly property var battery: power && power.battery ? power.battery : { present: false, level: 0, charging: false, state: "absent", secondsToEmpty: 0, secondsToFull: 0 }
     readonly property var batteryState: Logic.stateView(battery)
+    readonly property var chargeLimit: power && power.chargeLimit ? power.chargeLimit : Logic.chargeLimitView(null, false, "")
     readonly property var profile: power && power.profile ? power.profile : { available: false, active: "balanced", choices: [] }
     readonly property var profileTiles: profile.choices.map(p => ({ text: Logic.profileLabel(p), icon: Logic.profileIcon(p), available: true }))
     readonly property int activeIndex: Math.max(0, profile.choices.indexOf(profile.active))
@@ -61,7 +62,7 @@ FocusScope {
 
             Column {
                 width: parent.width
-                spacing: Theme.stack.row
+                spacing: Theme.stack.group
 
                 Field {
                     width: parent.width
@@ -104,6 +105,28 @@ FocusScope {
                     from: 0
                     to: 100
                     value: root.battery.level
+                }
+            }
+
+            Field {
+                visible: root.chargeLimit.supported
+                width: parent.width
+                label: "Charge limit"
+                inline: true
+                info: "A lower charge limit can reduce battery wear. Turn this off to charge fully."
+                hint: Logic.chargeLimitHint(root.chargeLimit)
+                error: root.chargeLimit.problem
+
+                Switch {
+                    id: chargeControl
+                    Accessible.name: "Charge limit"
+                    checked: root.chargeLimit.enabled
+                    disabledReason: root.chargeLimit.pending ? "Wait for the charging limit to update." : ""
+                    onToggled: {
+                        const reply = root.shell.ipc.call("charge-limit", checked ? "on" : "off");
+                        checked = Qt.binding(() => root.chargeLimit.enabled);
+                        if (reply !== "ok") console.warn("power panel: charge limit " + reply);
+                    }
                 }
             }
 

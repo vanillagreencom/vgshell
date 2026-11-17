@@ -75,6 +75,17 @@ Item {
     readonly property int lockedDisplayOffSeconds: 10
 
     property var profile: Logic.profileView("")
+    property var chargeDevice: null
+    property var chargeCandidate: null
+    property var chargeQueue: []
+    property string chargeReadingPath: ""
+    property bool chargeReadStale: false
+    property bool chargePending: false
+    // A refused user action keeps its feedback through automatic readback.
+    property string chargeFailure: "none"
+    readonly property var chargeLimit: Logic.chargeLimitView(chargeDevice, chargePending, Logic.chargeProblemText(chargeFailure))
+    readonly property string chargeInterface: "org.freedesktop.UPower.Device"
+    readonly property var chargeBus: ["--system", "--dest", "org.freedesktop.UPower"]
     // A daemon line that arrived while a read ran: one more read follows.
     property bool profileReadStale: false
     // The newest profile asked for while a write ran: it is written next.
@@ -103,7 +114,7 @@ Item {
     readonly property int stayAwakeMinutes: Logic.stayAwakeMinutes(shell === null ? undefined : shell.settings.stayAwakeMinutes)
     readonly property bool batteryCritical: shell !== null && Logic.batteryCritical(battery.level, Logic.batteryDischarging(battery), shell.settings.criticalThreshold)
     readonly property bool stayAwakeOn: stayAwakeHold !== null
-    readonly property var view: ({ battery: battery, profile: profile, stayAwake: { active: stayAwakeOn, endsAt: stayAwakeOn ? stayAwakeHold.endsAt : 0, minutes: stayAwakeMinutes } })
+    readonly property var view: ({ battery: battery, profile: profile, chargeLimit: chargeLimit, stayAwake: { active: stayAwakeOn, endsAt: stayAwakeOn ? stayAwakeHold.endsAt : 0, minutes: stayAwakeMinutes } })
     readonly property string viewKey: JSON.stringify(view)
     readonly property string noticeKey: JSON.stringify({
         battery: battery,
@@ -150,6 +161,7 @@ Item {
         wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
         shell.ipc.handle("profile", arg => root.profileRequest(arg));
+        shell.ipc.handle("charge-limit", arg => root.chargeLimitRequest(String(arg)));
         shell.ipc.handle("stay-awake", arg => root.stayAwakeRequest(String(arg)));
         // The step resolves hdparm in safe system directories; the scan
         // can miss an installed command outside the session's PATH.
@@ -164,6 +176,8 @@ Item {
         shell.ipc.handle("action", arg => root.requestAction(String(arg || "")));
         restoreStayAwake();
         profileWatch.running = true;
+        chargeWatch.running = true;
+        readChargeLimits();
         prepareForSleepWatch.running = true;
         shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
         readSleepActions();
@@ -569,6 +583,78 @@ Item {
         profileReader.running = true;
     }
 
+    // Quickshell 0.3.1's UPowerDevice has no D-Bus object path or charge
+    // threshold API, so enumerate real devices and read their properties.
+    // One monitor owns discovery, removal and external threshold changes.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.UPower/UPowerDevice
+    // https://upower.freedesktop.org/docs/UPower.html
+    function readChargeLimits() {
+        if (chargeReader.running) {
+            chargeReadStale = true;
+            return;
+        }
+        chargeReadStale = false;
+        chargeReadingPath = "";
+        chargeCandidate = null;
+        chargeReader.command = ["gdbus", "call"].concat(chargeBus, ["--object-path", "/org/freedesktop/UPower", "--method", "org.freedesktop.UPower.EnumerateDevices"]);
+        chargeReader.exitCode = null;
+        chargeReader.running = true;
+    }
+
+    function finishChargeRead(code) {
+        if (code !== 0) {
+            // UPower is optional. Its name disappearing removes the
+            // control; a failed read from an existing service is an error.
+            if (Logic.chargeServiceAbsent(chargeErrors.text)) {
+                chargeDevice = null;
+                chargePending = false;
+                if (chargeReadStale) readChargeLimits();
+                return;
+            }
+            console.warn("power: charge limit read path=" + chargeReadingPath + " exit=" + code);
+            chargePending = chargeWriter.running;
+            if (chargeDevice !== null && chargeFailure !== "write") chargeFailure = "read";
+            if (chargeReadStale) readChargeLimits();
+            return;
+        }
+        if (chargeReadingPath === "") chargeQueue = Logic.chargeDevicePaths(chargeOutput.text);
+        else if (chargeCandidate === null) chargeCandidate = Logic.chargeDevice(chargeOutput.text, chargeReadingPath);
+        if (chargeQueue.length > 0 && chargeCandidate === null) {
+            chargeReadingPath = chargeQueue[0];
+            chargeQueue = chargeQueue.slice(1);
+            chargeReader.command = ["gdbus", "call"].concat(chargeBus, ["--object-path", chargeReadingPath, "--method", "org.freedesktop.DBus.Properties.GetAll", chargeInterface]);
+            chargeReader.exitCode = null;
+            chargeReader.running = true;
+            return;
+        }
+        chargeDevice = chargeCandidate;
+        if (chargeFailure === "read") chargeFailure = "none";
+        if (chargeReadStale) readChargeLimits();
+        else chargePending = chargeWriter.running;
+    }
+
+    function chargeLimitRequest(arg) {
+        if (arg !== "on" && arg !== "off") return "refused: charge-limit=invalid";
+        if (chargeDevice === null) return "refused: charge-limit=unsupported";
+        if (chargePending) return "refused: charge-limit=busy";
+        chargeFailure = "none";
+        chargePending = true;
+        chargeWriter.command = ["gdbus", "call"].concat(chargeBus, ["--object-path", chargeDevice.path, "--method", chargeInterface + ".EnableChargeThreshold", arg === "on" ? "true" : "false"]);
+        chargeWriter.exitCode = null;
+        chargeWriter.running = true;
+        return "ok";
+    }
+
+    function finishChargeWrite(code) {
+        if (code !== 0) {
+            console.warn("power: charge limit write exit=" + code);
+            chargeFailure = "write";
+        }
+        // Never mark the requested state: success and refusal both read
+        // the system back. Nothing is stored in VGS settings.
+        readChargeLimits();
+    }
+
     function applySourceProfile() {
         if (shell === null || !profile.available) return;
         setProfile(Logic.profileForSource(UPower.onBattery, shell.settings, profile.choices), false);
@@ -821,5 +907,30 @@ Item {
             }
             if (root.profileWanted !== "") root.writeProfile(root.profileWanted);
         }
+    }
+
+    Process {
+        id: chargeWatch
+        command: ["gdbus", "monitor"].concat(root.chargeBus)
+        stdout: SplitParser { onRead: line => { if (Logic.chargeSignal(line)) root.readChargeLimits(); } }
+    }
+
+    // waitForEnd completes stdout before running becomes false. Failed
+    // starts have no exited signal, so runningChanged owns completion.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Process {
+        id: chargeReader
+        property var exitCode: null
+        stdout: StdioCollector { id: chargeOutput; waitForEnd: true }
+        stderr: StdioCollector { id: chargeErrors; waitForEnd: true }
+        onExited: code => { exitCode = code; }
+        onRunningChanged: if (!running) root.finishChargeRead(exitCode === null ? -1 : exitCode)
+    }
+
+    Process {
+        id: chargeWriter
+        property var exitCode: null
+        onExited: code => { exitCode = code; }
+        onRunningChanged: if (!running) root.finishChargeWrite(exitCode === null ? -1 : exitCode)
     }
 }

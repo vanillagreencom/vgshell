@@ -69,6 +69,78 @@ function batteryView(device, onBattery) {
     };
 }
 
+// UPower's EnumerateDevices reply, as gdbus prints its object-path array.
+// The display device is a composite reading, never a threshold target.
+// https://upower.freedesktop.org/docs/UPower.html
+function chargeDevicePaths(text) {
+    var paths = [];
+    var source = String(text), match;
+    var pattern = /'(\/org\/freedesktop\/UPower\/devices\/[A-Za-z0-9_]+)'/g;
+    while ((match = pattern.exec(source)) !== null)
+        if (match[1] !== "/org/freedesktop/UPower/devices/DisplayDevice" && paths.indexOf(match[1]) === -1) paths.push(match[1]);
+    return paths;
+}
+
+function chargeSignal(line) {
+    var text = String(line);
+    return /^\/org\/freedesktop\/UPower(?:\/[A-Za-z0-9_]+)*: (?:org\.freedesktop\.UPower\.Device(?:Added|Removed)|org\.freedesktop\.DBus\.Properties\.PropertiesChanged) /.test(text)
+        || text.indexOf("The name org.freedesktop.UPower ") === 0;
+}
+
+// Device names are untrusted strings. Strip their values before reading
+// primitive properties, and ignore nested dictionaries and variants.
+function dbusProperties(text, names) {
+    var source = String(text).replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, function (token) {
+        return token[0] === "'" && names.indexOf(token.slice(1, -1)) !== -1 ? token : "''";
+    });
+    if (!/^\(\{[\s\S]*\},\)\s*$/.test(source)) return null;
+    var fields = {}, depth = 0, match;
+    var tokens = /[{}]|'([A-Za-z]+)': <([^<>]*)>/g;
+    while ((match = tokens.exec(source)) !== null) {
+        if (match[0] === "{") depth++;
+        else if (match[0] === "}") depth--;
+        else if (depth === 1) fields[match[1]] = match[2];
+    }
+    return fields;
+}
+
+// Only a present system battery with the threshold API is eligible.
+// UPower defines laptop batteries as Type=2 and PowerSupply=true; HID
+// batteries may also have Type=2. A missing end threshold means firmware
+// chooses the limit, so it must never become an invented percentage.
+// https://upower.freedesktop.org/docs/Device.html
+function chargeDevice(text, path) {
+    var fields = dbusProperties(text, ["Type", "PowerSupply", "IsPresent", "ChargeThresholdSupported", "ChargeThresholdEnabled", "ChargeEndThreshold"]);
+    if (fields === null || fields.Type !== "uint32 2" || fields.PowerSupply !== "true"
+        || fields.IsPresent !== "true" || fields.ChargeThresholdSupported !== "true") return null;
+    if (fields.ChargeThresholdEnabled !== "true" && fields.ChargeThresholdEnabled !== "false") return null;
+    var end = /^uint32 ([0-9]+)$/.exec(fields.ChargeEndThreshold || "");
+    var value = end === null ? 0 : Number(end[1]);
+    return { path: path, enabled: fields.ChargeThresholdEnabled === "true", end: value > 0 && value <= 100 ? value : 0 };
+}
+
+function chargeLimitView(device, pending, problem) {
+    return { supported: device !== null, enabled: device !== null && device.enabled,
+        end: device === null ? 0 : device.end, pending: pending === true, problem: String(problem || "") };
+}
+
+function chargeLimitHint(limit) {
+    return limit.end > 0 ? "Stops at " + limit.end + "%" : "The battery sets the limit";
+}
+
+function chargeServiceAbsent(stderr) {
+    return /org\.freedesktop\.DBus\.Error\.(?:ServiceUnknown|NameHasNoOwner)\b/.test(String(stderr));
+}
+
+function chargeProblemText(failure) {
+    switch (failure) {
+    case "none": return "";
+    case "read": return "Could not read the limit.";
+    case "write": return "Could not change the limit.";
+    default: throw new Error("power: charge-failure=" + JSON.stringify(failure));
+    }
+}
+
 function validProfile(name) {
     return name === PROFILE.saver || name === PROFILE.balanced || name === PROFILE.performance;
 }
@@ -557,19 +629,8 @@ function wakeProblemText(failure, on) {
 // loses the combined keyboard/pointing class (src/dbus-common.c).
 function bluetoothWakeReading(code, text) {
     if (code !== 0) return { state: "failed", reason: "read-failed" };
-    // Remove string values before looking for primitive top-level fields.
-    // Device-provided names and nested service data cannot become fields.
-    var source = String(text).replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, function (token) {
-        return /^'(?:WakeAllowed|Class|Appearance)'$/.test(token) ? token : "''";
-    });
-    if (!/^\(\{[\s\S]*\},\)\s*$/.test(source)) return { state: "failed", reason: "read-invalid" };
-    var fields = {}, depth = 0, match;
-    var tokens = /[{}]|'(WakeAllowed|Class|Appearance)': <([^<>]*)>/g;
-    while ((match = tokens.exec(source)) !== null) {
-        if (match[0] === "{") depth++;
-        else if (match[0] === "}") depth--;
-        else if (depth === 1) fields[match[1]] = match[2];
-    }
+    var fields = dbusProperties(text, ["WakeAllowed", "Class", "Appearance"]);
+    if (fields === null) return { state: "failed", reason: "read-invalid" };
     if (!hasOwn(fields, "WakeAllowed")) return { state: "unsupported" };
     if (fields.WakeAllowed !== "true" && fields.WakeAllowed !== "false") return { state: "failed", reason: "read-invalid" };
     var kind = hasOwn(fields, "Class") ? /^(?:uint32 )?(\d+)$/.exec(fields.Class) : null;

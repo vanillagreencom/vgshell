@@ -35,3 +35,7 @@ Open System Settings → Hardware → Power to set display and sleep times, batt
 Choose Stay awake in the flyout or Power page for 30 minutes, 1 hour, 2 hours, 4 hours or until you turn it off. The flyout offers the duration you used last. Stay awake ends when its time runs out, you select End, a discharging battery reaches the critical alert level, or VGS restarts. Your idle and sleep settings stay as they are.
 
 Power changes your wired connections only after you set Wake on LAN. When you turn the Power plugin off, the wired connections keep the last value, so turn Wake on LAN off first.
+
+## Limit charging
+
+On a computer whose battery supports a charge limit, the Power flyout shows Charge limit. Turn it on to stop charging at the battery's limit, or off to charge fully. The system keeps the choice when VGS restarts. A computer without a supported battery shows no toggle.

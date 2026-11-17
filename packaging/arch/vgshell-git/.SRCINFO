@@ -1,6 +1,6 @@
 pkgbase = vgshell-git
 	pkgdesc = Desktop shell for Hyprland, built on Quickshell (development version)
-	pkgver = 0.1.4.r442.g885afd6
+	pkgver = 0.1.4.r543.g150a531
 	pkgrel = 1
 	url = https://github.com/vanillagreencom/vgshell
 	install = vgshell-git.install
@@ -71,6 +71,7 @@ pkgbase = vgshell-git
 	optdepends = agent-browser-bin: Jarvis browser actions
 	optdepends = wlrctl: Jarvis desktop input
 	optdepends = ttfx: animates the Screensaver text art
+	optdepends = upower: reads battery state and controls charging limits in the Power plugin
 	optdepends = power-profiles-daemon: switches the power profile in the Power plugin
 	optdepends = hdparm: lets idle hard disks stop spinning in the Power plugin
 	optdepends = bandwhich: See all network traffic in the Network Traffic plugin
