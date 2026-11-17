@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
+import "../foundation/LineBreak.js" as LineBreak
 
 // Text with cited substrings as independent links. The text property is plain
 // text; every occurrence of `link` is drawn as a link and activates the
@@ -55,6 +56,7 @@ T.Control {
     property string link: ""
     property string role: "body"
     property bool focusPreview: false
+    property bool wrapAtSpaces: false
     property alias color: label.color
     property color linkColor: Theme.color.accent
     property alias wrapMode: label.wrapMode
@@ -80,7 +82,15 @@ T.Control {
     readonly property real ringRoom: Theme.focusRing.offset + Theme.focusRing.width + 1
     // The text drawn: `plain` with the gaps the ring needs.
     readonly property var layout: positioned(underline.font)
-    readonly property string drawn: layout.text
+    readonly property string drawn: wrapAtSpaces ? spaceWrapped : layout.text
+    property string spaceWrapped: ""
+    // Replacing spaces with newlines keeps link offsets in the plain twin.
+    // Measure from handlers, as Label does: TextMetrics.text is writable.
+    function breakLines() { if (wrapAtSpaces) spaceWrapped = LineBreak.atSpaces(layout.text, width, lineMetrics); }
+    onLayoutChanged: breakLines()
+    onWidthChanged: breakLines()
+    onWrapAtSpacesChanged: breakLines()
+    Component.onCompleted: breakLines()
     // The selected link and the marks against its end, as the
     // [start, end) indices of `drawn`.
     readonly property var run: linked && currentLink < layout.links.length ? [layout.links[currentLink].start, marked(layout.links[currentLink].end)] : [0, 0]
@@ -236,7 +246,7 @@ T.Control {
     }
 
     readonly property real inkAbove: label.y + label.inkAbove
-    function topForLeadingIcon(iconHeight, origin) { return label.y + label.topForLeadingIcon(iconHeight, origin); }
+    function topForLeadingIcon(iconHeight, origin, link) { return label.y + label.topForLeadingIcon(iconHeight, origin, link); }
 
     // positionAt reads layout through a method, so follow its inputs and
     // layout notifications explicitly, as the link boxes above do.
@@ -323,6 +333,12 @@ T.Control {
     FontMetrics {
         id: underline
         font: label.font
+    }
+
+    TextMetrics {
+        id: lineMetrics
+        font: label.font
+        onFontChanged: root.breakLines()
     }
 
     // FocusRing stands `focusRing.offset` outside this item, the words'

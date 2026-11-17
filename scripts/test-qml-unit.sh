@@ -81,6 +81,9 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "a notice message loses its main-line weight|feedback/Callout.qml|role: \"bodyStrong\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|role: \"body\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
+  "a notice icon centres on x-height alone|feedback/Callout.qml|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)|tst_callout.qml|test_the_message_is_the_main_line"
+  "a notice breaks inside a page reference|feedback/Callout.qml|wrapAtSpaces: true|wrapAtSpaces: false|tst_callout.qml|test_a_page_reference_wraps_before_its_words"
   "a notice loses its tone's default icon|feedback/Callout.qml|name: root.iconName !== \"\" ? root.iconName : root.tokens.icon|name: root.iconName|tst_callout.qml|test_the_tone_supplies_its_icon"
   "box top padding returns to the item box|../Commons/ClearingInset.qml|readonly property real topPadding: pad - Math.floor(topInk)|readonly property real topPadding: pad|tst_box_ink.qml|test_equal_drawn_gaps"
   "box ink binds back through its assigned viewport|../Commons/ClearingInset.qml|readonly property real topPadding: pad - Math.floor(topInk)|readonly property real topPadding: pad - Math.floor(observedTopInk)|tst_pane.qml"
@@ -1016,10 +1019,10 @@ mutations=(
   "a plain notice draws its title's markup|feedback/Callout.qml|textFormat: root.plain ? Text.PlainText : Text.AutoText|textFormat: Text.AutoText|tst_callout.qml"
   "a plain notice links its text's page reference|feedback/Callout.qml|text: root.plain ? \"\" : root.text|text: root.text|tst_callout.qml"
   "an unknown notice state draws as danger|feedback/Callout.qml|return Theme.callout.tone.info;|return Theme.callout.tone.danger;|tst_callout.qml"
-  "a notice's icon centres on the block|feedback/Callout.qml|y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)|y: Math.round((root.height - height) / 2)|tst_callout.qml"
+  "a notice's icon centres on the block|feedback/Callout.qml|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)|x: Theme.callout.padding"$'\n'"            y: Math.round((root.height - height) / 2)|tst_callout.qml"
   "a notice's X touches its edge|feedback/Callout.qml|x: root.width - Theme.callout.padding - width|x: root.width - width|tst_callout.qml"
   "a notice's title runs under its X|feedback/Callout.qml|parent.width - (close.visible ? close.width + Theme.callout.iconGap : 0)|parent.width|tst_callout.qml"
-  "a notice's X leaves the title line|feedback/Callout.qml|root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)|root.leadLine.height|tst_callout.qml"
+  "a notice's X leaves the title line|feedback/Callout.qml|root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)"$'\n'"            size: \"sm\"|root.leadLine.height"$'\n'"            size: \"sm\"|tst_callout.qml"
   "a notice's opt-out ignores its right edge|feedback/Callout.qml|x: parent.width - width|x: 0|tst_callout.qml"
   "a notice's opt-out uses body text|feedback/Callout.qml|role: \"calloutDismiss\"|role: \"body\"|tst_callout.qml"
   "a notice's opt-out takes the accent|feedback/Callout.qml|linkColor: Theme.callout.dismiss|linkColor: Theme.callout.link.foreground|tst_callout.qml"

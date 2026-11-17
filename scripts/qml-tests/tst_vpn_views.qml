@@ -419,7 +419,8 @@ Item {
             open(data.component, dropped);
             publish(dropped, killState(ready, valid(root.home, "block"), "state=passing reason=tunnel-up blocked=0 tunnel=wg0 profile=" + root.home));
             verify(named("vpn-blocked") === null, "no notice while the tunnel passes");
-            verify(infoButton(named("vpn-kill-switch-field")) === null, "no count and no info button while the tunnel passes");
+            verify(infoButton(named("vpn-kill-switch-field")) !== null, "the setting keeps its one help control while the tunnel passes");
+            compare(named("vpn-kill-switch").info, "", "the section adds no second help control");
 
             publish(dropped, killState(ready, valid(root.home, "block"), holding));
             const notice = named("vpn-blocked");
@@ -480,7 +481,7 @@ Item {
             const connecting = root.payload(root.standIn, { states: { [root.home]: "activating" } });
             publish(connecting, killState(ready, valid(root.home, "block"), holding));
             verify(named("vpn-blocked") === null, "no notice while the named profile connects");
-            verify(infoButton(named("vpn-kill-switch-field")) === null, "no info button while the named profile connects");
+            verify(infoButton(named("vpn-kill-switch-field")) !== null, "the setting keeps its help control while the named profile connects");
             verify(row(root.home).view.key !== "dropped");
             verify(named("vpn-reconnect:" + root.home) === null, "no Reconnect while the profile connects");
             publish(dropped, killState(ready, valid(root.home, "block"), "state=holding reason=tunnel-down blocked=3 tunnel= profile=" + root.office));

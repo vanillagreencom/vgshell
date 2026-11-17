@@ -142,7 +142,7 @@ T.Control {
         // read inside the font group's own binding loops (Qt 6.11).
         readonly property real size: root.corner ? Theme.bar.stacked.size : typography.size
         font.pixelSize: size
-        font.letterSpacing: typography.letterSpacing * size
+        font.letterSpacing: typography.letterSpacing * size + (root.unread ? Theme.badge.unread.letterSpacing : 0)
         text: root.displayedText
         color: root.foreground
         x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)

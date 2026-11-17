@@ -1783,7 +1783,7 @@ const LED_LINES = [
     { file: "shell/Ui/controls/TitleButton.qml", label: "label", icon: 'name: "chevron-down"' },
     {
         file: "shell/Ui/feedback/Callout.qml", icon: "name: root.iconName",
-        binding: "y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)",
+        binding: "y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)",
         centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },

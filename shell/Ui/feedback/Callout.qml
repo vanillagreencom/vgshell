@@ -11,7 +11,7 @@ import qs.Ui
 // unknown name is logged and drawn as `info`. The tone supplies the icon
 // when `iconName` is empty. Only the leading icon
 // takes its `foreground`; the title and text use callout.title in
-// bodyStrong and callout.text in body, solved from normal text and muted
+// bodyStrong and callout.text in bodyStrong, solved from normal text and muted
 // text to the readability floor on the banner fill. The lines stand
 // `callout.gap` apart, `callout.iconGap`
 // after the icon. The icon centres on the first shown line as a leading
@@ -103,7 +103,7 @@ Rectangle {
             size: Theme.icon.size.md
             color: root.tokens.foreground
             x: Theme.callout.padding
-            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)
+            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)
         }
 
         Column {
@@ -126,10 +126,11 @@ Rectangle {
                 id: body
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
-                role: "body"
+                role: "bodyStrong"
                 color: Theme.callout.text
                 linkColor: Theme.callout.link.foreground
                 text: root.plain ? "" : root.text
+                wrapAtSpaces: true
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.pageActivated(page, tab)
             }
@@ -137,7 +138,7 @@ Rectangle {
                 id: plainBody
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
-                role: "body"
+                role: "bodyStrong"
                 color: Theme.callout.text
                 textFormat: Text.PlainText
                 text: root.plain ? root.text : ""

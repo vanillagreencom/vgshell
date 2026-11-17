@@ -23,6 +23,7 @@ Item {
     ]
     readonly property var hues: ({ danger: 0, warning: 40 / 360 })
     readonly property string longText: "This notice runs on for long enough that it has to wrap onto a second line and then a third one at the width the test gives it."
+    TextMetrics { id: linkMeasure }
 
     Component {
         id: made
@@ -154,6 +155,38 @@ Item {
             compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding + icon(callout).width + Theme.callout.iconGap, "the line clears its tone's icon");
             callout.linkText = "Turn VPN off";
             tryVerify(() => link(callout).mapToItem(callout, 0, 0).y >= words.mapToItem(callout, 0, words.height).y + Theme.callout.gap);
+            callout.destroy();
+        }
+
+        function test_the_message_is_the_main_line_data() {
+            return [{ tag: "linked", plain: false }, { tag: "plain", plain: true }];
+        }
+
+        function test_the_message_is_the_main_line(data) {
+            const callout = make({ text: "Notice available", plain: data.plain });
+            const words = data.plain ? plainBody(callout) : body(callout);
+            const drawn = data.plain ? words : words.children[0];
+            verify(drawn.font.weight > Theme.text.body.weight, "the message has stronger text weight than body copy");
+            const centre = words.mapToItem(callout, 0, (words.height + words.inkAbove - words.inkBelow) / 2).y;
+            const ratio = words.Screen.devicePixelRatio;
+            const snapped = Math.round((centre - icon(callout).height / 2) * ratio) / ratio + icon(callout).height / 2;
+            fuzzyCompare(icon(callout).mapToItem(callout, 0, icon(callout).height / 2).y, snapped, 0.01, "the icon shares the single line's ink centre on a device pixel");
+            callout.destroy();
+        }
+
+        function test_a_page_reference_wraps_before_its_words() {
+            const callout = make({ text: "Change the shortcut in [Settings/Keys](page:vgs.launcher/Settings/Keys)." });
+            const words = body(callout);
+            linkMeasure.font = words.children[0].font;
+            linkMeasure.text = words.layout.text.slice(0, words.layout.links[0].start) + "Settings/";
+            const narrow = 2 * Theme.callout.padding + icon(callout).width + Theme.callout.iconGap + linkMeasure.advanceWidth;
+            callout.width = narrow;
+            tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
+            compare(words.plain, "Change the shortcut in Settings/Keys.");
+            callout.width = 480;
+            tryVerify(() => words.underlined.length === 1 && words.underlined[0].line === 0);
+            callout.width = narrow;
+            tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
             callout.destroy();
         }
 

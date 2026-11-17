@@ -3,8 +3,8 @@ import qs.Commons
 import qs.Ui
 import "VpnLogic.js" as Logic
 
-// The kill switch (D129), in the flyout and in System Settings: Block
-// traffic if the VPN drops and, while it is on, Allow local network under
+// The kill switch (D129), in the flyout and in System Settings: Enabled
+// and, while it is on, Allow local network under
 // it, which the service writes into the state file as kill-switch=block,
 // block-lan or off over IPC. Until the `vpn-kill-switch` system step is
 // set up, Set up stands in the switch's place and runs the step through
@@ -25,11 +25,6 @@ Section {
     width: parent.width
     visible: view.shown
     title: "Kill switch"
-    infoTitle: "How the kill switch works"
-    info: "When a VPN you turned on in VGS drops, the kill switch blocks traffic outside it until it connects again or you turn it off in VGS.\n"
-        + "Turning the VPN off in another app or in a terminal counts as a drop, so the block stays.\n"
-        + "The block works while VGS is not running and after a restart. It works with WireGuard profiles.\n"
-        + "Containers and virtual machines on this computer work only with Allow local network on."
 
     function setMode(mode) {
         replied(shell.ipc.call("kill-switch", mode), "VGS could not save the kill switch setting.");
@@ -39,9 +34,12 @@ Section {
         objectName: "vpn-kill-switch-field"
         width: parent.width
         inline: true
-        label: "Block traffic if the VPN drops"
-        // Only while its line is the refused count: what the count counts.
-        info: root.view.countInfo
+        label: "Enabled"
+        info: "When a VPN you turned on in VGS drops, the kill switch blocks traffic outside it until it connects again or you turn it off in VGS.\n"
+            + "Turning the VPN off in another app or in a terminal counts as a drop, so the block stays.\n"
+            + "The block works while VGS is not running and after a restart. It works with WireGuard profiles.\n"
+            + "Containers and virtual machines on this computer work only with Allow local network on."
+            + (root.view.countInfo === "" ? "" : "\n" + root.view.countInfo)
         hint: root.view.tone === "" ? root.view.hint : ""
         error: root.view.tone === "danger" ? root.view.hint : ""
 

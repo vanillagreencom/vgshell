@@ -482,7 +482,8 @@ tailscale_shown_of() {
 }
 tailscale_label() {
   case "$1" in
-    tailscale-problem|tailscale-exit-problem) tailscale_drawn panel Callout "$1" ;;
+    # LinkText inserts <br> at a drawn line break; compare the notice words.
+    tailscale-problem|tailscale-exit-problem) tailscale_drawn panel Callout "$1" | sed 's/<br>/ /g' ;;
     *) tailscale_drawn panel Label "$1" ;;
   esac
 }

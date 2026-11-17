@@ -817,6 +817,7 @@ var TOKENS = {
         // glyph. At the shipped 24 px item the corner count is a 12 px
         // circle with a 1 px ring.
         unread: {
+            letterSpacing: number(-1, -4, 4),
             tone: {
                 neutral: { background: color("{color.textMuted}"), foreground: color("contrast({color.textMuted})") },
                 normal: { background: color("{color.accent}"), foreground: color("{color.onAccent}") },
