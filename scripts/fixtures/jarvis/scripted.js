@@ -32,6 +32,7 @@ function ports(root, engine, state) {
     const waiting = new Map();
     let collect = null;
     let capture = null;
+    let captureMode = null;
     let feedback = null;
     record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
@@ -72,6 +73,7 @@ function ports(root, engine, state) {
         capture: {
             open: (e, done, failed) => {
                 record("capture-open", e);
+                captureMode = e.mode;
                 if (fs.existsSync(path.join(root, "device-gone"))) wait("device-back", done);
                 else { capture = failed; done(); }
             },
@@ -82,8 +84,9 @@ function ports(root, engine, state) {
                 gates.drop("device-back");
                 const final = collect;
                 collect = null;
-                const silent = fs.existsSync(path.join(root, "silent-capture"));
-                if (silent) fs.unlinkSync(path.join(root, "silent-capture"));
+                // Conversation speech arrives only through the explicit final gate.
+                const silent = captureMode === "conversation" || fs.existsSync(path.join(root, "silent-capture"));
+                if (fs.existsSync(path.join(root, "silent-capture"))) fs.unlinkSync(path.join(root, "silent-capture"));
                 const finish = () => {
                     done({ speech: !silent });
                     if (final === null) return;

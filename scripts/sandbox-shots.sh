@@ -4811,7 +4811,7 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   jarvis_console_restore() {
     cp -- "$before_backend" "$backend"
     cp -- "$before_engine" "$engine"
-    rm -f -- "$plugin/backend/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/mute.json"
+    rm -f -- "$plugin/backend/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/voice-mute.json"
   }
 
   jarvis_setup_requirements
@@ -4867,6 +4867,7 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   # The README images are cut from this shot, so it waits for rest chrome:
   # the tour above leaves the scroll bar fading.
   take "jarvis-console-$1-muted"
+  record_item "jarvis-console-$1-muted" "$(surface_box window:Jarvis)"
   expect "the Jarvis console hides after its images" ok ipc shell hide window vgs.jarvis
   expect "disabling vgs.jarvis after its console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone after its console images" absent ipc smoke jarvisProcess
