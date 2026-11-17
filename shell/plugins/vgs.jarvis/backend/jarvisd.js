@@ -891,6 +891,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     };
                     runner.ports.release = engine.release;
                     runner.ports.brain = engine.brain;
+                    runner.ports.restart = engine.restart;
                     runner.ports.speech = engine.speech;
                     runner.ports.capture = { ...runner.ports.capture, collect: engine.collect };
                     runner.ports.playback = engine.playback(audio.playbackPort);

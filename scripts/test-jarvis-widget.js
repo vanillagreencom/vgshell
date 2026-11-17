@@ -6,7 +6,7 @@
 // and forbids shortcut, selected-model and selected-voice details.
 // The service callbacks below protect notice and approval-frame identity.
 // No process, network, audio or real clock is used.
-// --voice-fault-control runs only the duplex fault-origin must-fail controls.
+// --voice-fault-control runs only the duplex fault-presentation must-fail controls.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -25,6 +25,7 @@ const keyNames = Object.assign(KeyNavLogic.symbolNames(PluginLogic.CAPTURE_KEY_N
 const ShortcutLabels = { shortcutText: key => KeyNavLogic.shortcutText(key, keyNames) };
 const Lucide = load(path.join(__dirname, "..", "shell/Ui/icons/Lucide.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
+const Engine = require("../shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
 const copy = value => JSON.parse(JSON.stringify(value));
 const KEYS = { talk: "Super+J", "voice-mute": "Super+Ctrl+M", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", deny: null, console: "Super+Alt+C" };
 const UNBOUND = Object.fromEntries(Object.keys(KEYS).map(key => [key, null]));
@@ -37,6 +38,45 @@ function detail(regions = {}) {
 }
 const up = (regions = {}, extra = {}) => ({ daemon: { tone: "info", text: "Ready" }, audio: { tone: "ok", text: "Devices" }, detail: detail(regions), ...extra });
 const links = lines => lines.flatMap(line => Array.from(pageReference.references(line).links));
+// The producer's bare/wrapped cause passes through the engine classifier,
+// the shared Session owner and the real widget action. No prose is pinned.
+function verifySpeechFaults(view) {
+    for (const category of [undefined, "unknown"])
+        assert.throws(() => view.faultText({ kind: "error", reason: "speech=elevenlabs-timeout", category }, "chained", null),
+            /jarvis widget: fault=/, "an absent or unchecked category cannot choose advice");
+    for (const prefix of ["", "playback-source: jarvis: "]) {
+        for (const [cause, category, tab] of [
+            ["http status=503", "voice", "Settings"], ["timeout", "voice", "Settings"],
+            ["http status=401", "account", "Settings/voiceAccount"],
+            ["http status=429", "account", "Settings/voiceAccount"],
+            ["http status=400", "setup", "Settings/voice"], ["no-key", "setup", "Settings/voice"],
+            ["voice", "setup", "Settings/voice"], ["partial-sample", "other", "Settings"]
+        ]) {
+            const reason = prefix + "speech=elevenlabs-" + cause;
+            const restart = Engine.restartOf(reason, { acted: false, answered: false, remote: true });
+            assert.equal(restart.category, category, reason);
+            let state = Session.reduce(Session.initial(), { type: "snapshot", at: 0, configured: true,
+                locked: false, engine: "chained", settings: {} }).state;
+            let at = 1;
+            for (let failure = 0; failure < (restart.kind === "restart" ? 2 : 1); failure++) {
+                state = Session.reduce(state, { type: "say", text: "Fixture request", at: at++ }).state;
+                assert.equal(state.turn.kind, "thinking");
+                state = Session.reduce(state, { type: "brain-failed", reason, restart,
+                    gen: state.turn.gen, op: state.turn.op, at: at++ }).state;
+            }
+            assert.equal(Session.validate(state), true);
+            assert.equal(state.fault.kind, "error");
+            assert.equal(state.fault.category, category, "the failure retains the engine judgement");
+            assert.equal(view.faultKind(state.fault), "elevenlabs", reason);
+            const words = view.faultText(state.fault, state.engine.kind, null);
+            const targets = links([words.action]);
+            assert.equal(targets.length, 1);
+            assert.equal(targets[0].page, "vgs.jarvis");
+            assert.equal(targets[0].tab, tab, reason + ": only the required user repair is offered");
+            if (restart.kind !== "restart") assert.equal(state.restart.kind, "none", "account/setup/permanent never retries");
+        }
+    }
+}
 function verify(view) {
     const rows = [
         ["starting", {}, "loading", "info", "info", "Starting", 0],
@@ -51,7 +91,7 @@ function verify(view) {
         ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
             physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), "working", "info", "info", "Waiting for confirmation", 0],
         ["acting", up({ action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } }), "working", "info", "info", "Running a task", 0],
-        ["fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), "problem", "danger", "danger", "Problem", 1],
+        ["fault", up({ fault: { kind: "error", reason: "brain=stream-error", category: "other" } }), "problem", "danger", "danger", "Problem", 1],
         ["audio fault", up({}, { audio: { tone: "danger", text: "capture-overflow" } }), "problem", "danger", "danger", "Problem", 1],
         ["daemon retry", up({}, { daemon: { tone: "warning", text: "Restarting", hint: "Jarvis is trying again by itself" } }), "problem", "danger", "danger", "Problem", 1],
         ["locked", up({ gate: { kind: "down", reason: "locked" } }), "off", "neutral", "warning", "Screen locked", 0],
@@ -138,18 +178,21 @@ function verify(view) {
         assert.equal(row.disabledReason !== "", !hidden && block !== null);
         assert.ok(Object.hasOwn(Lucide.ICONS, row.icon));
     }
+    verifySpeechFaults(view);
     const faultKinds = [
         ["thinking-timeout", "slow"], ["device-lost target=fixture", "device"],
         ["brain=stream-error", "brain"], ["net=timeout", "brain"],
+        ["brain=unauthorized status=401", "account", "account"], ["brain=http status=429", "account", "account"],
+        ["brain=no-key", "setup", "setup"], ["net=key-origin", "setup", "setup"], ["jarvis-keys: secret-tool=locked", "setup", "setup"],
         ["speech=local-ready-timeout", "localVoice"], ["speech=dictation-busy", "dictationBusy"],
         ["speech=dictation-failed", "dictation"], ["speech=local-not-ready", "voice"],
-        ["playback-source: jarvis: speech=elevenlabs-http status=401", "elevenlabs"],
+        ["playback-source: jarvis: speech=elevenlabs-http status=401", "elevenlabs", "account"],
         ["capture-overflow", "audio"], ["home=link", "home"], ["guidance=home-skills-too-large", "home"],
         ["brain=harness-model-refused model=fixture-model", "model"], ["live=key-refused", "keyRefused"],
         ["engine=unexpected", "other"]
     ];
-    for (const [reason, kind] of faultKinds) {
-        const fault = { kind: "error", reason, retry: 0 };
+    for (const [reason, kind, category = "other"] of faultKinds) {
+        const fault = { kind: "error", reason, category };
         assert.equal(view.faultKind(fault), kind, reason + ": the current producer's category");
         const out = view.view(up({ fault }), null);
         assert.equal(out.state, "problem");
@@ -197,7 +240,7 @@ function verifyReplyCard(view) {
     const tool = { ...THINKING, action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } };
     const held = { ...THINKING, approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
         physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } };
-    const fault = { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } };
+    const fault = { fault: { kind: "error", reason: "brain=stream-error", category: "other" } };
     const spoken = { gen: 1, role: "assistant", text: "assistant 20" };
     // The judge runs in its library's own context; compare plain copies.
     const card = (regions, rows = log, session = "1:0", caption = null) => copy(view.replyCard(rows, detail(regions).state, session, caption, null));
@@ -227,14 +270,11 @@ function verifyReplyCard(view) {
         fault: { title: "The AI model did not answer", action: view.faultText(fault.fault, detail(fault).state.engine.kind, null).action }, settled: true },
         "a fault reads on the card in its plain words with no answer to open at");
     assert.equal(card(fault), null, "a fault with the voice on and the orb shown is the overlay's");
-    // A lost device retries, then fails with the same reason and generation:
-    // one card, whose words change from trying again to what to do.
     const lost = 'device-lost target="fixture.mic" from=default microphones=0[]';
-    const retrying = card({ ...hidden, fault: { kind: "retrying", reason: lost, retry: 1 } });
-    const failed = card({ ...hidden, fault: { kind: "error", reason: lost, retry: 1 } });
-    assert.equal(retrying.key, failed.key, "the same fault keeps its card");
-    assert.notDeepEqual(retrying.fault, failed.fault, "the retried fault and the failed one read different words");
-    verifyReplyPublication(retrying, failed);
+    const failed = card({ ...hidden, fault: { kind: "error", reason: lost, category: "other" } });
+    assert.equal(failed.mode, "fault");
+    assert.equal(view.faultKind({ kind: "error", reason: lost, category: "other" }), "device");
+    verifyReplyPublication(card({ ...hidden, ...fault }), failed);
     // One answer identity, which the card and the console both read.
     assert.equal(view.isAnswer(row("assistant", 20), { gen: 1, at: 20 }), true);
     assert.equal(view.isAnswer(row("user", 20), { gen: 1, at: 20 }), false, "the user's words are no answer");
@@ -255,8 +295,8 @@ function verifyReplyPublication(before, after) {
 }
 
 // SessionRunner's speech port emits speech-failed; its brain port emits
-// brain-failed even for a delegation under duplex. The widget and bubble
-// deliver these words as their result, so their title/action are the contract.
+// brain-failed even for a delegation under duplex. The engine's category
+// selects the stopped action across the bubble, bar and reply card.
 function verifyVoiceFaults(logic, view) {
     const step = (state, event) => copy(logic.reduce(state, event));
     const callback = (type, owner, at, extra = {}) => ({ type, gen: owner.gen, op: owner.op, at, ...extra });
@@ -270,29 +310,32 @@ function verifyVoiceFaults(logic, view) {
         return step(s, callback("capture-opened", s.capture, 20)).state;
     };
     const voice = { company: "OpenAI" };
-    const connection = {
-        title: "The voice service could not finish the request",
-        action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)."
-    };
-    const network = { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
-    const input = { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
-    const reply = { title: "The voice reply stopped too early", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." };
-    const brain = {
-        title: "The AI model did not answer",
-        action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."
-    };
-    const key = {
-        title: "OpenAI refused your key",
-        action: "Add a new key in [Voice key](page:vgs.jarvis/Settings/voiceAccount)."
-    };
     const sharedOrigins = ["speech", "brain-chained", "brain-duplex"];
-    for (const [reason, speechText, origins] of [
-        ["net=closed", connection, sharedOrigins], ["net=socket-not-open", network, ["speech"]], ["net=recipient", connection, sharedOrigins],
-        ["live=failed", connection, ["speech"]], ["live=key-refused", key, ["speech"]],
-        ["live=input-overflow", input, ["speech"]], ["live=send-backlog", input, ["speech"]],
-        ["live=disconnected code=1006", network, ["speech"]], ["live=start-timeout", connection, ["speech"]],
-        ["live=response status=incomplete reason=max_output_tokens", reply, ["speech"]]
+    for (const [reason, category, speechKind, tab, origins] of [
+        ["net=closed", "other", "voiceConnection", "Settings", sharedOrigins],
+        ["net=socket-not-open", "connection", "voiceNetwork", "Settings", ["speech"]],
+        ["net=recipient", "other", "voiceConnection", "Settings", sharedOrigins],
+        ["live=key-refused", "account", "keyRefused", "Settings/voiceAccount", ["speech"]],
+        // Realtime.eventOf keeps the provider's typed error on both event forms.
+        ["live=server-error type=server_error code=insufficient_quota", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=server-error type=rate_limit_error code=rate_limit_exceeded", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=server-error type=invalid_request_error code=invalid_api_key", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=server_error code=insufficient_quota", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=rate_limit_error code=rate_limit_exceeded", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        ["live=response status=failed type=invalid_request_error code=invalid_api_key", "account", "voiceAccount", "Settings/voiceAccount", ["speech"]],
+        // Both cloud adapters can refuse the provider's returned audio format.
+        ["live=format", "setup", "voiceSetup", "Settings/voice", ["speech"]],
+        ["live=server-error type=invalid_request_error code=unknown_parameter", "other", "voiceConnection", "Settings", ["speech"]],
+        ["live=response status=failed type=server_error code=inference_error", "service", "voiceConnection", "Settings", ["speech"]],
+        ["live=input-overflow", "connection", "voiceInput", "Settings", ["speech"]],
+        ["live=send-backlog", "connection", "voiceInput", "Settings", ["speech"]],
+        ["live=disconnected code=1006", "connection", "voiceNetwork", "Settings", ["speech"]],
+        ["live=start-timeout", "connection", "voiceConnection", "Settings", ["speech"]],
+        ["live=response status=incomplete reason=max_output_tokens", "reply-cut", "voiceReply", "Settings", ["speech"]]
     ]) {
+        const restart = Engine.restartOf(reason, { acted: false, answered: false, remote: true });
+        const transient = ["connection", "reply-cut", "service"].includes(category);
+        assert.deepEqual(restart, { kind: transient ? "restart" : "none", category }, reason + ": engine judgement");
         for (const origin of origins) {
             let s;
             if (origin === "brain-chained")
@@ -303,10 +346,16 @@ function verifyVoiceFaults(logic, view) {
                     s = step(s, callback("delegation", s.speech, 21, { id: "fixture", text: "fixture request" })).state;
             }
             const speech = origin === "speech";
+            if (transient) {
+                const first = step(s, callback("speech-failed", s.speech, 29, { reason, restart }));
+                assert.deepEqual([first.state.fault.kind, first.state.restart], ["none", { kind: "restarted", category }],
+                    reason + ": the first transient failure recovers");
+                s = first.state;
+            }
             const event = callback(speech ? "speech-failed" : "brain-failed", speech ? s.speech : s.turn, 30,
-                { reason, restart: { kind: "none", category: "other" } });
+                { reason, restart });
             const failed = step(s, event);
-            assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason } : { kind: "error", reason, retry: 0 },
+            assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason, category } : { kind: "error", reason, category },
                 origin + " " + reason + ": retain the admitted fault origin and reason");
             assert.equal(logic.validate(failed.state), true, "the fault is an exact state-wire variant");
             if (speech) {
@@ -314,13 +363,18 @@ function verifyVoiceFaults(logic, view) {
                     assert.equal(logic.validate({ ...failed.state, fault }), false, "no extra or unchecked voice fault fields");
             }
             assert.deepEqual([failed.state.speech.kind, failed.state.conversation.kind, failed.state.restart],
-                ["closed", "ended", { kind: "none" }], "a stopped fault does not gain a restart allowance");
+                ["closed", "ended", transient ? { kind: "restarted", category } : { kind: "none" }],
+                "a stopped fault does not gain a restart allowance");
             assert.equal(logic.canEngage(failed.state), false, "the fault blocks capture until a user recovery");
             assert.equal(failed.effects.some(e => ["capture-open", "speech-open"].includes(e.kind)), false, "no automatic voice restart");
             let settled = failed.state;
             if (settled.capture.kind === "closing")
                 settled = step(settled, callback("capture-closed", settled.capture, 31)).state;
-            const expected = speech ? speechText : brain;
+            const expectedKind = speech ? speechKind : "brain";
+            const expected = copy(view.faultText(failed.state.fault, failed.state.engine.kind, voice));
+            assert.equal(view.faultKind(failed.state.fault), expectedKind);
+            assert.deepEqual(links([expected.action]).map(target => [target.page, target.tab]), [["vgs.jarvis", tab]],
+                origin + " " + reason + ": one action at the failed owner's Settings field");
             assert.deepEqual(copy(view.faultText(settled.fault, settled.engine.kind, voice)), expected,
                 origin + " " + reason + ": the bubble names the failed owner");
             const bar = view.view(up(settled), voice);
@@ -337,8 +391,7 @@ function verifyVoiceFaults(logic, view) {
             }
         }
     }
-    assert.equal(view.faultText({ kind: "error", reason: "speech=local-not-ready", retry: 0 }, "chained", null).title,
-        "Local voice stopped working", "a local voice fault stays local");
+
 }
 
 function voiceFaultControls() {
@@ -346,12 +399,23 @@ function voiceFaultControls() {
     try {
         for (const file of ["SetupGate.js", "Session.js", "WidgetView.js"])
             fs.copyFileSync(path.join(dir, file), path.join(temp, file));
-        for (const [label, file, needle, replacement] of [
+        const controls = [
             ["Session loses the speech origin", "Session.js", 'failConversation(s, effects, e, { kind: "voice-connection", reason: e.reason });',
-                'failConversation(s, effects, e, { kind: "error", reason: e.reason, retry: 0 });'],
+                'failConversation(s, effects, e, { kind: "error", reason: e.reason });'],
+            ["Session loses the engine category", "Session.js", 's.fault = Object.assign({}, fault, { category: e.restart.category });',
+                's.fault = Object.assign({}, fault, { category: "other" });'],
             ["the view guesses from the reason", "WidgetView.js", 'if (fault.kind === "voice-connection")',
-                'if (false)']
-        ]) {
+                'if (false)'],
+            ["Voice loses the account action", "WidgetView.js", 'if (fault.category === "account") return "voiceAccount";',
+                'if (false) return "voiceAccount";'],
+            ["Voice loses the setup action", "WidgetView.js", 'if (fault.category === "setup") return "voiceSetup";',
+                'if (false) return "voiceSetup";'],
+            ["Voice assigns account repair to transient faults", "WidgetView.js", 'if (fault.category === "account") return "voiceAccount";',
+                'if (true) return "voiceAccount";'],
+            ["Voice account action points at the AI account", "WidgetView.js", 'Check your account under [Voice key](page:vgs.jarvis/Settings/voiceAccount).',
+                'Check your account under [Voice key](page:vgs.jarvis/Settings/brain).']
+        ];
+        for (const [label, file, needle, replacement] of controls) {
             const original = fs.readFileSync(path.join(dir, file), "utf8");
             assert.equal(original.split(needle).length, 2, label + ": one mutation target");
             const changed = original.replace(needle, replacement);
@@ -361,7 +425,7 @@ function voiceFaultControls() {
                 assert.AssertionError, label + ": the real origin contract must fail");
             fs.writeFileSync(path.join(temp, file), original);
         }
-        console.log("test-jarvis-widget: voice-fault-controls=2 control=detected");
+        console.log("test-jarvis-widget: voice-fault-controls=" + controls.length + " control=detected");
     } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 
@@ -401,47 +465,42 @@ voiceFaultControls();
     assert.notEqual(notices[0].message, notices[1].message, "automatic reset explains its different cause");
 }
 
-// One automatic restart after a failed turn (VGS-2408). The restart line,
-// the notice and a Problems row are text the product delivers: each names
-// the cause's category in plain words and says VGS restarted Jarvis, and
-// none carries the engine's keyed cause. A second failure keeps today's
-// fault text.
-const RESTART_WORDS = [
-    ["connection", "Jarvis lost the connection to the AI model"],
-    ["reply-cut", "The reply from the AI model stopped too early"],
-    ["service", "The AI service had an error"],
-    ["app-stopped", "The AI app stopped"],
-    ["account", "The AI account refused the request"],
-    ["model", "Jarvis cannot use the AI model"],
-    ["setup", "The AI model is not set up correctly"],
-    ["other", "The AI model did not answer"]
-];
+// Restart presentation keeps the typed category/action, linked recovery and
+// transient notification lifetime. Wording belongs to copy review.
 const KEYED = /(?:brain|net)=|[a-z-]+=[a-z0-9-]/;
 function verifyRestart(view, history) {
-    assert.deepEqual(RESTART_WORDS.map(([category]) => category), copy(Session.FAULT_CATEGORIES), "a plain cause for every category Session keeps");
-    for (const [category, words] of RESTART_WORDS) {
+    for (const category of copy(Session.FAULT_CATEGORIES)) {
         const restart = { kind: "restarted", category };
-        assert.deepEqual(copy(view.restartLine(restart, true)), { title: words, action: "VGS restarted Jarvis. Say your request again." }, category);
-        assert.deepEqual(copy(view.restartLine(restart, false)), { title: words, action: "VGS restarted Jarvis. Talk to Jarvis to ask again." }, category);
+        const lines = [true, false].map(listening => copy(view.restartLine(restart, listening)));
+        for (const line of lines) {
+            assert.equal(typeof line.title, "string");
+            assert.equal(typeof line.action, "string");
+            assert.equal(KEYED.test(line.title + " " + line.action), false, category);
+        }
+        assert.notEqual(lines[0].action, lines[1].action, "open and closed input have distinct guidance");
+        const messages = [];
         for (const listening of [true, false]) {
             const notice = copy(view.restartNotice(category, listening));
-            // Transient: the notifications plugin closes it when its card
-            // times out, which ends the notify-send run its action holds.
-            assert.deepEqual(notice, { title: "VGS restarted Jarvis", tone: "warning", icon: "vgs-letter-j", transient: true,
-                message: words + ". "
-                    + (listening ? "This is a new conversation, so say your request again." : "Your next request starts a new conversation."),
-                actions: [{ id: view.PROBLEMS_ACTION, label: "Show problems" }] }, category + " notice");
+            assert.deepEqual([notice.tone, notice.transient, notice.actions.map(action => action.id)],
+                ["warning", true, [view.PROBLEMS_ACTION]], category + " notice");
             assert.ok(Object.hasOwn(Lucide.ICONS, notice.icon));
+            assert.equal(typeof notice.message, "string");
             assert.equal(KEYED.test(notice.title + " " + notice.message), false, category + ": no keyed cause");
+            messages.push(notice.message);
         }
-        for (const [action, body] of [["restarted", "VGS restarted Jarvis in a new conversation."], ["stopped", "Jarvis stopped the conversation."]]) {
+        assert.notEqual(messages[0], messages[1], "the notice distinguishes input admission");
+        const bodies = [];
+        for (const action of ["restarted", "stopped"]) {
             const row = { time: "2026-11-09T08:00:00.000Z", kind: "fault", cause: "net=request", status: null, category, action };
-            // test-jarvis-conversation.js holds which fault rows offer Settings.
             const offer = copy(history.problem(row));
-            assert.deepEqual(offer, { title: words + ".", body, action: offer.action, settings: offer.settings }, category + " " + action);
+            assert.equal(typeof offer.title, "string");
+            assert.equal(typeof offer.body, "string");
+            assert.equal(KEYED.test(offer.title + " " + offer.body), false);
+            bodies.push(offer.body);
             assert.deepEqual(copy(history.problems([row], "")), [{ at: Date.parse(row.time), ...offer }]);
             assert.equal(history.problems([row], "net=request").length, 0, "the keyed cause is not in the row");
         }
+        assert.notEqual(bodies[0], bodies[1], "the Problems row distinguishes the recovery action");
     }
     // A refused Codex feature's or catalog key's row names it, so a search finds it.
     for (const [cause, name] of [["brain=codex-feature name=fixture_tool", "fixture_tool"], ["brain=codex-catalog name=fixture_key", "fixture_key"]]) {
@@ -456,20 +515,21 @@ function verifyRestart(view, history) {
         /jarvis history: action=/);
     // The bar keeps its state look and adds the restart line under it.
     const restarted = { restart: { kind: "restarted", category: "service" } };
-    for (const [label, regions, state, title, line] of [
-        ["listening again", { ...OPEN, ...restarted }, "listening", "Listening", "The AI service had an error. VGS restarted Jarvis. Say your request again."],
-        ["conversation ended", restarted, "ready", "Ready", "The AI service had an error. VGS restarted Jarvis. Talk to Jarvis to ask again."],
-        ["spent", { ...OPEN, restart: { kind: "spent" } }, "listening", "Listening", null]
+    for (const [label, regions, state, hasRestart] of [
+        ["listening again", { ...OPEN, ...restarted }, "listening", true],
+        ["conversation ended", restarted, "ready", true],
+        ["spent", { ...OPEN, restart: { kind: "spent" } }, "listening", false]
     ]) {
         const bar = view.view(up(regions), null);
-        assert.deepEqual([bar.state, bar.tooltip, copy(bar.tooltipDetails)], [state, "Jarvis: " + title, line === null ? [] : [line]], label);
+        assert.equal(bar.state, state, label);
+        assert.equal(bar.tooltipDetails.length, hasRestart ? 1 : 0, label);
+        assert.equal(KEYED.test(bar.tooltipDetails.join(" ")), false);
     }
     // A second failure in the restarted conversation shows today's fault.
-    const second = { ...restarted, fault: { kind: "error", reason: "brain=stream-failed", retry: 0 } };
+    const second = { ...restarted, fault: { kind: "error", reason: "brain=stream-failed", category: "other" } };
     const bar = view.view(up(second), null);
-    assert.deepEqual([bar.state, copy(bar.tooltipDetails)], ["problem", ["Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."]]);
-    assert.deepEqual(copy(view.faultText(second.fault, "chained", null)),
-        { title: "The AI model did not answer", action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." });
+    assert.deepEqual([bar.state, bar.tooltipDetails.length], ["problem", 1]);
+    assert.equal(view.faultKind(second.fault), "brain");
 }
 const historyFile = path.join(dir, "History.js");
 verifyRestart(load(path.join(dir, "WidgetView.js")), load(historyFile));
@@ -483,7 +543,7 @@ function verifyRestartNotice(service, view) {
     const ctx = vm.createContext({ View: view, notice: (value, done) => notices.push({ value, done }),
         summonProblems: () => summoned++, console: { warn: line => warnings.push(line) } });
     const deliver = vm.runInContext("(" + matches[0][0] + ")", ctx);
-    const state = (restart, conversation = "ended") => ({ restart, conversation: conversation === "ended" ? { kind: "ended" } : { kind: "active", purpose: "conversation" } });
+    const state = (restart, conversation = "ended", failures = restart.kind === "restarted" ? ["brain-failed:" + restart.category] : []) => ({ restart, failures, conversation: conversation === "ended" ? { kind: "ended" } : { kind: "active", purpose: "conversation" } });
     const none = state({ kind: "none" }), open = state({ kind: "restarted", category: "app-stopped" }, "active");
     deliver(null, none);
     deliver(none, none);
@@ -510,6 +570,7 @@ verifyRestartNotice(serviceSource, load(path.join(dir, "WidgetView.js")));
         for (const name of ["SetupGate.js", "Session.js", "WidgetView.js", "History.js"]) fs.copyFileSync(path.join(dir, name), path.join(temp, name));
         const historySource = fs.readFileSync(historyFile, "utf8");
         for (const [label, file, needle, replacement] of [
+            ["new category exposes a diagnostic", "WidgetView.js", '"audio": "', '"audio": "audio=fixture '],
             ["bar drops the restart line", "WidgetView.js", 'if (restarted !== null) out.tooltipDetails = ', 'if (false) out.tooltipDetails = '],
             ["restart line over a problem", "WidgetView.js", 'out.state !== "problem" && out.state !== "off"', 'out.state !== "off"'],
             ["restart line ignores listening", "WidgetView.js", 'action: listening ? "VGS restarted Jarvis. Say your request again." :', 'action: false ? "" :'],
@@ -526,7 +587,7 @@ verifyRestartNotice(serviceSource, load(path.join(dir, "WidgetView.js")));
             fs.writeFileSync(path.join(temp, file), original);
         }
         for (const [label, needle, replacement] of [
-            ["notice on every state", ' || previous !== null && previous.restart.kind === "restarted"', ''],
+            ["notice on every state", ' || previous !== null && previous.failures.length === current.failures.length', ''],
             ["dismissal opens the console", 'if (action === View.PROBLEMS_ACTION) summonProblems();', 'summonProblems();']
         ]) {
             assert.equal(serviceSource.split(needle).length, 2, label + ": one mutation target");
@@ -535,6 +596,11 @@ verifyRestartNotice(serviceSource, load(path.join(dir, "WidgetView.js")));
     } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 const controls = [
+    ["fault category is unchecked", ' || Session.FAULT_CATEGORIES.indexOf(fault.category) === -1', ''],
+    ["typed account/setup keeps its real action", 'return fault.category;', 'return "brain";'],
+    ["ElevenLabs drops the bare producer form", '(?:playback-source: jarvis: )?speech=elevenlabs-', 'playback-source: jarvis: speech=elevenlabs-'],
+    ["ElevenLabs assigns account repair to transient faults", 'kind === "elevenlabs" && fault.category === "account"', 'kind === "elevenlabs"'],
+    ["ElevenLabs loses setup repair", 'kind === "elevenlabs" && fault.category === "setup"', 'false'],
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
     ["bar changes the J while listening", '"listening": { icon: "vgs-letter-j"', '"listening": { icon: "audio-lines"'],
     ["bar loses state dots", 'stateDot: style.stateDot', 'stateDot: ""'],

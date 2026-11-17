@@ -118,7 +118,7 @@ var TODO = {
     "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside API keys stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Set up the local voice again",
-    "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
+    "speech=local-ready-timeout": "Local voice did not get ready. See [Setup > Voice](page:vgs.jarvis/Setup/setupVoice).",
 };
 // Local voice that did not get ready in time is set up: its step states
 // that result in place of To do, and the bar shows the step's hint for it
@@ -547,18 +547,18 @@ function sentence(text) {
 function joinedHint(hints) {
     return hints.length === 1 ? hints[0] : hints.map(sentence).join(" ");
 }
-var START_RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)";
+var START_STOPPED = "Jarvis could not start. See [Jarvis settings](page:vgs.jarvis/Settings).";
 var START_CAUSES = [
-    [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_RESTART }],
-    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
-    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
+    [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_STOPPED }],
+    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later" }],
+    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later" }],
     // jarvisd exits 78 when it cannot read or save mute.json or
     // voice-mute.json, so the press that changed it did not take.
-    [/^jarvis: voice-mute=/, { kind: "mute-not-saved", title: "Jarvis voice mute not saved", detail: "Jarvis could not read or save its voice mute setting.", action: "The voice mute setting was not kept. " + START_RESTART + "." }],
-    [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART }],
-    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", detail: "Jarvis could not read a message from its service.", action: START_RESTART }]
+    [/^jarvis: voice-mute=/, { kind: "mute-not-saved", title: "Jarvis voice mute not saved", detail: "Jarvis could not read or save its voice mute setting.", action: "The voice mute setting was not kept. " + sentence(START_STOPPED) }],
+    [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_STOPPED }],
+    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", detail: "Jarvis could not read a message from its service.", action: START_STOPPED }]
 ];
-var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART };
+var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_STOPPED };
 var RETRYING_START = "Jarvis is trying again by itself";
 
 function startCause(cause) {
@@ -594,13 +594,13 @@ function voiceMuteRefusedNotice(cause) {
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
-        hint: "Close other apps, then turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)", action: false },
+        hint: "Close other apps to free memory", action: false },
     "speech=local-memory-unavailable": { tone: "warning", text: "Memory check failed",
-        hint: "Turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)", action: false }
+        hint: "Jarvis could not read the available memory", action: false }
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false,
-    hint: "Jarvis stopped, so it could not check this. Turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)." };
+    hint: "Jarvis stopped, so it could not check this. See [Jarvis settings](page:vgs.jarvis/Settings)." };
 // The AI model step declares named actions, Add key ("key") and Sign in
 // ("signIn"), so its value names the one that applies or carries no
 // action: the manifest judge refuses a boolean on it. A Pi below its floor
@@ -656,7 +656,7 @@ function readiness(answer, home, repair, main) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
-        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },
+        return { setup: { tone: "danger", text: "Not ready", hint: START_STOPPED },
             setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "problem":
         var problem = startCause(answer.cause);

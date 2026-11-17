@@ -172,7 +172,7 @@ Item {
         function test_a_faults_link_is_its_only_action() {
             reply.shell = root.shellOf({ conversation: [], transcript: null,
                 replyCard: { key: "fault:0:brain=stream-error", answer: null, mode: "fault",
-                    fault: { title: "The AI model did not answer", action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." },
+                    fault: { title: "The AI model did not answer", action: "See [Settings > Jarvis](page:vgs.jarvis/Settings)." },
                     settled: true, output: "fixture-1" } });
             const row = rowOf();
             compare(row.stateText, "Problem");

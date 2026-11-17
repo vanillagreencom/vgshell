@@ -1023,7 +1023,7 @@ world(async () => {
         return { w, conn };
     }
     // Session state comes from the QML library realm; compare its JSON.
-    const fault = (w, reason) => assert.deepEqual(JSON.parse(JSON.stringify(w.state.fault)), { kind: "voice-connection", reason });
+    const fault = (w, reason) => assert.deepEqual(JSON.parse(JSON.stringify(w.state.fault)), { kind: "voice-connection", reason, category: "other" });
     function quiet(w, conn) {
         const all = JSON.stringify([w.state, w.logs, w.transcripts, w.delegations, conn === undefined ? [] : conn.events]);
         assert.equal(all.includes(KEY), false, "no key in state, log, transcript or frame");
@@ -3268,9 +3268,9 @@ world(async () => {
         for (const [name, needle, replacement, scenario, P = REALTIME, voiceStage = "active"] of [
             ["daemon-voice-restart", "events.failed(reason, restart);",
                 "events.failed(reason, unrestarted(reason));", "voice-fault"],
-            ["daemon-voice-acted", "const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);",
+            ["daemon-voice-acted", "                    const restart = restartFor(c, pendingTurn(c), reason);",
                 "const restart = restartOf(reason, { acted: false });", "voice-acted"],
-            ["daemon-voice-result", "const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);",
+            ["daemon-voice-result", "                    const restart = restartFor(c, pendingTurn(c), reason);",
                 "const restart = restartFor(c, c.turn, reason);", "voice-acted", REALTIME, "queued"],
             ["daemon-live-selection", "if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {", "if (false) {", "action"],
             ["daemon-gemini-selection", "if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {", "if (false) {", "action", GEMINI],

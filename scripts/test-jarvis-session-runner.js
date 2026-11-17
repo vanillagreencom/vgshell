@@ -47,6 +47,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
             reset: port("brain-reset")
         },
         playback: { start: port("play"), flush: port("flush") },
+        restart: () => ({ kind: "none", category: "other" }),
+        audit: { fault: port("fault-record") },
         tools: { start: port("tool"), cancel: port("tool-cancel"), outcome: port("outcome"), sync: () => {}, close: () => {} },
         approval: { show: port("approval"), end: port("approval-end"), refused: port("confirm-refused") },
         speech: { open: (e, events) => { calls.push({ name: "speech-open", e }); pending.speech = events; },

@@ -601,8 +601,8 @@ Item {
             const stale = StatusPublication.write(shell.status, "detail", null);
             if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
             if (stale !== "ok") return;
-            publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: Gate.START_RESTART });
-            notice({ title: "Jarvis stopped", message: Gate.sentence(Gate.START_RESTART),
+            publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: View.DAEMON_TEXT.action });
+            notice({ title: "Jarvis stopped", message: View.DAEMON_TEXT.action,
                 tone: "info", icon: "vgs-letter-j" });
             return;
         }
@@ -642,11 +642,10 @@ Item {
         notice(View.conversationResetNotice(current.history.reason));
     }
 
-    // One notice when Session restarts after a failed turn: its restart
-    // region turns restarted, which only a new user conversation and then
-    // another failure can do again.
+    // Each added failure kind owns one restart notice. Ordinary snapshots
+    // retain the same allowance set and must not repeat the notice.
     function restartChanged(previous, current) {
-        if (current.restart.kind !== "restarted" || previous !== null && previous.restart.kind === "restarted") return;
+        if (current.restart.kind !== "restarted" || previous !== null && previous.failures.length === current.failures.length) return;
         console.warn("jarvis: restart=" + current.restart.category);
         notice(View.restartNotice(current.restart.category, current.conversation.kind !== "ended"), action => {
             if (action === View.PROBLEMS_ACTION) summonProblems();
@@ -1139,7 +1138,7 @@ Item {
                 : message.answer === "not-alive" ? "Jarvis could not find a running program for this coding task."
                 : message.answer === "task-unknown" ? "Jarvis could not find this coding task."
                 : message.answer === "identity-mismatch" ? "Jarvis could not confirm which programs belong to this coding task."
-                : message.answer === "daemon-ending" ? "Jarvis is stopping. Try again after you turn Jarvis on."
+                : message.answer === "daemon-ending" ? "Jarvis is stopping. Try again when it is ready."
                 : "Jarvis could not stop this coding task. Open its terminal to check it.", tone: "danger", icon: "vgs-letter-j" });
     }
 
@@ -1172,7 +1171,7 @@ Item {
             : availability.kind === "checking" ? { tone: "info", text: "Checking" }
             : { tone: "warning", text: availability.reason === "bwrap-missing" ? "Needs bwrap" : "Unavailable", hint: availability.reason === "bwrap-missing"
                 ? "[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"
-                : availability.reason === "public-runtime" ? "Jarvis could not prepare shell commands: turn Jarvis off and on again in [Settings](page:vgs.jarvis/Settings)"
+                : availability.reason === "public-runtime" ? "Jarvis could not prepare protected shell commands"
                 : "This system cannot run protected shell commands" };
         const result = StatusPublication.write(shell.status, "shell", value);
         if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);

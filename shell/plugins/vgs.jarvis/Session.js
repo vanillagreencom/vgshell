@@ -27,12 +27,12 @@ var TRANSCRIPT_CHARS = 4096;
 // The engine's cause categories (ChainedEngine's cause table), which a
 // brain-failed event names and the restart region keeps for the shell's
 // plain words (WidgetView.FAULT_WORDS).
-var FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"];
+var FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other", "voice", "audio", "slow", "dictation"];
 var EVENTS = [
     "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
-    "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
+    "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
     "preview", "speech-input-ended", "new-conversation", "conversation-reset"
 ];
@@ -49,7 +49,7 @@ function initial() {
         indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
         duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
-        restart: { kind: "none" }
+        restart: { kind: "none" }, failures: []
     };
 }
 
@@ -191,27 +191,33 @@ function restartAnswer(restart) {
 }
 
 // A failed turn ends its conversation. A cause the engine may restart, in a
-// user conversation that has not used its restart and that Talk could start
+// user conversation that has not restarted this kind and that Talk could start
 // again (canEngage), ends it with no fault instead; an open conversation, one
 // that listens between turns, opens again through start(). Every failure
 // leaves one record of its cause and what Session did.
 function failConversation(s, effects, e, fault) {
-    var restarting = e.restart.kind === "restart" && s.restart.kind === "none" && !previewConversation(s) && canEngage(s);
+    var key = e.type + ":" + e.restart.category;
+    var restarting = s.conversation.kind !== "ended" && s.input.kind !== "check"
+        && e.restart.kind === "restart" && s.failures.indexOf(key) === -1 && !previewConversation(s) && canEngage(s);
     var open = s.input.kind === "conversation";
     effect(s, effects, "fault-record", { reason: e.reason, category: e.restart.category,
         action: restarting ? "restarted" : "stopped" });
     if (!restarting) {
-        s.fault = fault;
+        s.fault = Object.assign({}, fault, { category: e.restart.category });
         end(s, effects, e.at, "brain-failed", false);
         return;
     }
+    var failures = s.failures.concat([key]);
     end(s, effects, e.at, "brain-failed", false);
+    closeBrain(s, effects);
+    s.fault = { kind: "none" };
     if (open) start(s, effects, "conversation", e.at);
+    s.failures = failures;
     s.restart = { kind: "restarted", category: e.restart.category };
 }
 
 function canEngage(s) {
-    return s.gate.kind === "up" && (s.fault.kind === "none" || s.fault.kind === "retrying");
+    return s.gate.kind === "up" && s.fault.kind === "none";
 }
 
 function canCheck(s) {
@@ -299,8 +305,8 @@ function userTranscript(s, effects, text, rev) {
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
 }
 
-// The one automatic restart a user conversation allows. The restarted
-// conversation's first user turn spends what is left of it.
+// A new user turn consumes the restart notice, while failures retains
+// each kind the same user conversation has already retried.
 function spendRestart(s) {
     if (s.restart.kind === "restarted") s.restart = { kind: "spent" };
 }
@@ -311,6 +317,7 @@ function spendRestart(s) {
 // conversation after a restart that left no input open, and the one after a
 // reopened conversation that ended before a user turn.
 function userConversation(s) {
+    if (s.restart.kind !== "restarted") s.failures = [];
     s.restart = s.restart.kind === "restarted" ? { kind: "spent" } : { kind: "none" };
 }
 
@@ -482,7 +489,7 @@ function interrupt(s, effects, at) {
 // A failed turn's fault stays shown until the next Talk press, which ends
 // what is left of that conversation so the press starts a new one.
 function recover(s, effects, at) {
-    if (s.fault.kind === "none" || s.fault.kind === "retrying" || s.gate.kind !== "up") return;
+    if (s.fault.kind === "none" || s.gate.kind !== "up") return;
     end(s, effects, at, "recover", false);
     s.fault = { kind: "none" };
 }
@@ -500,7 +507,7 @@ function toggle(s, effects, at) {
     else end(s, effects, at, "toggle", false);
 }
 
-function expire(s, effects, at) {
+function expire(s, effects, at, restartFor) {
     if (s.quiet.kind === "waiting" && at >= s.quiet.deadline) {
         if (s.turn.kind === "thinking" || s.turn.kind === "cancelling" || s.action.kind === "running"
                 || s.approval.kind === "held" || s.playback.kind !== "idle") activity(s, at);
@@ -519,16 +526,13 @@ function expire(s, effects, at) {
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline) {
         if (s.playback.kind === "feedback" && s.playback.cue === "stop") flushPlayback(s, effects);
         else {
-            s.fault = { kind: "error", reason: "playback-timeout", retry: 0 };
-            end(s, effects, at, "playback-timeout", false);
+            failConversation(s, effects, { type: "playback-failed", at: at, reason: "playback-timeout", restart: restartFor("playback-timeout") },
+                { kind: "error", reason: "playback-timeout" });
         }
     }
     if (s.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline) {
-        dropApproval(s, effects, "thinking-timeout", at);
-        cancelTurn(s, effects, at);
-        s.fault = { kind: "error", reason: "thinking-timeout", retry: 0 };
-        s.input = { kind: "released" };
-        closeCapture(s, effects);
+        failConversation(s, effects, { type: "brain-failed", at: at, reason: "thinking-timeout", restart: restartFor("thinking-timeout") },
+            { kind: "error", reason: "thinking-timeout" });
     } else if (s.turn.kind === "cancelling" && at >= s.turn.deadline) {
         closeBrain(s, effects);
         s.turn = { kind: "none" };
@@ -550,7 +554,7 @@ function expire(s, effects, at) {
 // Return a new state and ordered effects. The input state/event are untouched.
 // The router supplies authorized proposals. Session owns confirmation identity
 // and timing, not the typed call or the policy decision.
-function reduce(state, e) {
+function reduce(state, e, restartFor) {
     if (EVENTS.indexOf(e.type) === -1) throw new Error("jarvis: session=event type=" + e.type);
     if (!Number.isFinite(e.at) || e.at < 0) throw new Error("jarvis: session=clock");
     var s = JSON.parse(JSON.stringify(state));
@@ -558,7 +562,7 @@ function reduce(state, e) {
     var expiredApproval = s.approval.kind === "held" && e.at >= s.approval.deadline
         ? s.approval : null;
     // A late callback cannot outrun a delayed event-loop timer.
-    if (e.type !== "deadline") expire(s, effects, e.at);
+    if (e.type !== "deadline") expire(s, effects, e.at, restartFor);
     switch (e.type) {
     case "snapshot": {
         if (["chained", "dictation", "duplex"].indexOf(e.engine) === -1) throw new Error("jarvis: session=engine");
@@ -587,6 +591,7 @@ function reduce(state, e) {
             if (settingsChanged) {
                 resetHistory(s, null);
                 s.restart = { kind: "none" };
+                s.failures = [];
             }
         }
         s.settings = JSON.parse(JSON.stringify(e.settings));
@@ -697,6 +702,7 @@ function reduce(state, e) {
         s.cue = { kind: "none" };
         s.fault = { kind: "none" };
         s.restart = { kind: "none" };
+        s.failures = [];
         s.input = { kind: "released" };
         if (open) {
             s.conversation = { kind: "active", purpose: "conversation" };
@@ -768,19 +774,17 @@ function reduce(state, e) {
         s.capture.kind = "open";
         if (s.capture.mode === "check") s.check = { kind: "recording", gen: e.gen, op: e.op, deadline: e.at + VOICE_CHECK_MS };
         if (s.turn.kind === "collecting") s.turn.deadline = null;
-        if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
         if (!live(s, e, "capture", ["opening", "open", "closing"])) { stale(s); break; }
-        var retry = s.fault.kind === "retrying" ? s.fault.retry : 0;
-        s.fault = deviceLost(e.reason) && retry < 3
-            ? { kind: "retrying", reason: e.reason, retry: retry + 1 }
-            : { kind: "error", reason: e.reason, retry: retry };
+        var retiredCapture = s.capture.gen !== s.gen;
         if (s.capture.kind === "closing") s.capture = { kind: "closed" };
-        else closeCapture(s, effects);
-        if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
-        if (s.input.kind === "closing-tap") end(s, effects, e.at, "capture-failed", false);
+        // Cleanup keeps its recorder identity across a conversation end.
+        // Its late failure acknowledges closure, never faults the successor.
+        if (retiredCapture) { stale(s); break; }
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
+        e = Object.assign({}, e, { restart: restartFor(e.reason) });
+        failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
     }
     case "capture-closed":
@@ -856,8 +860,16 @@ function reduce(state, e) {
     case "collect-failed":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn = { kind: "none" };
-        s.fault = { kind: "error", reason: e.reason, retry: 0 };
-        end(s, effects, e.at, "collect-failed", false);
+        e = Object.assign({}, e, { restart: restartFor(e.reason) });
+        failConversation(s, effects, e, { kind: "error", reason: e.reason });
+        break;
+    // A held answer outlives physical capture closure. Its terminal failure
+    // belongs to the unchanged approval, never a replacement hold or generation.
+    case "approval-input-failed":
+        if (e.gen !== s.gen || !live(s, e, "approval", ["held"])
+                || e.id !== s.approval.id || e.digest !== s.approval.digest) { stale(s); break; }
+        e = Object.assign({}, e, { type: "capture-failed", restart: restartFor(e.reason) });
+        failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
     case "brain-done":
     case "brain-failed":
@@ -870,7 +882,7 @@ function reduce(state, e) {
         if (e.type === "brain-done" && (s.playback.kind === "flushing" || s.playback.kind === "feedback")
                 && s.playback.reply.kind === "waiting")
             s.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;
-        if (e.type === "brain-failed") failConversation(s, effects, e, { kind: "error", reason: e.reason, retry: 0 });
+        if (e.type === "brain-failed") failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
     case "cancelled":
         if (!live(s, e, "turn", ["cancelling"])) { stale(s); break; }
@@ -925,8 +937,8 @@ function reduce(state, e) {
             s.playback = { kind: "idle" };
             break;
         }
-        s.fault = { kind: "error", reason: e.reason, retry: 0 };
-        end(s, effects, e.at, "playback-failed", false);
+        e = Object.assign({}, e, { restart: restartFor(e.reason) });
+        failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
     case "feedback":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
@@ -1091,7 +1103,7 @@ function reduce(state, e) {
                 || live(s, e, "playback", ["playing", "feedback"])
                 || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"])
                 || live(s, e, "quiet", ["waiting"]))
-            expire(s, effects, e.at);
+            expire(s, effects, e.at, restartFor);
         else stale(s);
         break;
     }
@@ -1110,7 +1122,7 @@ var REGIONS = {
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
-    fault: { none: "", error: "reason retry", retrying: "reason retry", "voice-connection": "reason" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
+    fault: { none: "", error: "reason category", "voice-connection": "reason category" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
@@ -1127,7 +1139,11 @@ function exact(value, names) {
 }
 
 function validate(s) {
-    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "stops", "settings", "toggleAt", "checkSource"]))) return false;
+    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "stops", "settings", "toggleAt", "checkSource", "failures"]))) return false;
+    if (!Array.isArray(s.failures) || s.failures.some(function (key) {
+        return typeof key !== "string" || key.split(":").length !== 2 || !/^(brain|speech|capture|collect|playback)-failed:/.test(key)
+            || FAULT_CATEGORIES.indexOf(key.split(":")[1]) === -1;
+    }) || s.failures.length !== new Set(s.failures).size) return false;
     if (s.checkSource !== null && typeof s.checkSource !== "string") return false;
     for (var name of ["gen", "nextOp", "stale", "stops"])
         if (!Number.isSafeInteger(s[name]) || s[name] < (name === "nextOp" ? 1 : 0)) return false;
@@ -1139,7 +1155,7 @@ function validate(s) {
         var fields = REGIONS[region][r.kind] === "" ? [] : REGIONS[region][r.kind].split(" ");
         if (!exact(r, ["kind"].concat(fields))) return false;
         for (var f of fields) {
-            if (["gen", "op", "brain", "source", "retry", "epoch"].indexOf(f) !== -1) {
+            if (["gen", "op", "brain", "source", "epoch"].indexOf(f) !== -1) {
                 if (!Number.isSafeInteger(r[f]) || r[f] < (["op", "brain", "source"].indexOf(f) !== -1 ? 1 : 0)) return false;
             } else if (f === "device") {
                 if (r[f] !== null && typeof r[f] !== "string") return false;
@@ -1184,6 +1200,7 @@ function validate(s) {
         if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;
         if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;
         if (region === "restart" && r.kind === "restarted" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;
+        if (region === "fault" && r.kind !== "none" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;
     }

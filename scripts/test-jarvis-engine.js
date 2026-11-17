@@ -195,6 +195,7 @@ function rig(kit, server, options = {}) {
         ...(options.rejudge === undefined ? {} : { rejudge: options.rejudge }) });
     if (daemon !== null) daemon.engine = engine;
     ports.release = engine.release;
+    ports.restart = engine.restart;
     const actionApproval = ports.approval;
     const wiring = [...daemonSource.matchAll(/runner\.ports\.approval = (\{\n[\s\S]*?\n                    \});/g)];
     assert.equal(wiring.length, 1, "one shipped daemon approval wiring");
@@ -878,8 +879,10 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         assert.equal(server.requests.length, before, "no transcription or brain turn before real ready");
         if (ending === "fault") {
             process.kill(starts()[0].start.pid, "SIGKILL");
-            await until(() => s().fault.kind === "error", "own-child fault is visible during loading");
-            assert.match(s().fault.reason, /^speech=local-exit/);
+            await until(() => s().restart.kind === "restarted", "own-child failure uses the shared recovery during loading");
+            assert.equal(s().fault.kind, "none");
+            assert.equal(s().restart.category, "voice");
+            assert.equal(s().failures.includes("collect-failed:voice"), true);
             assert.equal(s().capture.kind, "closed");
             hello();
             await until(() => status().causes.length === 0, "own-child fault is unloaded, not setup refusal");
@@ -1217,6 +1220,25 @@ async function cases(kit, server, only = null, mutation = false) {
         w.runner.dispatch({ type: "confirm", gen: held.gen, id: held.id, digest: held.digest, source: "button" });
     }
     const remoteVoice = { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } };
+    for (const routed of [false, true]) await run("restart-deadline-" + (routed ? "routed" : "clean"), async w => {
+        const held = gate();
+        try {
+            const before = await say(w, utterance("Focus the editor."));
+            server.replies.push(pause(held));
+            await requested(w, before + 1, "the request remains active at its deadline");
+            if (routed) {
+                const result = w.router.route({ kind: "tool-call", id: "deadline-call", tool: "windows.focus", arguments: { window: "0x1f" } },
+                    { gen: w.s().gen, op: w.s().turn.op });
+                assert.notEqual(result.kind, "refuse");
+                await until(() => w.executions.length === 1, "the routed call has acted before the deadline");
+            }
+            w.advanceRunner(w.s().turn.deadline - w.runnerNow());
+            assert.equal(w.s().restart.kind, routed ? "none" : "restarted", "Session consumes the engine's real side-effect facts");
+            assert.equal(w.s().fault.kind, routed ? "error" : "none");
+            assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.cause, row.category, row.action]),
+                [["session=thinking-timeout", "slow", routed ? "stopped" : "restarted"]]);
+        } finally { held.open(); }
+    });
     for (const [name, turns, reason, restart, category, options] of [
         ["restart-after-cut-reply", w => cutReply(w, "Focus the editor."), "brain=stream-truncated", "restart", "reply-cut"],
         ["restart-none-after-tool", w => cutReply(w, "Focus the editor.", undefined, async () => {
@@ -2334,7 +2356,7 @@ async function cases(kit, server, only = null, mutation = false) {
         // A failure the service heard is one the turn no longer can.
         await settled(() => w.s().turn.kind !== "collecting",
             () => w.faults.includes("speech-transcribe: speech=fixture-failed"), "the failure reaches the turn");
-        assert.deepEqual({ ...w.s().fault }, { kind: "error", reason: "speech=fixture-failed", retry: 0 });
+        assert.deepEqual({ ...w.s().fault }, { kind: "error", reason: "speech=fixture-failed", category: "other" });
         assert.equal(server.requests.length, before);
     });
 
@@ -2770,9 +2792,34 @@ async function cases(kit, server, only = null, mutation = false) {
         w.runner.dispatch({ type: "talk-down" });
         // A later revision reached Session; the held capture then waits for a final.
         await settled(() => w.s().fault.kind === "error", () => w.partials.includes("b"), "the capture fails");
-        assert.equal(w.s().fault.reason, "provider-disconnected");
+        assert.equal(w.s().fault.reason, "engine=transcript-revision");
+        assert.equal(w.s().fault.category, "other");
+        assert.equal(w.s().restart.kind, "none", "malformed adapter output never restarts");
         assert.equal(server.requests.length, before);
     });
+
+    // Automatic input reopens without a collection while the brain thinks.
+    // Its adapter protocol fault keeps the same permanent cause.
+    await run("unbound-partial-revision", async w => {
+        const held = gate();
+        const malformed = utterance("x", [], [
+            { kind: "partial", text: "a", rev: 2 }, { kind: "partial", text: "b", rev: 1 }]);
+        try {
+            control.utterances.push(utterance("First turn.", [], null, { afterFrames: 3 }), malformed);
+            const before = server.requests.length;
+            server.replies.push(pause(held));
+            w.runner.dispatch({ type: "talk-down" });
+            await requested(w, before + 1, "the first automatic-input turn");
+            // Its bad revision cannot cancel the request before this read.
+            malformed.afterFrames = 0;
+            await playOut(w);
+            await until(() => w.s().fault.kind === "error", "unbound transcription keeps its keyed failure");
+            assert.equal(w.s().fault.reason, "engine=transcript-revision");
+            assert.equal(w.s().fault.category, "other");
+            assert.equal(w.s().restart.kind, "none");
+            assert.equal(server.requests.length, before + 1, "a malformed unbound utterance is never sent");
+        } finally { held.open(); }
+    }, { holdToTalk: false });
 
     // Closing during capture retires the transcription without a final.
     await run("close-capture", async w => {
@@ -2941,15 +2988,22 @@ async function cases(kit, server, only = null, mutation = false) {
         await until(() => w.s().turn.kind === "none", "the turn completes");
     }, dictating);
 
-    // A stop the core refuses fails the turn with its keyed cause.
+    // A transient recording failure uses its one allowance, then stops with
+    // its keyed cause. No failed recording supplies words to the brain.
     await run("dictation-stop-refused", async w => {
         w.dictation.stop = "refused: dictation=failed reason=stop code=1";
-        const before = await say(w, utterance("Lost words."));
-        await settled(() => w.s().fault.kind === "error",
-            () => w.dictation.calls.includes("dictation.stop") && quietTurn(w),
-            "the refused stop is the turn's fault");
-        assert.equal(w.s().fault.reason, "speech=dictation-failed");
-        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop"]);
+        const before = server.requests.length;
+        for (const attempt of [0, 1]) {
+            await say(w, utterance("Lost words."));
+            await until(() => attempt === 0 ? w.s().restart.kind === "restarted" : w.s().fault.kind === "error",
+                "the refused recording recovers once, then stops");
+            await until(() => w.s().capture.kind === "closed", "the failed recording releases capture");
+            assert.equal(w.s().fault.kind, attempt === 0 ? "none" : "error");
+        }
+        assert.deepEqual([w.s().fault.reason, w.s().fault.category], ["speech=dictation-failed", "dictation"]);
+        assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.category, row.action]),
+            [["dictation", "restarted"], ["dictation", "stopped"]]);
+        assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.stop", "dictation.start", "dictation.stop"]);
         assert.equal(server.requests.length, before, "no words reach the brain");
     }, dictating);
 
@@ -3010,6 +3064,70 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(w.dictation.calls, ["dictation.start"], "a refused recording is never stopped");
         assert.equal(server.requests.length, before);
     }, dictating);
+
+    // A held action's answer records without a collection. Its producer
+    // cause survives capture teardown, and the pending action forbids retry.
+    for (const [name, phase, reply, reason, category] of [
+        ["busy", "start", "refused: dictation=busy holder=vgs.voice", "speech=dictation-busy", "other"],
+        ["failed", "start", "refused: dictation=failed reason=start code=1", "speech=dictation-failed", "dictation"],
+        // DictationModel.transcript's failed stop reaches Service.dictationWords
+        // after Talk release destroyed the capture sink.
+        ["terminal", "stop", "refused: dictation=failed reason=stop code=1", "speech=dictation-failed", "dictation"]
+    ]) await run("dictation-held-failure-" + name, async w => {
+        const target = path.join(w.workspace, "fixture.txt");
+        fs.writeFileSync(target, "fixture");
+        w.dictation.text = "Delete the fixture.";
+        const before = await say(w, utterance("Delete the fixture."));
+        server.replies.push(calls({ id: "call_delete", name: "files_delete", arguments: { path: target } }), text(""));
+        await w.observed(() => w.s().approval.kind === "held", "the action waits for its answer");
+        const hold = w.s().approval;
+        w.runner.dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id });
+        await playOut(w);
+        w.advanceRunner(1100);
+        w.dictation[phase] = reply;
+        control.utterances.push(utterance("Yes."));
+        w.runner.dispatch({ type: "talk-down" });
+        if (phase === "stop") {
+            await until(() => w.s().capture.kind === "open", "the held answer's microphone opens");
+            assert.equal(w.s().turn.kind, "thinking", "the answer has no collection");
+            const owned = JSON.parse(JSON.stringify(w.s()));
+            const terminal = { type: "approval-input-failed", at: w.runnerNow(), gen: owned.capture.gen,
+                op: hold.op, id: hold.id, digest: hold.digest, reason };
+            // Delayed completions from retired capture generations or replaced
+            // approvals must not acquire the current hold's failure authority.
+            for (const changed of [{ gen: terminal.gen - 1 }, { op: terminal.op + 1 },
+                { id: terminal.id + "-retired" }, { digest: "0".repeat(64) }]) {
+                const rejected = w.Session.reduce(owned, { ...terminal, ...changed }, () => ({ kind: "none", category }));
+                assert.equal(rejected.state.stale, owned.stale + 1);
+                assert.equal(rejected.state.fault.kind, "none");
+                assert.equal(rejected.state.approval.op, hold.op);
+                assert.equal(rejected.effects.some(effect => effect.kind === "fault-record"), false);
+            }
+            const cancelled = w.Session.reduce(owned, { type: "stop", at: terminal.at }).state;
+            const late = w.Session.reduce(cancelled, terminal, () => ({ kind: "none", category }));
+            assert.equal(late.state.stale, cancelled.stale + 1);
+            assert.equal(late.state.fault.kind, "none", "a cancelled held answer cannot fault the conversation");
+            release(w);
+        }
+        await until(() => w.s().fault.kind === "error", "the unbound answer retains its producer failure");
+        await until(() => w.s().capture.kind === "closed", "the failed answer releases capture");
+        assert.deepEqual([w.s().fault.reason, w.s().fault.category, w.s().restart.kind], [reason, category, "none"]);
+        assert.equal(w.s().approval.kind, "none", "the failed answer releases the held approval");
+        assert.deepEqual(w.faults, [], "the typed input failure produces no generic audio fault");
+        if (phase === "stop") {
+            const references = load(path.join(tree, "shell/Commons/PageReference.js"));
+            const view = load(path.join(tree, "shell/plugins/vgs.jarvis/WidgetView.js"),
+                { "qs.Commons 1.0": { PageReference: references } });
+            assert.equal(view.faultKind(w.s().fault), "dictation", "the terminal refusal shows its dictation message");
+            const targets = references.references(view.faultText(w.s().fault, w.s().engine.kind, null).action).links;
+            assert.deepEqual(Array.from(targets, target => [target.page, target.tab]), [["vgs.voice", "Setup"]],
+                "the failure offers the dictation device's settings");
+        }
+        assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.category, row.action]), [[category, "stopped"]]);
+        assert.deepEqual(w.executions, [], "no held action runs or repeats");
+        assert.equal(fs.readFileSync(target, "utf8"), "fixture");
+        assert.equal(server.requests.length, before + 1, "no failed answer reaches another brain turn");
+    }, { ...dictating, actionApproval: true, filesExecutor: true });
 
     // The service's dictation cause holds the local voice: no capture opens
     // and nothing is recorded.
@@ -3539,6 +3657,22 @@ function brainPlan(Engine) {
 function restartTable(Engine) {
     const clean = { acted: false, answered: true, remote: true };
     const rows = [
+        ["thinking-timeout", clean, "restart", "slow"],
+        ["thinking-timeout", { ...clean, acted: true }, "none", "slow"],
+        ...["playback-timeout", "capture-exit-1", "playback-exit-SIGTERM", "playback-pipe-closed", "capture-overflow",
+            "audio-start: audio-readiness", "device-probe: discovery-exit: fixture"].map(reason => [reason, clean, "restart", "audio"]),
+        ...["speech=local-exit code=1 signal=null", "speech=local-write code=EPIPE", "speech=local-end-timeout",
+            "speech=local-synthesis-timeout", "speech=local-synthesis-empty", "speech=local-backlog",
+            "playback-source: jarvis: speech=local-synthesis-timeout", "speech=elevenlabs-timeout",
+            "speech=elevenlabs-stream-failed", "speech=elevenlabs-audio-empty", "speech=elevenlabs-http status=503",
+            "playback-source: jarvis: speech=elevenlabs-http status=408", "playback-source: jarvis: net=request"].map(reason => [reason, clean, "restart", "voice"]),
+        ...["speech=dictation-timeout", "speech=dictation-failed"].map(reason => [reason, clean, "restart", "dictation"]),
+        ...["provider-disconnected", "input-end", "device-lost target=fixture", "capture-refused", "playback-frame", "audio-start: audio-child: spawn-ENOENT",
+            "speech=local-ready-timeout", "speech=local-not-ready", "speech=local-memory-insufficient",
+            "speech=local-protocol key=shape", "speech=dictation-busy", "speech=dictation-unavailable"].map(reason => [reason, clean, "none", "other"]),
+        ...[401, 402, 403, 429].map(status => ["playback-source: jarvis: speech=elevenlabs-http status=" + status, clean, "none", "account"]),
+        ["speech=elevenlabs-http status=400", clean, "none", "setup"],
+        ...["speech=elevenlabs-no-key", "playback-source: jarvis: speech=elevenlabs-voice"].map(reason => [reason, clean, "none", "setup"]),
         ["live=input-overflow", clean, "restart", "connection"],
         ["live=disconnected code=1006", clean, "restart", "connection"],
         ["net=socket-not-open", clean, "restart", "connection"],
@@ -3992,12 +4126,26 @@ async function groupSelection(root, server) {
     failoverTable(Fixture.copy(root).Engine);
     restartTable(Fixture.copy(root).Engine);
     for (const [name, needle, replacement] of [
+        ["elevenlabs-http-restart", 'speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500',
+            'speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => false'],
+        ["elevenlabs-account-cause", '[401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : SETUP',
+            '[401, 402, 403, 429].includes(Number(status)) ? SETUP : SETUP'],
+        ["elevenlabs-stream-cause", 'speech=elevenlabs-(?:timeout|stream-failed|audio-empty)',
+            'speech=elevenlabs-(?:(?!)timeout|stream-failed|audio-empty)'],
+        ["elevenlabs-setup-cause", '[/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => SETUP]',
+            '[/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => PERMANENT]'],
+        ["slow-restart-cause", '[/^thinking-timeout$/, () => cause("transient", "slow", false)]', '[/^thinking-timeout$/, () => PERMANENT]'],
+        ["audio-restart-cause", 'cause("transient", "audio", false)', 'PERMANENT'],
+        ["local-restart-cause", 'speech=local-(?:end-timeout', 'speech=local-(?:(?!)end-timeout'],
+        ["dictation-restart-cause", '[/^speech=dictation-(?:timeout|failed)$/, () => cause("transient", "dictation", false)]',
+            '[/^speech=dictation-(?:timeout|failed)$/, () => PERMANENT]'],
         ["start-timeout-cause",
             '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => cause("transient", "app-stopped", true, { ended: true })]',
             '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => UNKNOWN]'],
         ["provider-status-cause", "Number(status) >= 500 ? SERVICE", "false ? SERVICE"],
-        ["request-timeout-cause", "Number(status) === 408 || ", ""],
+        ["request-timeout-cause", "Number(status) === 408 || Number(status) >= 500 ? SERVICE", "Number(status) >= 500 ? SERVICE"],
         ["unknown-failover", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("unknown", "other", true);'],
+        ["unclassified-restart", 'const PERMANENT = cause("permanent", "other", false);', 'const PERMANENT = cause("transient", "other", false);'],
         ["unknown-restart", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("transient", "other", false);'],
         ["restart-acted", "judged.class === \"transient\" && !facts.acted && ", "judged.class === \"transient\" && "],
         ["restart-needs", "(judged.needs === null || facts[judged.needs] === true)", "true"],
@@ -4141,6 +4289,8 @@ async function groupPlants(root, server) {
     let controls = 0;
     // Each control plants one defect in a disposable engine copy.
     const plants = [
+        ["deadline-restart-answer", '            return restart;', '            return unrestarted(reason);', "restart-deadline-clean"],
+        ["deadline-routed-facts", 'return c.turn ?? (pending ? c.last : null);', 'return pending ? c.last : null;', "restart-deadline-routed"],
         ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
         ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
@@ -4215,8 +4365,6 @@ async function groupPlants(root, server) {
             "c.unbound", "toggle-turns"],
         ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
             'transcribe(frames, { detect: false })', "toggle-turns"],
-        ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
-            "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
         ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
         ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet, context: c };",
@@ -4235,6 +4383,9 @@ async function groupPlants(root, server) {
         ["history-reset-retained", "function forgetBrain() {\n", "function forgetBrain() {\n        return;\n", "history-reset-closed"],
         ["history-consent-skipped", "if (c.historyLabels.size !== 0) {", "if (false) {", "history-resume-release"],
         ["readable-backpressure", "if (!readable.push(step.value)) await wanted.wait();", "readable.push(step.value);", "backpressure"],
+        ["unbound-loses-keyed-cause", 'else if (capturing) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });',
+            'else if (false) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });', "unbound-partial-revision"],
+        ["collection-loses-keyed-cause", 'if (bound) collection.failed(reason);', 'if (bound) collection.failed("provider-disconnected");', "partial-revision"],
         ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
         ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "close-capture"],
         ["caption-revision", "rev: ++c.rev", "rev: 1", "turn-loop"],
@@ -4281,7 +4432,8 @@ async function groupPlants(root, server) {
         ["dictation-stop-refusal-read-empty", 'settle(ok(result) ? { kind: "text", text: result.data.text } : { kind: "failed", cause: dictationFault(result) });',
             'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
         ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
-        ["dictation-refusal-unheard", "if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);\n            else if (running", "if (running", "dictation-start-refused"],
+        ["dictation-refusal-unheard", "            failedInput(result.cause);", "            void result;", "dictation-held-failure-failed"],
+        ["dictation-held-completion-lost", '            else if (answer !== null) {', '            else if (answer !== null && !sink.destroyed) {', "dictation-held-failure-terminal"],
         ...["failed-turn-fresh-brain", "failover-exhausted-starts-primary"].map(scenario => ["failed-turn-keeps-brain-" + scenario,
             '        freshBrain(c);\n        done("brain-failed", { reason, restart });', '        done("brain-failed", { reason, restart });', scenario]),
         ["failover-resend-uncounted", "                        c.turns++;\n                        void respond(", "                        void respond(", "failover-resend-history-bound"],

@@ -150,6 +150,17 @@ function programEnd(setup) {
         : cause("transient", "app-stopped", true, { ended: true, needs: "answered" });
 }
 const CAUSES = Object.freeze([
+    // Session deadlines, Audio child failures and the speech adapters below
+    // use Session's shared teardown before it opens a successor operation.
+    [/^thinking-timeout$/, () => cause("transient", "slow", false)],
+    [/^playback-timeout$|^(?:capture|playback)-exit-|^(?:playback-pipe-closed|capture-overflow)$|^(?:audio-start: audio-readiness|device-probe: discovery-exit:)/, () => cause("transient", "audio", false)],
+    [/^(?:playback-source: jarvis: )?speech=local-(?:end-timeout|synthesis-timeout|synthesis-empty|backlog|exit(?: |$)|write(?: |$))/, () => cause("transient", "voice", false)],
+    [/^speech=dictation-(?:timeout|failed)$/, () => cause("transient", "dictation", false)],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-http status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500
+        ? cause("transient", "voice", false) : [401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : SETUP],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:timeout|stream-failed|audio-empty)$/, () => cause("transient", "voice", false)],
+    [/^playback-source: jarvis: net=request$/, () => cause("transient", "voice", false)],
+    [/^(?:playback-source: jarvis: )?speech=elevenlabs-(?:no-key|voice|format|row|owner)$/, () => SETUP],
     // Realtime server-events distinguishes server_error from client errors;
     // incomplete max_output_tokens can retry, content_filter cannot.
     // https://developers.openai.com/api/reference/resources/realtime/server-events
@@ -928,7 +939,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // recorder; one utterance yields partials and one final.
     function transcription(c, e) {
         const approval = state().approval;
-        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
+        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest, op: approval.op,
             gen: approval.gen, beganAt: clock.now(), idleAt } : null;
         let output = null;
         // running: transcribing; ending: the row's final came and the
@@ -962,8 +973,29 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
             } else utterance.collection?.done("final", text);
         }
-        // A dictation request that failed ends the utterance with no words; a
-        // live collection's turn carries the cause.
+        function failedInput(reason, error = new Error("jarvis: " + reason)) {
+            // Audio reduces a stream error to provider-disconnected. Report
+            // the keyed producer cause while Session still owns this input.
+            const collection = utterance.collection;
+            const bound = collecting(c, collection);
+            const capturing = session.live(state(), e, "capture", ["opening", "open", "closing"]);
+            if (bound) collection.failed(reason);
+            else if (capturing) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });
+            else if (answer !== null) {
+                // Dictation's stop can answer after Audio destroyed this sink.
+                // The utterance still owns its held answer, not the recorder's
+                // later close operation. Session judges the unchanged hold.
+                if (conversation === c && c.unbound === utterance)
+                    dispatch({ type: "approval-input-failed", gen: e.gen, op: answer.op,
+                        id: answer.id, digest: answer.digest, reason });
+                if (!sink.destroyed) sink.destroy();
+                return;
+            }
+            if (!sink.destroyed) sink.destroy(error);
+            else if (!bound && !capturing) fault("speech-transcribe: " + reason);
+        }
+        // A refused recording supplies no final words, including an empty
+        // transcript that could hide its failure.
         const record = c.plan.speech.dictation !== true ? null : dictation(result => {
             if (utterance.state !== "running" && utterance.state !== "ending") return;
             if (result.kind === "text") {
@@ -976,10 +1008,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 void output?.return?.();
             }
             utterance.state = "concluded";
-            // A live collection's turn carries the cause; an unbound capture,
-            // as a held request's answer, carries it as run()'s catch does.
-            if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);
-            else if (running && !sink.destroyed) sink.destroy(new Error("jarvis: " + result.cause));
+            failedInput(result.cause);
         });
         async function run() {
             let rev = 0;
@@ -1020,11 +1049,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (utterance.state !== "running") return;
                 utterance.state = "concluded";
                 record?.cancel();
-                // An open capture carries the failure; after it closed, the
-                // collection's turn does; unbound, only the service hears it.
-                if (!sink.destroyed) sink.destroy(error);
-                else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));
-                else fault("speech-transcribe: " + keyed(error));
+                failedInput(keyed(error), error);
             }
         }
         void run();
@@ -1346,6 +1371,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             acted: turn !== null && (turn.relay !== null || turn.fast !== undefined || turn.routed === true || turn.calls.length !== 0 || turn.released === true),
             answered: answered.has(c.brainOwner.value),
             remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback });
+    }
+    // Session owns output after the engine has concluded its last turn.
+    // c.last alone is history, not evidence that its answer is pending.
+    function pendingTurn(c) {
+        const s = state();
+        const pending = s.speech.kind === "open" && (s.speech.reply.kind !== "none"
+            || s.playback.kind === "playing" && s.playback.source === s.speech.op)
+            || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
+            || s.playback.kind === "flushing" && s.playback.reply.kind === "waiting"
+            || s.playback.kind === "playing" && c.last?.op === s.playback.source;
+        return c.turn ?? (pending ? c.last : null);
     }
     function failed(c, turn, error) {
         if (turn.stopped) return;
@@ -2136,6 +2172,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     return Object.freeze({
+        restart(reason) {
+            const c = conversation;
+            if (c === null) return unrestarted(reason);
+            const restart = restartFor(c, pendingTurn(c), reason);
+            freshBrain(c);
+            return restart;
+        },
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
             const identity = JSON.stringify([[settings.brain, settings.model ?? ""],
@@ -2363,10 +2406,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     // The adapter has released its account, but Session still
                     // owns queued words and playback after the brain finishes.
-                    const s = state();
-                    const pending = s.speech.kind === "open" && (s.speech.reply.kind !== "none"
-                        || s.playback.kind === "playing" && s.playback.source === s.speech.op);
-                    const restart = restartFor(c, c.turn ?? (pending ? c.last : null), reason);
+                    const restart = restartFor(c, pendingTurn(c), reason);
                     freshBrain(c);
                     events.failed(reason, restart);
                     // A refused key holds Talk with its cause until the key changes.

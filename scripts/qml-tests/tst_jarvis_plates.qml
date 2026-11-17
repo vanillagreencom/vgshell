@@ -180,7 +180,7 @@ Item {
                   plates: ["iconPill", "textCard", "wordsCard"] },
                 { tag: "listening under the pointer", hover: true, state: root.session(Object.assign({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, open)),
                   plates: ["iconPill"] },
-                { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), plates: ["textCard"] },
+                { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "brain=stream-error", category: "other" } }), plates: ["textCard"] },
                 { tag: "a held request under the pointer", hover: true, state: root.held(widest, true), plates: ["iconPill", "textCard"] }
             ];
         }

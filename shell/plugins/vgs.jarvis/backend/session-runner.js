@@ -27,7 +27,7 @@ class SessionRunner {
         this.draining = true;
         try {
             while (this.queue.length) {
-                const result = this.session.reduce(this.state, this.queue.shift());
+                const result = this.session.reduce(this.state, this.queue.shift(), this.ports.restart);
                 this.state = result.state;
                 this.ports.tools.sync(this.state);
                 let persistence = { kind: "stored" };
@@ -126,6 +126,8 @@ function unavailable() {
     return {
         capture: { open: refuse, close: (e, done) => done(), collect: refuse },
         brain: { send: refuse, cancel: (e, done) => done(), close: () => {}, reset: () => {}, outcome: refuse },
+        // No engine owns a conversation here, so no failure may restart it.
+        restart: () => ({ kind: "none", category: "other" }),
         playback: { start: refuse, flush: (e, done) => done() },
         tools: { start: refuse, cancel: refuse, outcome: refuse, sync: () => {}, close: () => {} },
         approval: { show: refuse, end: () => {}, refused: refuse },

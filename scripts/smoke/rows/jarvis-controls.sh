@@ -21,6 +21,7 @@
 # runs. Each read polls once per nested IPC round trip.
 # inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* .agents/skills/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
 expected_errors+=("${dictation_absent_errors[@]}")
@@ -92,11 +93,11 @@ d = json.loads(sys.argv[1])
 widget = json.loads(sys.argv[2])
 daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
-action = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"
+action = daemon.get("hint")
 ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
-ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and daemon.get("lines") == ["Jarvis could not finish starting."] and daemon.get("hint") == action
-ok = ok and setup.get("text") == "Jarvis did not answer in time"
+ok = ok and daemon.get("tone") == "danger" and isinstance(action, str) and "page:vgs.jarvis/Settings" in action
+ok = ok and isinstance(daemon.get("lines"), list) and len(daemon["lines"]) > 0
+ok = ok and setup.get("text") == daemon.get("text")
 ok = ok and setup.get("hint") == action and "lines" not in setup
 ok = ok and widget.get("tooltip") == "Jarvis: Problem" and widget.get("tooltipDetails", [])[:1] == [action]
 ok = ok and not any("hello=timeout" in line for line in widget.get("tooltipDetails", []))

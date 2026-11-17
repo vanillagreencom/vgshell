@@ -24,8 +24,11 @@
 # must withdraw capture. These are state/order probes, not timing budgets.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_parent_tree="$jarvis_fixture_tree" jarvis_fixture_parent_shim="$jarvis_fixture_shim"
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_bubble_parent_gates="$jarvis_key_gates" jarvis_bubble_parent_intents="$jarvis_key_intents"
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin "$jarvis_fixture_parent_tree" "$jarvis_fixture_parent_shim"
 jarvis_key_resume_marker
@@ -604,8 +607,8 @@ jarvis_bubble_click() { # LABEL
 jarvis_bubble_begin() {
   if [[ $(jarvis_key_state conversation) != ended ]]; then
     jarvis_key_talk_up
-    # Stop after a retry pauses automatic input. Its next Talk resumes;
-    # only a second fresh press closes that still-active conversation.
+    # Talk resumes stopped automatic input; only a second fresh press
+    # closes that still-active conversation.
     if [[ $(jarvis_key_state holdToTalk) == false && $(jarvis_key_state input) == stopped ]]; then
       jarvis_key_tap
       expect_poll "Talk resumes the stopped automatic input" listening jarvis_key_state phase
@@ -899,30 +902,6 @@ jarvis_key_talk_up
 jarvis_key_stop_assertion
 expect_poll "Stop keeps the open conversation visible" presented jarvis_bubble_state
 
-# The capture fake loses its device after opening, then holds the retry's
-# open callback. The real daemon/Session owns the fault and cancellation.
-for jarvis_bubble_hold in true false; do
-  for jarvis_bubble_stop_trigger in button key ipc; do
-    jarvis_key_hold "$jarvis_bubble_hold"
-    jarvis_bubble_begin
-    jarvis_key_gate device-lost
-    expect_poll "device loss enters retry before $jarvis_bubble_stop_trigger Stop in $jarvis_bubble_hold" retrying jarvis_key_state fault
-    expect_poll "the retry card remains presented" presented jarvis_bubble_state
-    case "$jarvis_bubble_stop_trigger" in
-      button) jarvis_bubble_click "Stop Jarvis" ;;
-      key) jarvis_key_stop ;;
-      ipc) expect "Stop IPC is accepted during retry" ok ipc vgs.jarvis invoke stop '' ;;
-    esac
-    jarvis_key_stop_assertion
-    expect_poll "Stop keeps the conversation after clearing retry in $jarvis_bubble_hold" presented jarvis_bubble_state
-    expect "Stop clears the retry fault" none jarvis_key_state fault
-    jarvis_key_gate device-back
-    expect "a late device callback cannot reopen capture" closed jarvis_key_state capture
-    jarvis_key_talk_up
-    rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"
-  done
-done
-jarvis_key_hold true
 # Voice mute stays on from here through the mutation controls, so Jarvis's
 # words draw; the words section turns it off and on again.
 jarvis_bubble_begin
@@ -1027,7 +1006,7 @@ expect_poll "the quiet orb swaps frames" advancing jarvis_bubble_advancing
 expect "the quiet orb swaps at most its look's rate" paced jarvis_bubble_paced "$jarvis_bubble_rate"
 jarvis_bubble_begin
 jarvis_key_gate device-lost
-expect_poll "device loss shows the fault" retrying jarvis_key_state fault
+expect_poll "device loss shows the fault" error jarvis_key_state fault
 expect_poll "the fault draws the error look" error jarvis_bubble_look
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
 expect_poll "the fault's orb swaps frames" advancing jarvis_bubble_advancing
@@ -1063,7 +1042,7 @@ else
 fi
 expect_poll "the theme's motion returns after the motion-off reading" "$jarvis_bubble_motion" ipc smoke themeValue motion.scale
 jarvis_key_stop
-jarvis_key_stop_assertion
+expect_poll "Stop dismisses the device fault" none jarvis_key_state fault
 jarvis_key_gate device-back
 jarvis_key_talk_up
 rm -f -- "${jarvis_key_gates:?}/device-gone" "${jarvis_key_gates:?}/device-back"
@@ -1250,7 +1229,7 @@ jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_bubble_begin
 jarvis_key_gate device-lost
-expect_poll "hidden device loss enters the real retry fault" retrying jarvis_key_state fault
+expect_poll "hidden device loss shows the fault" error jarvis_key_state fault
 # The reply card under the J shows the fault first, and the overlay's
 # hidden-orb fault line steps aside until the card's hold ends (VGS-2339).
 expect_poll "the reply card holds the hidden fault, so the overlay stays quiet" quiet jarvis_bubble_hidden quiet
@@ -1261,7 +1240,7 @@ expect_poll "Show from the required fault restores the orb choice" shown jarvis_
 expect "the hidden fault menu sends only the direct Show intent" '["show"]' jarvis_key_received "$jarvis_bubble_before"
 expect_poll "Show restores the fault's orb" error jarvis_bubble_look
 jarvis_key_stop
-jarvis_key_stop_assertion
+expect_poll "Stop dismisses the hidden device fault" none jarvis_key_state fault
 jarvis_key_gate device-back
 jarvis_key_talk_up
 rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"

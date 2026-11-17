@@ -168,7 +168,7 @@ async function inside() {
                     indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
-                    restart: { kind: "none" }
+                    restart: { kind: "none" }, failures: []
                 }, phase: "down", brain: "" });
         }
         return lines;
