@@ -642,7 +642,7 @@ rows=(
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
   # Product boot is proved by the nested smoke core rows.
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/rows/* kendex.settings.toml README.md scripts/test-keyboard-logic.js scripts/check-plugin-boundary.py scripts/smoke/reap.sh scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/plugins/vgs.keyboard/Service.qml shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md shell/plugins/vgs.screensaver/logo.txt shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js shell/plugins/vgs.agent-warden/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Popover.qml shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Core/Pads.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/SettingValues.js shell/Ui/qmldir shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/rows/* kendex.settings.toml README.md scripts/test-keyboard-logic.js scripts/check-plugin-boundary.py scripts/smoke/reap.sh scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/plugins/vgs.keyboard/Service.qml shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md shell/plugins/vgs.screensaver/logo.txt shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js shell/plugins/vgs.agent-warden/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Popover.qml shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Core/Pads.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/SettingValues.js shell/Ui/qmldir shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py shell/Core/Capabilities.qml shell/Core/SessionLock.qml shell/Core/ScreencopyPreview.qml shell/Core/qmldir shell/plugins/vgs.power/manifest.json shell/plugins/vgs.capture/manifest.json"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/plugins/vgs.bluetooth/PairLine.qml shell/Commons/* shell/Core/Config.qml shell/Core/PluginStatus.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.updates/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.local-sync/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Words.qml shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/Panel.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml shell/Core/HandoffRegistry.qml scripts/smoke/fixtures/plugins/acme.handoff/* scripts/smoke/fixtures/plugins/acme.handoff-sender/* shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/plugins/vgs.jarvis/Composer.js shell/plugins/vgs.power/Panel.qml shell/plugins/vgs.power/Pane.qml shell/plugins/vgs.power/StayAwake.qml shell/plugins/vgs.power/PowerLogic.js shell/plugins/vgs.polkit/Prompt.qml shell/plugins/vgs.polkit/PolkitModel.js shell/Hosts/SummonHost.qml"
@@ -1344,11 +1344,11 @@ smoke_loads_read() { # [BASE JS_PATH]
   smoke_observed=whole
   # -B: the reading writes no bytecode into the tree it reads.
   if out="$(python3 -I -B - "$@" 2>&1 <<'PY'
-import os, re, shlex, subprocess, sys
+import json, os, re, shlex, subprocess, sys
 
 sys.path.insert(0, "scripts")
-from qml_controls import qmldir_exports
-from qml_source import Unreadable, blank_comments, source_texts
+from qml_controls import OBJECT_ID, blocks, qmldir_exports
+from qml_source import Unreadable, blank_comments, scan_sources, source_texts
 
 # A file imports its own directory's types, each .qml file whose name
 # starts with an uppercase letter, and `import qs[.<Dir>...]` names a
@@ -1497,6 +1497,107 @@ try:
             tables[folder] = table, consulted
         return tables[folder]
 
+    # REVISIT(D137): Plugin authority ceases to be declared by its manifest.
+    # Startup is covered by core rows. Only a declared consumer observes a
+    # provider; importing the hub alone does not observe every provider.
+    hub = "shell/Core/Capabilities.qml"
+    providers, consumers = {}, {}
+    if hub in code:
+        text = code[hub]
+        shape = blank_comments(text, literals=False)
+        try:
+            # Unknown source shapes keep the hub's ordinary whole-file
+            # edges. No unproved partial table can narrow its consumers.
+            stack, ends = [], {}
+            for at, ch in enumerate(shape):
+                if ch in "([{":
+                    stack.append(at)
+                elif ch in ")]}":
+                    if not stack or "([{"[")]}".index(ch)] != shape[stack[-1]]:
+                        raise ValueError("unbalanced provider source")
+                    ends[stack.pop()] = at + 1
+            if stack:
+                raise ValueError("unclosed provider source")
+            matches = list(re.finditer(r"\bproperty\s+var\s+factories\s*:\s*\(\s*\{", shape))
+            if len(matches) != 1:
+                raise ValueError("unattributable provider table")
+            lo = matches[0].end()
+            hi = ends[lo - 1] - 1
+            entries, at, start = {}, lo, lo
+            while at <= hi:
+                if at == hi or shape[at] == ",":
+                    entry = text[start:at].strip()
+                    if entry:
+                        key = re.match(r"(\w+)\s*:", entry)
+                        if key is None or key[1] in entries:
+                            raise ValueError("unattributable provider entry")
+                        entries[key[1]] = set(WORD.findall(entry[key.end():]))
+                    start = at + 1
+                elif shape[at] in "([{":
+                    at = ends[at] - 1
+                at += 1
+            manifest_paths = []
+            for root in ("shell/plugins", "scripts/smoke/fixtures"):
+                if not os.path.isdir(root):
+                    continue
+                for relative, _, _ in scan_sources(root):
+                    if os.path.basename(relative) == "manifest.json":
+                        manifest_paths.append(os.path.join(root, relative))
+            operation = "capability-manifests"
+            result = subprocess.run(["node", "-e", r'''
+    const fs = require("fs"), path = require("path");
+    const logic = require(path.resolve("bin/lib/qml-library.js")).load("shell/Core/PluginLogic.js");
+    const files = JSON.parse(fs.readFileSync(0, "utf8"));
+    const manifests = files.map(file => {
+        const dir = path.dirname(file);
+        const answer = logic.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), dir);
+        if (!answer.ok) throw new Error(file + ": " + answer.error);
+        return [dir, answer.manifest.capabilities];
+    });
+    process.stdout.write(JSON.stringify({ capabilities: logic.CAPABILITIES, manifests }));
+    '''], input=json.dumps(manifest_paths), text=True, capture_output=True)
+            if result.returncode:
+                raise OSError(f"{operation} status={result.returncode} cause={result.stderr.strip()}")
+            judged = json.loads(result.stdout)
+            if set(entries) != set(judged["capabilities"]):
+                raise ValueError("incomplete provider table")
+            definitions = {}
+            for match in re.finditer(r"^    function\s+(\w+)\s*\([^{}\n]*\)\s*\{", shape, re.M):
+                definitions[match[1]] = set(WORD.findall(text[match.end():ends[match.end() - 1]]))
+            for match in re.finditer(r"^    (?:readonly\s+)?property\s+\w+\s+(\w+)\s*:\s*", shape, re.M):
+                end = shape.find("\n", match.end())
+                opened = shape.find("{", match.end(), end)
+                if opened != -1:
+                    end = ends[opened]
+                if match[1] != "factories":
+                    definitions.setdefault(match[1], set()).update(WORD.findall(text[match.end():end]))
+            def object_words(block):
+                words = set(WORD.findall(block.own_text()))
+                if block.type:
+                    words.add(block.type)
+                return words.union(*(object_words(child) for child in block.children))
+            for block in blocks(shape):
+                if block.parent.type == "Singleton":
+                    identity = OBJECT_ID.search(block.own_text())
+                    if identity:
+                        definitions.setdefault(identity[1], set()).update(object_words(block))
+            types, _ = named(os.path.dirname(hub))
+            for capability, words in entries.items():
+                while True:
+                    expanded = words.union(*(definitions[word] for word in words.intersection(definitions)))
+                    if expanded == words:
+                        break
+                    words = expanded
+                for name in words.intersection(types):
+                    for provider in types[name]:
+                        providers.setdefault(provider, set()).add(capability)
+            for folder, capabilities in judged["manifests"]:
+                for path in code:
+                    if path.startswith(folder + "/"):
+                        consumers[path] = {provider for provider, names in providers.items() if names.intersection(capabilities)}
+        except (KeyError, ValueError):
+            providers, consumers = {}, {}
+
     for path, text in code.items():
         here = os.path.dirname(path)
         # Stateless/importing JS resources inherit no QML imports, so a
@@ -1522,6 +1623,9 @@ try:
             loads |= consulted
             for name in words.intersection(table):
                 loads |= table[name]
+        if path == hub:
+            loads -= providers.keys()
+        loads |= consumers.get(path, set())
         loads.discard(path)
         for target in sorted(loads):
             print("load", path, target)

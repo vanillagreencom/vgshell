@@ -639,7 +639,7 @@ jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-j
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
 dispatch_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
-session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
+session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 jarvis_key_plan="${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
@@ -2625,6 +2625,72 @@ for function_case in harness library transitive-control top-level shared-line un
       [[ $function_case != transitive-control ]] || wanted="scripts/qml-smoke.sh" ;;
   esac
   row "function reach $function_case uses the real Gallery row, never launcher" "$d" 0 "" "$wanted"
+done
+
+# A provider change reaches a declared plugin consumer, not every source
+# that imports Capabilities. The real hub, provider and manifest judge run
+# through validate's --list operation; no fixture reimplements selection.
+for provider_case in provider nested direct unknown-table unreadable-manifest control; do
+  d="$tmp/capability-provider-$provider_case"
+  smoke_fixture "$d"
+  mkdir -p "$d/bin/lib" "$d/shell/plugins/vgs.power"
+  cp -- "$repo/shell/Core/Capabilities.qml" "$repo/shell/Core/SessionLock.qml" "$repo/shell/Core/ScreencopyPreview.qml" "$repo/shell/Core/qmldir" "$d/shell/Core/"
+  cp -- "$repo/bin/lib/qml-library.js" "$d/bin/lib/"
+  "${base_env[@]}" "$node_bin" - "$repo" "$d" <<'PROVIDERLIBRARIES'
+const fs = require("fs"), path = require("path");
+const [repo, target] = process.argv.slice(2);
+for (const file of require(path.join(repo, "bin/lib/qml-library.js")).closure(path.join(repo, "shell/Core/PluginLogic.js"))) {
+    const destination = path.join(target, path.relative(repo, file));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(file, destination);
+}
+PROVIDERLIBRARIES
+  cp -- "$repo/shell/plugins/vgs.power/manifest.json" "$d/shell/plugins/vgs.power/"
+  printf 'import QtQuick\nQtObject {}\n' >"$d/shell/plugins/vgs.power/Service.qml"
+  printf 'import qs.Core\nQtObject { property var hub: Capabilities }\n' >"$d/shell/plugins/acme.other/Panel.qml"
+  printf '# inputs: shell/plugins/vgs.power/Service.qml\n' >"$d/scripts/smoke/rows/power.sh"
+  printf 'power\n' >>"$d/scripts/smoke/rows.list"
+  if [[ $provider_case == direct ]]; then
+    printf '# inputs: shell/Core/SessionLock.qml\n' >"$d/scripts/smoke/rows/other.sh"
+  fi
+  if [[ $provider_case == unknown-table ]]; then
+    plant "$d/shell/Core/Capabilities.qml" 'readonly property var factories: ({' 'readonly property var factories: makeFactories({'
+  fi
+  if [[ $provider_case == control ]]; then
+    plant "$d/scripts/validate" 'loads |= consumers.get(path, set())' 'loads |= set()'
+  fi
+  if [[ $provider_case == nested ]]; then
+    mkdir -p "$d/shell/plugins/vgs.capture"
+    cp -- "$repo/shell/plugins/vgs.capture/manifest.json" "$d/shell/plugins/vgs.capture/"
+    printf 'import QtQuick\nQtObject {}\n' >"$d/shell/plugins/vgs.capture/Service.qml"
+    printf '# inputs: shell/plugins/vgs.capture/Service.qml\n' >"$d/scripts/smoke/rows/capture.sh"
+    printf 'capture\n' >>"$d/scripts/smoke/rows.list"
+  fi
+  commit "$d" provider-fixture
+  if [[ $provider_case == nested ]]; then
+    plant "$d/shell/Core/ScreencopyPreview.qml" 'live: visible && captureSource !== null' 'live: visible && captureSource != null'
+  else
+    plant "$d/shell/Core/SessionLock.qml" 'get covered() { return root.covers.placement === "secure"; }' 'get covered() { return root.covers.placement !== "empty"; }'
+  fi
+  [[ $provider_case != unreadable-manifest ]] || printf '\377' >>"$d/shell/plugins/vgs.power/manifest.json"
+  test_area=qml test_args=(--changed HEAD --list)
+  case "$provider_case" in
+    provider) row_re "a SessionLock provider change selects power without an unrelated hub importer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power' '!,other,' ;;
+    nested) row_re "a provider nested in a Component selects capture without an unrelated hub importer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*capture' '!,other,' ;;
+    direct) row_re "direct provider inputs retain their row" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other.*power' ;;
+    unknown-table) row_re "an unattributable table retains the ordinary hub importer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other' ;;
+    unreadable-manifest) row "an unreadable manifest selects every row" "$d" 0 "" 'scripts/qml-smoke.sh' ;;
+    control)
+      row "the provider control reaches no declared consumer on readable inputs" "$d" 0 "" "$smoke_none"
+      if (failures=0; row_re "provider consumer guarantee" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power'; ((failures == 0))) >"$tmp/provider-consumer-control.log"; then
+        fail "control: a provider reaching no consumer leaves its power assertion green"
+      elif grep -qF 'missing=[' "$tmp/provider-consumer-control.log"; then
+        ok "control: a provider reaching no consumer fails its power assertion"
+      else
+        cat -- "$tmp/provider-consumer-control.log"
+        fail "control: provider consumer assertion failed for another cause"
+      fi ;;
+  esac
 done
 
 # PluginLogic's real functions and Dispatch's real import alias, without a
