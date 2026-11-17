@@ -18,7 +18,9 @@
 # one run holds the hold, a world with a 15 s no-progress bound gives up
 # each lock wait at that bound and finishes, its window logging hold=none;
 # its control, a harness whose lock waits have no bound, is still waiting
-# at twice the bound.
+# at twice the bound. Three PID worlds also drive the production admission
+# functions with acknowledged lock queues: pending A/C windows precede B,
+# B then progresses, a killed C releases intent, and the old order fails.
 # --case idle-lock holds a nested row past a shortened idle deadline before
 # reading its native frame and focus. Its control restores the old profile.
 # Once the holding run is killed, one world's timed window waits for the
@@ -693,6 +695,178 @@ PY
 fi
 
 if [[ $selected_case == all || $selected_case == hold ]]; then
+  # Admission has no compositor dependency. Drive its production functions
+  # in three PID worlds, acknowledging real lock requests rather than
+  # guessing their queue order from elapsed sleeps.
+  python3 - "$repo" "$TMP_ROOT" "$BASH" <<'PY'
+import json, os, pathlib, re, selectors, signal, subprocess, sys, time
+repo, root = map(pathlib.Path, sys.argv[1:3])
+bash = sys.argv[3]
+text = (repo / 'scripts/smoke/harness.sh').read_text()
+start, end = text.index('smoke_hold_depth=0 '), text.index('# click X Y:')
+source = text[start:end]
+assert source.count('smoke_lock_take() {') == 1
+source = source.replace('smoke_lock_take() {', 'admission_take() {')
+fixture = r'''
+set -euo pipefail
+source "$1"
+name=$2 sandbox=$3 smoke_hold_dir=$4 qml_smoke_idle_secs=8
+mkdir -p "$sandbox"
+now_ms() { printf '%s\n' "$(( ${EPOCHREALTIME/./} / 1000 ))"; }
+fail() { printf 'failure %s\n' "$*"; exit 1; }
+event() { printf 'event %s %s\n' "$name" "$*"; }
+smoke_lock_take() {
+  event "request $1 $2"
+  admission_take "$@"
+}
+if [[ $name == B ]]; then
+  read -r command
+  smoke_hold_row begin B
+  event row
+  read -r command
+else
+  smoke_hold_row begin "$name"
+  event row
+  read -r command
+  if [[ $command == window ]]; then
+    smoke_hold_begin "$name" window
+    event held
+    read -r command
+    smoke_hold_end
+    event retaken
+  fi
+fi
+smoke_hold_row end "$name"
+event done
+'''
+# Plant the previous admission order in a disposable source copy. Keep
+# the same lock owner and instrument: only the shared-intent/recheck fix
+# is removed, so a rejected result proves the original intervening row.
+mutant = source
+old = '  if smoke_lock_take -s gate; then gate=$smoke_lock_pid; fi\n  smoke_hold_cause=$smoke_lock_cause\n'
+assert mutant.count(old) == 1
+mutant = mutant.replace(old, '')
+anchor = '  if [[ -n $gate ]]; then\n'
+assert mutant.count(anchor) == 1
+mutant = mutant.replace(anchor, old.replace('-s gate', '-x gate') + anchor)
+old = '        smoke_lock_drop "$gate"\n'
+assert mutant.count(old) == 1
+mutant = mutant.replace(old, '')
+old = '    smoke_hold_shared=$smoke_lock_pid\n'
+assert mutant.count(old) == 1
+mutant = mutant.replace(old, old + '    [[ -z $gate ]] || smoke_lock_drop "$gate"\n    return 0\n')
+assert mutant != source
+base_env = {key: os.environ[key] for key in ('PATH', 'TMPDIR', 'VGSHELL_WORLD_ROOT')}
+base_env.update(LC_ALL='C.UTF-8', VGS_TEST_RUN='1')
+def run(label, functions, killed=False):
+    folder = root / label
+    folder.mkdir()
+    locks = folder / 'locks'
+    locks.mkdir()
+    for name in ('gate', 'hold'):
+        (locks / ('vgs-smoke-' + name)).touch()
+    script = folder / 'functions.sh'
+    script.write_text(functions)
+    poll = selectors.DefaultSelector()
+    children, reports, events = {}, {}, []
+    deadline = time.monotonic() + 30
+    def start(name):
+        child = subprocess.Popen(['unshare', '--user', '--map-current-user', '--pid', '--fork', '--kill-child', '--mount-proc',
+                                  bash, '-c', fixture, '_', str(script), name, str(folder / name), str(locks)],
+                                 env=base_env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        children[name] = child
+        reports[name] = []
+        poll.register(child.stdout, selectors.EVENT_READ, name)
+    def wait_for(*wanted):
+        while not any(item in events for item in wanted):
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, ('admission-deadline', label, wanted, reports)
+            ready = poll.select(remaining)
+            assert ready, ('admission-no-answer', label, wanted, reports)
+            for key, _ in ready:
+                line = key.fileobj.readline()
+                if not line:
+                    poll.unregister(key.fileobj)
+                    continue
+                line = line.decode().rstrip()
+                reports[key.data].append(line)
+                if line.startswith('event '):
+                    events.append(line[6:])
+        return next(item for item in events if item in wanted)
+    def send(name, command):
+        children[name].stdin.write((command + '\n').encode())
+        children[name].stdin.flush()
+    def queued_gate():
+        # The enclosing test world sees all three child PID namespaces.
+        # A kernel-blocked writer acknowledges B's place ahead of C; an
+        # event before flock starts would leave that order to scheduling.
+        inode = str((locks / 'vgs-smoke-gate').stat().st_ino)
+        while time.monotonic() < deadline:
+            for line in pathlib.Path('/proc/locks').read_text().splitlines():
+                fields = line.split()
+                if len(fields) >= 8 and fields[1:5] == ['->', 'FLOCK', 'ADVISORY', 'WRITE'] and fields[6].rsplit(':', 1)[-1] == inode:
+                    return
+            time.sleep(0.01)
+        raise AssertionError(('B-not-queued', label, reports))
+    try:
+        start('A'); start('C'); start('B')
+        wait_for('A row'); wait_for('C row')
+        if killed:
+            send('C', 'window')
+            wait_for('C request -x hold')
+            children['C'].kill()
+            children['C'].wait(timeout=5)
+            send('B', 'start')
+            wait_for('B row')
+            send('B', 'finish'); send('A', 'finish')
+            wait_for('B done'); wait_for('A done')
+        else:
+            send('A', 'window')
+            wait_for('A request -x hold')
+            send('B', 'start')
+            wait_for('B request -x gate')
+            queued_gate()
+            send('C', 'window')
+            wait_for('C request -s gate', 'C request -x gate')
+            wait_for('A held')
+            send('A', 'release')
+            first = wait_for('C held', 'B row')
+            if first == 'B row':
+                send('B', 'finish')
+                wait_for('B done'); wait_for('C held')
+            send('C', 'release')
+            wait_for('C done'); wait_for('A done'); wait_for('B row')
+            if first != 'B row':
+                send('B', 'finish'); wait_for('B done')
+        for name, child in children.items():
+            if killed and name == 'C':
+                continue
+            child.wait(timeout=max(0.1, deadline - time.monotonic()))
+            reports[name].extend(child.stdout.read().decode().splitlines())
+            assert child.returncode == 0, (label, name, child.returncode, reports)
+            assert not any('hold=none' in line or 'gate=none' in line for line in reports[name]), (label, reports)
+        if not killed:
+            for name in ('A', 'C'):
+                assert any(re.fullmatch(r'qml-smoke: smoke-hold row=' + name + r' window=window lock=shared phase=retake wait_ms=[0-9]+', line)
+                           for line in reports[name]), (label, 'missing-retake', reports)
+        (folder / 'receipts.json').write_text(json.dumps(dict(events=events, reports=reports), indent=2) + '\n')
+        return events
+    finally:
+        for child in children.values():
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+        poll.close()
+def ordered(events):
+    return events.index('A held') < events.index('C held') < events.index('B row') < events.index('B done')
+events = run('admission-shipped', source)
+assert ordered(events), ('pending-window-overtaken', events)
+control = run('admission-control', mutant)
+assert not ordered(control), ('control-did-not-admit-intervening-row', control)
+killed = run('admission-killed', source, killed=True)
+assert 'C held' not in killed and 'B done' in killed, ('killed-intent-not-released', killed)
+print(json.dumps(dict(case='hold-admission', events=events, control=control, killed=killed, result='pass', counterexample='rejected')), flush=True)
+PY
   # A holder that exits without an answer ends the take. Run harness.sh's
   # own smoke_lock_take against a lock directory with no vgs-smoke-gate,
   # so the holder's open fails and it exits before it writes: the take
