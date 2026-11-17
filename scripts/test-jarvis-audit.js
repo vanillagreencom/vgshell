@@ -633,6 +633,27 @@ world(() => {
             });
         });
     }
+    function captureFacts(logic) {
+        const root = currentState();
+        withWriter(logic, { state: root }, writer => {
+            const cases = [
+                [{ gen: 2, op: 5, frames: 0, peak: 0, forwarded: 0 }, "no-audio"],
+                [{ gen: 2, op: 6, frames: 48000, peak: 128, forwarded: 0 }, "below-gate"],
+                [{ gen: 4, op: 14, frames: 48000, peak: 8192, forwarded: 4800 }, "audio"]
+            ];
+            for (const [facts] of cases)
+                assert.equal(writer.capture({ ...facts, transcript: "PRIVATE", device: "PRIVATE" }).kind, "recorded");
+            assert.deepEqual(records(root).map(({ time, ...row }) => row), cases.map(([facts, outcome]) => ({ kind: "capture", ...facts, outcome })),
+                "capture diagnostics retain numbers and categories, never transcript or device text");
+            assert.deepEqual(writer.failures(), [], "an empty capture is evidence, not a fabricated provider fault");
+            fsFault("writeSync", () => { throw Object.assign(new Error("fixture audit failure"), { code: "EIO" }); }, () => {
+                assert.equal(writer.capture(cases[0][0]).kind, "refuse", "capture audit failure returns a cause without throwing");
+            });
+            for (const fields of [{ frames: -1 }, { forwarded: 48001 }, { peak: 32769 }, { gen: -1 }, { op: 0 }])
+                assert.equal(writer.capture({ ...cases[2][0], ...fields }).kind, "refuse");
+        });
+    }
+    captureFacts(Audit);
     checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkCause(Audit); checkFaultRow(Audit);
     for (const invalid of ["relative", "/", base + "/x/../y", null])
         assert.throws(() => Audit.create({ state: invalid }), { code: "state-path" });
@@ -711,8 +732,8 @@ world(() => {
         ["fault category judged", 'if (!FAULT_CATEGORIES.includes(category)) fail("fault-category");', "", checkFaultRow],
         ["fault action judged", 'if (!FAULT_ACTIONS.includes(action)) fail("fault-action");', "", checkFaultRow],
         ["fault retained", 'return record.kind === "fault" || ["refuse"', 'return ["refuse"', checkFaultRow],
-        ["fault stored judge", 'return record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);',
-            "return eventRecord(record, record.time);", checkFaultRow],
+        ["fault stored judge", '        : record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);',
+            "        : eventRecord(record, record.time);", checkFaultRow],
         ["fault status listed", "status: record.status ?? null,", "status: null,", checkFaultRow],
         ["vision signal producer shape", 'value.code === undefined && typeof value.signal === "string"',
             'value.code === null && typeof value.signal === "string"', checkVisionReason],

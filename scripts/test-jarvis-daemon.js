@@ -27,6 +27,17 @@ function releaseHeld(clock, state, send) {
     fs.writeFileSync(clock, String(state.input.since + 2 * TAP_MS));
     send();
 }
+// These fixtures exercise the daemon-owned diagnostic writer. Error assertions
+// keep its exact payload and separate explicit informational events from failures.
+function diagnosticPayload(stderr) {
+    const warnings = stderr.split("\n").filter(Boolean).map(line => {
+        const match = /^(.*) time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/.exec(line);
+        assert.ok(match, "the daemon-owned diagnostic writer adds ISO wall time");
+        assert.equal(new Date(match[2]).toISOString(), match[2]);
+        return match[1];
+    }).filter(line => !line.startsWith("jarvis: info "));
+    return warnings.join("\n") + (warnings.length > 0 ? "\n" : "");
+}
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
@@ -108,9 +119,10 @@ async function inside() {
             const [actual, signal] = await closed;
             assert.equal(signal, null, "stdin EOF must end the daemon");
             assert.equal(actual, code, err);
-            if (reason instanceof RegExp) assert.match(err.trim(), reason);
-            else if (reason !== null) assert.equal(err.trim(), reason);
-            else assert.equal(err, "");
+            const keyed = diagnosticPayload(err);
+            if (reason instanceof RegExp) assert.match(keyed.trim(), reason);
+            else if (reason !== null) assert.equal(keyed.trim(), reason);
+            else assert.equal(keyed, "");
             const frames = out.trim() === "" ? [] : out.trim().split("\n").map(line => JSON.parse(line));
             const shell = frames.filter(frame => frame.type === "shell-status");
             assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-mute=|hidden=|state=retired-mute-)/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
@@ -423,7 +435,7 @@ async function inside() {
         } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
         assert.deepEqual(statuses(), seen, "one status a hello, and one for each request made over a folder that held the engine");
         assert.deepEqual(offered(), [[]], "unchanged offers are not sent again");
-        assert.equal(err, "jarvis: home=missing\njarvis: home=not-set-up\njarvis: home=link\njarvis: home=link\njarvis: home=path\n");
+        assert.equal(diagnosticPayload(err), "jarvis: home=missing\njarvis: home=not-set-up\njarvis: home=link\njarvis: home=link\njarvis: home=path\n");
         assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
         // A ready home's package drift is read once, and with no kendex on
         // the world's PATH it reads as missing, never current (Drift.js); a
@@ -545,7 +557,7 @@ async function inside() {
             child.stdin.end();
             assert.deepEqual(await closed, [0, null], err);
         } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
-        assert.equal(err, "jarvis: home=link\n");
+        assert.equal(diagnosticPayload(err), "jarvis: home=link\n");
         cases++;
     }
     await homesRecord(daemon);
@@ -592,7 +604,7 @@ async function inside() {
             const close = async wantErr => {
                 child.stdin.end();
                 assert.deepEqual(await once(child, "close"), [0, null], err);
-                assert.equal(err, wantErr);
+                assert.equal(diagnosticPayload(err), wantErr);
             };
             return { child, messages, wait, close };
         };
@@ -648,9 +660,9 @@ async function inside() {
         cases++;
     }
     await homesCacheRecovery(daemon);
-    await control("homes-cache-read-catches", "                process.stderr.write(error.message + \"\\n\");\n                return [];\n",
+    await control("homes-cache-read-catches", "                diagnostic(error.message + \"\\n\");\n                return [];\n",
         "                throw error;\n", homesCacheRecovery);
-    await control("homes-cache-write-keeps-running", "            if (reason !== null) process.stderr.write(error.message + \"\\n\");\n            else throw error;\n",
+    await control("homes-cache-write-keeps-running", "            if (reason !== null) diagnostic(error.message + \"\\n\");\n            else throw error;\n",
         "            throw error;\n", homesCacheRecovery);
     await control("reply-wire", "requests.reply(message);", "void message;", unknownReply);
     await control("hyprctl-environment", 'const environment = { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" };',
@@ -818,7 +830,7 @@ async function inside() {
             const [code, signal] = await closed;
             assert.equal(signal, null, "EOF releases the real child");
             assert.equal(code, expectedCode, err);
-            assert.equal(err.trim(), expectedError);
+            assert.equal(diagnosticPayload(err).trim(), expectedError);
             cases++;
         } finally {
             clearTimeout(timeout);
@@ -1964,7 +1976,7 @@ async function inside() {
             const [code, signal] = await exited;
             assert.equal(signal, null, "blocked stdout must fault without waiting for EOF: " + err);
             assert.equal(code, 74);
-            assert.equal(err.trim(), "jarvis: stdout=overflow");
+            assert.equal(diagnosticPayload(err).trim(), "jarvis: stdout=overflow");
         } finally {
             clearTimeout(timeout);
             child.stdout.destroy();
@@ -2423,6 +2435,8 @@ async function inside() {
             child.stdin.end();
             const [code] = await closed;
             assert.equal(code, 0, err);
+            assert.ok(err.includes("jarvis: info input-final=text gen="), "local transcription retains its final-result diagnostic");
+            assert.equal(err.includes("jarvis: info input-aggregate="), false, "local finals are distinct from duplex capture aggregates");
             cases++;
         } finally { releaseReply(); if (child.exitCode === null) { child.kill("SIGKILL"); await closed; } }
     }

@@ -86,7 +86,7 @@ function storeDefaults(node) {
 }
 
 class Audio {
-    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource, input = () => {}, echo = () => {} }) {
+    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource, input = () => {}, echo = () => {}, captured = () => {} }) {
         this.session = session;
         this.environment = {};
         for (const key of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
@@ -100,6 +100,7 @@ class Audio {
         this.playbackSource = playbackSource;
         this.input = input;
         this.echo = echo;
+        this.captured = captured;
         this.echoFile = { state: "absent", path: "", reason: "not-installed" };
         this.echoRoute = { state: "absent", path: "", reason: "not-installed" };
         this.children = new Map();
@@ -593,7 +594,7 @@ class Audio {
         try {
             await this.release;
             if (!this.allowed("capture")) throw new Error("capture-refused");
-            capture = { kind: "opening", owner: null, e, failed, target: null, from: null, sound: "waiting", frames: 0,
+            capture = { kind: "opening", owner: null, e, failed, target: null, from: null, sound: "waiting", frames: 0, peak: 0, forwarded: 0,
                 gate: this.state.engine.kind === "duplex" ? { active: false, remaining: 0, committed: false } : null };
             this.capture = capture;
             await this.discover();
@@ -636,7 +637,10 @@ class Audio {
                     return;
                 }
                 const inputPeak = peak(pcm);
+                capture.frames += pcm.length / 2;
+                capture.peak = Math.max(capture.peak, inputPeak);
                 if (capture.gate === null) {
+                    capture.forwarded += pcm.length / 2;
                     if (!feed.write(pcm)) owner.child.stdout.pause();
                 } else {
                     try { if (!this.feedCloudInput(capture, feed, pcm)) owner.child.stdout.pause(); }
@@ -645,7 +649,6 @@ class Audio {
                 if (this.capture !== capture) return;
                 this.reportLevel(e.gen, "capture", pcm);
                 if (e.mode !== "check") {
-                    capture.frames += pcm.length / 2;
                     if (inputPeak > SILENT_PEAK) {
                         if (capture.sound === "silent") this.input({ type: "input-sound", gen: e.gen, op: e.op, device: target });
                         capture.sound = "heard";
@@ -687,6 +690,7 @@ class Audio {
                 gate.remaining = CLOUD_HANGOVER_FRAMES;
             } else gate.remaining = Math.max(0, gate.remaining - frame.length / 2);
             if (!gate.active) continue;
+            capture.forwarded += frame.length / 2;
             ready = feed.write(frame) && ready;
             if (gate.remaining === 0) this.finishCloudInput(capture, feed);
         }
@@ -1002,6 +1006,7 @@ class Audio {
         const feeds = [];
         for (const owner of owners) this.stop(owner);
         if (kinds.includes("capture")) {
+            const capture = this.capture;
             this.levels.capture = 0;
             if (this.capture !== null && this.capture.kind !== "failed") this.capture.kind = "retired";
             this.capture = null;
@@ -1010,6 +1015,8 @@ class Audio {
                 this.feed.destroy();
                 this.feed = null;
             }
+            if (capture !== null) this.captured({ gen: capture.e.gen, op: capture.e.op,
+                frames: capture.frames, peak: capture.peak, forwarded: capture.forwarded });
         }
         if (kinds.includes("playback")) {
             this.levels.playback = 0;

@@ -151,9 +151,21 @@ function faultRecord(event, time) {
         ...(status === null ? {} : { status: Number(status[1]) }), category: event.category, action: event.action });
 }
 
+// Capture facts diagnose silence without retaining audio or a device name.
+// Audio's forwarded count is level-gated PCM, never recognized speech.
+function captureRecordOf(event, time) {
+    const { gen, op, frames, peak, forwarded } = event;
+    if (!Number.isSafeInteger(gen) || gen < 0 || !Number.isSafeInteger(op) || op < 1
+            || ![frames, forwarded].every(value => Number.isSafeInteger(value) && value >= 0)
+            || forwarded > frames || !Number.isInteger(peak) || peak < 0 || peak > 32768) fail("capture-facts");
+    return { time, kind: "capture", gen, op, frames, peak, forwarded,
+        outcome: frames === 0 ? "no-audio" : forwarded === 0 ? "below-gate" : "audio" };
+}
+
 function storedEvent(record) {
     if (typeof record.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.time)) fail("seed-time");
-    return record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);
+    return record.kind === "capture" ? captureRecordOf(record, record.time)
+        : record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);
 }
 
 // A row the Problems list shows: every fault, and every refused, withheld,
@@ -499,6 +511,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
         record,
         /** Record one conversation fault: what VGS did about which cause. */
         fault: event => written(time => faultRecord(event, time)),
+        capture: event => written(time => captureRecordOf(event, time)),
         /** Usage has no content, only the one price owner's numeric projection. */
         usage(event) {
             const result = written(time => ({ time, kind: "usage", ...Usage.record(event) }));

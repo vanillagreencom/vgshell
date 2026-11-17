@@ -2091,11 +2091,19 @@ world(async () => {
         for (const file of fs.readdirSync(kit.folder).filter(name => name.endsWith(".js")))
             fs.copyFileSync(path.join(kit.folder, file), path.join(plugin, "backend", file));
         const runnerFile = path.join(plugin, "backend/jarvisd.js");
+        const blockedStdout = path.join(root, "blocked-stdout");
         const offset = path.join(root, "clock");
         fs.writeFileSync(offset, "0");
         let source = fs.readFileSync(runnerFile, "utf8");
         assert.equal(source.split("performance.now()").length - 1, 3, "the daemon clocks share the injected offset");
         source = source.replaceAll("performance.now()", 'performance.now() + Number(fs.readFileSync(' + JSON.stringify(offset) + ', "utf8"))');
+        if (only === "teardown-stdout") {
+            // A full queue during state publication reenters teardown while the runner drains.
+            const queued = "process.stdout.writableLength";
+            assert.equal(source.split(queued).length - 1, 1, "the daemon owns the output queue reading");
+            source = source.replace(queued, '(message.type === "state" && fs.existsSync('
+                + JSON.stringify(blockedStdout) + ') ? Protocol.MAX_LINE_BYTES : ' + queued + ')');
+        }
         fs.writeFileSync(runnerFile, source);
         if (only === "release") {
             const engineFile = path.join(plugin, "backend/ChainedEngine.js");
@@ -2140,6 +2148,11 @@ world(async () => {
         fs.writeFileSync(victim, "fixture", { mode: 0o600 });
         const server = BrainFixture.brain(11434);
         await server.ready;
+        const vocabularyStandin = path.join(process.env.JARVIS_TEST_ROOT, "standins/voxtype");
+        const captureSilence = path.join(process.env.HOME, "capture-silent");
+        let captureSilenceOwned = false;
+        if (["unheard", "aggregate"].includes(only)) fs.writeFileSync(vocabularyStandin,
+            `#!/bin/sh\nprintf '%s\\n' '{"replacements":{"BGS":"VGS"}}'\n`, { mode: 0o700 });
         const child = cp.spawn("node", [runnerFile, "--tree", tree], { env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
         const closed = once(child, "close");
         const deadline = setTimeout(() => child.kill("SIGKILL"), 15000);
@@ -2182,7 +2195,7 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
+            send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
                 cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
@@ -2222,6 +2235,80 @@ world(async () => {
                 return;
             }
             send({ type: "indicator", shown: true, bar: "gone" });
+            if (["unheard", "aggregate"].includes(only)) {
+                for (const elapsed of only === "unheard" ? [15600, 11186] : [0]) {
+                    press();
+                    await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "unheard attempt connects");
+                    const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
+                    conn.play("created");
+                    const update = await conn.event("session.update");
+                    assert.deepEqual(update.session.audio.input.transcription.keywords, ["VGS"]);
+                    const speech = { gen: last().speech.gen, op: last().speech.op };
+                    const releases = () => rows().filter(row => row.kind === "release" && row.gen === speech.gen && row.op === speech.op);
+                    assert.deepEqual(releases().map(row => row.outcome), ["pending", "pending"],
+                        "connection and configuration alone do not produce a third pending release");
+                    conn.play("updated");
+                    await wait(() => P.sent(conn).length >= PCM_RATE * 2 / 5 && releases().length === 3,
+                        "at least 200ms of captured PCM adds the speech-only release");
+                    fs.writeFileSync(captureSilence, "", { flag: "wx" });
+                    captureSilenceOwned = true;
+                    await conn.event("input_audio_buffer.commit");
+                    // The fixture sees a client commit but sends no native
+                    // acknowledgment or transcript. Neither is inferred.
+                    assert.equal(conn.claimed, 0);
+                    const capture = last().capture.op;
+                    if (only === "aggregate") {
+                        nativeResult(conn, "empty_first", "");
+                        await conn.sync();
+                        fs.unlinkSync(captureSilence);
+                        captureSilenceOwned = false;
+                        const sent = P.sent(conn).length;
+                        await wait(() => P.sent(conn).length >= sent + PCM_RATE * 2 / 5,
+                            "the same capture sends another committable segment");
+                        fs.writeFileSync(captureSilence, "", { flag: "wx" });
+                        captureSilenceOwned = true;
+                        await conn.event("input_audio_buffer.commit");
+                        nativeResult(conn, "empty_second", "");
+                        await conn.sync();
+                        assert.equal(stderr.includes("jarvis: info input-aggregate="), false,
+                            "empty segments do not report an aggregate before capture closes");
+                    }
+                    fs.writeFileSync(offset, String(Number(fs.readFileSync(offset, "utf8")) + elapsed));
+                    press();
+                    await wait(() => conn.ended && last().conversation.kind === "ended"
+                        && stderr.includes("jarvis: info conversation=closed gen=" + speech.gen)
+                        && stderr.includes("jarvis: info capture=closed gen=" + speech.gen + " "),
+                    "socket, state and diagnostic pipes acknowledge the unheard close");
+                    assert.deepEqual(releases().map(row => row.outcome), ["pending", "pending", "pending", "completed"],
+                        "px13 release sequence occurs without native words or a brain request");
+                    assert.deepEqual([server.requests.length, rows().filter(row => row.kind === "fault").length], [0, 0]);
+                    const captures = rows().filter(row => row.kind === "capture" && row.gen === speech.gen);
+                    assert.deepEqual({ check: "unheard-capture-audit", count: captures.length }, { check: "unheard-capture-audit", count: 1 });
+                    assert.equal(captures[0].outcome, "audio");
+                    assert.ok(captures[0].frames >= captures[0].forwarded && captures[0].forwarded > 0);
+                    assert.equal(stderr.includes("jarvis: info brain=turn-requested"), false);
+                    assert.equal(stderr.includes("input-results="), false,
+                        "conversation closure reports no premature native-result total");
+                    if (only === "aggregate") {
+                        child.stdin.end();
+                        assert.deepEqual(await closed, [0, null], stderr);
+                        const aggregates = stderr.split("\n").filter(line => line.startsWith("jarvis: info input-aggregate="));
+                        assert.deepEqual({ check: "capture-aggregate", rows: aggregates.map(line =>
+                            /^jarvis: info input-aggregate=(empty|text) gen=(\d+) capture=(\d+) time=/.exec(line)?.slice(1)) },
+                        { check: "capture-aggregate", rows: [["empty", String(speech.gen), String(capture)]] },
+                        "two empty native segments report one capture aggregate with its original identity");
+                    } else assert.equal(stderr.includes("jarvis: info input-aggregate="), false);
+                    const line = stderr.split("\n").find(line => line.includes("capture=closed gen=" + speech.gen + " "));
+                    assert.match(line, / time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+                        "capture log correlates the audit identity with wall time");
+                    fs.unlinkSync(captureSilence);
+                    captureSilenceOwned = false;
+                    fs.writeFileSync(offset, String(Number(fs.readFileSync(offset, "utf8")) + 1379));
+                }
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
             press();
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
@@ -2229,6 +2316,22 @@ world(async () => {
             conn.auto = 1;
             assert.equal(P.noTools(await P.open(conn)), true, "the daemon's voice has no tools");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
+            if (only === "teardown-stdout") {
+                const capture = { gen: last().capture.gen, op: last().capture.op };
+                await wait(() => P.sent(conn).length >= PCM_RATE * 2 / 5, "open capture forwards fixture PCM before teardown");
+                fs.writeFileSync(blockedStdout, "");
+                send({ type: "intent", intent: "voice-mute" });
+                const [code, signal] = await closed;
+                assert.equal(signal, null, "reentrant teardown waits for its owned children");
+                assert.equal(code, 74, stderr);
+                const captures = rows().filter(row => row.kind === "capture" && row.gen === capture.gen && row.op === capture.op);
+                assert.deepEqual({ check: "teardown-capture-audit", rows: captures.map(row => row.outcome) },
+                    { check: "teardown-capture-audit", rows: ["audio"] }, "reentrant teardown audits capture before writer close");
+                assert.equal(stderr.includes("audit=write kind=capture"), false, "teardown keeps the capture writer available");
+                assert.match(stderr.trim().split("\n").at(-1), /^jarvis: stdout=overflow time=/,
+                    "the terminating I/O cause stays last");
+                return;
+            }
             if (only === "voice-fault") {
                 conn.socket.destroy();
                 await wait(() => last()?.restart.kind === "restarted" && rows().filter(row => row.kind === "fault").length === 1,
@@ -2286,6 +2389,10 @@ world(async () => {
             if (only === "voice-acted" && voiceStage !== "active") conn.voice = [4800];
             conn.play("turn");
             await wait(() => server.requests[0]?.body !== null && server.requests.length > 0, "the configured brain receives the delegation");
+            await wait(() => stderr.includes("jarvis: info brain=turn-requested") && stderr.includes("jarvis: info input-aggregate=text"),
+                "recognized input and turn execution request have identity-bound diagnostics");
+            for (const line of stderr.split("\n").filter(line => /jarvis: info (?:input-aggregate=text|brain=turn-requested)/.test(line)))
+                assert.match(line, / gen=\d+ (?:capture|op)=\d+ time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
             const first = server.requests[0].body;
             assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is the time?")));
             assert.equal(first.model, "fixture-model");
@@ -2483,9 +2590,14 @@ world(async () => {
             assert.equal(signal, null);
             assert.equal(code, 0, stderr);
             assert.equal(stderr.includes(KEY), false);
+            if (only === "action" && P === REALTIME) assert.equal(
+                stderr.split("\n").filter(line => line.startsWith("jarvis: info input-aggregate=text ")).length, 1,
+                "the delivered capture aggregate is logged once");
         } finally {
             clearTimeout(deadline); releaseReply();
+            if (["unheard", "aggregate"].includes(only)) fs.rmSync(vocabularyStandin, { force: true });
             if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }
+            if (captureSilenceOwned) fs.unlinkSync(captureSilence);
             server.closeAll(); await server.close();
             fs.rmSync(victim, { force: true });
         }
@@ -2921,6 +3033,9 @@ world(async () => {
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
         daemonFailover: kit => daemonDelegation(kit, "failover"),
         daemonVoiceFault: kit => daemonDelegation(kit, "voice-fault"),
+        daemonUnheard: kit => daemonDelegation(kit, "unheard"),
+        daemonAggregate: kit => daemonDelegation(kit, "aggregate"),
+        daemonCaptureTeardown: kit => daemonDelegation(kit, "teardown-stdout"),
         daemonVoiceActedFault: async kit => {
             for (const stage of ["active", "queued", "playing", "played"]) await daemonDelegation(kit, "voice-acted", REALTIME, stage);
         },
@@ -2958,6 +3073,34 @@ world(async () => {
         await usageRows(kitFrom(backend));
         await control("realtime-usage", 'usage({ call: "realtime", usage: response.usage });',
             'void response.usage;', folder => usageRows(kitFrom(folder)));
+        currentCase = "control=unheard-capture-audit";
+        await assert.rejects(() => daemonDelegation(kitFrom(backend,
+            [["jarvisd.js", ": audit.capture(event)", ': { kind: "recorded" }']]), "unheard"),
+            error => error instanceof assert.AssertionError && error.actual?.check === "unheard-capture-audit" && error.actual.count === 0);
+        controls++;
+        console.log("control=unheard-capture-audit detected");
+        currentCase = "control=teardown-capture-audit";
+        await assert.rejects(() => daemonDelegation(kitFrom(backend,
+            [["jarvisd.js", "const released = audio.close(reason);\n        if (audit !== null) audit.close();",
+                "if (audit !== null) audit.close();\n        const released = audio.close(reason);"]]), "teardown-stdout"),
+            error => error instanceof assert.AssertionError && error.actual?.check === "teardown-capture-audit"
+                && error.actual.rows.length === 0);
+        controls++;
+        console.log("control=teardown-capture-audit detected");
+        currentCase = "control=capture-aggregate-diagnostic";
+        await assert.rejects(() => daemonDelegation(kitFrom(backend,
+            [["ChainedEngine.js", 'log("jarvis: info input-aggregate="', 'log("jarvis: info input="']]), "aggregate"),
+            error => error instanceof assert.AssertionError && error.actual?.check === "capture-aggregate"
+                && error.actual.rows.length === 0);
+        controls++;
+        console.log("control=capture-aggregate-diagnostic detected");
+        currentCase = "control=premature-conversation-total";
+        await assert.rejects(() => daemonDelegation(kitFrom(backend,
+            [["ChainedEngine.js", 'log("jarvis: info conversation=closed gen=" + c.gen);',
+                'log("jarvis: info conversation=closed gen=" + c.gen + " input-results=0");']]), "unheard"),
+            error => error instanceof assert.AssertionError && error.message.includes("premature native-result total"));
+        controls++;
+        console.log("control=premature-conversation-total detected");
         for (const [name, check] of Object.entries(cases)) {
             currentCase = name;
             await check(kitFrom(backend));

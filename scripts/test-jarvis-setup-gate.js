@@ -798,6 +798,39 @@ function removeKeyPlacement(judged, outcome) {
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
 
+function verifyDiagnosticSeverity(source) {
+    const read = source.match(/stderr: SplitParser \{\n[\s\S]*?onRead: (data => \{[\s\S]*?\n            \})\n        \}\n        onStarted/);
+    assert.ok(read, "the production stderr handler is read");
+    const logs = [], warnings = [], root = { errorTail: "", lastDiagnostic: "", broken: reason => assert.fail(reason) };
+    const receive = vm.runInNewContext("(" + read[1] + ")", { root,
+        Protocol: { feed: (_, data) => ({ tail: "", lines: [data] }) },
+        console: { log: line => logs.push(line), warn: line => warnings.push(line) } });
+    for (const line of ["jarvis: info capture=closed", "jarvis: info input=empty", "jarvis: info brain=turn-requested", "jarvis: info conversation=closed"]) {
+        receive(line);
+        assert.equal(root.lastDiagnostic, "", "informational input never becomes an exit cause");
+    }
+    assert.equal(warnings.length, 0);
+    assert.equal(logs.length, 4);
+    receive("jarvis: live=disconnected");
+    receive("jarvis: info capture=closed");
+    assert.equal(root.lastDiagnostic, "jarvis: live=disconnected", "capture statistics preserve the actual failure");
+    receive("jarvis: info=unexpected");
+    assert.equal(root.lastDiagnostic, "jarvis: info=unexpected", "a near-prefix remains a warning");
+    assert.deepEqual(warnings, ["jarvis: stderr=jarvis: live=disconnected", "jarvis: stderr=jarvis: info=unexpected"]);
+    const node = "jarvis: node=21.0.0 need=22", time = "2026-11-17T05:30:41.893Z";
+    receive(node + " time=" + time);
+    assert.equal(load(file).startCause(root.lastDiagnostic).kind, "node-too-old",
+        "diagnostic metadata cannot change the typed startup failure");
+    assert.equal(root.lastDiagnostic, node, "the semantic consumer receives only the keyed payload");
+    assert.equal(warnings.at(-1), "jarvis: stderr=" + node + " time=" + time, "the log retains its timestamp");
+    receive("jarvis: info capture=closed time=" + time);
+    assert.equal(root.lastDiagnostic, node, "a timestamped informational line preserves the actual failure");
+    for (const line of [node + " time=2026-11-17T05:30:41Z", node + " time=" + time + " trailing"]) {
+        receive(line);
+        assert.equal(root.lastDiagnostic, line, "only the emitted terminal millisecond UTC field is metadata");
+    }
+}
+
 // Config.writeUser produces the two refused replies. Execute the shipped
 // shortcut and notice bodies, with only their capability endpoints supplied.
 function verifyHomeSwitch(serviceSource) {
@@ -2832,6 +2865,15 @@ try {
         assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
+    verifyDiagnosticSeverity(serviceSource);
+    {
+        const needle = String.raw`root.lastDiagnostic = line.replace(/ time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, "");`;
+        assert.equal(serviceSource.split(needle).length - 1, 1);
+        assert.throws(() => verifyDiagnosticSeverity(serviceSource.replace(needle, "root.lastDiagnostic = line;")),
+            error => error instanceof assert.AssertionError && error.actual === "daemon-exit" && error.expected === "node-too-old",
+            "removing metadata separation must break the typed Node startup diagnosis");
+        console.log("test-jarvis-setup-gate: control=diagnostic-time-payload rejected=true");
+    }
     verifyHomeSwitch(serviceSource);
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");
     const consoleText = fs.readFileSync(path.join(path.dirname(file), "Console.qml"), "utf8");
@@ -2857,7 +2899,7 @@ try {
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
     const startSource = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
     for (const [label, needle, replacement, failure] of [
-        ["session-boot-block-log", '            console.warn("jarvis-session: " + current.verb + "=" + ', '            false && console.warn("jarvis-session: " + current.verb + "=" + ', "no-account: boot true log"],
+        ["session-boot-block-log", '            warn(current.verb + "=" + ', '            false && warn(current.verb + "=" + ', "no-account: boot true log"],
         ["session-start-diagnosis", 'if (current.verb === "status" && wanted && startFailure !== null', 'if (false && current.verb === "status" && wanted && startFailure !== null', "no-account / stopped status"],
         ["session-start-diagnosis-clearing", 'if (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped")) startFailure = null;',
             'if (false && (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped"))) startFailure = null;', "no-account / fresh package block / next stopped"],
@@ -3543,6 +3585,17 @@ function verifyPathForm(gate) {
     }
 }
 
+function sessionWarning(source, logs) {
+    const method = source.match(/^    function warn\(message\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(method, "the package diagnostic writer is read");
+    return vm.runInNewContext("(" + method[0] + ")", { console: { warn(line) {
+        const match = /^(.*) time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/.exec(line);
+        assert.ok(match, "package diagnostic has an ISO wall-clock timestamp");
+        assert.equal(new Date(match[2]).toISOString(), match[2]);
+        logs.push(match[1]);
+    } } });
+}
+
 function verifySessionAnswers(gate, source) {
     const answered = source.match(/^    function answered\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(answered, "the session answer handler is read");
@@ -3552,6 +3605,7 @@ function verifySessionAnswers(gate, source) {
             shell: { settings: { home: "~/Jarvis", brain: "", startAtBoot: wanted } }, unapplied: "", result: null, startFailure: null, following: null,
             repairEndedAt: "2026-11-08T00:00:00Z", judged: "selection", sessionHome: "~/Jarvis",
             Gate: gate, console: { warn: text => logs.push(text) }, publish: () => {}, takeNext: () => {}, call: (...args) => calls.push(args) };
+        context.warn = sessionWarning(source, logs);
         const handle = vm.runInNewContext("(" + answered[0] + ")", context);
         return { context, logs, calls, drive(verb, value) {
             context.current = { verb, home: "~/Jarvis" };
@@ -3629,6 +3683,7 @@ function verifySessionRetry(gate, source) {
             sessionHome: "~/Jarvis", unapplied: "", result: null, startFailure: null, waiting: [], following: null, launchWaitMs: 55000, Date: { now: () => now },
             output: "", errors: "", exitCode: 0, Gate: gate, console: { warn: line => logs.push(line) },
             publish: () => published.push(plain(gate.sessionStart(true, context.result))), takeNext: () => {} };
+        context.warn = sessionWarning(source, logs);
         context.call = vm.runInNewContext("(" + read("call") + ")", context);
         context.followStart = vm.runInNewContext("(" + read("followStart") + ")", context);
         const answered = vm.runInNewContext("(" + read("answered") + ")", context);

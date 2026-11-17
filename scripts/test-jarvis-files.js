@@ -1010,7 +1010,10 @@ world(async () => {
             child.stdin.end();
             const [code] = await closed;
             assert.equal(code, 0, stderr);
-            assert.equal(stderr, refused === null ? "" : "jarvis: " + refused + "\n");
+            const keyed = stderr.replace(/ time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)(?=\n)/g,
+                (_, time) => { assert.equal(new Date(time).toISOString(), time); return ""; });
+            assert.equal(keyed, refused === null ? "" : "jarvis: " + refused + "\n");
+            if (refused !== null) assert.notEqual(keyed, stderr, "daemon refusals carry wall time");
         } finally {
             clearTimeout(timeout);
             if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }

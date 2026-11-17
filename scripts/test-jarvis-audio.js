@@ -230,7 +230,7 @@ async function capture(w) {
 // Exercise Audio's real capture feed with a held recorder close. No child or
 // device runs; the fake boundary supplies only raw PCM and its exit receipt.
 async function cloudInput(Implementation = Audio) {
-    const writes = [], ends = [], readings = [], failures = [];
+    const writes = [], ends = [], readings = [], failures = [], captures = [];
     let finish;
     const closed = new Promise(resolve => { finish = resolve; });
     const stdout = new PassThrough(), lease = new PassThrough();
@@ -240,7 +240,7 @@ async function cloudInput(Implementation = Audio) {
     feed.endInput = () => { ends.push(writes.length); return true; };
     const audio = new Implementation({ session: { canCapture: () => true }, environment: {},
         clock: { now: () => 0, set: () => ({}), clear() {} }, offers() {}, level() {}, fault: value => failures.push(value),
-        captureSink: () => feed, playbackSource: null, input: value => readings.push(value) });
+        captureSink: () => feed, playbackSource: null, input: value => readings.push(value), captured: value => captures.push(value) });
     audio.observe({ engine: { kind: "duplex" }, settings: {} });
     audio.discover = async () => {};
     audio.selected = async () => ({ target: "fixture.mic", from: "default" });
@@ -280,6 +280,8 @@ async function cloudInput(Implementation = Audio) {
         finish();
         await ending;
         assert.deepEqual(result, { speech: true }, "the close reports queued audio, not recognition");
+        assert.deepEqual(captures, [{ gen: 3, op: 7, frames: 162 * 480, peak: 8192, forwarded: 12 * 480 }],
+            "capture facts distinguish recorded samples from level-gated forwarded samples");
         assert.equal(feed.destroyed, true);
         assert.deepEqual(failures, []);
     } finally { finish(); await audio.close("test-end"); }

@@ -181,7 +181,7 @@ except (ValueError, KeyError, TypeError): print("unread"); sys.exit()
 print(str(box[1] >= view[1] and box[1] + box[3] <= view[1] + view[3]).lower())' "$box" "$view"
 }
 session_answer status '{"exit": 2, "raw": ""}'
-expected_errors+=('WARN qml: jarvis-session: status=blocked block=unread cause=jarvis: session-status=exit=2$')
+expected_errors+=('WARN qml: jarvis-session: status=blocked block=unread cause=jarvis: session-status=exit=2 time=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$')
 expect "the session fault's reference opens the Jarvis page" ok ipc shell summon window vgs.settings \
   "$(python3 -c 'import json,sys; page, tab = sys.argv[1].split("/", 1); print(json.dumps({"plugin": page, "tab": tab}))' "$session_fault_target")"
 expect_poll "a status outside the contract reads its own cause" "$(python3 -c 'import json,sys; print(json.dumps(["Cannot start", sys.argv[1]]))' "$session_unread_hint")" session_row

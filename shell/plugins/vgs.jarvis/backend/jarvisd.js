@@ -3,7 +3,7 @@
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
 // voice mute or hidden record or retired-state cleanup failure exits 78. Stdout carries status/state
-// messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
+// messages and shell requests judged by JarvisProtocol; the daemon-owned diagnostic writer adds wall time.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
 // then TaskRunner observes them; tasks outlive this process and EOF stops
@@ -18,8 +18,12 @@ const { StringDecoder } = require("node:string_decoder");
 const Tasks = require("./Tasks.js");
 const cp = require("node:child_process");
 
+function diagnostic(line) {
+    process.stderr.write(line.replace(/\n$/, "") + " time=" + new Date().toISOString() + "\n");
+}
+
 function refuse(code, reason) {
-    process.stderr.write(reason + "\n");
+    diagnostic(reason + "\n");
     process.exitCode = code;
     process.stdin.destroy();
 }
@@ -113,7 +117,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         } catch (error) {
             const cause = /^jarvis: (home=[a-z-]{1,60})$/.exec(error.message)?.[1];
             if (cause === undefined) throw error;
-            process.stderr.write("jarvis: " + cause + "\n");
+            diagnostic("jarvis: " + cause + "\n");
             return { path: folder, state: { kind: "refused", cause } };
         }
     }
@@ -189,7 +193,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         });
     }
 
-    function teardown() {
+    function teardown(reason) {
         if (drift !== null) drift.close();
         if (ownerAsks !== null) ownerAsksClosed = ownerAsks.close();
         if (satellite !== null) satelliteClosed = satellite.close();
@@ -205,21 +209,23 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (files !== null) files.close();
         if (browser !== null) {
             try { browser.close(); }
-            catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 74; }
+            catch (error) { diagnostic(error.message + "\n"); process.exitCode = 74; }
         }
         if (memory !== null) {
             try { memory.close(); }
-            catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 74; }
+            catch (error) { diagnostic(error.message + "\n"); process.exitCode = 74; }
         }
         if (requests !== null) requests.close();
+        // Audio emits its capture audit synchronously while this writer is open.
+        const released = audio.close(reason);
         if (audit !== null) audit.close();
         if (tasks !== null) tasks.close();
+        return released;
     }
 
     function fatal(error) {
         ending = true;
-        teardown();
-        void audio.close("protocol");
+        void teardown("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
             : /^jarvis: (voice-mute=|hidden=|state=retired-mute-)/.test(error.message) ? 78 : 65, error.message);
@@ -271,7 +277,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function deniedOrNull() {
         try { return denied(); } catch (error) {
             const cause = /^jarvis(?:-[a-z]+)?: ([a-z-]+=[a-z0-9-]+)/.exec(error.message)?.[1] ?? error.code ?? "unknown";
-            process.stderr.write("jarvis: denied=unavailable cause=" + cause + "\n");
+            diagnostic("jarvis: denied=unavailable cause=" + cause + "\n");
             return null;
         }
     }
@@ -386,7 +392,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         } catch (error) {
             const reason = /^jarvis: homes=([a-z-]+)$/.exec(error.message);
             if (reason !== null) {
-                process.stderr.write(error.message + "\n");
+                diagnostic(error.message + "\n");
                 return [];
             }
             throw error;
@@ -397,7 +403,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         try { storeRecord("homes", "homes.json", { homes: value }); }
         catch (error) {
             const reason = /^jarvis: homes=([a-z-]+)$/.exec(error.message);
-            if (reason !== null) process.stderr.write(error.message + "\n");
+            if (reason !== null) diagnostic(error.message + "\n");
             else throw error;
         }
     }
@@ -493,7 +499,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function writeMemoryInbox(entries = null) {
         if (ending || context === null || memory === null) return;
         try { write(memoryInboxMessage(entries)); }
-        catch (error) { process.stderr.write("jarvis: memory=inbox-publish\n"); }
+        catch (error) { diagnostic("jarvis: memory=inbox-publish\n"); }
     }
     function refreshAudioSnapshot() {
         if (!ending && context !== null && lastConfiguration !== null
@@ -516,6 +522,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 revision: context.revision, level });
         },
         fault, captureSink: null, playbackSource: null, input: event => runner.dispatch(event),
+        captured: event => {
+            const result = audit === null ? { kind: "refuse", cause: "writer-absent" } : audit.capture(event);
+            if (result.kind !== "recorded") diagnostic("jarvis: audit=write kind=capture cause=" + result.cause);
+            diagnostic("jarvis: info capture=closed gen=" + event.gen + " op=" + event.op
+                + " frames=" + event.frames + " peak=" + event.peak + " forwarded=" + event.forwarded);
+        },
         echo: reading => {
             if (ending || context === null) return;
             write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...reading });
@@ -531,7 +543,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // refused row is logged by its key and never holds the session.
     ports.audit = { fault(e) {
         const result = audit === null ? { kind: "refuse", cause: "writer-absent" } : audit.fault(e);
-        if (result.kind !== "recorded") process.stderr.write("jarvis: audit=write kind=fault cause=" + result.cause + "\n");
+        if (result.kind !== "recorded") diagnostic("jarvis: audit=write kind=fault cause=" + result.cause + "\n");
     } };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
@@ -609,7 +621,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         else memory.discard(message.id, message.hash);
                     } catch (error) {
                         const cause = /^jarvis: memory=([a-z-]+)$/.exec(error.message)?.[1] ?? "intent";
-                        process.stderr.write("jarvis: memory=" + cause + "\n");
+                        diagnostic("jarvis: memory=" + cause + "\n");
                     }
                     writeMemoryInbox();
                     continue;
@@ -717,7 +729,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 context = message;
                 if (first) {
                     ownerAsks = OwnerAsks.create({ Protocol, environment: process.env,
-                        log: line => process.stderr.write(line + "\n"),
+                        log: line => diagnostic(line + "\n"),
                         publish: snapshot => {
                             if (!ending) write({ v: 1, type: "owner-asks", gen: runner.state.gen, revision: context.revision, snapshot });
                         },
@@ -734,12 +746,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                                 // An unreadable time reads the home again now and
                                 // replaces the record; it skips no reading.
                                 if (!/^jarvis: home-drift=/.test(error.message)) throw error;
-                                process.stderr.write(error.message + "\n");
+                                diagnostic(error.message + "\n");
                                 return null;
                             }
                         },
                         store: at => storeRecord("home-drift", "home-drift.json", { checkedAt: at }),
-                        publish: publishDrift, log: line => process.stderr.write(line + "\n") });
+                        publish: publishDrift, log: line => diagnostic(line + "\n") });
                     const auditFailures = rows => {
                         if (!ending) write({ v: 1, type: "audit-failures", gen: runner.state.gen,
                             revision: context.revision, rows });
@@ -793,13 +805,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             write({ v: 1, type: "input-ready", gen: runner.state.gen, revision: context.revision, commands: record.commands });
                     });
                     browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
-                        answer: item => voice.answer(item), log: line => process.stderr.write(line + "\n"),
+                        answer: item => voice.answer(item), log: line => diagnostic(line + "\n"),
                         shared: { "vgs-diagnose": require("./Core.js").diagnoseSkill() },
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
                         runtime: context.directories.runtime, fatal,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null, homeBlock,
-                        mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
+                        mainHost: () => context.settings.mainHost, log: line => diagnostic(line + "\n"),
                         publish: reach => {
                             if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
                         } });
@@ -810,10 +822,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
                         main: () => context.settings.mainHost === "",
                         memoryNotes: () => context.settings.memoryNotes,
-                        log: line => process.stderr.write(line + "\n"),
+                        log: line => diagnostic(line + "\n"),
                         notify: entries => writeMemoryInbox(entries) });
                     if (memory.kind === "refused") {
-                        process.stderr.write("jarvis: " + memory.cause + "\n");
+                        diagnostic("jarvis: " + memory.cause + "\n");
                         write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision, cause: memory.cause });
                         memory = null;
                     }
@@ -826,7 +838,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     // The daemon, not the model, writes every task line and
                     // runs its notification, outside the router and policy.
                     voice = TaskVoice.create({ session: Session, state: () => runner.state,
-                        dispatch: event => runner.dispatch(event), log: line => process.stderr.write(line + "\n"),
+                        dispatch: event => runner.dispatch(event), log: line => diagnostic(line + "\n"),
                         notify: (title, body, signal) => {
                             const file = commandFile("notify-send");
                             return file === null ? null : Desktop.runCommand(file, "notify-send",
@@ -869,7 +881,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         accounts: () => new Accounts(state, process.env), request: requests.send,
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
-                        log: line => process.stderr.write(line + "\n"),
+                        log: line => diagnostic(line + "\n"),
                         modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),
                         renewal: gen => write({ v: 1, type: "voice-renewal", gen, revision: context.revision }),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
@@ -918,8 +930,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function ioFailed(channel, error) {
         if (ending) return;
         ending = true;
-        teardown();
-        const released = audio.close(channel);
+        const released = teardown(channel);
         refuse(74, "jarvis: " + channel + "=" + error.code);
         // Node's standard output can retain a blocked write after destroy.
         // Audio exits first; a failed pipe cannot keep the daemon alive.
@@ -931,8 +942,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function terminate() {
         if (ending) return;
         ending = true;
-        teardown();
-        void Promise.all([audio.close("lease"), ownerAsksClosed, satelliteClosed]).then(() => process.exit(process.exitCode ?? 0));
+        void Promise.all([teardown("lease"), ownerAsksClosed, satelliteClosed]).then(() => process.exit(process.exitCode ?? 0));
     }
     process.once("SIGTERM", terminate);
     process.once("SIGINT", terminate);
@@ -940,8 +950,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         read(decoder.end());
         if (ending) return;
         ending = true;
-        teardown();
-        void audio.close("lease");
+        void teardown("lease");
         if (tail !== "") refuse(65, "jarvis: protocol=unterminated-line");
         // No child or handle holds the process alive after lease loss.
     });

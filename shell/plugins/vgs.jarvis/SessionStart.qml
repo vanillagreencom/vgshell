@@ -79,6 +79,10 @@ Item {
         publish();
     }
 
+    function warn(message) {
+        console.warn("jarvis-session: " + message + " time=" + new Date().toISOString());
+    }
+
     // False when the status judge refuses the row, which then keeps its
     // last value.
     function publish() {
@@ -90,7 +94,7 @@ Item {
         if (value.lines !== undefined) value.lines = value.lines.map(PageReference.plain);
         const row = shell.status.set("sessionStart", value);
         if (shell.status.isOk(modes) && shell.status.isOk(row)) return true;
-        console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row);
+        warn("status=refused modes=" + modes + " row=" + row);
         return false;
     }
 
@@ -119,7 +123,7 @@ Item {
         try { answer = JSON.parse(output); }
         catch (error) {
             // The helper's keyed line goes to the log; the row says it failed.
-            console.warn("jarvis-session: control=no-answer verb=" + current.verb + " exit=" + exitCode + " cause=" + errors.split("\n")[0].slice(0, 180));
+            warn("control=no-answer verb=" + current.verb + " exit=" + exitCode + " cause=" + errors.split("\n")[0].slice(0, 180));
             answer = { kind: "failed" };
         }
         // A block to fix or a failure keeps its keyed cause in the log, as
@@ -129,7 +133,7 @@ Item {
         const block = answer.kind === "blocked" ? answer.block : bootBlocked ? answer.reason : null;
         if ((block !== null && ((current.verb === "build" && wanted) || Gate.SESSION_CHOICES.indexOf(block) === -1)) || answer.kind === "failed"
                 || (answer.kind === "answer" && answer.state === "failed"))
-            console.warn("jarvis-session: " + current.verb + "=" + (block !== null ? "blocked block=" + block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
+            warn(current.verb + "=" + (block !== null ? "blocked block=" + block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
                 + (errors === "" ? "" : " cause=" + errors.split("\n")[0].slice(0, 180)));
         const attempt = answer.startAttempt === true && !current.superseded ? current
             : current.follow !== null && current.follow === following ? following : null;
@@ -180,7 +184,7 @@ Item {
     function followStart() {
         if (following === null) return;
         if (Date.now() >= following.until) {
-            console.warn("jarvis-session: " + following.verb + "=failed reason=follow-timeout");
+            warn(following.verb + "=failed reason=follow-timeout");
             following = null;
             return;
         }
@@ -206,7 +210,7 @@ Item {
     function turnedOff() {
         if (shell === null || sessionHome === "") return;
         const reply = shell.run.detached(["node", program, "--tree", Quickshell.shellDir + "/..", "stop", sessionHome, "app-off"]);
-        if (reply !== "ok") console.warn("jarvis-session: stop " + reply);
+        if (reply !== "ok") warn("stop " + reply);
     }
 
     Process {

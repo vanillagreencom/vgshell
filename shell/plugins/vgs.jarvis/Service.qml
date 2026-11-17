@@ -63,8 +63,8 @@ Item {
         return { ok: reply === "ok", reason: reply === "ok" ? "" : "The Jarvis console could not accept this draft. Check its Setup tab." };
     }
     // The daemon writes diagnostics to stderr and keeps running. The last
-    // complete line becomes the cause only if the daemon then exits, even
-    // when that exit writes no line of its own.
+    // complete warning becomes the cause only if the daemon then exits,
+    // even when that exit writes no line of its own.
     property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
     property var echoCancel: null
@@ -1705,8 +1705,12 @@ Item {
                     const framed = Protocol.feed(root.errorTail, data);
                     root.errorTail = framed.tail;
                     for (const line of framed.lines) {
-                        root.lastDiagnostic = line;
-                        console.warn("jarvis: stderr=" + line);
+                        if (line.startsWith("jarvis: info ")) console.log("jarvis: stderr=" + line);
+                        else {
+                            // Gate classifies the payload; jarvisd's timestamp stays in the log.
+                            root.lastDiagnostic = line.replace(/ time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, "");
+                            console.warn("jarvis: stderr=" + line);
+                        }
                     }
                 } catch (error) { root.broken(error.message); }
             }

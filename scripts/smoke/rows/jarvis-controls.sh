@@ -1089,9 +1089,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='root.lastDiagnostic = line;'
+needle=r'root.lastDiagnostic = line.replace(/ time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, "");'
 assert s.count(needle)==1
-changed=s.replace(needle, 'root.lastDiagnostic = line;\n                        root.cause = line;')
+changed=s.replace(needle, needle + '\n                        root.cause = root.lastDiagnostic;')
 assert changed != s
 p.write_text(changed)
 PY

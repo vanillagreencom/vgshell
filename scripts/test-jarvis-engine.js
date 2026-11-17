@@ -208,7 +208,7 @@ function rig(kit, server, options = {}) {
     }) };
     // Session's fault records reach the real audit store through the shipped daemon's port.
     const auditLines = [];
-    ports.audit = shipped(daemonSource, AUDIT_PORT, vm.createContext({ audit, process: { stderr: { write: line => auditLines.push(line) } } }), "audit port");
+    ports.audit = shipped(daemonSource, AUDIT_PORT, vm.createContext({ audit, diagnostic: line => auditLines.push(line) }), "audit port");
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
     audio.captureSink = engine.captureSink;
@@ -3791,7 +3791,7 @@ function failoverTable(Engine) {
 function auditPortRefusal(kit) {
     const lines = [];
     const scope = vm.createContext({ audit: { fault: () => ({ kind: "refuse", reason: "audit-write", cause: "store-full" }) },
-        process: { stderr: { write: line => lines.push(line) } } });
+        diagnostic: line => lines.push(line) });
     const port = shipped(fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8"), AUDIT_PORT, scope, "audit port");
     const record = { kind: "fault-record", gen: 1, op: 1, reason: "brain=harness-ended", category: "app-stopped", action: "restarted" };
     assert.doesNotThrow(() => port.fault(record));

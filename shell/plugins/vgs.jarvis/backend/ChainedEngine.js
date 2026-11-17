@@ -778,6 +778,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function end(keepHistory = false) {
         const c = conversation;
         if (c === null) return;
+        log("jarvis: info conversation=closed gen=" + c.gen);
         const cancelling = c.turn !== null || state().turn.kind === "cancelling" && state().turn.gen === c.gen;
         // observe runs before SessionRunner consumes playback-flush. Keep the
         // old voice's account before release, and wait for Audio's close ack.
@@ -965,6 +966,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // the collection's final.
         function concluded(text) {
             utterance.state = "concluded";
+            log("jarvis: info input-final=" + (text.trim() === "" ? "empty" : "text") + " gen=" + e.gen + " capture=" + e.op);
             if (answer !== null) {
                 const phrase = TaskVoice.phrase(text);
                 if (["yes", "confirm", "yes confirm"].includes(phrase))
@@ -1521,9 +1523,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const events = reply.events[Symbol.asyncIterator]();
             const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });
             const calls = [];
+            // The first next asks the adapter to execute its prepared turn;
+            // it establishes neither child readiness nor provider acceptance.
+            const begin = () => {
+                log("jarvis: info brain=turn-requested gen=" + turn.gen + " op=" + turn.op);
+                return events.next();
+            };
             // A request with no released content refuses before it is sent.
-            let step = await (reply.release.labels.length === 0 ? events.next()
-                : transfer(c, turn, Policy.item("", reply.release.labels), () => events.next()));
+            let step = await (reply.release.labels.length === 0 ? begin()
+                : transfer(c, turn, Policy.item("", reply.release.labels), begin));
             for (; !step.done; step = await events.next()) {
                 if (turn.stopped) return;
                 const event = step.value;
@@ -2402,7 +2410,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A failover reopens the session for the conversation, which
                 // speaks no preview a second time.
                 const { preview, ...reopen } = e;
-                const own = { ...events, renewal: () => renewal(c.gen), failed: reason => {
+                const own = { ...events, renewal: () => renewal(c.gen), inputEnded: result => {
+                    // inputEnded is one aggregate per capture, not each native segment.
+                    log("jarvis: info input-aggregate=" + (result.empty ? "empty" : "text") + " gen=" + e.gen + " capture=" + result.capture);
+                    events.inputEnded(result);
+                }, failed: reason => {
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     // The adapter has released its account, but Session still
                     // owns queued words and playback after the brain finishes.
