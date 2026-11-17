@@ -1088,11 +1088,11 @@ expect_poll "permissions allow changes again" '"offline"' net_state
 device_reply nmcli 1 '' -t -f PERMISSION,VALUE general permissions
 expect "the failed optional permissions probe refreshes" ok net_refresh
 expect "Network opens to show the failed probe" ok ipc shell summon panel vgs.network '{}'
-expect_poll "a failed permission check draws an explicit notice" '{"visible":true,"text":"Network permissions could not be checked. NetworkManager still handles each change."}' ipc smoke networkPermissionNotice panel
+expect_poll "a failed permission check draws an explicit notice" '{"visible":true,"text":"Network permissions could not be checked"}' ipc smoke networkPermissionNotice panel
 expect "the failed optional probe keeps native controls available" '"offline"' net_state
 expect "the sandbox supplies the missing optional tool capability" ok ipc smoke networkPermissionsTool false
 expect_poll "the missing optional tool is recorded" false ipc smoke readInstance service vgs.network nmcliPresent
-expect "the missing optional tool draws its explicit notice" '{"visible":true,"text":"Network permissions could not be checked. NetworkManager still handles each change."}' ipc smoke networkPermissionNotice panel
+expect "the missing optional tool draws its explicit notice" '{"visible":true,"text":"Network permissions could not be checked"}' ipc smoke networkPermissionNotice panel
 expect "the missing optional tool keeps native controls available" '"offline"' net_state
 expect "the missing optional tool permits a native radio change" ok ipc vgs.network invoke action '{"kind":"radio"}'
 expect_poll "the radio changes without the optional tool" False net_radio

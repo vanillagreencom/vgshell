@@ -50,7 +50,7 @@ FocusScope {
         { value: "custom", label: "Your own servers" }
     ]
     readonly property var selected: rows.find(row => row.key === currentKey) || null
-    readonly property string permissionNotice: network.access === "unavailable" ? "Network permissions could not be checked. NetworkManager still handles each change." : ""
+    readonly property string permissionNotice: network.access === "unavailable" && network.state !== "unavailable" ? "Network permissions could not be checked" : ""
     readonly property bool busy: network.action.kind !== "idle"
     readonly property bool prompting: promptKey !== "" && content.visible
     // The prompted network while its dialog shows, else "". Its change is
@@ -331,6 +331,7 @@ FocusScope {
         Label {
             width: parent.width
             role: "body"
+            visible: root.network.state !== "unavailable"
             text: root.network.text || Logic.stateText("unavailable")
             wrapMode: Text.Wrap
         }
@@ -352,8 +353,8 @@ FocusScope {
             level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== "" && !root.prompting
-            tone: "danger"
-            text: root.localProblem || root.network.problem || ""
+            tone: root.network.state === "unavailable" ? "warning" : "danger"
+            text: root.network.state === "unavailable" ? root.network.text || Logic.stateText("unavailable") : root.localProblem || root.network.problem || ""
             onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
         }
         Label {

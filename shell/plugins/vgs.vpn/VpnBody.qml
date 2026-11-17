@@ -349,7 +349,7 @@ FocusScope {
             objectName: "vpn-problem"
             level: root.expanded ? "raised" : "base"
             width: parent.width
-            visible: text !== "" && !root.prompting && !nordSection.opened
+            visible: text !== "" && !root.prompting && !nordSection.opened && root.profiles.state !== "no-answer"
             tone: "danger"
             plain: true
             text: root.localProblem !== "" ? root.localProblem : root.profiles.problem
@@ -362,7 +362,7 @@ FocusScope {
             iconName: root.answering ? "shield" : "shield-off"
             text: root.profiles.state === "missing" ? "NetworkManager is not installed, so VGS cannot show VPN profiles."
                 : root.profiles.state === "not-running" ? "NetworkManager is not running, so VGS cannot show VPN profiles."
-                : root.profiles.state === "no-answer" ? "NetworkManager did not answer, so VGS cannot show VPN profiles."
+                : root.profiles.state === "no-answer" ? "NetworkManager did not answer."
                 : "No VPN profiles yet. Import a WireGuard or OpenVPN file, or add one in the connection editor. The VPN icon shows in the bar when you have a profile."
             actionText: root.answering ? "Import a VPN file" : ""
             onActivated: root.importFile()

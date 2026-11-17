@@ -793,7 +793,7 @@ function connection(missing, snap) {
     case "missing": return { state: state, tone: "warning", text: "Tailscale is not installed." };
     case "checking": return { state: state, tone: "info", text: "Checking Tailscale" };
     case "service-off": return { state: state, tone: "warning", text: "The Tailscale service is off." };
-    case "unavailable": return { state: state, tone: "warning", text: "Not answering" };
+    case "unavailable": return { state: state, tone: "warning", text: "Tailscale did not answer." };
     case "signed-out": return { state: state, tone: "info", text: "Signed out" };
     case "needs-approval": return { state: state, tone: "warning", text: "Waiting for approval" };
     case "starting": return { state: state, tone: "info", text: "Starting" };
@@ -887,7 +887,6 @@ function stateHint(tailscale, step) {
         if (step !== "") return hintState("VGS could not read your saved accounts, so choose " + step + " below and VGS reads them again.", "setup");
         return hintState("VGS could not read your saved accounts, so choose Add account to sign in.", "add-account");
     case "needs-approval": return hintState("An admin of " + (tailscale.tailnet !== "" ? tailscale.tailnet : "your tailnet") + " must approve this device.", "");
-    case "unavailable": return hintState("Tailscale did not answer.", "");
     }
     return hintState("", "");
 }

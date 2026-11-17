@@ -438,7 +438,7 @@ FocusScope {
             width: parent.width
             role: "body"
             textFormat: Text.PlainText
-            visible: root.expanded && root.tailscale.state !== "missing"
+            visible: root.expanded && root.tailscale.state !== "missing" && root.tailscale.state !== "unavailable"
             text: root.tailscale.text
             wrapMode: Text.Wrap
         }
@@ -447,8 +447,10 @@ FocusScope {
             level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== ""
-            tone: "danger"
-            text: root.problemText
+            tone: root.tailscale.state === "unavailable" ? "warning" : "danger"
+            text: root.tailscale.state === "unavailable" ? root.tailscale.text : root.problemText
+            linkText: root.tailscale.state === "unavailable" ? "Try again" : ""
+            onActivated: root.shell.ipc.call("refresh", "")
         }
         Label {
             id: setupHint
@@ -500,13 +502,6 @@ FocusScope {
             text: "Open admin console"
             onClicked: root.request("admin-console", "")
         }
-        RowAction {
-            objectName: "tailscale-try-again"
-            visible: root.tailscale.state === "unavailable"
-            text: "Try again"
-            onClicked: root.shell.ipc.call("refresh", "")
-        }
-
         EmptyState {
             objectName: "tailscale-install"
             width: parent.width

@@ -132,7 +132,7 @@ Item {
             Label {
                 objectName: "tailscale-state"
                 width: layout.headerWidth
-                visible: root.main
+                visible: root.main && body.tailscale.state !== "unavailable"
                 role: "body"
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap

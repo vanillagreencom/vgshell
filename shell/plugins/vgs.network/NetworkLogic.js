@@ -121,7 +121,7 @@ function stateText(value) {
         limited: "Connected with limited internet access.",
         portal: "Connected. This network needs a browser sign-in.",
         connected: "Connected", "radio-off": "Wi-Fi is off.",
-        offline: "Not connected", unavailable: "Network status is unavailable."
+        offline: "Not connected", unavailable: "NetworkManager did not answer."
     };
     return Object.prototype.hasOwnProperty.call(words, value) ? words[value] : words.unavailable;
 }

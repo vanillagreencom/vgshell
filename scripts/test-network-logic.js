@@ -224,7 +224,16 @@ function promptReasonSuite(serviceSource, bodySource) {
     const hint = bodySource.match(/Callout \{\s*objectName: "network-problem"[\s\S]*?visible: ([^\n]*)/);
     const message = bodySource.match(/objectName: "network-prompt-reason"[\s\S]*?text: ([^\n]*)/);
     assert.ok(failed && hint && message);
-    assert.match(bodySource, /objectName: "network-problem"[^}]*tone: "danger"/);
+    const tone = bodySource.match(/objectName: "network-problem"[^}]*tone: ([^\n]*)/);
+    const readTone = new Function("root", "return " + tone[1]);
+    assert.equal(readTone({ network: { state: "connected" } }), "danger");
+    assert.equal(readTone({ network: { state: "unavailable" } }), "warning");
+    const notice = bodySource.match(/objectName: "network-problem"[^}]*\n            text: ([^\n]*)/);
+    const readNotice = new Function("root", "Logic", "return " + notice[1]);
+    const root = { network: { state: "unavailable", text: "service-state", problem: "action-failure" }, localProblem: "refused-action" };
+    assert.equal(readNotice(root, load(file, commons)), "service-state");
+    root.network.state = "connected";
+    assert.equal(readNotice(root, load(file, commons)), "refused-action");
     const visible = new Function("text", "root", "return " + hint[1]);
     const reasonText = new Function("root", "return " + message[1]);
     for (const known of [true, false]) {
@@ -240,14 +249,16 @@ function promptReasonSuite(serviceSource, bodySource) {
         // the password, so a request here would ask twice.
         assert.equal(context.problem, known ? "The saved password did not work." : "");
         assert.equal(reasonText({ network: { problem: context.problem } }), context.problem);
-        assert.equal(visible(context.problem, { prompting: true }), false);
-        assert.equal(visible(context.problem, { prompting: false }), known);
+        assert.equal(visible(context.problem, { prompting: true, network: { state: "connected" } }), false);
+        assert.equal(visible(context.problem, { prompting: false, network: { state: "connected" } }), known);
     }
 }
 promptReasonSuite(service, body);
-const problemTone = 'tone: "danger"\n            text: root.localProblem || root.network.problem || ""';
+const problemTone = 'tone: root.network.state === "unavailable" ? "warning" : "danger"';
 assert.equal(body.split(problemTone).length, 2, "control: one network notice tone binding");
 assert.throws(() => promptReasonSuite(service, body.replace(problemTone, problemTone.replace('"danger"', '"warning"'))));
+assert.throws(() => promptReasonSuite(service, body.replace(problemTone, problemTone.replace('"warning"', '"danger"'))));
+assert.throws(() => promptReasonSuite(service, body.replace('root.network.state === "unavailable" ? root.network.text || Logic.stateText("unavailable") : ', '')));
 assert.throws(() => promptReasonSuite(service, body.replace('visible: text !== "" && !root.prompting', 'visible: text !== ""')));
 assert.throws(() => promptReasonSuite(service, body.replace('text: root.network.problem || ""', 'text: ""')));
 const firstTimeReason = service.replace(/(problem = pending\.known \? [^\n]* : )"";/, '$1"unexpected-reason";');

@@ -1481,10 +1481,12 @@ expect "the approval flyout offers Open admin console" '["Open admin console"]' 
 expect "the approval flyout retains its account card" '["shown", "hidden", "hidden", "hidden"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices NavigationRow:tailscale-exit-row
 device_reply tailscale 1 "" status --json
 expect "a refresh reads Tailscale not answering" ok tailscale_refresh
-expect_poll "the flyout's state line reads Not answering" '["Not answering"]' tailscale_label tailscale-state
+expect_poll "the not-answering flyout shows its warning" true ipc smoke readMatchingDescendant panel vgs.tailscale Callout objectName tailscale-problem visible
+expect "the not-answering notice has the warning tone" '"warning"' ipc smoke readMatchingDescendant panel vgs.tailscale Callout objectName tailscale-problem tone
 expect "the not answering flyout draws no header switch" '[false]' tailscale_header_switch
-expect "the not answering flyout says why" '["Tailscale did not answer."]' tailscale_label tailscale-state-hint
-expect "the not answering flyout offers Try again" '["Try again"]' tailscale_drawn panel RowAction tailscale-try-again
+expect "the not-answering flyout has no repeated status" hidden tailscale_label tailscale-state
+expect "the not-answering flyout has no repeated hint" hidden tailscale_label tailscale-state-hint
+expect "the not-answering warning offers Try again" '"Try again"' ipc smoke readMatchingDescendant panel vgs.tailscale Callout objectName tailscale-problem linkText
 tailscale_use sheet.json
 expect "a refresh reads the running tailnet for the account row" ok tailscale_refresh
 expect_poll "the flyout reads the running tailnet again" '["Connected through Stockholm, Sweden"]' tailscale_label tailscale-state
