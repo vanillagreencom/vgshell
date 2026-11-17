@@ -123,6 +123,7 @@
 
 | 2026-11-16 | D136 | [VGS-2576](https://linear.app/vanillagreen/issue/VGS-2576) | Stay awake scopes monitors at the core idle source and Power restores its saved absolute end | Display stages and VGS locking run independently while logind idle sleep remains inhibited | Another source needs a different scope, or logind separates idle sleep inhibition | Active | [Full](D136-stay-awake-source-scope.md) |
 | 2026-11-17 | D137 | [VGS-2616](https://linear.app/vanillagreen/issue/VGS-2616) | A capability provider reaches the source files of plugins whose judged manifests declare its capabilities | Core rows cover startup; loading the capability hub does not establish that a scene observes every provider | A missed provider regression, an undeclared capability reader, or a separately justified shared-data refinement | Active | [Full](D137-capability-provider-selection.md) |
+| 2026-11-17 | D138 | [VGS-2618](https://linear.app/vanillagreen/issue/VGS-2618) | A QML module entry reaches files that name it through source-derived module and import declarations | Importing a module establishes name availability, not observation of every entry | A missed module-entry regression, unsupported Qt syntax or an unrepresented module-wide effect | Active | [Full](D138-qml-module-entry-selection.md) |
 
 ---
 
