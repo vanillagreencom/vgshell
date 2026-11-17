@@ -2,7 +2,7 @@
 # Main Jarvis host chosen on the Settings page reaches the Jarvis package's
 # main-host setting through the real daemon, against the package stand-in
 # scripts/fixtures/jarvis/satellite-package.py (the setter is KEN-4874's),
-# and the console's Now line reads the package's status --main answer: the
+# and the console's Chat forwarding line reads the package's status --main answer: the
 # main reachable, the main that did not answer, this computer, a package
 # older than the satellite contract and one without the setter. A Home
 # choice while Main Jarvis host is This computer hands nothing. The
@@ -77,7 +77,7 @@ sets=[a[1].split("=",1)[1] for a in rows if a[0]=="main-host" and a[1].startswit
 print(sets[-1] if sets else "none")
 PYSET
 }
-# The Now reading as drawn: the line's text, the warning notice's text
+# The Chat forwarding reading as drawn: the line's text, the warning notice's text
 # after `warning: `, or hidden.
 satellite_line() {
   local line notice
@@ -124,13 +124,13 @@ expect_poll "an empty Main Jarvis host is this computer" "This computer runs you
 satellite_state '{"reachable": true}'
 satellite_choose mainHost cachy
 expect_poll "the choice reaches the package as the main and this Home's path" "cachy:$satellite_home" satellite_set
-expect_poll "the Now line reads the main as reachable" "Requests that need your main Jarvis go to cachy. It is reachable." satellite_line
+expect_poll "the Chat forwarding line reads the main as reachable" "Requests that need your main Jarvis go to cachy. It is reachable." satellite_line
 satellite_state "{\"main\": \"cachy:$satellite_home\", \"reachable\": false}"
 satellite_choose mainHost jarvis
-expect_poll "the Now line names a main that did not answer" "warning: Requests that need your main Jarvis go to jarvis. It did not answer. Requests wait here." satellite_line
+expect_poll "the Chat forwarding line names a main that did not answer" "warning: Requests that need your main Jarvis go to jarvis. It did not answer. Requests wait here." satellite_line
 satellite_choose mainHost ""
 expect_poll "choosing This computer clears the package's setting" "" satellite_set
-expect_poll "the Now line reads this computer as the main" "This computer runs your main Jarvis." satellite_line
+expect_poll "the Chat forwarding line reads this computer as the main" "This computer runs your main Jarvis." satellite_line
 satellite_state '{"package": "old"}'
 satellite_choose mainHost cachy
 expect_poll "an older package cannot forward" "warning: Jarvis cannot forward to cachy: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line

@@ -485,7 +485,7 @@ var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "not-set-up", "home-link", "
 // that setting is empty:
 // this computer is the main; a satellite whose package names that main,
 // whether the package last reached it (null before its first call) and the
-// cause the Now line names; or the forward route unavailable and why.
+// cause Chat's forwarding line names; or the forward route unavailable and why.
 function mainReach(value) {
     if (!object(value)) return false;
     if (value.kind === "main") return Object.keys(value).length === 1;

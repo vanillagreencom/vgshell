@@ -8,10 +8,14 @@ import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
 import "History.js" as History
 import "Composer.js" as Composer
+import "AccountProviders.js" as Providers
 
-// Jarvis console: a keyboard-first window for typed turns. It asks the
-// service through IPC, reads the service's bounded conversation status, and
-// never owns the daemon or a transcript store.
+// Jarvis console: a keyboard-first chat window. It asks the service through
+// IPC, reads the service's bounded conversation status, and never owns the
+// daemon or a transcript store. Its header holds the title, one status
+// chip, New conversation, More and Settings on every tab; Chat holds the
+// conversation over one message box with the model and effort at its left
+// and Send, or Stop while Jarvis works, at its right.
 FocusScope {
     id: root
 
@@ -38,9 +42,9 @@ FocusScope {
         ? askOperation.request.requestId : ""
     readonly property var unconfirmedRequest: askOperation !== null && (askOperation.kind === "unknown" || askOperation.kind === "retry-pending")
         ? askOperation.request : null
-    readonly property string askOutcome: askOperation === null ? "" : askOperation.kind === "unknown"
-        ? "The action was not confirmed. Retry your previous action."
-        : askOperation.kind === "not-sent" ? "The action was not sent. Try again."
+    // An action Jarvis has not confirmed, waiting for the person's Retry.
+    readonly property bool askUnconfirmed: askOperation !== null && askOperation.kind === "unknown"
+    readonly property string askOutcome: askOperation === null ? "" : askOperation.kind === "not-sent" ? "The action was not sent. Try again."
         : askAnswer !== null && askAnswer.kind !== "accepted" ? askAnswer.cause : ""
     readonly property string askRecoveryText: askOperation === null || (pendingAsk === "" && unconfirmedRequest === null) ? ""
         : recoveryText(askOperation.request, pendingAsk !== "")
@@ -54,7 +58,6 @@ FocusScope {
     property Item returnAskFocus: null
     property string historyQuery: ""
     property int historyType: 0
-    readonly property var historyGroups: History.conversations(conversation, historyQuery)
     readonly property var historyProblems: History.problems(auditRows, historyQuery)
     readonly property bool showConversations: tab === 2 && (historyType === 0 || historyType === 1)
     readonly property bool showTasks: tab === 2 && (historyType === 0 || historyType === 2)
@@ -137,8 +140,12 @@ FocusScope {
             requestId: requestId, expectedRevision: row.revision, text: text, until: until };
         sendAskRequest(request);
     }
+    // The recovery notice's Retry: the same held request again, or why it
+    // cannot go now.
     function retryAsk() {
-        if (unconfirmedRequest !== null && askRetryReason === "") sendAskRequest(unconfirmedRequest);
+        if (unconfirmedRequest === null) return;
+        if (askRetryReason !== "") { askProblem = askRetryReason; return; }
+        sendAskRequest(unconfirmedRequest);
     }
     function sendAskRequest(request) {
         if (shell === null || pendingAsk !== "") return;
@@ -151,29 +158,24 @@ FocusScope {
         const reply = shell.run.detached(DesktopLaunch.open(row.link.url));
         askProblem = reply === "ok" ? "" : "The original thread could not be opened.";
     }
-    // Every time the console shows reads in the shell's one wording, against
-    // the shared minute clock, so a recent one reads as its age.
+    // A time in the shell's one wording, against the shared minute clock,
+    // so a recent one reads as its age. No row shows one; a snooze names
+    // its return in a sentence and a snoozed ask in its description.
     function when(at) { return Timestamp.text(at, Time.now.getTime()); }
-    function askTime(row) { return "Asked " + when(Date.parse(row.askedAt)); }
-    // The ask and the action a pending or unconfirmed REQUEST holds, the one
-    // Retry previous action sends again. An ask off the current page keeps
-    // its action without its words.
+    // The one sentence for the ask and the action a pending or unconfirmed
+    // REQUEST holds: what is being sent, or what Jarvis has not confirmed,
+    // which the notice's Retry sends again. An ask off the current page
+    // keeps its action without its words.
     function recoveryText(request, sending) {
         const ask = activeAsks.concat(snoozedAsks).find(row => row.id === request.id);
         const what = ask === undefined ? "an ask not on this page" : "“" + ask.what + "”";
         if (request.action === "reply")
-            return (sending ? "Sending your reply to " + what + ": " : "Your reply to " + what + " is not confirmed: ") + "“" + request.text + "”";
+            return sending ? "Sending your reply “" + request.text + "” to " + what + "."
+                : "Jarvis has not confirmed your reply “" + request.text + "” to " + what + ".";
         if (request.action === "done")
-            return sending ? "Jarvis is checking that " + what + " is done." : "Your Done for " + what + " is not confirmed.";
+            return sending ? "Jarvis is checking that " + what + " is done." : "Jarvis has not confirmed that " + what + " is done.";
         const until = when(Date.parse(request.until));
-        return sending ? "Snoozing " + what + " until " + until + "." : "Your snooze of " + what + " until " + until + " is not confirmed.";
-    }
-    // A conversation group's heading: when its session started, and the
-    // first time on a later day it holds.
-    function sessionTitle(group) {
-        const started = new Date(group.startedAt), first = new Date(group.rows[0].at);
-        const sameDay = started.toDateString() === first.toDateString();
-        return "Session started " + when(group.startedAt) + (sameDay ? "" : " · continued " + when(group.rows[0].at));
+        return sending ? "Snoozing " + what + " until " + until + "." : "Jarvis has not confirmed your snooze of " + what + " until " + until + ".";
     }
     function askState(row) { return row.state === "checking" ? "Checking…" : row.state === "snoozed" ? "Snoozed" : row.kind === "fleet-approval" ? "Fleet approval" : row.kind === "tracker-item" ? "Your approval" : "Needs reply"; }
     function problemAction(row) {
@@ -183,7 +185,6 @@ FocusScope {
 
     readonly property var taskRows: History.tasks(Array.isArray(values.taskList) ? values.taskList : [], historyQuery)
     readonly property var auditRows: Array.isArray(values.auditFailures) ? values.auditFailures.slice().reverse() : []
-    property string draft: ""
     property bool composerRegistered: false
     onShellChanged: {
         if (shell === null || composerRegistered) return;
@@ -191,40 +192,162 @@ FocusScope {
         shell.ipc.handle("compose-draft", text => JSON.stringify(acceptDraft(text)));
     }
     readonly property var refusal: Session.sayRefusal(state)
-    readonly property bool ready: shell !== null && state !== null && refusal === null
-    readonly property string stopKey: shell === null || shell.shortcut.keys.stop === undefined || shell.shortcut.keys.stop === null ? "" : shell.shortcut.keys.stop
     readonly property var conversation: Array.isArray(values.conversation) ? values.conversation : []
     readonly property var memoryInbox: Array.isArray(values.memoryInbox) ? values.memoryInbox : []
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
-    readonly property string hint: problem !== "" ? problem : refusalText(refusal)
+    // History's Messages: every turn the log holds, oldest first.
+    readonly property var historyRows: History.messages(conversation, historyQuery)
     readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
-    // A duplex voice takes no typed message (Session.sayRefusal), so the
-    // composer offers none: one line says how to talk instead.
+    readonly property string historyLimit: "Problems holds the newest 20 failures. Search and the type filter apply only to the records it still holds."
+    // A duplex voice takes no typed message (Session.sayRefusal): the
+    // message box stays, locked, under one notice that says how to talk.
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
+    // Jarvis works while it thinks, waits for a confirmation, runs a task or
+    // speaks: Stop then takes Send's place in the message box.
+    readonly property bool working: detail !== null && ["thinking", "confirming", "acting", "speaking"].indexOf(detail.phase) !== -1
+    // More's Stop has nothing to stop while Jarvis is ready and idle; while
+    // it starts, fails or works, Stop ends that.
+    readonly property bool nothingToStop: detail !== null && (detail.phase === "idle" || detail.phase === "listening")
+    // The header's status chip: the bar widget's own state reading.
+    readonly property var statusLook: WidgetView.stateView(values, Providers.cloudVoice(shell === null ? "" : shell.settings.voiceProvider))
     // The shortcut keys as people read them, the bar's own spelling.
     readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, ShortcutLabels.shortcutText)
     // How to talk now: the sentence the Voice step and the bar say it with.
     readonly property string talkLine: Gate.talkHint(shell !== null && shell.settings.holdToTalk, spelledKeys.talk) + "."
-    // The Conversation tab's first control: the message box, or Stop where
-    // one line stands in its place.
-    readonly property Item composerFocus: speechOnly ? speechStop : entryField
+    // Chat's first control: the message box, locked under a voice that
+    // takes speech only, so the reason it gives stays in reach.
+    readonly property Item composerFocus: entryField
     readonly property string speechOnlyText: speechOnlyLine(values.voiceRoute, talkLine)
+    // The model and effort choices the plugin offers for the chosen sign-in
+    // (Accounts.qml), each { label, value }.
+    readonly property var modelChoices: Array.isArray(values.models) ? values.models : []
+    // The model of modelChoices the saved setting runs, "" while it runs none.
+    readonly property string modelShown: typeof values.modelShown === "string" ? values.modelShown : ""
+    readonly property var effortChoices: Array.isArray(values.efforts) ? values.efforts : []
 
-    onComposerFocusChanged: {
-        if (!root.activeFocus || root.tab !== 0) return;
-        // Qt retains active focus when an item's branch becomes invisible.
-        // tst_jarvis_console drives both replacements and outside focus.
-        const replaced = speechOnly ? [messageInfo, entryField, sendButton, stopButton] : [speechHint, speechStop];
-        const previous = replaced.find(item => item.activeFocus);
-        if (previous !== undefined) composerFocus.forceActiveFocus(previous.focusReason);
+    // Qt retains active focus on an item whose branch becomes invisible:
+    // Send and Stop trade places as Jarvis starts and ends work, Send goes
+    // and the speech-only notice comes as typing turns off, and the notice
+    // goes as it turns on. Focus on Send or Stop that went moves to the one
+    // that shows, and any other, the notice's links, to the message box,
+    // keeping its reason. tst_jarvis_console drives the speech-only
+    // transitions.
+    function keepComposerFocus() {
+        const focused = root.Window.activeFocusItem;
+        if (!root.activeFocus || root.tab !== 0 || focused === null || focused.visible) return;
+        if (!KeyNavLogic.contains(composer, focused)) return;
+        const swapped = focused === sendButton || focused === stopButton;
+        (swapped && stopButton.visible ? stopButton : swapped && sendButton.visible ? sendButton : entryField).forceActiveFocus(focused.focusReason);
+    }
+    onWorkingChanged: Qt.callLater(keepComposerFocus)
+    onSpeechOnlyChanged: Qt.callLater(keepComposerFocus)
+
+    // Tab and Backtab through the header and the message box in this
+    // order: the tabs, New conversation, More and Settings, then the tab's
+    // first control (tabStart); in the box the text, the model, the effort,
+    // then Send or Stop, and on to the tabs. Backtab from the text returns
+    // to New conversation (handleBacktab), and Backtab from the tabs goes to
+    // the content's last control, the one before tabWrap, which marks the
+    // content's end in Qt's item order for both directions. Each control
+    // hands its keys here first (traverseKey), since Qt moves the focus
+    // along the item order at the focused item when its key handlers leave
+    // Tab unaccepted, and the header stands before the tabs in that order.
+    // No KeyNavigation edge joins them: an edge to the text makes Qt set the
+    // text's own Tab edge back, which takes Ctrl+Tab, the tab switch, too
+    // (tst_jarvis_console).
+    // Tab or Backtab with Control held is that switch, which the root's
+    // handler takes.
+    function traverse(event) {
+        if (event.modifiers & Qt.ControlModifier) return false;
+        const forward = event.key === Qt.Key_Tab && event.modifiers === Qt.NoModifier;
+        const backward = event.key === Qt.Key_Backtab || event.key === Qt.Key_Tab && event.modifiers === Qt.ShiftModifier;
+        if (!forward && !backward) return false;
+        const header = [consoleTabs, newConversationButton, moreButton, settingsButton];
+        const box = [entryField, modelSelect, effortSelect, sendButton, stopButton].filter(control => control.visible);
+        const chain = tab === 0 ? header.concat(box) : header;
+        const at = chain.findIndex(control => control.activeFocus);
+        if (at === -1) return false;
+        const next = backward ? (at === 0 ? tabWrap.nextItemInFocusChain(false) : chain[at - 1])
+            : at === header.length - 1 ? tabStart() : at + 1 < chain.length ? chain[at + 1] : consoleTabs;
+        if (next === null) return false;
+        next.forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+        return true;
+    }
+    function traverseKey(event) { if (traverse(event)) event.accepted = true; }
+    // The first control of the tab that shows: on Chat, the first link of
+    // the forwarding notice or else the speech-only notice while one shows,
+    // else the message box. Qt's item order walks on from a notice's links
+    // to the message box.
+    function tabStart() {
+        const notice = [reachNotice, speechNotice].find(item => item.visible && item.firstStop !== null);
+        return tab === 0 ? (notice === undefined ? root.composerFocus : notice.firstStop)
+            : tab === 1 ? asksBody : historySearch;
+    }
+
+    // A change of model or effort ends the conversation, so the console asks
+    // first (choiceDialog); CONTROL, the select, takes the focus back. The
+    // entry it shows already (choiceIndex: the saved choice, or what an
+    // unset model or effort runs) changes nothing.
+    property var pendingChoice: null
+    function askChoice(key, choices, index, control) {
+        const choice = choices[index];
+        if (choice === undefined || shell === null || index === choiceIndex(key, choices)) return;
+        pendingChoice = { key: key, value: choice.value, label: choice.label, control: control,
+            reason: control.visualFocus ? Qt.TabFocusReason : Qt.MouseFocusReason };
+        Qt.callLater(() => choiceDialog.forceActiveFocus(Qt.OtherFocusReason));
+    }
+    function closeChoice(confirmed) {
+        const choice = pendingChoice;
+        if (choice === null) return;
+        pendingChoice = null;
+        if (confirmed) {
+            const reply = shell.configure.set(choice.key, choice.value);
+            if (reply !== "ok") {
+                problem = choice.key === "model" ? "Jarvis did not change the AI model." : "Jarvis did not change the effort.";
+                console.warn("jarvis console: " + choice.key + " " + reply);
+            }
+        }
+        Qt.callLater(() => { if (choice.control.visible) choice.control.forceActiveFocus(choice.reason); });
+    }
+    // The entry of CHOICES that KEY shows: for the model, the one
+    // `modelShown` names (AccountProviders.modelChoice `shown`), none where
+    // it names no entry; for the effort, the saved level, the first one
+    // offered while it is unset (AccountProviders.effortOffers).
+    function choiceIndex(key, choices) {
+        const value = key === "model" ? modelShown : shell === null ? "" : shell.settings.effort;
+        const at = choices.findIndex(choice => choice.value === value);
+        return at === -1 && value === "" && key === "effort" ? 0 : at;
+    }
+
+    // A summons or a handoff puts the person back in the console's body,
+    // so it closes the console's dialogs: a message box under one still
+    // takes Return.
+    function closeDialogs() {
+        editingAsk = null;
+        pendingChoice = null;
+        help = null;
+    }
+
+    // More's help: TITLE and TEXT in a dialog over the console, which gives
+    // the focus back to More as it closes.
+    property var help: null
+    property bool helpByKey: false
+    function openHelp(title, text) {
+        help = { title: title, text: text };
+        Qt.callLater(() => helpDialog.forceActiveFocus(Qt.OtherFocusReason));
+    }
+    function closeHelp() {
+        if (help === null) return;
+        help = null;
+        Qt.callLater(() => moreButton.forceActiveFocus(helpByKey ? Qt.TabFocusReason : Qt.MouseFocusReason));
     }
 
     // The History tab filtered to its Problems list, every record in it
     // shown, its search field focused (focusTab).
     function openProblems() {
         problem = "";
-        editingAsk = null;
+        closeDialogs();
         askProblem = "";
         historySearch.text = "";
         historyType = 3;
@@ -234,6 +357,7 @@ FocusScope {
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
+        choicesShown(true);
         // The restart notice's action opens the Problems list (Service.qml).
         if (payload.problems === true) {
             openProblems();
@@ -245,7 +369,7 @@ FocusScope {
         }
         problem = "";
         tab = 0;
-        editingAsk = null;
+        closeDialogs();
         askProblem = "";
         refreshAsks();
         Qt.callLater(() => root.composerFocus.forceActiveFocus());
@@ -299,7 +423,16 @@ FocusScope {
         view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, top));
     }
 
-    function close() {}
+    function close() { choicesShown(false); }
+
+    // While the console shows, the service reads the sign-in's model list
+    // for the model and effort choices (Accounts.qml). Its reply is not
+    // read: a console that outlives its service, as one closing while the
+    // plugin turns off, has no list to stop, and one that opens before the
+    // service shows the saved choice alone.
+    function choicesShown(shown) {
+        if (shell !== null) shell.ipc.call("console-choices", shown ? "shown" : "hidden");
+    }
 
     function acceptDraft(text) {
         // Diagnose asks before Service summons this console again. Reopening
@@ -308,6 +441,7 @@ FocusScope {
             return { ok: false, reason: "Finish or cancel your open ask before retrying Diagnose." };
         const result = Composer.draft(entryField.text, text, state);
         if (!result.ok) return result;
+        closeDialogs();
         entryField.text = text;
         entryField.cursorPosition = 0;
         tab = 0;
@@ -329,7 +463,7 @@ FocusScope {
     function handleBacktab(event) {
         const backward = event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier));
         if (!backward || (event.modifiers & Qt.ControlModifier)) return false;
-        (tab === 0 ? newConversationAction : consoleTabs).forceActiveFocus(Qt.BacktabFocusReason);
+        (tab === 0 ? newConversationButton : consoleTabs).forceActiveFocus(Qt.BacktabFocusReason);
         event.accepted = true;
         return true;
     }
@@ -383,19 +517,14 @@ FocusScope {
     }
     onTabChanged: { problem = ""; Qt.callLater(focusTab); }
 
-    // The line in place of the message box under a voice that takes speech
-    // only (ROUTE, the Voice provider reading), saying how to talk (TALK).
+    // The notice over the locked message box under a voice that takes
+    // speech only (ROUTE, the Voice provider reading), saying how to talk
+    // (TALK).
     function speechOnlyLine(route, talk) {
         return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;
     }
 
-    // The empty conversation's line: how to start one, by typing or, under a
-    // voice that takes speech only (SPEECH), by talking (TALK).
-    function emptyText(speech, talk) {
-        return "No conversation yet. " + (speech ? talk : "Type a message to start.");
-    }
-
-    // The Now line for REACH, the daemon's reading of the main Jarvis
+    // Chat's line for REACH, the daemon's reading of the main Jarvis
     // (Satellite.js), or "" before the first. A host comes from Main
     // Jarvis host, or from the package while that field is empty. An
     // unavailable route links where it is fixed, as the session row's blocks do
@@ -439,9 +568,15 @@ FocusScope {
     function speaker(role) { return role === "user" ? "You" : "Jarvis"; }
 
     function refusalText(key) {
-        if (key === null) return draft.trim() === "" ? "Type a message to Jarvis" : "Enter sends the message";
         if (key === "say-text") return "Use up to " + Gate.numberText(messageLimit.maximum) + " characters of plain text";
         return Composer.refusalText(key);
+    }
+
+    // Why Send cannot send now, or "".
+    function sendReason() {
+        if (shell === null || state === null) return "Wait for Jarvis to be ready.";
+        if (refusal !== null) return refusalText(refusal);
+        return entryField.text.trim() === "" ? "Type a message to Jarvis first." : "";
     }
 
     function refusalReply(reply) {
@@ -455,7 +590,7 @@ FocusScope {
     }
 
     function sendMessage() {
-        if (shell === null || entryField.text.trim() === "") return;
+        if (shell === null || speechOnly || entryField.text.trim() === "") return;
         const reply = shell.ipc.call("say", entryField.text);
         if (reply === "ok") {
             entryField.text = "";
@@ -480,8 +615,12 @@ FocusScope {
         const reply = shell.ipc.call("new-conversation", "");
         problem = reply === "ok" ? "" : "Jarvis is not ready to start a new conversation";
         if (reply === "ok") {
-            draft = "";
             entryField.text = "";
+            // A new conversation is Chat's: it shows, and its message box
+            // takes the keys by the way New conversation was pressed.
+            const reason = newConversationButton.visualFocus ? Qt.TabFocusReason : Qt.MouseFocusReason;
+            tab = 0;
+            Qt.callLater(() => root.composerFocus.forceActiveFocus(reason));
         }
     }
 
@@ -547,6 +686,16 @@ FocusScope {
     implicitHeight: Math.floor(OverlayState.windowRoom(screen).height)
     focus: true
 
+    // The console's canvas is the sunken level, as the window host draws a
+    // level while window glass is off (AppWindow.qml), so the cards, the
+    // notices and the person's turns read on their low-emphasis fill; under
+    // window glass the glass is the canvas.
+    Rectangle {
+        anchors.fill: parent
+        visible: !Theme.appearanceState.hyprland.glass
+        color: Theme.surface.level.sunken.background
+    }
+
     Pane {
         id: layout
         anchors.fill: parent
@@ -558,32 +707,77 @@ FocusScope {
         // marks it scrolled under the title and over the composer.
         Component.onCompleted: scrollArea.keyboardScroll = true
 
-        title: "Jarvis console"
+        title: "Jarvis"
+        // The status chip and the header's three actions, on every tab. Tab
+        // reaches them after the tabs and before the tab's own first
+        // control (traverse); a window names no Settings page, so the
+        // console draws its own gear to the Jarvis page. The row stands at
+        // the title row's top: the slot's height is the row's own, so a
+        // place read from it would feed that height back.
+        titleContent: Row {
+            id: headerActions
+            objectName: "consoleHeader"
+            anchors.right: parent.right
+            spacing: Theme.stack.inline
+            Badge {
+                anchors.verticalCenter: parent.verticalCenter
+                text: WidgetView.LOOKS[root.statusLook.state].title
+                tone: WidgetView.LOOKS[root.statusLook.state].chip
+            }
+            IconButton {
+                id: newConversationButton
+                Keys.onPressed: event => root.traverseKey(event)
+                objectName: "newConversationAction"
+                size: "sm"
+                iconName: "square-pen"
+                label: "New conversation"
+                disabledReason: root.state === null ? "Wait for Jarvis to be ready." : ""
+                onClicked: root.newConversation()
+            }
+            IconButton {
+                id: moreButton
+                Keys.onPressed: event => root.traverseKey(event)
+                objectName: "moreButton"
+                size: "sm"
+                iconName: "ellipsis"
+                label: "More"
+                onClicked: {
+                    root.helpByKey = visualFocus;
+                    moreMenu.toggle(KeyNavLogic.opener(moreButton));
+                }
+                Menu {
+                    id: moreMenu
+                    MenuItem { text: "Jarvis home"; onTriggered: root.shell.surfaces.openPage("vgs.jarvis", "Settings/home") }
+                    MenuItem { text: "Message limits"; onTriggered: root.openHelp(text, root.messageLimit.info) }
+                    MenuItem { text: "History limits"; onTriggered: root.openHelp(text, root.historyLimit) }
+                    MenuItem {
+                        text: "Stop Jarvis startup or current work"
+                        disabledReason: root.nothingToStop ? "Jarvis has no current work to stop." : ""
+                        onTriggered: root.stop()
+                    }
+                }
+            }
+            IconButton {
+                id: settingsButton
+                Keys.onPressed: event => root.traverseKey(event)
+                objectName: "settingsButton"
+                size: "sm"
+                iconName: "settings"
+                label: "Settings"
+                onClicked: root.shell.surfaces.openPage("vgs.jarvis", "Settings")
+            }
+        }
         header: Column {
             width: layout.contentWidth
             spacing: Theme.stack.group
             Tabs {
                 id: consoleTabs
+                Keys.onPressed: event => root.traverseKey(event)
                 width: parent.width
-                model: ["Now", "Needs you", "History"]
+                model: ["Chat", "Needs you", "History"]
                 unreadCounts: root.asksReady && root.asksState.activeCount > 0 ? ({ "Needs you": root.asksState.activeCount }) : ({})
                 currentIndex: root.tab
-                KeyNavigation.tab: root.tab === 0 ? newConversationAction : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
-            }
-            RowAction {
-                id: newConversationAction
-                objectName: "newConversationAction"
-                visible: root.tab === 0
-                text: "New conversation"
-                disabledReason: root.state === null ? "Wait for Jarvis to be ready." : ""
-                // Explicit reverse navigation keeps the header action between
-                // tabs and composer: https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
-                KeyNavigation.backtab: consoleTabs
-                // The forwarding notice's page link, while one shows, comes
-                // before the composer.
-                KeyNavigation.tab: reachNotice.visible && reachNotice.firstStop !== null ? reachNotice.firstStop : root.composerFocus
-                onClicked: root.newConversation()
             }
             // The main Jarvis's reachability, in the fixed header so a long
             // conversation never scrolls it away: a reading as a hint line,
@@ -622,7 +816,7 @@ FocusScope {
                         id: historySearch
                         variant: "search"
                         width: parent.width
-                        placeholderText: "Search conversations, tasks and problems"
+                        placeholderText: "Search messages, tasks and problems"
                         leadingIcon: "search"
                         onTextChanged: root.historyQuery = text
                         Keys.onPressed: event => root.handleBacktab(event)
@@ -643,6 +837,8 @@ FocusScope {
             }
         }
 
+        // Chat: the person's turns on their fill, Jarvis's across the view,
+        // and blank while no conversation has begun.
         Column {
             visible: root.tab === 0
             width: layout.contentWidth
@@ -654,20 +850,11 @@ FocusScope {
                 MessageRow {
                     required property var modelData
                     width: layout.contentWidth
+                    turn: modelData.role === "user" ? "own" : "reply"
                     marked: root.placement === "held" && WidgetView.isAnswer(modelData, root.markedAnswer)
                     sender: root.speaker(modelData.role)
-                    timeText: modelData.at === undefined ? "Listening" : root.when(modelData.at)
-                    initials: modelData.role === "user" ? "Y" : ""
-                    avatarIcon: modelData.role === "assistant" ? "vgs-letter-j" : ""
                     bodyText: String(modelData.text)
                 }
-            }
-            EmptyState {
-                width: layout.contentWidth
-                visible: root.transcriptRows.length === 0 && root.memoryInbox.length === 0
-                iconName: "message-circle"
-                text: root.emptyText(root.speechOnly, root.talkLine)
-                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
 
             Repeater {
@@ -743,6 +930,9 @@ FocusScope {
             }
         }
 
+        // Needs you: the waiting count with Show snoozed and Refresh at its
+        // right, the notices an ask action leaves, then one list of cards,
+        // the active asks and, when shown, the snoozed ones after them.
         T.Control {
             id: asksBody
             visible: root.tab === 1
@@ -758,113 +948,153 @@ FocusScope {
                 id: asksColumn
                 width: asksBody.width
                 spacing: Theme.stack.group
-                Column {
-                    width: parent.width; spacing: Theme.row.lineGap
-                    Label { role: "bodyStrong"; text: root.asksReady ? root.asksState.activeCount + " waiting for you" : root.asksState.kind === "reading" ? "Reading your asks…" : "Your asks are unavailable" }
-                    Label { role: "hint"; width: parent.width; wrapMode: Text.Wrap; color: Theme.color.textMuted; text: root.asksState.kind === "unavailable" ? root.asksState.cause : "From your main Jarvis session" }
-                }
-                Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.askProblem || root.askOutcome; color: Theme.color.danger; wrapMode: Text.Wrap }
-                Label { visible: root.editingAsk === null && text !== ""; width: parent.width; role: "body"; text: root.askRecoveryText; wrapMode: Text.Wrap }
-                GroupList {
+                Item {
                     width: parent.width
+                    height: Math.max(askCount.implicitHeight, askControls.height)
+                    Label {
+                        id: askCount
+                        width: parent.width - askControls.width - Theme.stack.group
+                        anchors.verticalCenter: parent.verticalCenter
+                        role: "bodyStrong"
+                        wrapMode: Text.Wrap
+                        text: root.asksReady ? root.asksState.activeCount + " waiting for you" : root.asksState.kind === "reading" ? "Reading your asks…" : "Your asks are unavailable"
+                    }
+                    Row {
+                        id: askControls
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.stack.inline
+                        Checkbox {
+                            objectName: "showSnoozed"
+                            visible: root.asksReady
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Show snoozed"
+                            checked: root.snoozedExpanded
+                            onToggled: root.snoozedExpanded = checked
+                        }
+                        // The unavailable notice holds the one Refresh then.
+                        IconButton {
+                            visible: root.asksState.kind !== "unavailable"
+                            anchors.verticalCenter: parent.verticalCenter
+                            size: "sm"
+                            iconName: "refresh-cw"
+                            label: "Refresh"
+                            disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."
+                            onClicked: root.refreshAsks()
+                        }
+                    }
+                }
+                Callout {
+                    visible: root.asksState.kind === "unavailable"
+                    level: "raised"
+                    tone: "warning"
+                    iconName: "triangle-alert"
+                    plain: true
+                    text: visible ? root.asksState.cause : ""
+                    linkText: "Refresh"
+                    onActivated: root.refreshAsks()
+                }
+                Callout {
+                    visible: text !== ""
+                    level: "raised"
+                    tone: "danger"
+                    iconName: "circle-alert"
+                    plain: true
+                    text: root.askProblem || root.askOutcome
+                }
+                // One notice for the ask action Jarvis has not confirmed, or
+                // is sending, with Retry while it waits for the person.
+                Callout {
+                    visible: root.editingAsk === null && root.askRecoveryText !== ""
+                    level: "raised"
+                    tone: root.askUnconfirmed ? "warning" : "info"
+                    iconName: root.askUnconfirmed ? "triangle-alert" : "info"
+                    plain: true
+                    text: root.askRecoveryText
+                    linkText: root.askUnconfirmed ? "Retry" : ""
+                    onActivated: root.retryAsk()
+                }
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.group
                     Repeater {
                         id: activeAskRows
                         // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical page (DeviceList.qml).
                         model: ScriptModel { values: root.activeAsks.map(row => row.id) }
-                        MessageRow {
-                            id: activeAskRow
+                        Card {
+                            id: activeCard
                             required property var modelData
                             readonly property var ask: root.activeAsks.find(row => row.id === modelData)
                             readonly property bool live: ask !== undefined
                             visible: live
                             width: asksColumn.width
-                            sender: live ? ask.askedBy.name : ""
-                            timeText: live ? root.askTime(ask) : ""
-                            initials: live ? ask.askedBy.name.slice(0, 1).toUpperCase() : ""
-                            avatarIcon: live && ask.kind === "jarvis-ask" ? "vgs-letter-j" : ""
-                            title: live ? ask.what : ""
-                            bodyText: !live || ask.statusText === undefined ? "" : ask.statusText
-                            linkText: live ? ask.link.label : ""
-                            stateText: live ? root.askState(ask) : ""
-                            stateTone: live && ask.state === "checking" ? "info" : "warning"
-                            actions: live ? root.askActions(ask) : []
-                            onSourceActivated: if (live) root.openAskLink(ask)
-                            onActionTriggered: action => { if (live) root.chooseAsk(action, ask, actionAt(["reply", "done", "later"].indexOf(action))); }
+                            MessageRow {
+                                width: parent.width
+                                padded: false
+                                sender: activeCard.live ? activeCard.ask.askedBy.name : ""
+                                title: activeCard.live ? activeCard.ask.what : ""
+                                bodyText: !activeCard.live || activeCard.ask.statusText === undefined ? "" : activeCard.ask.statusText
+                                linkText: activeCard.live ? activeCard.ask.link.label : ""
+                                stateText: activeCard.live ? root.askState(activeCard.ask) : ""
+                                stateTone: activeCard.live && activeCard.ask.state === "checking" ? "info" : "warning"
+                                actions: activeCard.live ? root.askActions(activeCard.ask) : []
+                                onSourceActivated: if (activeCard.live) root.openAskLink(activeCard.ask)
+                                onActionTriggered: action => { if (activeCard.live) root.chooseAsk(action, activeCard.ask, actionAt(["reply", "done", "later"].indexOf(action))); }
+                            }
+                        }
+                    }
+                    Repeater {
+                        // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical page (DeviceList.qml).
+                        model: ScriptModel { values: root.snoozedExpanded && root.asksReady ? root.snoozedAsks.map(row => row.id) : [] }
+                        Card {
+                            id: snoozedCard
+                            required property var modelData
+                            readonly property var ask: root.snoozedAsks.find(row => row.id === modelData)
+                            readonly property bool live: ask !== undefined
+                            visible: live
+                            width: asksColumn.width
+                            MessageRow {
+                                width: parent.width
+                                padded: false
+                                // No row shows a time: the return time stays
+                                // in the snoozed ask's description.
+                                Accessible.description: snoozedCard.live ? "Returns " + root.when(Date.parse(snoozedCard.ask.snoozedUntil)) : ""
+                                sender: snoozedCard.live ? snoozedCard.ask.askedBy.name : ""
+                                title: snoozedCard.live ? snoozedCard.ask.what : ""
+                                linkText: snoozedCard.live ? snoozedCard.ask.link.label : ""
+                                stateText: "Snoozed"
+                                actions: snoozedCard.live ? root.askActions(snoozedCard.ask) : []
+                                onSourceActivated: if (snoozedCard.live) root.openAskLink(snoozedCard.ask)
+                                onActionTriggered: action => { if (snoozedCard.live) root.chooseAsk(action, snoozedCard.ask, actionAt(["reply", "done", "later"].indexOf(action))); }
+                            }
                         }
                     }
                 }
-                EmptyState { visible: root.asksReady && root.activeAsks.length === 0; width: parent.width; iconName: "circle-check"; text: "No asks need you now" }
                 RowActions {
                     visible: root.asksReady
                     RowAction { text: "Next asks"; visible: root.asksReady && root.asksState.activeNextCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("active", false) }
                     RowAction { text: "Back to first"; visible: root.asksReady && root.asksState.activeCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("active", true) }
-                }
-                Section {
-                    visible: root.snoozedExpanded && root.asksReady
-                    title: "Snoozed"
-                    rowSpacing: Theme.stack.group
-                    GroupList {
-                        width: parent.width
-                        Repeater {
-                            // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical page (DeviceList.qml).
-                            model: ScriptModel { values: root.snoozedAsks.map(row => row.id) }
-                            MessageRow {
-                                required property var modelData
-                                readonly property var ask: root.snoozedAsks.find(row => row.id === modelData)
-                                readonly property bool live: ask !== undefined
-                                visible: live
-                                width: asksColumn.width
-                                sender: live ? ask.askedBy.name : ""
-                                timeText: live ? root.askTime(ask) : ""
-                                initials: live ? ask.askedBy.name.slice(0, 1).toUpperCase() : ""
-                                avatarIcon: live && ask.kind === "jarvis-ask" ? "vgs-letter-j" : ""
-                                title: live ? ask.what : ""
-                                bodyText: live ? "Returns " + root.when(Date.parse(ask.snoozedUntil)) + "." : ""
-                                linkText: live ? ask.link.label : ""
-                                stateText: "Snoozed"
-                                actions: live ? root.askActions(ask) : []
-                                onSourceActivated: if (live) root.openAskLink(ask)
-                                onActionTriggered: action => { if (live) root.chooseAsk(action, ask, actionAt(["reply", "done", "later"].indexOf(action))); }
-                            }
-                        }
-                    }
-                    EmptyState { visible: root.snoozedAsks.length === 0; width: parent.width; iconName: "clock"; text: "No snoozed asks" }
-                    RowActions {
-                        RowAction { text: "Next snoozed asks"; visible: root.asksReady && root.asksState.snoozedNextCursor !== null; onClicked: root.askPage("snoozed", false) }
-                        RowAction { text: "Back to first snoozed"; visible: root.asksReady && root.asksState.snoozedCursor !== null; onClicked: root.askPage("snoozed", true) }
-                    }
+                    RowAction { text: "Next snoozed asks"; visible: root.snoozedExpanded && root.asksReady && root.asksState.snoozedNextCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("snoozed", false) }
+                    RowAction { text: "Back to first snoozed"; visible: root.snoozedExpanded && root.asksReady && root.asksState.snoozedCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("snoozed", true) }
                 }
             }
         }
 
-        Column {
+        Section {
             visible: root.showConversations
             width: layout.contentWidth
-            spacing: Theme.stack.group
+            title: "Messages"
             Repeater {
-                model: root.historyGroups
-                Section {
+                model: root.historyRows
+                MessageRow {
                     required property var modelData
                     width: layout.contentWidth
-                    title: root.sessionTitle(modelData)
-                    GroupList {
-                        width: parent.width
-                        Repeater {
-                            model: modelData.rows
-                            MessageRow {
-                                required property var modelData
-                                width: layout.contentWidth
-                                sender: root.speaker(modelData.role)
-                                timeText: root.when(modelData.at)
-                                initials: modelData.role === "user" ? "Y" : ""
-                                avatarIcon: modelData.role === "assistant" ? "vgs-letter-j" : ""
-                                bodyText: modelData.text
-                            }
-                        }
-                    }
+                    turn: modelData.role === "user" ? "own" : "reply"
+                    sender: root.speaker(modelData.role)
+                    bodyText: modelData.text
                 }
             }
-            EmptyState { visible: root.historyGroups.length === 0; width: parent.width; iconName: "message-circle"; text: root.historyQuery === "" ? "No conversations yet" : "No matching conversations" }
+            EmptyState { visible: root.historyRows.length === 0; width: parent.width; placement: "top"; text: root.historyQuery === "" ? "No messages yet" : "No matching messages" }
         }
 
         T.Control {
@@ -884,7 +1114,7 @@ FocusScope {
             contentItem: Section {
                 id: taskColumn
                 title: "Coding tasks"
-                Label { visible: root.problem !== ""; width: parent.width; role: "hint"; text: root.problem; color: Theme.color.danger; wrapMode: Text.Wrap }
+                Callout { visible: root.problem !== ""; level: "raised"; tone: "danger"; iconName: "circle-alert"; plain: true; text: root.problem }
                 GroupList {
                     id: taskGroups
                     width: parent.width
@@ -897,8 +1127,8 @@ FocusScope {
                             readonly property bool live: task !== undefined
                             visible: live
                             width: taskGroups.width
+                            padded: false
                             sender: live ? task.agent : ""
-                            avatarIcon: "terminal"
                             title: live ? task.goal : ""
                             bodyText: live ? root.taskFailure(task) : ""
                             stateText: live ? root.taskState(task) : ""
@@ -907,7 +1137,7 @@ FocusScope {
                             onActionTriggered: action => { if (live) root.taskAction(action, task, actionAt(actions.findIndex(item => item.id === action))); }
                         }
                     }
-                    EmptyState { width: parent.width; visible: root.taskRows.length === 0; iconName: "terminal"; text: "No coding tasks" }
+                    EmptyState { width: parent.width; visible: root.taskRows.length === 0; placement: "top"; text: "No coding tasks" }
                 }
             }
         }
@@ -926,7 +1156,6 @@ FocusScope {
             contentItem: Section {
                 id: auditColumn
                 title: "Problems"
-                info: "This list holds the newest 20 failures. Search and the type filter apply to the records still in this list."
                 GroupList {
                     id: auditList
                     width: parent.width
@@ -935,148 +1164,182 @@ FocusScope {
                         MessageRow {
                             required property var modelData
                             width: auditList.width
+                            padded: false
                             sender: "Jarvis"
-                            avatarIcon: "vgs-letter-j"
-                            timeText: root.when(modelData.at)
                             title: modelData.title
                             bodyText: modelData.body
                             linkText: modelData.action
                             onSourceActivated: root.problemAction(modelData)
                         }
                     }
-                    EmptyState { width: parent.width; visible: root.historyProblems.length === 0; iconName: "shield-check"; text: root.historyQuery === "" ? "No recent failures" : "No matching problems" }
+                    EmptyState { width: parent.width; visible: root.historyProblems.length === 0; placement: "top"; text: root.historyQuery === "" ? "No recent failures" : "No matching problems" }
                 }
             }
         }
 
         footer: [
-            RowActions {
-                visible: root.tab === 1
-                RowAction { text: "Refresh"; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.refreshAsks() }
-                RowAction { text: "Retry previous action"; visible: root.unconfirmedRequest !== null; disabledReason: root.askRetryReason; onClicked: root.retryAsk() }
-                RowAction { text: root.snoozedExpanded ? "Hide snoozed" : "Snoozed (" + (root.asksReady ? root.asksState.snoozedCount : "?") + ")"; onClicked: root.snoozedExpanded = !root.snoozedExpanded }
-            },
             Column {
                 id: composer
                 visible: root.tab === 0
                 width: layout.contentWidth
-                spacing: Theme.stack.inline
+                spacing: Theme.stack.group
 
-                // Under a voice that takes speech only, one line in place of
-                // the message box and Send; Stop stays beside it.
-                Row {
-                    width: parent.width
-                    spacing: Theme.control.gap
+                // Under a voice that takes speech only, the one sentence on
+                // how to talk, over the locked message box.
+                Callout {
+                    id: speechNotice
                     visible: root.speechOnly
-                    // The talk sentence links the Talk key setting while none is set.
-                    LinkText {
-                        id: speechHint
-                        width: parent.width - speechStop.width - parent.spacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        role: "hint"
-                        text: root.speechOnlyText
-                        color: Theme.color.textMuted
-                        wrapMode: Text.Wrap
-                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
-                    }
-                    IconButton {
-                        id: speechStop
-                        anchors.verticalCenter: parent.verticalCenter
-                        iconName: "square"
-                        label: "Stop Jarvis"
-                        tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
-                        onClicked: root.stop()
-                        Keys.onPressed: event => root.handleBacktab(event)
-                    }
+                    level: "raised"
+                    tone: "info"
+                    iconName: "info"
+                    text: root.speechOnlyText
+                    linkText: "Voice settings"
+                    onActivated: root.shell.surfaces.openPage("vgs.jarvis", "Settings/voiceProvider")
+                    onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                }
+                // What the last message, Stop or memory answer could not do.
+                Callout {
+                    visible: root.problem !== ""
+                    level: "raised"
+                    tone: "danger"
+                    iconName: "circle-alert"
+                    plain: true
+                    text: root.problem
                 }
 
-                Row {
+                // The message box: the text over one row of the model and
+                // effort at its left and Send, or Stop while Jarvis works, at
+                // its right, all in the text's own frame (TextArea `framed`).
+                Item {
+                    id: composerBox
                     width: parent.width
-                    spacing: Theme.control.gap
-                    visible: !root.speechOnly
-                    Label {
-                        width: parent.width - messageInfo.width - parent.spacing
-                        role: "hint"
-                        text: root.hint
-                        color: root.problem !== "" ? Theme.color.danger : root.refusal === null ? Theme.color.textMuted : Theme.color.warning
-                        wrapMode: Text.Wrap
-                    }
-                    InfoButton {
-                        id: messageInfo
-                        title: "Message length"
-                        info: root.messageLimit.info
-                    }
-                }
+                    implicitHeight: draftScroll.height + composerRow.height + Theme.textField.paddingX
 
-                Column {
-                    width: parent.width
-                    visible: !root.speechOnly
-                    Row {
+                    FieldFrame { anchors.fill: parent; target: entryField }
+
+                    ScrollArea {
+                        id: draftScroll
                         width: parent.width
-                        spacing: Theme.control.gap
-
-                        ScrollArea {
-                            id: draftScroll
-                            width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
-                            implicitHeight: Math.min(entryField.implicitHeight, Theme.size.control.lg * 8)
-                            keyboardScroll: false
-                            // TextEdit does not scroll itself. The shared ScrollArea
-                            // owns wheel/overflow; cursor changes reveal its line.
-                            // https://doc.qt.io/qt-6/qml-qtquick-textedit.html
-                            TextArea {
-                                id: entryField
-                                width: draftScroll.contentWidth
-                                placeholderText: "Message Jarvis"
-                                textFormat: TextEdit.PlainText
-                                onTextChanged: root.draft = text
-                                onCursorRectangleChanged: {
-                                    draftScroll.contentY = Math.max(0, Math.min(draftScroll.contentHeight - draftScroll.height,
-                                        Math.max(cursorRectangle.y + cursorRectangle.height - draftScroll.height,
-                                            Math.min(draftScroll.contentY, cursorRectangle.y))));
+                        implicitHeight: Math.min(entryField.implicitHeight, Theme.size.control.lg * 8)
+                        keyboardScroll: false
+                        // TextEdit does not scroll itself. The shared ScrollArea
+                        // owns wheel/overflow; cursor changes reveal its line.
+                        // https://doc.qt.io/qt-6/qml-qtquick-textedit.html
+                        TextArea {
+                            id: entryField
+                            width: draftScroll.contentWidth
+                            framed: false
+                            minimumHeight: 0
+                            placeholderText: "Message Jarvis"
+                            textFormat: TextEdit.PlainText
+                            disabledReason: root.speechOnly ? "Typing is off for this voice." : ""
+                            onCursorRectangleChanged: {
+                                draftScroll.contentY = Math.max(0, Math.min(draftScroll.contentHeight - draftScroll.height,
+                                    Math.max(cursorRectangle.y + cursorRectangle.height - draftScroll.height,
+                                        Math.min(draftScroll.contentY, cursorRectangle.y))));
+                            }
+                            Keys.onPressed: event => {
+                                if (root.handleBacktab(event)) return;
+                                // Tab leaves the box for its own controls; a
+                                // message holds no tab character.
+                                if (root.traverse(event)) { event.accepted = true; return; }
+                                // Keys runs before TextEdit; Shift+Enter alone
+                                // reaches its native newline insertion.
+                                // https://doc.qt.io/qt-6/qml-qtquick-keys.html
+                                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
+                                    root.sendMessage(); event.accepted = true; return;
                                 }
-                                Keys.onPressed: event => {
-                                    if (root.handleBacktab(event)) return;
-                                    // Keys runs before TextEdit; Shift+Enter alone
-                                    // reaches its native newline insertion.
-                                    // https://doc.qt.io/qt-6/qml-qtquick-keys.html
-                                    if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
-                                        root.sendMessage(); event.accepted = true; return;
-                                    }
-                                    if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                                if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                            }
+                        }
+                    }
+
+                    Item {
+                        id: composerRow
+                        x: Theme.textField.paddingX
+                        y: draftScroll.height
+                        width: parent.width - 2 * Theme.textField.paddingX
+                        height: Math.max(choices.height, sendButton.height)
+                        Row {
+                            id: choices
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: Theme.stack.inline
+                            Select {
+                                id: modelSelect
+                                Keys.onPressed: event => root.traverseKey(event)
+                                objectName: "modelSelect"
+                                visible: root.modelChoices.length > 0
+                                quiet: true
+                                textRole: "label"
+                                placeholderText: "Choose a model"
+                                model: root.modelChoices
+                                currentIndex: root.choiceIndex("model", root.modelChoices)
+                                Accessible.name: "AI model: " + currentText
+                                onActivated: index => {
+                                    currentIndex = Qt.binding(() => root.choiceIndex("model", root.modelChoices));
+                                    root.askChoice("model", root.modelChoices, index, modelSelect);
+                                }
+                            }
+                            Select {
+                                id: effortSelect
+                                Keys.onPressed: event => root.traverseKey(event)
+                                objectName: "effortSelect"
+                                visible: root.effortChoices.length > 0
+                                quiet: true
+                                textRole: "label"
+                                placeholderText: "Choose effort"
+                                model: root.effortChoices
+                                currentIndex: root.choiceIndex("effort", root.effortChoices)
+                                Accessible.name: "Effort: " + currentText
+                                onActivated: index => {
+                                    currentIndex = Qt.binding(() => root.choiceIndex("effort", root.effortChoices));
+                                    root.askChoice("effort", root.effortChoices, index, effortSelect);
                                 }
                             }
                         }
                         IconButton {
-                            id: stopButton
-                            anchors.verticalCenter: parent.verticalCenter
-                            iconName: "square"
-                            label: "Stop Jarvis"
-                            tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
-                            onClicked: root.stop()
-                        }
-                        Button {
                             id: sendButton
+                            Keys.onPressed: event => root.traverseKey(event)
+                            anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Send"
-                            iconName: "send"
-                            disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
+                            visible: !root.working && !root.speechOnly
+                            variant: "primary"
+                            radius: Theme.button.roundRadius
+                            iconName: "arrow-up"
+                            label: "Send message"
+                            disabledReason: root.sendReason()
                             onClicked: root.sendMessage()
                         }
-                    }
-                    KeyHints {
-                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
-                        afterActions: true
-                        hints: root.speechOnly ? [] : [
-                            { key: "Enter", text: "Send" },
-                            { key: "SHIFT+Enter", text: "New line" },
-                            { key: root.shell === null ? "" : root.shell.shortcut.keys.talk || "", text: "Talk" },
-                            { key: root.stopKey, text: "Stop" }
-                        ]
-                        visible: !root.speechOnly
+                        IconButton {
+                            id: stopButton
+                            Keys.onPressed: event => root.traverseKey(event)
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.working
+                            variant: "danger"
+                            radius: Theme.button.roundRadius
+                            iconName: "square"
+                            label: "Stop Jarvis"
+                            tooltip: root.spelledKeys.stop === null ? "Stop Jarvis" : "Stop Jarvis " + root.spelledKeys.stop
+                            onClicked: root.stop()
+                        }
                     }
                 }
             }
         ]
+    }
+    // The end of the console's content in Qt's item order, whose title row,
+    // New conversation, More and Settings, comes before the tabs. Forward,
+    // Qt wraps from the last control of Needs you or History to New
+    // conversation: this stop takes that wrap and hands it to the tabs,
+    // where the header order starts. Backward, traverse sends Backtab from
+    // the tabs to the item before this stop, the content's last control.
+    // focus-indicator: the tabs' ring, since this stop gives them its focus at once
+    Item {
+        id: tabWrap
+        objectName: "tabWrap"
+        activeFocusOnTab: true
+        onActiveFocusChanged: if (activeFocus) consoleTabs.forceActiveFocus(Qt.TabFocusReason)
     }
     Item {
         anchors.fill: parent
@@ -1113,7 +1376,9 @@ FocusScope {
                     DateField { id: laterDate; width: parent.width }
                     ResultsFilter { id: laterTime; accessibleLabel: "Return time"; model: ["9:00 am", "Noon", "5:00 pm"] }
                 }
-                Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.askProblem || root.askOutcome; color: Theme.color.danger; wrapMode: Text.Wrap }
+                // The editor hides the list's recovery notice, so it names
+                // the action Jarvis has not confirmed itself.
+                Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.askProblem || root.askOutcome || (root.askUnconfirmed ? root.askRecoveryText : ""); color: Theme.color.danger; wrapMode: Text.Wrap; textFormat: Text.PlainText }
                 RowActions {
                     Button {
                         id: askSubmit
@@ -1130,6 +1395,41 @@ FocusScope {
                     }
                 }
             }
+        }
+    }
+    // A model or effort change, asked before it ends the conversation.
+    Item {
+        anchors.fill: parent
+        visible: root.pendingChoice !== null
+        Scrim { onClicked: root.closeChoice(false) }
+        Dialog {
+            id: choiceDialog
+            readonly property bool model: root.pendingChoice !== null && root.pendingChoice.key === "model"
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
+            availableHeight: parent.height - 2 * Theme.dialog.margin
+            title: model ? "Change the AI model?" : "Change the effort?"
+            message: "This ends the conversation and starts a new one."
+            actions: [{ label: model ? "Change model" : "Change effort", role: "accept" }, { label: "Cancel", role: "cancel" }]
+            onAccepted: root.closeChoice(true)
+            onRejected: root.closeChoice(false)
+        }
+    }
+    // More's Message limits and History limits.
+    Item {
+        anchors.fill: parent
+        visible: root.help !== null
+        Scrim { onClicked: root.closeHelp() }
+        Dialog {
+            id: helpDialog
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
+            availableHeight: parent.height - 2 * Theme.dialog.margin
+            title: root.help === null ? "" : root.help.title
+            message: root.help === null ? "" : root.help.text
+            actions: [{ label: "Close", role: "cancel" }]
+            onRejected: root.closeHelp()
+            onMessagePageActivated: (page, tab) => { root.closeHelp(); root.shell.surfaces.openPage(page, tab); }
         }
     }
 }

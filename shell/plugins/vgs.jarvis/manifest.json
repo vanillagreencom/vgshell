@@ -116,6 +116,7 @@
     "brains": {"type": "choices", "label": "AI models", "hidden": true},
     "models": {"type": "choices", "label": "Models", "hidden": true},
     "efforts": {"type": "choices", "label": "Effort levels", "hidden": true},
+    "modelShown": {"type": "data", "label": "Shown model"},
     "voiceAccounts": {"type": "choices", "label": "Voice keys", "hidden": true},
     "localTiers": {"type": "choices", "label": "Local voice models", "hidden": true},
     "voices": {"type": "choices", "label": "Voices", "hidden": true},

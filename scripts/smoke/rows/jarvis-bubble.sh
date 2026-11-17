@@ -731,24 +731,23 @@ jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
   fi
   expect "the answer reaches the request owner exactly once" "$3" jarvis_key_effects "$2"
 }
-# The console's message field and hint line against the bubble's card, in
-# layout pixels: `clear` when the card meets neither and both lie whole
-# inside the focused output, `overlap` or `outside` otherwise. The field is
-# the console's empty message TextArea: no draft is typed.
+# The console's message field against the bubble's card, in layout
+# pixels: `clear` when the card does not meet it and it lies whole inside
+# the focused output, `overlap` or `outside` otherwise. The field is the
+# console's empty message TextArea: no draft is typed.
 jarvis_bubble_console() {
-  local field hint card output
+  local field card output
   field="$(control_box window:Jarvis window vgs.jarvis TextArea '')" &&
-    hint="$(control_box window:Jarvis window vgs.jarvis Label 'Jarvis is waiting for your answer. Confirm or cancel the request first.')" &&
     card="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     output="$(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["focused"]); print(json.dumps([m["x"], m["y"], m["width"] / m["scale"], m["height"] / m["scale"]]))')" || return 1
-  [[ $field == \[* && $hint == \[* && $card == \[* ]] || { echo absent; return; }
+  [[ $field == \[* && $card == \[* ]] || { echo absent; return; }
   python3 -c '
 import json,sys
-field,hint,card,out=map(json.loads,sys.argv[1:5])
+field,card,out=map(json.loads,sys.argv[1:4])
 inside=lambda r: r[0]>=out[0] and r[1]>=out[1] and r[0]+r[2]<=out[0]+out[2] and r[1]+r[3]<=out[1]+out[3]
 meets=lambda a,b: a[0]<b[0]+b[2] and b[0]<a[0]+a[2] and a[1]<b[1]+b[3] and b[1]<a[1]+a[3]
-print("outside" if not (inside(field) and inside(hint)) else "overlap" if meets(card,field) or meets(card,hint) else "clear")
-' "$field" "$hint" "$card" "$output"
+print("outside" if not inside(field) else "overlap" if meets(card,field) else "clear")
+' "$field" "$card" "$output"
 }
 # The console's address and the position that puts its bottom edge on its
 # output's work-area bottom, inside the band the card draws in at the
@@ -940,7 +939,7 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_key_stop_assertion
 done
 jarvis_bubble_console_hold
-geometry expect_poll "a held request leaves the console's field and hint line whole" clear jarvis_bubble_console
+geometry expect_poll "a held request leaves the console's message field whole" clear jarvis_bubble_console
 jarvis_bubble_console_close
 expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", "Other window"]' active_window
 

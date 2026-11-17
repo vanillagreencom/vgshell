@@ -97,7 +97,7 @@ jarvis_asks_ready() {
   [[ -f $jarvis_asks_home/.owner-asks-fixture.json ]] || return 1
 }
 jarvis_asks_refresh() { ipc vgs.jarvis invoke owner-asks-refresh ''; }
-jarvis_asks_tab() { # Now|Needs you|History
+jarvis_asks_tab() { # Chat|Needs you|History
   click_item window:Jarvis window vgs.jarvis QQuickTabButton "$1"
 }
 jarvis_asks_action() { # ROW_TITLE ACTION
@@ -215,13 +215,13 @@ jarvis_asks_ui_path() {
   expect_poll "Later updates the canonical counts" '[2, 1]' jarvis_asks_read counts
   expect_poll "the bar badge excludes the snoozed ask" 2 jarvis_asks_badge
   expect_poll "the tab badge excludes the snoozed ask" 2 jarvis_asks_tab_badge
-  click_item window:Jarvis window vgs.jarvis RowAction "Snoozed (1)" || fail "expanding the canonical snoozed section failed"
-  expect_poll "the snoozed section expands" true ipc smoke readInstance window vgs.jarvis snoozedExpanded
+  click_item window:Jarvis window vgs.jarvis Checkbox "Show snoozed" || fail "showing the canonical snoozed asks failed"
+  expect_poll "the snoozed asks show" true ipc smoke readInstance window vgs.jarvis snoozedExpanded
   expect_poll "the visible snoozed row uses the canonical state" '"Snoozed"' ipc smoke readMatchingDescendant window vgs.jarvis MessageRow title "Approve the update on px13" stateText
   jarvis_asks_control --seed 3
   expect "the UI path restores its three asks" ok jarvis_asks_refresh
   jarvis_asks_ready
-  jarvis_asks_tab Now || fail "returning to Now after asks failed"
+  jarvis_asks_tab Chat || fail "returning to Chat after asks failed"
 }
 jarvis_asks_calls() { # VERB FIELD
   python3 - "$jarvis_asks_home/.owner-asks-fixture-calls.jsonl" "$1" "$2" <<'PYASKCALLS'

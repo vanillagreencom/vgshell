@@ -9,13 +9,28 @@ Item {
     width: 480
     height: 300
     TextArea { id: area; width: 300; height: 120; placeholderText: "Notes" }
+    TextArea { id: grows; x: 320; width: 150; minimumHeight: 0; placeholderText: "Message" }
     Button { id: next; y: 160; text: "Next" }
 
     UnitCase {
         name: "textarea"
         when: windowShown
-        function init() { UnitTheme.reset(); area.clear(); area.error = false; next.forceActiveFocus(Qt.OtherFocusReason); }
+        function init() { UnitTheme.reset(); area.clear(); grows.clear(); area.error = false; next.forceActiveFocus(Qt.OtherFocusReason); }
         function ring() { return area.background.children.find(child => String(child).indexOf("FocusRing") === 0); }
+        // A zero floor starts the area at one line, its `textField.paddingX`
+        // of 10 above and below it, under the default floor of three large
+        // controls, 3 * 40; each further line grows it.
+        function test_a_zero_floor_starts_at_one_line_and_grows_with_its_text() {
+            compare(grows.lineCount, 1);
+            const one = grows.implicitHeight;
+            compare(one, grows.contentHeight + 2 * 10);
+            verify(one < 120, "one line stands under the default floor: " + one);
+            grows.text = "first\nsecond";
+            compare(grows.lineCount, 2);
+            compare(grows.implicitHeight, grows.contentHeight + 2 * 10);
+            verify(grows.implicitHeight > one, "a second line grows the area");
+        }
+
         function test_retained_keyboard_border_clears_on_initial_focus_after_one_frame_data() {
             return [{tag: "neutral", hovered: false, error: false}, {tag: "hovered", hovered: true, error: false}, {tag: "error", hovered: true, error: true}];
         }

@@ -8,7 +8,7 @@ const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Conversation.js");
 const Conversation = load(file);
-const entry = (gen, role, text, stage) => ({ gen, role, text, stage, at: gen * 1000, session: "session-" + gen, startedAt: gen * 1000 });
+const entry = (gen, role, text, stage) => ({ gen, role, text, stage, at: gen * 1000, session: "session-" + gen });
 const byteLength = rows => Buffer.byteLength(JSON.stringify(rows));
 
 function contract(logic) {
@@ -46,15 +46,16 @@ const historyModules = { "qs.Commons 1.0": { PageReference: load(path.resolve(__
 const History = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/History.js"), historyModules);
 const morning = new Date(2026, 10, 1, 9).getTime(), nextDay = new Date(2026, 10, 2, 9).getTime();
 const transcript = [
-    { ...entry(1, "user", "Voice question", "final"), at: morning, startedAt: morning, session: "first" },
-    { ...entry(2, "assistant", "Answer", "final"), at: morning + 1000, startedAt: morning, session: "first" },
+    { ...entry(1, "user", "Voice question", "final"), at: morning, session: "first" },
+    { ...entry(2, "assistant", "Answer", "final"), at: morning + 1000, session: "first" },
     { ...entry(3, "user", "Same day, other session", "final"), at: morning + 2000, session: "second" },
     { ...entry(4, "assistant", "Next day", "final"), at: nextDay, session: "first" }
 ];
-assert.equal(History.conversations(transcript, "").length, 3, "days and session identities both delimit groups");
-assert.equal(History.conversations(transcript, "VOICE")[0].rows[0].text, "Voice question");
-assert.equal(History.conversations(transcript, "missing").length, 0);
-assert.equal(History.conversations(transcript, "")[0].at, nextDay, "newest groups first");
+assert.deepEqual(History.messages(transcript, "").map(row => row.text), ["Voice question", "Answer", "Same day, other session", "Next day"],
+    "every session and day in one list, oldest first");
+assert.deepEqual(History.messages(transcript, "VOICE").map(row => row.text), ["Voice question"]);
+assert.deepEqual(History.messages(transcript, "jarvis").map(row => row.text), ["Answer", "Next day"], "a speaker's name matches its turns");
+assert.equal(History.messages(transcript, "missing").length, 0);
 const refusal = { time: new Date(morning).toISOString(), tool: "files.delete", decision: "refuse", outcome: "cancelled", refusal: "identity", cause: null };
 const shown = History.problems([refusal], "")[0];
 assert.equal(shown.title, "Deleting a file was refused.");

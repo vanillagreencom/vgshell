@@ -47,7 +47,12 @@ T.TabBar {
         orientation: "horizontal"
         wrap: true
         stepsTabs: true
-        onMoved: index => root.currentIndex = index
+        // A key steps the index as a click does, through the template's
+        // setCurrentIndex, which keeps a caller's currentIndex binding: an
+        // assignment would drop it, and a later change of the bound value
+        // would no longer move the open tab
+        // (https://doc.qt.io/qt-6/qml-qtquick-controls-container.html#setCurrentIndex-method).
+        onMoved: index => root.setCurrentIndex(index)
         onTabStepped: delta => moveBy(delta)
     }
 

@@ -232,7 +232,7 @@ function verify(view) {
 // the voice speaks them; a new answer is a new key; the answer settles only
 // once the turn has finished, a running tool and a held request included.
 function verifyReplyCard(view) {
-    const row = (role, at, session = "1:0") => ({ gen: 1, role, text: role + " " + at, stage: "final", at, session, startedAt: 10 });
+    const row = (role, at, session = "1:0") => ({ gen: 1, role, text: role + " " + at, stage: "final", at, session });
     const log = [row("user", 10), row("assistant", 20)];
     const muted = { voiceMute: { kind: "on" } };
     const hidden = { visibility: { kind: "hidden" } };
@@ -497,7 +497,7 @@ function verifyRestart(view, history) {
             assert.equal(typeof offer.body, "string");
             assert.equal(KEYED.test(offer.title + " " + offer.body), false);
             bodies.push(offer.body);
-            assert.deepEqual(copy(history.problems([row], "")), [{ at: Date.parse(row.time), ...offer }]);
+            assert.deepEqual(copy(history.problems([row], "")), [offer]);
             assert.equal(history.problems([row], "net=request").length, 0, "the keyed cause is not in the row");
         }
         assert.notEqual(bodies[0], bodies[1], "the Problems row distinguishes the recovery action");

@@ -7,16 +7,18 @@
 // view() draws status and the existing recovery link. The console owns
 // its own information and does not read the bar tooltip.
 // Unsupported values refuse instead of manufacturing a ready state.
+// `chip` is the Badge tone of the console header's status chip, which
+// names the state by its `title`.
 
 var LOOKS = {
-    "off": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", title: "Not set up" },
-    "loading": { icon: "vgs-letter-j", tone: "info", stateDot: "info", title: "Starting" },
-    "ready": { icon: "vgs-letter-j", tone: "calm", stateDot: "", title: "Ready" },
-    "listening": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", title: "Listening" },
-    "working": { icon: "vgs-letter-j", tone: "info", stateDot: "info", title: "Working" },
-    "speaking": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", title: "Speaking" },
-    "muted": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", title: "Microphone muted" },
-    "problem": { icon: "vgs-letter-j", tone: "danger", stateDot: "danger", title: "Problem" }
+    "off": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", chip: "warning", title: "Not set up" },
+    "loading": { icon: "vgs-letter-j", tone: "info", stateDot: "info", chip: "info", title: "Starting" },
+    "ready": { icon: "vgs-letter-j", tone: "calm", stateDot: "", chip: "info", title: "Ready" },
+    "listening": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", chip: "accent", title: "Listening" },
+    "working": { icon: "vgs-letter-j", tone: "info", stateDot: "info", chip: "info", title: "Working" },
+    "speaking": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", chip: "success", title: "Speaking" },
+    "muted": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", chip: "warning", title: "Microphone muted" },
+    "problem": { icon: "vgs-letter-j", tone: "danger", stateDot: "danger", chip: "danger", title: "Problem" }
 };
 // Session's gate-down reasons (Session.js validate).
 var GATE_TEXT = {

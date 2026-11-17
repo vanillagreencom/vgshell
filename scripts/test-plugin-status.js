@@ -176,9 +176,11 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 [live, live ? 1 : 0, live ? "openai-fixture" : ""]);
 
             world = make({ brain: "claude-fixture", model: "previous", effort: "low" });
+            // The Settings window shows the Jarvis page, whose read saves its choice.
+            Object.defineProperty(world.shell.status, "viewed", { get: () => true });
             const deferred = [];
-            root = loadReader({ shell: world.shell, choice: { models: [], efforts: [], model: "selected", effort: "high" },
-                brain: "claude-fixture", seenBrain: "claude-fixture", list: { kind: "read" }, Qt: { callLater: fn => deferred.push(fn) },
+            root = loadReader({ shell: world.shell, choice: { models: [], shown: "selected", efforts: [], model: "selected", effort: "high" },
+                brain: "claude-fixture", seenBrain: "claude-fixture", seenModel: "previous", list: { kind: "read" }, Qt: { callLater: fn => deferred.push(fn) },
                 console: { warn: value => { throw new Error(value); } } }, sources.Accounts, ["publishChoice", "save"]);
             root.publishChoice();
             const queued = deferred.length;

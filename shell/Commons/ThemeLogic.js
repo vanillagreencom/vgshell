@@ -1520,10 +1520,10 @@ var APPEARANCE = {
     windowRadius: {
         type: "length", min: 0, max: 32, hyprland: "radius", theme: "hyprland.window.radius",
         targets: [["hyprland.window.radius", "window"], ["surface.radius", "flyout"], ["popover.radius", "flyout"], ["menu.radius", "flyout"],
-            ["dialog.radius", "flyout"], ["osd.radius", "flyout"], ["hyprland.window.groupRadius", "groupTab"]]
+            ["dialog.radius", "flyout"], ["osd.radius", "flyout"], ["card.radius", "flyout"], ["hyprland.window.groupRadius", "groupTab"]]
     },
     borderWidth: { type: "length", min: 0, max: 20, hyprland: "borders", theme: "hyprland.border.size", targets: [["hyprland.border.size", "window"]] },
-    controlRadius: { type: "length", min: 0, max: 16, theme: "button.radius", targets: [["button.radius", "control"], ["textField.radius", "control"], ["segmented.radius", "control"]] },
+    controlRadius: { type: "length", min: 0, max: 16, theme: "button.radius", targets: [["button.radius", "control"], ["button.roundRadius", "control"], ["textField.radius", "control"], ["segmented.radius", "control"]] },
     motion: { type: "flag" },
     motionStyle: { type: "choice", options: Object.keys(MOTION_STYLES) },
     motionSpeed: { type: "number", min: 0.5, max: 2 },

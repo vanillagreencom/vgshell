@@ -135,7 +135,7 @@
 # the package-owned Needs you/History pages, taken only when named;
 # gallery-callouts, taken only when named, is the Gallery's Feedback
 # section from its top, five pages, which hold its Callout examples;
-# jarvis-reach is its Now tab while the main Jarvis reading, published
+# jarvis-reach is its Chat tab while the main Jarvis reading, published
 # through the service's own status provider, says requests cannot be
 # forwarded until a Home folder is chosen, taken only when named; jarvis-history draws plain
 # problem sentences from three fixture records at default and narrow sizes
@@ -4883,9 +4883,9 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
 # are fixtures. State poses are driven through the same canonical IPC that
 # a user action uses; the smoke row separately owns dialog/keyboard paths.
 jarvis_console_approved_sheets() { # MODE
-  jarvis_console_ask_kind() { ipc smoke readMatchingDescendant window vgs.jarvis MessageRow title "$1" ask | py_reply 'import json,sys; v=json.load(sys.stdin); print(v["kind"]+":"+v["state"])'; }
+  jarvis_console_ask_kind() { ipc smoke readInstance window vgs.jarvis activeAsks | py_reply 'import json,sys; v=next(r for r in json.load(sys.stdin) if r["what"]==sys.argv[1]); print(v["kind"]+":"+v["state"])' "$1"; }
   jarvis_asks_ready
-  jarvis_asks_tab Now || fail "opening Now for its image failed"
+  jarvis_asks_tab Chat || fail "opening Chat for its image failed"
   park_pointer
   take_posed "jarvis-console-$1-now"
   jarvis_asks_tab "Needs you" || fail "opening Needs you for its image failed"
@@ -4906,8 +4906,8 @@ jarvis_console_approved_sheets() { # MODE
   jarvis_asks_states
   expect_poll "the state image badge excludes its snoozed ask" 2 jarvis_asks_badge
   expect_poll "the state image tab count excludes its snoozed ask" 2 jarvis_asks_tab_badge
-  click_item window:Jarvis window vgs.jarvis RowAction "Snoozed (1)" || fail "opening the snoozed state for its image failed"
-  expect_poll "the state image includes its labelled snoozed section" true ipc smoke readInstance window vgs.jarvis snoozedExpanded
+  click_item window:Jarvis window vgs.jarvis Checkbox "Show snoozed" || fail "opening the snoozed state for its image failed"
+  expect_poll "the state image includes its snoozed asks" true ipc smoke readInstance window vgs.jarvis snoozedExpanded
   park_pointer
   take_posed "jarvis-console-$1-needs-you-states"
   ipc smoke revealScopedText window vgs.jarvis MessageRow "Approve the update on px13" Button Later >/dev/null || fail "revealing the snoozed date and actions failed"
@@ -4943,7 +4943,7 @@ print(row["title"]); print(row["action"])
   take_posed "jarvis-console-$1-history-filter-open"
   type_keys -k Escape || fail "closing the result filter after its image failed"
   expect_poll "History closes its result-type choices" false ipc smoke readShownDescendant window vgs.jarvis ResultsFilter listOpen
-  jarvis_asks_tab Now || fail "returning to Now after console images failed"
+  jarvis_asks_tab Chat || fail "returning to Chat after console images failed"
 }
 
 jarvis_console_ask_dialog_sheets() { # MODE
@@ -4986,7 +4986,7 @@ jarvis_console_ask_dialog_sheets() { # MODE
 
 # A Done whose receipt is lost: the package records it and answers nothing
 # readable, so Needs you holds the request unconfirmed and names it in its
-# recovery line. Retry previous action sends the same request once the
+# recovery notice. Its Retry sends the same request once the
 # package answers again, which confirms it from the recorded receipt.
 jarvis_console_recovery_sheet() { # MODE
   jarvis_console_unconfirmed() { ipc smoke readInstance window vgs.jarvis unconfirmedRequest | py_reply 'import json,sys; v=json.load(sys.stdin); print("none" if v is None else v["action"]+":"+v["id"])'; }
@@ -4998,7 +4998,7 @@ jarvis_console_recovery_sheet() { # MODE
   expect_poll "Needs you shows its recovery line" true jarvis_console_recovery_shown
   take "jarvis-console-$1-needs-you-recovery"
   jarvis_asks_control --mode ready || fail "restoring the package receipt after the recovery image failed"
-  click_item window:Jarvis window vgs.jarvis RowAction "Retry previous action" || fail "retrying the unconfirmed Done failed"
+  click_item window:Jarvis window vgs.jarvis RowAction "Retry" || fail "retrying the unconfirmed Done failed"
   expect_poll "the retried Done is confirmed" accepted jarvis_asks_answer
   expect_poll "the confirmed Done leaves nothing to recover" none jarvis_console_unconfirmed
   expect_poll "the confirmed Done reads as checking" checking jarvis_asks_read row tracker-design
@@ -5871,7 +5871,7 @@ JSHOME
   done <<<"$rows"
   [[ $failed == 0 ]] && echo ok || return 1
 }
-# The console's Now tab over an unavailable forwarding route, in the
+# The console's Chat tab over an unavailable forwarding route, in the
 # selected revision's own drawing of that reading.
 jarvis_reach_drawn() {
   ipc smoke itemTexts window vgs.jarvis QQuickText | py_reply 'import json,sys; print(any(t.startswith("Jarvis cannot forward requests") for row in json.load(sys.stdin) for t in row))'

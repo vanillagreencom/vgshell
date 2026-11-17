@@ -156,8 +156,8 @@ Item {
             compare(host.held, host.stored, "the reader's shell holds what the file holds");
             compare(host.writes, ["brain=codex-a", "model=", "effort="]);
             // The running read is not ended: its helper removes its
-            // program's folder at its end. That end drops its answer and
-            // starts the read of the chosen sign-in.
+            // program's folder at its end. That end keeps its answer for its
+            // own sign-in and starts the read of the chosen one.
             verify(lister().running, "the first sign-in's read runs to its end");
             compare(lister().command[5], "claude-a");
             end(top.listed);

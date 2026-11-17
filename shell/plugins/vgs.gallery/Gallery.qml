@@ -185,6 +185,9 @@ Item {
                     Field { label: "Checked"; inline: true; width: parent.width; IconButton { iconName: "check"; label: "Checked"; checkable: true; checked: true } }
                     Field { label: "Disabled"; inline: true; width: parent.width; IconButton { iconName: "ban"; label: "Disabled"; enabled: false } }
                     Field { label: "Danger"; inline: true; width: parent.width; IconButton { iconName: "x"; label: "Close"; variant: "danger" } }
+                    // A message box's Send and Stop: filled and round until a
+                    // control radius is set.
+                    Field { label: "Round"; inline: true; width: parent.width; Row { spacing: Theme.stack.inline; IconButton { iconName: "arrow-up"; label: "Send message"; variant: "primary"; radius: Theme.button.roundRadius } IconButton { iconName: "square"; label: "Stop"; variant: "danger"; radius: Theme.button.roundRadius } IconButton { iconName: "arrow-up"; label: "Send unavailable"; variant: "primary"; radius: Theme.button.roundRadius; disabledReason: "Type a message first." } } }
                     // A surface's own look hands the glyph and ring colours.
                     Field { label: "Look colours"; inline: true; width: parent.width; IconButton { iconName: "mic"; label: "Look colours"; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
                     Field { label: "Look colours, on"; inline: true; width: parent.width; IconButton { iconName: "mic-off"; label: "Look colours, on"; checkable: true; checked: true; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
@@ -268,6 +271,8 @@ Item {
                     SegmentedControl { model: ["Day", "Week", "Month"]; currentIndex: 1 }
                     Select { model: ["Default", "Ocean", "Forest"] }
                     Select { model: ["Disabled"]; enabled: false }
+                    // Inside another control's box, as a message box's model.
+                    Select { quiet: true; model: ["Quiet choice", "Ocean", "Forest"] }
                     // Offers that each play on request, ended by an Add
                     // entry, as a voice field draws them. Play does nothing
                     // here.
@@ -360,6 +365,21 @@ Item {
                     ValueSourceRow { label: "Overridden"; width: parent.width; source: "user"; userValue: true; path: "input.natural_scroll"; hyprland: ({ values: {}, userValues: [], overridden: ["input.natural_scroll"] }); Switch { size: "sm"; checked: true } }
                 }
                 Field { label: "Command"; hint: "Multi-line command text"; width: parent.width; TextArea { width: parent.width; text: "echo hello\nprintf '%s\\n' done" } }
+                Field { label: "One line"; hint: "Starts at one line and grows with its text"; width: parent.width; TextArea { width: parent.width; minimumHeight: 0; placeholderText: "Message" } }
+                Field { label: "Locked"; hint: "Read-only, with its reason"; width: parent.width; TextArea { width: parent.width; minimumHeight: 0; placeholderText: "Message"; disabledReason: "Typing is off for this voice." } }
+                // A box that holds more than its text draws the area's frame
+                // around it all, as the Jarvis message box does.
+                Field {
+                    label: "Frameless"
+                    hint: "Inside the frame of a box that holds more"
+                    width: parent.width
+                    Item {
+                        width: parent.width
+                        height: framelessArea.height + Theme.size.control.sm
+                        FieldFrame { anchors.fill: parent; target: framelessArea }
+                        TextArea { id: framelessArea; width: parent.width; minimumHeight: 0; framed: false; text: "Text in a message box" }
+                    }
+                }
                 Field { label: "Date"; hint: "A keyboard picker"; width: parent.width; DateField { date: "2026-01-05" } }
                 Field { label: "Time"; hint: "Use Up and Down to change the minutes"; width: parent.width; TimeField { text: "09:00" } }
                 Field { label: "Folder"; hint: "A directory picker"; width: parent.width; PathField { width: parent.width; path: ""; placeholderText: "Choose a folder" } }
@@ -487,6 +507,24 @@ Item {
                         stateText: "Speaking"
                         bodyComponent: Component {
                             Label { width: parent ? parent.width : 0; role: "body"; text: "The words as Jarvis speaks them"; wrapMode: Text.Wrap }
+                        }
+                    }
+                    // A conversation's turns: the person's on its fill, the
+                    // other side's across the row.
+                    MessageRow { width: parent.width; turn: "own"; sender: "You"; bodyText: "Can you summarize what needs my attention?" }
+                    MessageRow { width: parent.width; turn: "reply"; sender: "Jarvis"; bodyText: "Two decisions need you. Choose the voice for tomorrow's briefing, then review the console design." }
+                    // A row without an avatar on a card, which pads it.
+                    Card {
+                        width: parent.width
+                        MessageRow {
+                            width: parent.width
+                            padded: false
+                            sender: "Jarvis"
+                            title: "Choose the voice for tomorrow's briefing"
+                            linkText: "Original thread"
+                            stateText: "Needs reply"
+                            stateTone: "warning"
+                            actions: [{ id: "reply", label: "Reply" }, { id: "done", label: "Done" }, { id: "later", label: "Later" }]
                         }
                     }
                     ResultsFilter {
@@ -704,6 +742,11 @@ Item {
                 }
                 LinkText { width: parent.width; role: "body"; text: "Open hyprland.lua to inspect the line VGS adds."; link: "hyprland.lua" }
                 EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
+                Section {
+                    width: parent.width
+                    title: "Top placement"
+                    EmptyState { width: parent.width; placement: "top"; text: "No messages yet" }
+                }
                 SaveBar { width: parent.width; dirty: true }
                 Flow {
                     width: parent.width

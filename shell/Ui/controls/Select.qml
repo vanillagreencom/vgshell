@@ -60,11 +60,15 @@ import qs.Ui
 // Down move the highlight and take the keyboard back to the entry, and no
 // arrow presses the button (docs/architecture/design-system.md § Keyboard).
 // The button of the entry last pressed draws checked while the list stays
-// open.
+// open. A `quiet` select stands inside another control's box, as a message
+// box's model choice does: it draws no fill and, at rest, no outline, reads
+// its choice in `color.textMuted` at full strength, is as wide as its
+// choice, and opens a list at least as wide as a plain select.
 T.AbstractButton {
     id: root
 
-    readonly property real minimumWidth: Theme.field.minWidth
+    property bool quiet: false
+    readonly property real minimumWidth: quiet ? 0 : Theme.field.minWidth
     readonly property real maximumWidth: Theme.control.maxWidth
     Layout.minimumWidth: minimumWidth
     Layout.maximumWidth: maximumWidth
@@ -106,7 +110,8 @@ T.AbstractButton {
         if (open) OverlayState.opened(); else OverlayState.closed();
     }
     Component.onDestruction: share(false)
-    readonly property color outline: focusRing.visible || list.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
+    readonly property color outline: focusRing.visible || list.visible ? Theme.textField.focus : hovered ? Theme.textField.hover
+        : quiet ? "transparent" : Theme.textField.borderColor
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), implicitContentHeight)
     // The list's top inset inside its window, and its bottom inset with
     // `listCover` added; its side inset is the border.
@@ -170,7 +175,7 @@ T.AbstractButton {
         return JSON.stringify([p.x, p.y, list.width, list.height]);
     }
 
-    implicitWidth: Theme.size.panel.sm / 2
+    implicitWidth: quiet ? implicitContentWidth + leftPadding + rightPadding : Theme.size.panel.sm / 2
     // A wrapped choice keeps a one-line choice's room above its first line
     // and under its last.
     readonly property real lineInset: Math.max(0, (Theme.textField.height - shown.lineBox) / 2)
@@ -203,7 +208,7 @@ T.AbstractButton {
         id: shown
         spaceWrappedText: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
         role: "item"
-        color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
+        color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : root.quiet ? Theme.color.textMuted : shown.typography.color
         opacity: lockState.fade
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
@@ -220,7 +225,7 @@ T.AbstractButton {
 
     background: Rectangle {
         radius: Theme.textField.radius
-        color: lockState.faded(Theme.textField.background)
+        color: root.quiet ? "transparent" : lockState.faded(Theme.textField.background)
         border.width: Theme.textField.border
         border.color: lockState.faded(root.outline)
         // Resetting retained focus must clear the drawn border immediately.
@@ -238,8 +243,9 @@ T.AbstractButton {
         grabFocus: true
         visible: false
         color: "transparent"
-        // The field's width, never wider than the output's room.
-        implicitWidth: Math.max(1, OverlayState.widthFor(root, root.width))
+        // The field's width, a quiet one's at least a plain one's, never wider
+        // than the output's room.
+        implicitWidth: Math.max(1, OverlayState.widthFor(root, root.quiet ? Math.max(root.width, Theme.size.panel.sm / 2) : root.width))
         implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, entries.contentHeight) + 2 * root.listInset + root.listCover)
         onVisibleChanged: root.share(visible)
 

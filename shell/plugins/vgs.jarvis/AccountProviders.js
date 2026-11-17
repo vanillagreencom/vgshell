@@ -198,11 +198,17 @@ function listedKeyModel(provider) {
 // the page is closed. PROVIDER is the sign-in's. With no list `models` and
 // `efforts` hold the saved choice alone, and after a failed read what
 // unlistedChoice runs, the model marked. With a list they are the page's
-// choices, each led by what its unset setting runs
-// (docs/architecture/design-system.md § Settings pages), and `model` and
-// `effort` are what the page saves: the first choice while none is saved,
-// and "" for the program's own. A saved model the list does not name stays
-// saved with its effort, and the core shows it as unavailable.
+// choices, `models` led by the choice the page fills while none is saved
+// and `efforts` by what an unset effort runs
+// (docs/architecture/design-system.md § Settings pages); what an unset
+// model runs is `shown`. `model` and `effort` are what the page saves: the
+// first choice while none is saved, and "" for the program's own. A saved
+// model the list does not name stays saved with its effort, and the core
+// shows it as unavailable. `shown` is
+// the value of `models` a model field shows: the saved model, or for an
+// unset one the offer that runs, as unlistedChoice, the rule the daemon
+// takes, picks it (unsetOffer); "" while it runs none, as a local server's
+// unset model does. A `shown` that no entry of `models` names shows none.
 function modelChoice(settings, listed, provider) {
     var local = PROVIDERS.some(function (row) { return row.id === provider && row.kind === "local"; });
     var one = function (effort) { return effort === "" ? [] : [{ label: effortLabel(effort), value: effort }]; };
@@ -210,24 +216,36 @@ function modelChoice(settings, listed, provider) {
         var failed = listed.kind === "failed";
         var runs = failed ? unlistedChoice(settings, provider) : settings;
         var mark = failed ? " (list not read)" : "";
-        return { model: settings.model, effort: settings.effort,
-            models: runs.model !== "" ? [{ label: runs.model + mark, value: runs.model }]
-                : failed && !local ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],
-            efforts: one(runs.effort) };
+        var unlisted = runs.model !== "" ? [{ label: runs.model + mark, value: runs.model }]
+            : failed && !local ? [{ label: "App default" + mark, value: OWN_MODEL }] : [];
+        return { model: settings.model, effort: settings.effort, models: unlisted,
+            shown: unlisted.length === 0 ? "" : unlisted[0].value, efforts: one(runs.effort) };
     }
     var offers = listed.offers;
-    if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };
+    if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], shown: "", efforts: [] };
     var preferred = preferredOffer(offers);
     var ordered = preferred === null ? offers
         : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));
     var models = ordered.map(function (offer) { return { label: offer.label, value: offer.value }; });
-    if (local && settings.model === "") return { model: "", effort: "", models: models, efforts: [] };
+    if (local && settings.model === "") return { model: "", effort: "", models: models, shown: "", efforts: [] };
     var chosen = ordered.filter(function (offer) { return settings.model === "" || offer.value === settings.model; })[0];
-    if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: one(settings.effort) };
+    if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, shown: settings.model, efforts: one(settings.effort) };
     var efforts = effortOffers(chosen, PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); }));
     var effort = efforts.some(function (level) { return level.value === settings.effort; }) ? settings.effort
         : efforts.length === 0 ? "" : efforts[0].value;
-    return { model: chosen.value, effort: effort === OWN_EFFORT ? "" : effort, models: models, efforts: efforts };
+    return { model: chosen.value, effort: effort === OWN_EFFORT ? "" : effort, models: models,
+        shown: settings.model !== "" ? chosen.value : unsetOffer(offers, settings, provider), efforts: efforts };
+}
+
+// The value of OFFERS, a read list with its program's own entry first, that
+// an unset model of SETTINGS runs for PROVIDER: the offer that names the
+// model unlistedChoice sends the daemon, or the program's own entry while it
+// sends none; "" when no offer names the model it sends.
+function unsetOffer(offers, settings, provider) {
+    var model = unlistedChoice(settings, provider).model;
+    if (model === "") return offers[0].value;
+    var named = offers.filter(function (offer) { return namesModel(offer.value, model); })[0];
+    return named === undefined ? "" : named.value;
 }
 
 // The setup terminal's choice lines, LABEL<TAB>VALUE for

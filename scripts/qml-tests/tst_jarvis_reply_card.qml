@@ -28,7 +28,7 @@ Item {
     }
 
     function answer(at, text) {
-        return { gen: 1, role: "assistant", text: text, stage: "final", at: at, session: "1:0", startedAt: 1 };
+        return { gen: 1, role: "assistant", text: text, stage: "final", at: at, session: "1:0" };
     }
     // A shell whose status shows ROWS' newest answer in MODE on OUTPUT, or
     // no card for a null MODE; CAPTION is the transcript status.

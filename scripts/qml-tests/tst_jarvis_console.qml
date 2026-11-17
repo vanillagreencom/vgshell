@@ -6,9 +6,9 @@ import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
-// Composer replacements retain a visible keyboard target and leave another
-// tab or control's focus alone. Each History task row offers its own Open
-// and Stop, with no selection.
+// The message box keeps a visible keyboard target as typing turns off and
+// on, and leaves another tab or control's focus alone. Each History task
+// row offers its own Open and Stop, with no selection.
 Item {
     id: root
     width: 760
@@ -71,14 +71,11 @@ Item {
         }
         function composerControls() {
             const all = collect(jarvisConsole, n => true, []);
-            const stops = all.filter(n => n.label === "Stop Jarvis");
             return {
                 entry: all.find(n => n.placeholderText === "Message Jarvis"),
-                send: all.find(n => n.text === "Send"),
-                info: all.find(n => n.title === "Message length"),
-                speechStop: stops[0], typedStop: stops[1],
+                send: all.find(n => n.label === "Send message"),
                 speechHint: all.find(n => n.linkColor !== undefined && n.text === jarvisConsole.speechOnlyText),
-                tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Now")
+                tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Chat")
             };
         }
 
@@ -101,7 +98,7 @@ Item {
             const session = values.detail.conversationId;
             // Taller than the whole console, so no view height reaches it.
             const long = Array(800).fill("word").join(" ");
-            const row = (gen, role, text, at) => ({ gen: gen, role: role, text: text, stage: "final", at: at, session: session, startedAt: 1 });
+            const row = (gen, role, text, at) => ({ gen: gen, role: role, text: text, stage: "final", at: at, session: session });
             values.conversation = [row(1, "user", "first question", 10), row(1, "assistant", "first answer", 20),
                 row(2, "user", "second question", 30), row(2, "assistant", long, 40)];
             jarvisConsole.shell = root.shellWith(values);
@@ -129,7 +126,6 @@ Item {
             const text = "Facts only: <b>literal</b>\nProgram: ad-crasher\nDiagnose only.";
             jarvisConsole.open(JSON.stringify({ text: text }));
             compare(entry.text, text);
-            compare(jarvisConsole.draft, text);
             compare(sent.length, 0);
             compare(jarvisConsole.conversation.length, 0);
             entry.text = "  My own draft\nbytes stay. ";
@@ -194,7 +190,6 @@ Item {
             compare(jarvisConsole.tab, 1);
             verify(focused.activeFocus, "refusal leaves the active editor's focus alone");
             compare(entry.text, "");
-            compare(jarvisConsole.draft, "");
             compare(sent.length, 0, "refusal sends neither a message nor an ask action");
             compare(jarvisConsole.conversation.length, 0);
         }
@@ -240,7 +235,7 @@ Item {
             compare(JSON.stringify(calls), '[["new-conversation",""]]');
             compare(controls.entry.text, "");
             compare(jarvisConsole.problem, "");
-            verify(action.activeFocus, "reset leaves its keyboard target available");
+            tryCompare(controls.entry, "activeFocus", true, 1000, "the reset returns to the message box");
             jarvisConsole.shell = root.shellWith({});
             verify(action.disabledReason !== "");
         }
@@ -248,18 +243,19 @@ Item {
         function test_now_uses_resumed_history_and_fresh_resets_keep_the_archive() {
             const values = root.values({ history: { kind: "current", epoch: 4 } });
             values.conversation = [
-                { gen: 2, role: "user", text: "Earlier context", stage: "final", session: "fixture:3", at: 1000, startedAt: 1000 },
-                { gen: 4, role: "user", text: "First open", stage: "final", session: "fixture:4", at: 2000, startedAt: 2000 },
-                { gen: 6, role: "assistant", text: "Resumed answer", stage: "final", session: "fixture:4", at: 3000, startedAt: 2000 }
+                { gen: 2, role: "user", text: "Earlier context", stage: "final", session: "fixture:3", at: 1000 },
+                { gen: 4, role: "user", text: "First open", stage: "final", session: "fixture:4", at: 2000 },
+                { gen: 6, role: "assistant", text: "Resumed answer", stage: "final", session: "fixture:4", at: 3000 }
             ];
+            const all = '["Earlier context","First open","Resumed answer"]';
             jarvisConsole.shell = root.shellWith(values);
             compare(JSON.stringify(jarvisConsole.transcriptRows.map(row => row.text)), '["First open","Resumed answer"]');
-            compare(jarvisConsole.historyGroups.length, 2, "history keeps the older context");
+            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.text)), all, "history keeps the older context, oldest first");
             const reset = root.values({ history: { kind: "reset", epoch: 5, reason: "requested" } });
             reset.conversation = values.conversation;
             jarvisConsole.shell = root.shellWith(reset);
-            compare(jarvisConsole.transcriptRows.length, 0, "fresh Now contains none of the old model context");
-            compare(jarvisConsole.historyGroups.length, 2, "reset erases no history rows");
+            compare(jarvisConsole.transcriptRows.length, 0, "fresh Chat contains none of the old model context");
+            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.text)), all, "reset erases no history rows");
         }
 
         function test_ask_recovery_survives_console_recreation_data() {
@@ -301,7 +297,7 @@ Item {
             replacement.shell = shell;
             wait(0);
             compare(JSON.stringify(replacement.unconfirmedRequest), JSON.stringify(request));
-            const retry = collect(replacement, n => n.text === "Retry previous action" && n.visible, [])[0];
+            const retry = collect(replacement, n => n.text === "Retry" && n.visible, [])[0];
             verify(retry !== undefined);
             compare(retry.disabledReason, "");
             retry.forceActiveFocus(Qt.TabFocusReason);
@@ -346,7 +342,7 @@ Item {
             compare(button.disabledReason, changed.actions.reply.reason);
         }
 
-        // Recovery names the ask Retry previous action acts on, for each
+        // Recovery names the ask its Retry acts on, for each
         // action, while the ask is on the page.
         function test_ask_recovery_names_its_ask_data() {
             return ["reply", "done", "later"].map(action => ({ tag: action, action: action }));
@@ -366,24 +362,26 @@ Item {
         }
 
         // Gate and engine changes arrive while the same Console stays open.
+        // A voice that takes speech only locks the message box, which keeps
+        // the keys, and takes Send away, whose keys go to the box.
         function test_composer_transition_data() {
             const typed = { engine: { kind: "chained" } };
             const speech = { engine: { kind: "duplex" } };
             const rows = [
-                { tag: "ready-duplex", from: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), to: speech, focus: "speechStop", expected: "speechStop" },
-                { tag: "unready-duplex", from: speech, to: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), focus: "speechStop", expected: "speechStop" },
+                { tag: "ready-duplex", from: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), to: speech, focus: "entry", expected: "entry" },
+                { tag: "unready-duplex", from: speech, to: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), focus: "entry", expected: "entry" },
                 { tag: "dictation", from: typed, to: { engine: { kind: "dictation" } }, focus: "entry", expected: "entry" }
             ];
-            for (const focus of ["entry", "send", "info", "typedStop"])
-                rows.push({ tag: "local-to-cloud-" + focus, from: typed, to: speech, focus: focus, expected: "speechStop" });
-            for (const focus of ["speechStop", "speechHint"])
+            for (const focus of ["entry", "send"])
+                rows.push({ tag: "local-to-cloud-" + focus, from: typed, to: speech, focus: focus, expected: "entry" });
+            for (const focus of ["entry", "speechHint"])
                 rows.push({ tag: "cloud-to-local-" + focus, from: speech, to: typed, focus: focus, expected: "entry" });
             for (const focus of ["outside", "tabs", "asks", "history"])
                 for (const fromSpeech of [false, true])
                     rows.push({ tag: "keep-" + focus + "-" + fromSpeech, from: fromSpeech ? speech : typed,
                         to: fromSpeech ? typed : speech, focus: focus, expected: focus });
-            rows.push({ tag: "daemon-arrives", from: null, to: speech, focus: "entry", expected: "speechStop" });
-            rows.push({ tag: "daemon-leaves", from: speech, to: null, focus: "speechStop", expected: "entry" });
+            rows.push({ tag: "daemon-arrives", from: null, to: speech, focus: "entry", expected: "entry" });
+            rows.push({ tag: "daemon-leaves", from: speech, to: null, focus: "entry", expected: "entry" });
             return rows;
         }
 
@@ -404,7 +402,7 @@ Item {
                 jarvisConsole.focusTab();
                 wait(0);
                 focused = data.focus === "history"
-                    ? collect(jarvisConsole, n => n.placeholderText === "Search conversations, tasks and problems", [])[0]
+                    ? collect(jarvisConsole, n => n.placeholderText === "Search messages, tasks and problems", [])[0]
                     : collect(jarvisConsole, n => n.activeFocus && n.focusPolicy === Qt.StrongFocus && n !== jarvisConsole, []).pop();
             } else focused = controls[data.focus];
             verify(focused !== undefined, "find source " + data.focus);
@@ -426,7 +424,7 @@ Item {
             const values = root.values({ engine: { kind: "chained" } });
             values.microphoneMute = { kind: "ready", muted: true };
             jarvisConsole.shell = root.shellWith(values);
-            compare(jarvisConsole.ready, true);
+            compare(jarvisConsole.refusal, null);
             compare(jarvisConsole.speechOnly, false);
             const controls = composerControls();
             verify(controls.entry.visible);
@@ -450,23 +448,53 @@ Item {
             verify(jarvisConsole.talkLine.indexOf("Super+J") !== -1);
         }
 
+        // Tab walks the tabs, New conversation, More and Settings, then the
+        // tab's own controls: on Chat the speech-only notice's links while it
+        // shows (here Voice settings alone, since a bound Talk key links
+        // nothing in its sentence), then the message box, locked or not; on Needs you its list
+        // and Refresh, and on to the tabs, and Backtab from the tabs back to
+        // Refresh. Backtab from the box returns
+        // straight to New conversation, then the tabs, and Control+Shift+Tab
+        // from it switches to the previous tab.
         function test_tabs_enter_visible_composer_data() {
-            return [{ tag: "typed", kind: "chained", control: "entry" }, { tag: "speech", kind: "duplex", control: "speechStop" }];
+            return [{ tag: "typed", kind: "chained", tab: 0 }, { tag: "speech", kind: "duplex", tab: 0 },
+                { tag: "needs-you", kind: "chained", tab: 1 }];
         }
 
         function test_tabs_enter_visible_composer(data) {
             setRegions({ engine: { kind: data.kind } });
+            jarvisConsole.tab = data.tab;
+            wait(0);
             const controls = composerControls();
-            const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
+            const shown = test => collect(jarvisConsole, n => n.visible && test(n), [])[0];
+            const named = name => shown(n => n.objectName === name);
+            const action = named("newConversationAction");
+            // Needs you's list is the control that holds its Refresh.
+            const refresh = shown(n => n.label === "Refresh");
+            let asks = refresh === undefined ? null : refresh.parent;
+            while (asks !== null && asks.focusPolicy !== Qt.StrongFocus) asks = asks.parent;
+            const body = data.tab === 1 ? [asks, refresh, controls.tabs]
+                : data.kind === "duplex" ? [shown(n => n.text === "Voice settings"), controls.entry] : [controls.entry];
             controls.tabs.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Tab);
-            tryCompare(action, "activeFocus", true);
-            keyClick(Qt.Key_Tab);
-            tryCompare(controls[data.control], "activeFocus", true);
+            for (const next of [action, named("moreButton"), named("settingsButton")].concat(body)) {
+                verify(next !== undefined && next !== null, "find each stop");
+                keyClick(Qt.Key_Tab);
+                tryCompare(next, "activeFocus", true);
+            }
+            if (data.tab !== 0) {
+                keyClick(Qt.Key_Backtab);
+                tryCompare(refresh, "activeFocus", true);
+                return;
+            }
             keyClick(Qt.Key_Backtab);
             tryCompare(action, "activeFocus", true);
             keyClick(Qt.Key_Backtab);
             tryCompare(controls.tabs, "activeFocus", true);
+            controls.entry.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier);
+            compare(jarvisConsole.tab, 2, "Control+Shift+Tab from the message box selects the previous tab");
+            jarvisConsole.tab = 0;
+            compare(controls.tabs.currentIndex, 0, "a key step leaves the bar bound to the console's tab");
         }
 
         // The History filter's entry click, as the console smoke takes it:
@@ -506,9 +534,9 @@ Item {
         // The restart notice's action opens the console on its History
         // tab's Problems list, every record in it shown, with the search
         // field focused (Service.summonProblems); an ordinary open returns
-        // to Now.
+        // to Chat.
         function test_a_problems_open_shows_the_problems_list() {
-            const search = collect(jarvisConsole, n => n.placeholderText === "Search conversations, tasks and problems", [])[0];
+            const search = collect(jarvisConsole, n => n.placeholderText === "Search messages, tasks and problems", [])[0];
             verify(search !== undefined);
             search.text = "missing";
             jarvisConsole.historyType = 1;
@@ -632,22 +660,24 @@ Item {
         }
 
         // History holds no task selection: no row draws highlighted and no
-        // button outside a task's row acts on a task.
+        // button outside a task's row acts on a task; the header's own
+        // actions act on no task.
         function test_history_tasks_hold_no_selection_and_no_footer_action() {
             showTasks([task("first", "working", null), task("second", "working", null)], []);
-            const inRow = node => { for (let at = node; at !== null; at = at.parent) if (at instanceof MessageRow) return true; return false; };
-            const loose = collect(jarvisConsole, n => n instanceof Button && n.visible, []).filter(n => !inRow(n));
+            const within = (node, test) => { for (let at = node; at !== null; at = at.parent) if (test(at)) return true; return false; };
+            const loose = collect(jarvisConsole, n => n instanceof Button && n.visible, [])
+                .filter(n => !within(n, at => at instanceof MessageRow || at.objectName === "consoleHeader"));
             compare(loose.length, 0, "every shown button belongs to a task row: " + loose.map(n => n.text));
             compare(collect(jarvisConsole, n => n.highlighted === true && n.visible, []).length, 0, "no row holds a selection");
         }
 
-        // The main Jarvis's reading draws on Now alone: a muted line while
+        // The main Jarvis's reading draws on Chat alone: a muted line while
         // it forwards or has not tried, and a warning notice in its place
         // while the route cannot forward or the main did not answer,
         // linking where an unavailable route is fixed and nowhere for a
         // package VGS cannot fix; before the first reading none shows. The
-        // notice's link is the Tab stop after New conversation, and Return
-        // on it opens its page.
+        // notice's link is the Tab stop after the header's Settings, and
+        // Return on it opens its page.
         function test_main_reach_line_data() {
             const unavailable = cause => ({ kind: "unavailable", host: "cachy", cause: cause });
             return [
@@ -688,10 +718,10 @@ Item {
             const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));
             compare(JSON.stringify(links), JSON.stringify(data.link === "" ? [] : [data.link]), "the line links where its route is fixed");
             if (data.link !== "") {
-                const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
-                action.forceActiveFocus(Qt.TabFocusReason);
+                const settings = collect(jarvisConsole, n => n.objectName === "settingsButton", [])[0];
+                settings.forceActiveFocus(Qt.TabFocusReason);
                 keyClick(Qt.Key_Tab);
-                verify(notice.firstStop !== null && notice.firstStop.activeFocus, "Tab from New conversation reaches the notice's link");
+                verify(notice.firstStop !== null && notice.firstStop.activeFocus, "Tab from Settings reaches the notice's link");
                 keyClick(Qt.Key_Return);
                 compare(opened.length, 1, "Return on the notice's link opens its page");
                 compare("page:" + opened[0], data.link, "the page and tab the link names");
@@ -704,7 +734,7 @@ Item {
                 verify(line().text !== emptyText, "an empty field and a set field need different steps for the same main");
             }
             jarvisConsole.tab = 2;
-            compare(line().visible, false, "the line is Now's alone");
+            compare(line().visible, false, "the line is Chat's alone");
         }
     }
 }

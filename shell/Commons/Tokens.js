@@ -535,6 +535,9 @@ var TOKENS = {
 
     button: {
         radius: length("{radius.md}"),
+        // A round icon button's corner, such as Send inside a message box:
+        // a circle until the user sets a control radius, which sets this too.
+        roundRadius: length("{radius.full}"),
         border: length("{border.thin}"),
         // no reader since VGS-2466; kept so an existing theme package that sets it still passes the theme judge (D107)
         paddingX: length("{control.paddingX}"),
@@ -1081,6 +1084,9 @@ var TOKENS = {
     messageRow: {
         paddingX: length("{stack.inline}"),
         paddingY: length("{stack.inline}"),
+        // The least room a person's own turn leaves at its start, so its
+        // fill never spans the row and reads as the other side's text.
+        turnLead: step(20),
         mark: color("{listItem.selected}"),
         markHold: number(2000, 0, 60000)
     },

@@ -32,6 +32,7 @@ Item {
         y: 300
         width: 300
         sender: "Jarvis"
+        avatarIcon: "vgs-letter-j"
         bodyComponent: Component { Rectangle { objectName: "slotItem"; width: parent ? parent.width : 0; height: 40 } }
     }
 

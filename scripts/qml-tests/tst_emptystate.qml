@@ -7,12 +7,13 @@ import qs.Unit
 // EmptyState: a box three two-line rows tall, 3 * 56 = 168, at any width;
 // the icon, the line and the action centred in it, `stack.group`, 12,
 // apart; the icon and the action drawn only while named; and a press on
-// the action emitting `activated`. Expected values are worked by hand from
-// the defaults in Tokens.js, never read from Theme.
+// the action emitting `activated`; at the top placement, the line at the
+// box's top and leading edge, the box as tall as it. Expected values are
+// worked by hand from the defaults in Tokens.js, never read from Theme.
 Item {
     id: root
     width: 400
-    height: 400
+    height: 440
 
     EmptyState {
         id: full
@@ -26,6 +27,13 @@ Item {
         y: 200
         width: 300
         text: "Loading themes"
+    }
+    EmptyState {
+        id: topped
+        y: 380
+        width: 300
+        placement: "top"
+        text: "No messages yet"
     }
     SignalSpy { id: spy; target: full; signalName: "activated" }
 
@@ -57,6 +65,14 @@ Item {
             fuzzyCompare(icon.x + icon.width / 2, 150, 0.5);
             fuzzyCompare(button.x + button.width / 2, 150, 0.5);
             compare(label.width, 300);
+        }
+
+        function test_the_top_placement_stands_the_line_at_the_top() {
+            const column = topped.children[0];
+            const label = parts(topped)[1];
+            compare([column.x, column.y, label.x, label.y], [0, 0, 0, 0]);
+            compare(label.horizontalAlignment, Text.AlignLeft);
+            compare(topped.height, label.height, "the box is as tall as its line");
         }
 
         function test_an_unnamed_icon_and_action_are_not_drawn() {

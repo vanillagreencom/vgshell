@@ -7,14 +7,27 @@ import qs.Ui
 // source link stands apart from the small secondary buttons that answer it.
 // Buttons take { id, label, disabledReason }; each keeps the shared reason,
 // keyboard and focus behavior. The row itself takes no click or focus.
+// The avatar draws only while `initials` or `avatarIcon` names one; without
+// it the name reads as a muted hint over the title, as a card's source
+// line does. `turn` draws a conversation turn instead, with no avatar, name
+// or time, the name staying the row's accessible name: "own", the person's
+// turn, right-aligned on the low-emphasis fill, `color.surfaceRaised`, with
+// no border and the surface corner, as wide as its text but never within
+// `messageRow.turnLead` of the row's start; "reply", the other side's turn,
+// as text across the row. An unknown turn is logged and drawn as a row.
 // The avatar and text stand `messageRow.paddingX` in from each side and
-// `messageRow.paddingY` from the top and bottom.
+// `messageRow.paddingY` from the top and bottom; a row that is not
+// `padded`, such as one a Card already pads, reaches its edges. A turn's
+// text keeps the content edge as its sides, as a heading or a notice
+// beside it does: a reply's text reaches the row's sides, and an own
+// turn's fill reaches its end side and pads its text inside.
 // `bodyLines` cuts the body at that many lines with an ellipsis (0 keeps
 // it whole); `bodyTruncated` says it was cut, and then `cutHint`, when
 // set, says under it how to read the rest. `bodyComponent` draws an item
 // in the body's place, such as Jarvis's words as it speaks them. `marked`
 // stands the row on the `messageRow.mark` plate, its whole box, fading in
-// and out over `motion.duration.slow`.
+// and out over `motion.duration.slow`; a padded turn's plate reaches
+// `markOutset` past each side, so the marked text keeps a clearance.
 Item {
     id: root
 
@@ -34,21 +47,41 @@ Item {
     property Component bodyComponent: null
     property string cutHint: ""
     property bool marked: false
+    property string turn: ""
+    property bool padded: true
+    readonly property bool own: turn === "own"
+    readonly property bool hasAvatar: turn === "" && (initials !== "" || avatarIcon !== "")
     readonly property Item linkControl: sourceLink
     readonly property real avatarSize: Theme.size.control.sm
-    readonly property real paddingY: Theme.messageRow.paddingY
-    readonly property real paddingX: Theme.messageRow.paddingX
-    readonly property real contentX: paddingX + avatarSize + Theme.stack.group
+    readonly property real paddingY: padded ? Theme.messageRow.paddingY : 0
+    readonly property real paddingX: padded && turn !== "reply" ? Theme.messageRow.paddingX : 0
+    // A turn's plate clearance outside its sides: the room an outside
+    // focus ring takes (FocusRing `outside`), which a container keeps clear
+    // of its clip for that ring, as Pane does (`ringRoom`).
+    readonly property real markOutset: padded && turn !== "" ? Theme.focusRing.offset + Theme.focusRing.width : 0
+    // An own turn's fill: its text's natural width and padding, short of
+    // the turn lead. A text's implicit width is its unwrapped width, so the
+    // fill never reads its own wrapped width.
+    readonly property real ownWidth: Math.max(0, Math.min(bodyLabel.implicitWidth + 2 * paddingX, width - Theme.messageRow.turnLead))
+    readonly property real contentX: own ? width - ownWidth + paddingX : paddingX + (hasAvatar ? avatarSize + Theme.stack.group : 0)
 
     signal sourceActivated()
     signal actionTriggered(string id)
 
     function actionAt(index) { return actionItems.itemAt(index); }
+    function checkTurn() {
+        if (turn !== "" && turn !== "own" && turn !== "reply") console.error("MessageRow: no turn named " + JSON.stringify(turn));
+    }
+    onTurnChanged: checkTurn()
+    Component.onCompleted: checkTurn()
+    Accessible.name: sender
 
     implicitHeight: content.implicitHeight + 2 * paddingY
 
     Rectangle {
         anchors.fill: parent
+        anchors.leftMargin: -root.markOutset
+        anchors.rightMargin: -root.markOutset
         radius: Theme.listItem.radius
         color: Theme.messageRow.mark
         opacity: root.marked ? 1 : 0
@@ -56,8 +89,18 @@ Item {
         Behavior on opacity { NumberAnimation { duration: Theme.motion.duration.slow } }
     }
 
+    Rectangle {
+        visible: root.own
+        x: root.width - root.ownWidth
+        width: root.ownWidth
+        height: root.height
+        radius: Theme.surface.radius
+        color: Theme.color.surfaceRaised
+    }
+
     AvatarGroup {
         id: avatar
+        visible: root.hasAvatar
         x: root.paddingX
         y: root.paddingY
         size: root.avatarSize
@@ -65,7 +108,7 @@ Item {
         people: [{ initials: root.avatarIcon === "" ? root.initials : "" }]
     }
     Icon {
-        visible: root.avatarIcon !== ""
+        visible: root.hasAvatar && root.avatarIcon !== ""
         name: root.avatarIcon
         size: Theme.icon.size.md
         color: Theme.avatarGroup.foreground
@@ -88,8 +131,9 @@ Item {
             wrapMode: Text.Wrap
         }
         Item {
+            visible: root.turn === ""
             width: parent.width
-            height: Math.max(root.avatarSize, names.implicitHeight, state.visible ? state.height : 0)
+            height: Math.max(root.hasAvatar ? root.avatarSize : 0, names.implicitHeight, state.visible ? state.height : 0)
             Flow {
                 id: names
                 width: Math.max(0, parent.width - (state.visible ? state.width + Theme.stack.inline : 0))
@@ -97,7 +141,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 Label {
                     id: senderLabel
-                    role: "bodyStrong"
+                    role: root.hasAvatar ? "bodyStrong" : "hint"
+                    color: root.hasAvatar ? typography.color : Theme.color.textMuted
                     text: root.sender
                     textFormat: Text.PlainText
                     width: Math.min(implicitWidth, parent.width)

@@ -4,8 +4,8 @@ import qs.Ui
 
 // Windows pane: the corner radius and the border width over the theme, each
 // Set by theme until the user moves it, and VGlass. The corner radius is one
-// base: windows take it, flyouts three quarters of it and grouped window
-// tabs half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland
+// base: windows take it, flyouts and cards three quarters of it and grouped
+// window tabs half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland
 // option, so each row also offers the user's own Hyprland value. Each
 // slider runs between the bounds the `appearance` capability lends for its
 // value, the judge's own. VGlass is on or off for every glass surface, or each surface's
@@ -100,7 +100,7 @@ FocusScope {
                 onUseHyprlandValue: root.answer(root.shell.appearance.set("windowRadius", "hyprland"))
                 onUseThemeValue: root.answer(root.shell.appearance.unset("windowRadius"))
                 onOpenHyprlandConfig: root.openHyprlandConfig()
-                info: "Windows use this radius. Flyouts use three quarters of it. Grouped window tabs use half of it."
+                info: "Windows use this radius. Flyouts and cards use three quarters of it. Grouped window tabs use half of it."
                 SavedSlider {
                     id: radius
                     width: parent.width

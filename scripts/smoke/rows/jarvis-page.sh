@@ -426,7 +426,7 @@ expect "returning to Fable 5.1 is allowed" chosen page_choose model 0
 expect_poll "the first choice saves Fable 5.1 at high" '["claude-fable-5-1", "high"]' page_saved
 expect_poll "the daemon gets Fable 5.1 at high again" '["claude-fable-5-1", "high"]' page_daemon_choice
 
-# The list is read only while the Jarvis page is open. With the page closed
+# The list is read only while the Jarvis page or the console is open. With the page closed
 # a changed setting reads no list and nothing is saved, and for the Claude
 # Code account with nothing saved the daemon gets Fable 5.1 at high. Opus
 # 5.5 is saved first, so that reading follows the drop.
@@ -447,9 +447,12 @@ import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle='readonly property string wanted: shell !== null && shell.status.viewed ? brain : ""'
+needle='readonly property string wanted: shell !== null && (shell.status.viewed || consoleShown) ? brain : ""'
 assert s.count(needle)==1
-p.write_text(s.replace(needle, 'readonly property string wanted: brain'))
+s=s.replace(needle, 'readonly property string wanted: brain')
+needle='const fills = shell.status.viewed || modelChanged;'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'const fills = true;'))
 PY
 jarvis_rescan
 expect_poll "the control's reader reads the list with the page closed" '["claude-fable-5-1", "high"]' page_saved

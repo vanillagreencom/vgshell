@@ -6,23 +6,11 @@ function matches(query, values) {
     return wanted === "" || values.some(function (value) { return String(value).toLocaleLowerCase().indexOf(wanted) !== -1; });
 }
 
-// Conversation owns these wall-clock instants and session identities in
-// memory. Filtering never invents a date or writes a transcript store.
-function conversations(rows, query) {
-    var groups = [];
-    for (var row of rows) {
-        if (!matches(query, [row.text, row.role === "user" ? "You" : "Jarvis"])) continue;
-        var day = new Date(row.at);
-        var key = row.session + ":" + day.getFullYear() + ":" + day.getMonth() + ":" + day.getDate();
-        var group = groups.find(function (value) { return value.id === key; });
-        if (group === undefined) {
-            group = { id: key, at: row.at, startedAt: row.startedAt, rows: [] };
-            groups.push(group);
-        }
-        group.rows.push(row);
-        group.at = Math.max(group.at, row.at);
-    }
-    return groups.sort(function (a, b) { return b.at - a.at; });
+// The turns of ROWS, Conversation's log, that match QUERY by their words or
+// speaker, in the log's own order: oldest first, as they arrived, across
+// every session. Filtering never writes a transcript store.
+function messages(rows, query) {
+    return rows.filter(function (row) { return matches(query, [row.text, row.role === "user" ? "You" : "Jarvis"]); });
 }
 
 function tasks(rows, query) {
@@ -117,6 +105,6 @@ function problem(row) {
 function problems(rows, query) {
     return rows.map(function (row) {
         var shown = problem(row);
-        return { at: Date.parse(row.time), title: shown.title, body: shown.body, action: shown.action, settings: shown.settings };
+        return { title: shown.title, body: shown.body, action: shown.action, settings: shown.settings };
     }).filter(function (row) { return matches(query, [row.title, row.body]); });
 }

@@ -102,7 +102,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
             const result = await command(token, "list", ["--view", view, ...(cursor === null ? [] : ["--cursor", cursor])]);
             if (!live(token)) return;
             if (result.kind !== "value") {
-                show({ kind: "unavailable", cause: "The selected Jarvis package cannot provide asks. Press Refresh to check again." });
+                show({ kind: "unavailable", cause: "The selected Jarvis package cannot provide asks." });
                 return;
             }
             try { pages[view] = Protocol.ownerAsksPage(result.value, view, cursor); }

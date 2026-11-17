@@ -291,6 +291,13 @@ Item {
             shell.ipc.handle("local-setup", step => localSetup(step));
             // The bar widget's click opens the console, as the Console key does.
             shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
+            // The console's open and close: while it shows, its model and
+            // effort choices read the sign-in's list (Accounts.qml).
+            shell.ipc.handle("console-choices", text => {
+                if (text !== "shown" && text !== "hidden") return "refused: console-choices=" + JSON.stringify(text);
+                accountReader.consoleShown = text === "shown";
+                return "ok";
+            });
             // The reply card reports the pointer on it, which holds it; a
             // claim with no card showing holds nothing.
             shell.ipc.handle("reply-hover", text => { replyHovered = text === "true" && replyShown !== null; return "ok"; });

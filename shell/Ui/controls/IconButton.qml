@@ -20,7 +20,9 @@ import qs.Ui
 // above. A disabled button fades once on the whole control; one a
 // `disabledReason` locks (Button) fades its fill and icon, and shows the
 // reason in place of its action tooltip, so one tooltip shows. The icon is
-// the size's own, `button.size.<size>.icon`, centred on whole pixels.
+// the size's own, `button.size.<size>.icon`, centred on whole pixels. The
+// corner is Button's `radius`; a filled round button, such as Send inside
+// a message box, sets `button.roundRadius`.
 // `glyphStart` and `glyphEnd` are the distances from the box's edges to
 // the glyph's painted ink: a header that puts a glyph, not a box, on its
 // content edge shifts the button by them (docs/architecture/design-system.md § Layout).
@@ -51,7 +53,7 @@ Button {
 
     background: Rectangle {
         implicitHeight: root.controlHeight
-        radius: Theme.button.radius
+        radius: root.radius
         color: root.lock.faded(root.tokens.background)
         border.width: Theme.button.border
         border.color: root.lock.faded(root.tokens.border)

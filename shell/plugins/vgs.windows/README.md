@@ -10,7 +10,7 @@ It also gives you a key that locks a window group, and tells you whether the gro
 
 - A Windows section under Appearance in the System Settings window.
 - Each value shows Set by theme until you change it. Use theme value puts the theme's value back.
-- A corner-radius control for windows, flyouts and grouped window tabs.
+- A corner-radius control for windows, flyouts, cards and grouped window tabs.
 - VGlass on for every glass surface, off for every one, or each surface's own choice.
 - Optional layer glass for VGS panels, installed when you turn it on.
 - The values stay in effect when you disable this plugin.

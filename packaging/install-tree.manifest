@@ -179,6 +179,7 @@ f share/vgshell/shell/Ui/controls/Checkbox.qml
 f share/vgshell/shell/Ui/controls/DateField.qml
 f share/vgshell/shell/Ui/controls/DisabledReason.qml
 f share/vgshell/shell/Ui/controls/Field.qml
+f share/vgshell/shell/Ui/controls/FieldFrame.qml
 f share/vgshell/shell/Ui/controls/FormRow.qml
 f share/vgshell/shell/Ui/controls/IconButton.qml
 f share/vgshell/shell/Ui/controls/IdleTimeField.qml

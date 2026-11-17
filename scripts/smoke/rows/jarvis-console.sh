@@ -1,7 +1,8 @@
 # Jarvis console window. Scripted daemon fixtures only: no audio, account,
 # provider or network runs. Under a voice that takes speech only (a duplex
-# engine) the Conversation tab shows no message box and no Send, one line
-# in their place and Stop; voice mute keeps Send available. The row has no latency ceiling. It polls once
+# engine) Chat locks its message box, which keeps the keys, shows no Send
+# and one notice over it; while Jarvis speaks Stop takes Send's place, and
+# voice mute keeps Send available. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
 # inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* .agents/skills/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
@@ -82,18 +83,26 @@ print("shown" if any(row.get("visible") and row.get("text")==sys.argv[1] for row
 }
 # Send's disabledReason, or `absent` while no Send button is drawn.
 jarvis_console_send_reason() {
-  ipc smoke itemValues window vgs.jarvis Button text,disabledReason | py_reply '
+  ipc smoke itemValues window vgs.jarvis IconButton label,disabledReason,visible | py_reply '
 import json,sys
-rows=[r for r in json.load(sys.stdin) if r.get("text")=="Send"]
+rows=[r for r in json.load(sys.stdin) if r.get("label")=="Send message" and r.get("visible")]
 print(json.dumps(rows[0].get("disabledReason")) if rows else "absent")
 '
 }
-# How many items of TYPE the console shows.
-jarvis_console_shown() { # TYPE
-  ipc smoke itemValues window vgs.jarvis "$1" text,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible")))'
+# How many Stop buttons the message box shows.
+jarvis_console_stop_shown() {
+  ipc smoke itemValues window vgs.jarvis IconButton label,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible") and r.get("label")=="Stop Jarvis"))'
 }
 jarvis_console_send_shown() {
-  ipc smoke itemValues window vgs.jarvis Button text,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible") and r.get("text")=="Send"))'
+  ipc smoke itemValues window vgs.jarvis IconButton label,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible") and r.get("label")=="Send message"))'
+}
+# `locked` while the shown message box gives a reason for typing off.
+jarvis_console_box_lock() {
+  ipc smoke itemValues window vgs.jarvis TextArea placeholderText,disabledReason,visible | py_reply '
+import json,sys
+rows=[r for r in json.load(sys.stdin) if r.get("visible") and r.get("placeholderText")=="Message Jarvis"]
+print("missing" if not rows else "locked" if rows[0].get("disabledReason") else "open")
+'
 }
 jarvis_console_speech_line() {
   ipc smoke itemValues window vgs.jarvis LinkText text,visible | py_reply '
@@ -106,7 +115,7 @@ jarvis_console_engine_kind() {
 }
 jarvis_console_speech_only_check() {
   expect_poll "a duplex voice shows the speech-only line" shown jarvis_console_speech_line
-  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextArea
+  expect "a duplex voice locks the message box" locked jarvis_console_box_lock
   expect "a duplex voice shows no Send" 0 jarvis_console_send_shown
 }
 jarvis_console_speech_only_control() {
@@ -176,7 +185,7 @@ jarvis_console_audit_groups() {
 }
 jarvis_console_audit_groups_check() { expect_poll "History groups its problems with shared separators" '[2]' jarvis_console_audit_groups; }
 jarvis_console_tasks_path() {
-  expect_poll "Now has composer focus before its tab switch" true jarvis_console_composer_focused
+  expect_poll "Chat has composer focus before its tab switch" true jarvis_console_composer_focused
   type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching to History failed"
   jarvis_console_tasks_tab_check
   expect_poll "History focuses its search" true ipc smoke activeFocusWithin window vgs.jarvis TextField
@@ -272,7 +281,8 @@ expect_poll "the preceding reply is still playing" playing jarvis_key_state play
 type_keys "typed from console" || fail "typing under voice mute failed"
 type_keys -k Return || fail "pressing Enter during playback failed"
 expect_poll "playback refusal reaches the composer" shown jarvis_console_hint_has "Jarvis is speaking. Wait for it to finish, or press Stop."
-expect "Send names the playback refusal" '"Jarvis is speaking. Wait for it to finish, or press Stop."' jarvis_console_send_reason
+expect "Stop takes Send's place while Jarvis speaks" absent jarvis_console_send_reason
+expect "the message box shows Stop while Jarvis speaks" 1 jarvis_console_stop_shown
 expect "playback refusal keeps the typed text" '"typed from console"' jarvis_console_field_text
 expect "playback refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
 jarvis_key_gate played
@@ -383,7 +393,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
 replacements=[
-    ('readonly property Item composerFocus: speechOnly ? speechStop : entryField', 'readonly property Item composerFocus: stopButton'),
+    ('readonly property Item composerFocus: entryField', 'readonly property Item composerFocus: consoleTabs'),
 ]
 for needle, replacement in replacements:
     assert s.count(needle)==1, needle
@@ -403,7 +413,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
 changes={
-    "tabs": ('model: ["Now", "Needs you", "History"]', 'model: ["Now", "Needs you"]'),
+    "tabs": ('model: ["Chat", "Needs you", "History"]', 'model: ["Chat", "Needs you"]'),
     "stop": ('shell.ipc.call(action === "stop" ? "stop-task" : "open-task", row.id);',
              'shell.ipc.call(action === "stop" ? "stop-task" : "open-task", taskRows[0].id);'),
     "audit": ('History.problems(auditRows, historyQuery)', 'History.problems([], historyQuery)'),
@@ -417,7 +427,7 @@ PY_CONTROL
   jarvis_enable
   jarvis_console_open
   hold_barrier
-  expect_poll "the mutant Now has composer focus before switching" true jarvis_console_composer_focused
+  expect_poll "the mutant Chat has composer focus before switching" true jarvis_console_composer_focused
   if [[ $jarvis_console_mutant == tabs ]]; then
     type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching the mutant History tab failed"
     expect "control: dropping History breaks the tab assertion" 1 jarvis_console_tab_control
@@ -443,7 +453,7 @@ PY_CONTROL
   jarvis_disable
 done
 # A duplex voice: the scripted daemon again, its engine snapshotted as
-# duplex, then the same with a Console copy that keeps the message box.
+# duplex, then the same with a Console copy that keeps typing on.
 jarvis_console_duplex() { # LABEL
   jarvis_rescan
   jarvis_enable
@@ -462,7 +472,7 @@ jarvis_key_resume_marker
 jarvis_fixture_copy jarvis-console-duplex "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_console_duplex "duplex"
 jarvis_console_speech_only_check
-expect_poll "a duplex voice gives Stop the keyboard" true ipc smoke activeFocusWithin window vgs.jarvis IconButton
+expect_poll "a duplex voice gives the locked message box the keyboard" true jarvis_console_composer_focused
 type_keys -k Escape || fail "Escape on the duplex console failed"
 expect_poll "Escape closes the duplex console" 0 jarvis_console_client_count
 jarvis_disable
@@ -471,12 +481,12 @@ python3 - "$jarvis_console_qml" <<'PY_DUPLEX'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
-needle='                Column {\n                    width: parent.width\n                    visible: !root.speechOnly\n                    Row {'
+needle='readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"'
 assert s.count(needle)==1, needle
-p.write_text(s.replace(needle, '                Column {\n                    width: parent.width\n                    Row {'))
+p.write_text(s.replace(needle, 'readonly property bool speechOnly: false'))
 PY_DUPLEX
 jarvis_console_duplex "duplex control"
-expect "control: a message box under a duplex voice fails the message box and Send assertions" 2 jarvis_console_speech_only_control
+expect "control: typing on under a duplex voice fails the line, lock and Send assertions" 3 jarvis_console_speech_only_control
 jarvis_disable
 jarvis_asks_restore
 cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config.next" && mv -T -- "$jarvis_console_config.next" "$jarvis_console_config"
