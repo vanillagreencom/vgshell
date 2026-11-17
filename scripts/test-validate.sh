@@ -1484,7 +1484,7 @@ for consumer in \
   "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/plugins/vgs.jarvis/SetupGate.js|shell/plugins/vgs.jarvis/SetupGate.js" \
   "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/Commons/PageReference.js|shell/Commons/PageReference.js"; do
   IFS='|' read -r area label command input edge <<<"$consumer"
-  d="$tmp/plan-jarvis-input-$area-${input##*/}"; fresh "$d"
+  d="$tmp/plan-jarvis-input-$area-${command##*/}-${input##*/}"; fresh "$d"
   mkdir -p "$d/${input%/*}"
   printf 'changed\n' >"$d/$input"
   test_area="$area"
