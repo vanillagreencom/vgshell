@@ -6,8 +6,8 @@ import qs.Unit
 
 // ContentRow and NavigationRow, the two shared row parts. A content row
 // takes no click, so it draws no press and shows no hand, while its
-// trailing action keeps its own click, and its text starts on the content
-// edge. A navigation row takes the click and shows the hand, and ends in
+// trailing action keeps its own click, and its side room matches a
+// navigation row. A navigation row takes the click and shows the hand, and ends in
 // its chevron, after its accessories, with no gap before the chevron
 // when it has none. A row that takes its stacked lines while hidden lays
 // them out, once it shows, as a row that took them while shown. A stacked
@@ -99,10 +99,12 @@ Item {
             compare(actionClicks.count, 1, "the trailing action takes its own click");
         }
 
-        function test_a_content_row_starts_its_text_on_the_content_edge() {
+        function test_content_and_navigation_rows_keep_the_same_side_room() {
             const title = content.contentItem.children[1].children[0];
-            compare(title.mapToItem(content, 0, 0).x, Theme.icon.size.md + Theme.listItem.iconGap);
-            compare(content.textStart, Theme.icon.size.md + Theme.listItem.iconGap);
+            compare(title.mapToItem(content, 0, 0).x, bare.textStart);
+            compare(content.textStart, bare.textStart);
+            compare(content.leftPadding, bare.leftPadding);
+            compare(content.rightPadding, bare.rightPadding);
         }
 
         // A content row with no stacked part builds none: no stacked lines,

@@ -7930,15 +7930,15 @@ scene_themes_panel() { # MODE
   themes_panel_compare "$1" top
   park_pointer
   take "panels-$1-themes"
-  ipc smoke revealText panel vgs.themes ListItem vgs >/dev/null || fail "the themes panel did not reveal its vgs row for the hover"
-  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs && take_posed "panels-$1-themes-catalog"
+  ipc smoke revealText panel vgs.themes NavigationRow vgs >/dev/null || fail "the themes panel did not reveal its vgs row for the hover"
+  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes NavigationRow vgs && take_posed "panels-$1-themes-catalog"
   park_pointer
   ipc smoke scrollTo panel vgs.themes 100000 >/dev/null || fail "the themes panel did not scroll to its catalog"
   take "panels-$1-themes-catalog-overview"
   ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top"
   rm -f -- "$themes_gate"
   { themes_answer_write 3 "$themes_failed" && themes_stand_in; } || fail "the themes panel's stand-in runner could not be written"
-  click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click on the themes panel's vgs row failed"
+  click_in vgs:panel panel vgs.themes NavigationRow vgs || fail "the click on the themes panel's vgs row failed"
   expect_poll "the themes panel shows the held apply" applying themes_panel_last
   park_pointer
   take "panels-$1-themes-applying"
@@ -7947,7 +7947,7 @@ scene_themes_panel() { # MODE
   themes_panel_compare "$1" failure
   take "panels-$1-themes-failure"
   themes_answer_write 0 "$themes_quiet" || fail "the themes panel's quiet answer could not be written"
-  click_in vgs:panel panel vgs.themes ListItem vgs || fail "the click that clears the themes panel's result failed"
+  click_in vgs:panel panel vgs.themes NavigationRow vgs || fail "the click that clears the themes panel's result failed"
   expect_poll "the themes panel's last result is the quiet one, which draws no line" ok themes_panel_result
   mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell" || fail "the real runner could not be restored"
   rm -f -- "$themes_gate" "$themes_answer"

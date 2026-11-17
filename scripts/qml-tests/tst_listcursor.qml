@@ -55,7 +55,7 @@ Item {
             Repeater {
                 id: repeater
                 model: root.count
-                ListItem {
+                NavigationRow { chevronName: "";
                     required property int index
                     width: rows.width
                     text: "Row " + index
@@ -70,7 +70,7 @@ Item {
         }
     }
 
-    ListItem { id: loose; text: "Loose"; width: 300; y: 500 }
+    NavigationRow { chevronName: ""; id: loose; text: "Loose"; width: 300; y: 500 }
 
     Item {
         id: other
@@ -135,19 +135,19 @@ Item {
             property alias middleRow: middleRow
             property alias innerRow: innerRow
             ListCursor { id: outer }
-            ListItem { id: outerRow; width: parent.width; text: "Outer"; cursor: outer }
+            NavigationRow { chevronName: ""; id: outerRow; width: parent.width; text: "Outer"; cursor: outer }
             Item {
                 y: 80
                 width: parent.width
                 height: 250
                 ListCursor { id: middle }
-                ListItem { id: middleRow; width: parent.width; text: "Middle"; cursor: middle }
+                NavigationRow { chevronName: ""; id: middleRow; width: parent.width; text: "Middle"; cursor: middle }
                 Item {
                     y: 80
                     width: parent.width
                     height: 150
                     ListCursor { id: inner }
-                    ListItem { id: innerRow; width: parent.width; text: "Inner"; cursor: inner }
+                    NavigationRow { chevronName: ""; id: innerRow; width: parent.width; text: "Inner"; cursor: inner }
                 }
             }
         }

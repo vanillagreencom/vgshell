@@ -27,13 +27,13 @@ Item {
     TextField { id: iconed; leadingIcon: "search"; width: 200; y: 80 }
     Select { id: select; width: 200; y: 120; model: ["one", "two"] }
     SegmentedControl { id: segmented; y: 160; model: ["Day", "Week"] }
-    ListItem { id: item; text: "Plugin updates"; iconName: "package"; width: 300; y: 200 }
+    ContentRow { id: item; text: "Plugin updates"; iconName: "package"; width: 300; y: 200 }
     MenuItem { id: entry; text: "Open"; iconName: "folder"; width: 200; y: 240 }
     Field { id: field; label: "Name"; width: 300; y: 280; TextField { width: parent.width } }
     Badge { id: badge; text: "new"; iconName: "check"; y: 340 }
     Checkbox { id: check; text: "Pin"; y: 470 }
     Kbd { id: key; text: "Ctrl"; x: 300; y: 340 }
-    ListItem { id: twoLine; text: "Two lines"; secondary: "detail"; width: 300; y: 500 }
+    ContentRow { id: twoLine; text: "Two lines"; secondary: "detail"; width: 300; y: 500 }
     CodeLine { id: code; text: "vgshell plugin enable acme.weather"; width: 300; y: 560 }
     Card { id: card; x: 320; y: 560; width: 300; Item { width: 10; height: 100 } }
     Section {

@@ -179,7 +179,7 @@ Item {
     SignalSpy { id: activations; target: roled; signalName: "activated" }
     SignalSpy { id: settingsLines; target: settingsEntry.contentItem.children[1]; signalName: "lineCountChanged" }
     TextField { id: field; visible: false }
-    ListItem { id: listRow; visible: false; text: "Row"; secondary: "Detail" }
+    ContentRow { id: listRow; visible: false; text: "Row"; secondary: "Detail" }
     FontMetrics { id: itemMetrics; font: settingsEntry.contentItem.children[1].font }
 
     TestCase {

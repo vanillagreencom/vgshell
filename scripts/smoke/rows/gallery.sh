@@ -116,7 +116,7 @@ expect_poll "Tab skips an unselected device row and reaches its action" True dev
 # control gives the
 # list Qt's left-button drag back through the probe, and the same drag then
 # scrolls it. The Tab tour below reads the window's keyboard reveal after.
-slim_revealed() { [[ $(ipc smoke revealText window vgs.gallery ListItem "Slim 1") =~ ^[0-9.]+$ ]] && echo revealed; }
+slim_revealed() { [[ $(ipc smoke revealText window vgs.gallery ContentRow "Slim 1") =~ ^[0-9.]+$ ]] && echo revealed; }
 slim_kind() { ipc smoke viewHolding window vgs.gallery "Slim 1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["type"], v["contentY"], v["acceptedButtons"]]))'; }
 expect "the slim list is brought into the gallery's view" revealed slim_revealed
 # A plain Flickable reads as its C++ class name.

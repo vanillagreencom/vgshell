@@ -31,9 +31,9 @@ Item {
         height: 28
         KeyHints { id: hints; y: 4; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     }
-    ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
-    ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
-    ListItem { id: still; text: "Started"; clickable: false; width: 300; y: 668; trailing: [ RowAction { id: stillAction; text: "Remove" } ] }
+    NavigationRow { chevronName: ""; id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
+    NavigationRow { chevronName: ""; id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
+    ContentRow { id: still; text: "Started"; width: 300; y: 668; trailing: [ RowAction { id: stillAction; text: "Remove" } ] }
     SectionHeader { id: header; text: "Listed since"; description: "Sep 24"; width: 300; y: 150 }
     SectionHeader { id: inset; text: "Plugins"; description: "Every plugin the shell found"; leftPadding: Theme.row.paddingX; rightPadding: Theme.row.paddingX; width: 300; y: 330 }
     Column {
@@ -77,7 +77,7 @@ Item {
         }
         // A row of a list with a cursor, the plate on no row: it answers
         // its box, so the space under the list stays put as the plate moves.
-        ListItem { id: cursorRow; width: parent.width; text: "Shown"; secondary: "Not the selected row"; cursor: navPlate; enters: false }
+        NavigationRow { chevronName: ""; id: cursorRow; width: parent.width; text: "Shown"; secondary: "Not the selected row"; cursor: navPlate; enters: false }
         Section { id: underCursorRow; title: "Under"; spaceAbove: Theme.navList.headingSpace; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
         Rectangle { id: beforeOwn; width: parent.width; height: Theme.row.height; color: "transparent" }
         Section { id: ownSpaceSection; title: "Own"; spaceAbove: Theme.navList.headingSpace; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
@@ -383,7 +383,7 @@ Item {
             verify(Math.abs((top + bottom) / 2 - iconMid) <= 1, "lines centre " + (top + bottom) / 2 + ", icon centre " + iconMid);
             verify(Math.abs(iconMid - row.height / 2) <= 1, "icon centre " + iconMid + ", row centre " + row.height / 2);
             compare(row.height, Theme.listItem.twoLineHeight, "a row with a secondary line takes the two-line height");
-            const single = Qt.createQmlObject("import qs.Ui\nListItem { text: \"One line\"; width: 200 }", root);
+            const single = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"One line\"; width: 200 }", root);
             compare(single.height, Theme.listItem.height, "a row without one takes the one-line height");
             single.destroy();
         }
@@ -391,8 +391,8 @@ Item {
         // A list of rows whose secondary lines differ in length stays even:
         // the secondary line elides on one line.
         function test_list_item_keeps_its_height_under_a_long_secondary_line() {
-            const long = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Weather\"; iconName: \"cloud\"; width: 200; secondary: \"Show the weather where you are, with the temperature, the wind and the chance of rain\" }", root);
-            const short = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Clock\"; iconName: \"clock\"; width: 200; secondary: \"Show the time\" }", root);
+            const long = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Weather\"; iconName: \"cloud\"; width: 200; secondary: \"Show the weather where you are, with the temperature, the wind and the chance of rain\" }", root);
+            const short = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Clock\"; iconName: \"clock\"; width: 200; secondary: \"Show the time\" }", root);
             compare(long.height, short.height, "a long secondary line keeps the row's height");
             compare(long.height, Theme.listItem.twoLineHeight);
             long.destroy();
@@ -415,10 +415,10 @@ Item {
         }
         function test_a_wrapping_list_item_breaks_its_secondary_line_at_spaces_onto_two_lines(data) {
             compare(UnitTheme.override({ radius: { sm: data.radius } }), "ok");
-            const plain = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Clock\"; width: 300; secondary: \"Show the time\" }", root);
+            const plain = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Clock\"; width: 300; secondary: \"Show the time\" }", root);
             const oneLine = plain.contentItem.children[1].children[1].height;
             plain.destroy();
-            const wrapped = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Backup\"; iconName: \"calendar-check\"; width: 300; secondaryWraps: true }", root);
+            const wrapped = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Backup\"; iconName: \"calendar-check\"; width: 300; secondaryWraps: true }", root);
             wrapped.secondary = data.secondary;
             const icon = wrapped.contentItem.children[0];
             const title = wrapped.contentItem.children[1].children[0];

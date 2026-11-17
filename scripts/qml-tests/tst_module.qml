@@ -53,6 +53,17 @@ Item {
             }
         }
 
+        function test_a_plugin_cannot_compose_the_internal_row() {
+            let rejected = false;
+            try {
+                const item = Qt.createQmlObject("import QtQuick\nimport qs.Ui\nListItem {}", root, "plugin-row-fixture");
+                item.destroy();
+            } catch (error) {
+                rejected = error.qmlErrors.some(entry => entry.message.indexOf("ListItem is not a type") !== -1);
+            }
+            verify(rejected, "a plugin must use ContentRow or NavigationRow");
+        }
+
         function test_key_nav_logic_is_public_for_plugins() {
             const source = "import QtQuick\nimport qs.Ui as Ui\nQtObject { property bool inactive: Ui.KeyNavLogic.activate({ enabled: false }) }";
             const item = Qt.createQmlObject(source, root, "keynavlogic-public");

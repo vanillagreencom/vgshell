@@ -8,10 +8,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // with its actions at its end in `trailing`, such as an Add button or a
 // row's RowActions. It takes no click: no plate, no press and no pointing
 // hand, and each trailing control keeps its own hover, focus and click
-// (ListItem's `clickable`). Its text starts on the content edge, as the
-// other lines of a section do, since a row that takes no click draws no
-// box to inset. The secondary line elides on one line, so every content
-// row of a list is the same height. A row that opens a page is a
+// (ListItem's `clickable`). It keeps the same side room as a navigation
+// row, so their icons and text align within a list. The secondary line
+// elides on one line, so every content row of a list is the same height.
+// A row that opens a page is a
 // NavigationRow.
 //
 // A row that carries a state, a needed action or a removing action
@@ -39,9 +39,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // that rests on it, a clickable row's ListCursor, keeps that room top and
 // bottom, and the row keeps ListItem's own side padding inside the plate,
 // as a NavigationRow does. A passive row draws no plate: it keeps the
-// content edge at its sides and draws its name's line where a plain row
-// does (`passiveTop`). The dots' ink ends where that side padding ends, on
-// the row's end for a passive row, as a trailing mark's does, and the name
+// same side padding and draws its name's line where a plain row
+// does (`passiveTop`). The dots' ink ends where that side padding ends,
+// as a trailing mark's does, and the name
 // stops `listItem.gap` before the button. A `secondary` line stands under
 // the name, above the stacked lines; the dots and, on a stacked row, the
 // trailing controls centre on the name's line, not on the name and its
@@ -111,7 +111,6 @@ ListItem {
     readonly property Item menuButton: moreLoader.item
 
     clickable: false
-    leftPadding: plated ? sidePadding : 0
     rightPadding: menuButton !== null ? leftPadding + menuButton.width - menuButton.glyphEnd + Theme.listItem.gap : leftPadding
     trailingOnTitle: stacked
     // A row a ListCursor plates keeps `stackPad` above its first ink and

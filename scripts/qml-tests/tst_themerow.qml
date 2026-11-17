@@ -80,7 +80,7 @@ Item {
             return null;
         }
 
-        function item(row) { return find(row, child => child instanceof ListItem); }
+        function item(row) { return find(row, child => child instanceof NavigationRow); }
         function action(row) { return find(row, child => child instanceof RowAction); }
         function title(row) { return find(item(row).contentItem, child => child instanceof Label && child.role === "item"); }
         function inside(action, item) {

@@ -149,10 +149,8 @@ Item {
             compare(drawn.map(line => [line.text, line.detail, line.secondary, line.iconName, line.clickable]), root.pairs.map(pair => [pair.label, pair.secondary, "", "folder-sync", pair.local !== undefined]));
             compare(drawn.map(line => line.width), drawn.map(() => listOf(window).width), "each row is as wide as the list");
             compare(drawn.map(line => line.mapToItem(listOf(window), 0, 0).x), drawn.map(() => 0), "each row's box stands on the content edge");
-            // A row its folder plates keeps a list row's side padding inside
-            // the plate; a passive row insets no text.
-            const inset = line => line.clickable ? Theme.listItem.paddingX : 0;
-            compare(drawn.map(line => line.leftPadding), drawn.map(inset), "a plated row pads its text, a passive row does not");
+            const inset = line => Theme.listItem.paddingX;
+            compare(drawn.map(line => line.leftPadding), drawn.map(inset), "passive and plated rows keep the same side room");
             // The state reads under the name with its tone's mark; a calm
             // one in the hint colour, one that needs the user in its tone.
             compare(drawn.map(line => [line.status, line.statusTone]), [["1 to review", "warning"], ["Up to date", "success"], ["Up to date", "success"]]);

@@ -247,7 +247,7 @@ Item {
             verify(body !== null, "the shown tab has its body");
             return descendants(body).filter(item => item instanceof type && item.visible);
         }
-        function listRow(window, id) { return descendants(window).find(item => item instanceof ListItem && item.text === id); }
+        function listRow(window, id) { return descendants(window).find(item => item instanceof NavigationRow && item.text === id); }
         function chipShown(window, id) { return descendants(listRow(window, id)).some(item => item instanceof Badge && item.visible && item.tone === "warning"); }
         function tabWarning(window) {
             const tab = tabsOf(window).tabs.itemAt(tabsOf(window).model.indexOf("Setup"));

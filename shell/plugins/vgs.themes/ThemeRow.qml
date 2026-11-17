@@ -54,7 +54,8 @@ Column {
         return true;
     }
 
-    ListItem {
+    NavigationRow {
+        chevronName: ""
         id: row
         width: root.width
         text: root.name

@@ -42,7 +42,7 @@ Item {
                 container: "panel"
                 fitToContent: true
                 property int rowCount: 2
-                Repeater { model: inner.rowCount; ListItem { required property int index; width: inner.contentWidth; text: "Row " + index } }
+                Repeater { model: inner.rowCount; ContentRow { required property int index; width: inner.contentWidth; text: "Row " + index } }
                 footer: [ Item { width: 10; height: 30 } ]
             }
         }

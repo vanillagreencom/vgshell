@@ -153,7 +153,7 @@ Item {
         }
 
         function test_list_item_ignores_a_hidden_trailing_button() {
-            const item = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nListItem { width: 300; text: "Status"; trailing: [ Badge { text: "ready"; anchors.verticalCenter: parent.verticalCenter }, Button { text: "Hidden"; visible: false; anchors.verticalCenter: parent.verticalCenter } ] }', root, "hiddenButtonRow");
+            const item = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nContentRow { width: 300; text: "Status"; trailing: [ Badge { text: "ready"; anchors.verticalCenter: parent.verticalCenter }, Button { text: "Hidden"; visible: false; anchors.verticalCenter: parent.verticalCenter } ] }', root, "hiddenButtonRow");
             const badge = item.contentItem.children[2].children[0];
             compare(badge.mapToItem(item, badge.width, 0).x, item.width - item.rightPadding);
             item.destroy();

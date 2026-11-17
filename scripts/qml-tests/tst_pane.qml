@@ -25,7 +25,7 @@ Item {
         height: 200
         container: "window"
         header: [ Label { text: "Header"; role: "h2"; width: parent.width } ]
-        Repeater { model: 12; ListItem { required property int index; width: parent.width; text: "Row " + index } }
+        Repeater { model: 12; ContentRow { required property int index; width: parent.width; text: "Row " + index } }
         footer: [ Button { text: "Apply"; variant: "secondary" } ]
     }
 
@@ -211,7 +211,7 @@ Item {
             property int rowCount: 12
             container: "panel"
             header: [ Item { width: 10; height: 20 } ]
-            Repeater { model: layer.rowCount; ListItem { required property int index; width: layer.contentWidth; text: "Row " + index } }
+            Repeater { model: layer.rowCount; ContentRow { required property int index; width: layer.contentWidth; text: "Row " + index } }
             footer: [ Item { width: 10; height: 30 } ]
         }
     }
@@ -356,7 +356,7 @@ Item {
                 Repeater {
                     id: sourceRows
                     model: 7
-                    ListItem { required property int index; width: parent.width; text: "Source " + index; secondary: "Ready" }
+                    ContentRow { required property int index; width: parent.width; text: "Source " + index; secondary: "Ready" }
                 }
             }
             footer: Button { text: "Refresh" }

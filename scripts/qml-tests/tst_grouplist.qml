@@ -71,9 +71,9 @@ Item {
         GroupList {
             id: rowsList
             width: rowsFrame.width
-            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Weather"; secondary: "Updated today" }
-            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Clock"; secondary: "Up to date" }
-            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Mail"; secondary: "Up to date" }
+            ContentRow { width: rowsList.width; iconName: "package"; text: "Weather"; secondary: "Updated today" }
+            ContentRow { width: rowsList.width; iconName: "package"; text: "Clock"; secondary: "Up to date" }
+            ContentRow { width: rowsList.width; iconName: "package"; text: "Mail"; secondary: "Up to date" }
         }
     }
 

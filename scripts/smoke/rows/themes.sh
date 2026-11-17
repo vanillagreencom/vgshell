@@ -427,7 +427,7 @@ themes_item_ready() {
   local _
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
-    if [[ $1 == ListItem ]]; then ipc smoke revealText panel vgs.themes ListItem "$2" >/dev/null || true; fi
+    if [[ $1 == NavigationRow ]]; then ipc smoke revealText panel vgs.themes NavigationRow "$2" >/dev/null || true; fi
     [[ $(themes_item_shown "$1" "$2") == shown ]] && return 0
     sleep 0.2
   done
@@ -437,9 +437,9 @@ themes_item_ready() {
 # click_row NAME: one click_item on the enabled list item NAME once it
 # shows.
 click_row() {
-  themes_item_ready ListItem "$1" || return 1
-  ipc smoke revealText panel vgs.themes ListItem "$1" >/dev/null || true
-  themes_click_item ListItem "$1"
+  themes_item_ready NavigationRow "$1" || return 1
+  ipc smoke revealText panel vgs.themes NavigationRow "$1" >/dev/null || true
+  themes_click_item NavigationRow "$1"
 }
 # Whether the panel draws a label reading TEXT: True or False.
 panel_label() { ipc smoke itemTexts panel vgs.themes Label | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
@@ -880,7 +880,7 @@ def inside(j, i):
 panel = rows[0]["box"]
 title = [r["box"][:] for r in rows if r["type"] == "Label" and r.get("role") == "h3" and r.get("text") == "Themes" and shown(r)]
 heads = [r["box"][:] for r in rows if r["type"] == "SectionHeader" and shown(r)]
-items = [i for i, r in enumerate(rows) if r["type"] == "ListItem" and shown(r)]
+items = [i for i, r in enumerate(rows) if r["type"] == "NavigationRow" and shown(r)]
 smoke = [i for i in items if rows[i].get("text") == "smoke"]
 scroll = [r["box"] for r in rows if r["type"] == "ScrollArea" and shown(r)]
 add = [r["box"][:] for r in rows if r["type"] == "Button" and r.get("text") == "Add from URL" and shown(r)]
@@ -944,16 +944,16 @@ planted_click() {
     hover() {
       if [[ ! -e $click_plant ]]; then
         local first offset second
-        first="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" \
+        first="$(ipc smoke itemGeometry panel vgs.themes NavigationRow vgs)" \
           && offset="$(python3 -c 'import json,sys; print(int(2 * json.loads(sys.argv[1])[3]) + 1)' "$first")" \
           && scroll_themes "$offset" \
-          && second="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" \
+          && second="$(ipc smoke itemGeometry panel vgs.themes NavigationRow vgs)" \
           && printf '%s\n%s\n' "$first" "$second" >"$click_plant.tmp" \
           && mv -T -- "$click_plant.tmp" "$click_plant" || return 1
       fi
       planted_hover "$@"
     }
-    themes_click_item ListItem "$2"
+    themes_click_item NavigationRow "$2"
   )
 }
 # Whether the plant moved the vgs item by more than its own height: True
@@ -991,10 +991,10 @@ fi
 # panel surface the compositor has not yet placed where the probe reads
 # it, never finds the smoke row under the pointer, so it clicks nothing.
 # The aim is the vgs row's centre as an offset from the smoke row's corner.
-if vgs_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" && [[ $vgs_rect != absent ]] \
-  && smoke_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem smoke)" && [[ $smoke_rect != absent ]]; then
+if vgs_rect="$(ipc smoke itemGeometry panel vgs.themes NavigationRow vgs)" && [[ $vgs_rect != absent ]] \
+  && smoke_rect="$(ipc smoke itemGeometry panel vgs.themes NavigationRow smoke)" && [[ $smoke_rect != absent ]]; then
   read -r vx vy < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); sx,sy=json.loads(sys.argv[2])[:2]; print(int(x+w/2-sx), int(y+h/2-sy))' "$vgs_rect" "$smoke_rect")
-  if (themes_click_item ListItem smoke "$vx" "$vy"); then
+  if (themes_click_item NavigationRow smoke "$vx" "$vy"); then
     fail "click_item clicked for the smoke row at the vgs row's centre"
   else
     ok "click_item clicks nothing at a point the smoke row does not report the pointer over"

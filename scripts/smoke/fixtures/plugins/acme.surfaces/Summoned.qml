@@ -49,7 +49,7 @@ Item {
             Repeater {
                 model: root.sizingRows
                 // Teardown detaches delegates before their width bindings end.
-                ListItem { required property int index; width: parent === null ? 0 : parent.width; text: "Source " + index; secondary: "Ready" }
+                ContentRow { required property int index; width: parent === null ? 0 : parent.width; text: "Source " + index; secondary: "Ready" }
             }
         }
         footer: Button { text: "Refresh" }
