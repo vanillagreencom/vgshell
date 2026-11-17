@@ -1721,9 +1721,12 @@ PY_REVISE
   expect_log "control: a service without the next-write step drops the profile asked for inside the write" 1 'power: control dropped wanted=balanced$'
   expect "control: the daemon then holds the first profile, not the second" power-saver power_profile_get
   expect_poll "the order fixture's mark follows the daemon to the first profile" power-saver power_status_active
+  power_order_refusals="$(log_lines 'power: profile write exit=1$')" || { fail "power: the instance log is unreadable before the order fixture's refused write"; power_order_refusals=unreadable; }
   : >"$power_set_refuse"
   expect "the order fixture takes a request whose write the daemon refuses" performance ipc acme.power-order invoke profile performance
-  expect_log "control: the order fixture logs the refused write" 2 'power: profile write exit=1$'
+  if [[ $power_order_refusals != unreadable ]]; then
+    expect_log "control: the order fixture logs the refused write" "$((power_order_refusals + 1))" 'power: profile write exit=1$'
+  fi
   expect "control: with no read after a refused write the mark stays on a profile the daemon does not hold" performance power_status_active
   expect "control: the daemon still holds the first profile" power-saver power_profile_get
   unset power_id
