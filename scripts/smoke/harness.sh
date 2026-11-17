@@ -1534,10 +1534,12 @@ load_average() {
 # takes it exclusively around a timed window, so the window starts once
 # every other world's current row has ended. Linux grants a new shared
 # flock while an exclusive one waits, so a waiting hold would starve
-# behind rows that keep starting. vgs-smoke-gate stops that: a row start
-# takes the gate, then its shared lock; a hold drops its own world's
-# shared lock, then takes the gate, then the exclusive lock. In that one
-# order two worlds that both want the hold cannot deadlock. Each lock wait
+# behind rows that keep starting. A window keeps vgs-smoke-gate shared
+# while it waits for the exclusive hold. A row waits for that intent to
+# clear, drops the gate before waiting for its shared hold, then rechecks
+# intent before starting work. It yields its shared grant if another
+# window arrived meanwhile. One admission deadline bounds those yields.
+# Two windows can share intent while draining active rows. Each lock wait
 # ends at the driver's no-progress bound, qml_smoke_idle_secs, and the gate
 # is dropped then, so one paused or stuck world stalls no other world past
 # it. A row start whose gate wait reaches the bound still takes its shared
@@ -1608,27 +1610,48 @@ smoke_lock_drop() { # PID
   kill -TERM "$1" 2>/dev/null || true
   wait "$1" 2>/dev/null || true
 }
-# smoke_hold_share: this world's shared lock, taken behind the gate, its
-# holder in smoke_hold_shared. The gate only keeps a waiting hold from
-# starving, so a gate wait that reached the bound, its cause left in
-# smoke_hold_gate_cause, still takes the shared lock. Returns 1 with the
-# cause in smoke_lock_cause.
+# smoke_hold_share: ordinary admission and retake. Never keep the gate
+# while waiting for the shared hold: a window must publish intent even
+# when a row is queued behind another window. Recheck after the grant,
+# releasing it on yield, so that row cannot cause another active-row drain.
+# The cumulative gate deadline keeps a stream of windows from starving
+# rows; after it, retain the existing bounded shared-lock-only admission.
 smoke_hold_share() {
-  local gate=""
+  local gate="" deadline=$((SECONDS + qml_smoke_idle_secs)) bound=$qml_smoke_idle_secs remaining status
+  local qml_smoke_idle_secs=$qml_smoke_idle_secs
   smoke_hold_gate_cause=""
-  if smoke_lock_take -x gate; then
-    gate=$smoke_lock_pid
-  elif [[ $smoke_lock_cause == wait-bound* ]]; then
-    smoke_hold_gate_cause=$smoke_lock_cause
-  else
-    return 1
-  fi
-  if ! smoke_lock_take -s hold; then
-    [[ -z $gate ]] || smoke_lock_drop "$gate"
-    return 1
-  fi
-  smoke_hold_shared=$smoke_lock_pid
-  [[ -z $gate ]] || smoke_lock_drop "$gate"
+  while :; do
+    remaining=$((deadline - SECONDS))
+    if ((remaining > 0)); then
+      qml_smoke_idle_secs=$remaining
+      if smoke_lock_take -x gate; then
+        gate=$smoke_lock_pid
+        smoke_lock_drop "$gate"
+      elif [[ $smoke_lock_cause == wait-bound* ]]; then
+        smoke_hold_gate_cause=$smoke_lock_cause
+      else
+        return 1
+      fi
+      # Only the priority wait spends the cumulative deadline. The shared
+      # hold retains its own original wait bound when priority expires.
+      qml_smoke_idle_secs=$bound
+    else
+      smoke_hold_gate_cause="wait-bound secs=$qml_smoke_idle_secs lock=gate mode=-x"
+    fi
+    if ! smoke_lock_take -s hold; then return 1; fi
+    smoke_hold_shared=$smoke_lock_pid
+    if ((SECONDS >= deadline)); then
+      smoke_hold_gate_cause="wait-bound secs=$bound lock=gate mode=-x"
+      return 0
+    fi
+    [[ -z $smoke_hold_gate_cause ]] || return 0
+    status=0
+    flock -E 75 -n -x "$smoke_hold_dir/vgs-smoke-gate" true || status=$?
+    if ((status == 0)); then return 0; fi
+    smoke_lock_drop "$smoke_hold_shared"
+    smoke_hold_shared=""
+    if ((status != 75)); then smoke_lock_cause="gate-recheck status=$status"; return 1; fi
+  done
 }
 # smoke_hold_row begin|unwind|end NAME: smoke_row's boundary. A row that no
 # other row holds takes the shared lock as it begins, printing how long it
@@ -1671,26 +1694,27 @@ smoke_hold() { # ROW WINDOW CMD...
   smoke_hold_end
   return "$status"
 }
-# smoke_hold_begin ROW WINDOW: drop this world's shared lock, take the
-# gate, then the exclusive lock, and drop the gate. A hold whose wait
-# reached the bound leaves the window to run without it; one that cannot
-# be taken for another cause also fails ROW as an operation failure.
+# smoke_hold_begin ROW WINDOW: publish intent through the shared gate,
+# drop this world's shared hold, then drain active rows with the exclusive
+# hold. The existing gate holder owns intent for exactly this wait, so a
+# killed world's intent ends with it and no stale PID file can remain.
 smoke_hold_begin() { # ROW WINDOW
-  local gate
+  local gate=""
   smoke_hold_row_name="$1" smoke_hold_window="$2" smoke_hold_began="$(now_ms)" smoke_hold_taken="" smoke_hold_retake=false
+  if smoke_lock_take -s gate; then gate=$smoke_lock_pid; fi
+  smoke_hold_cause=$smoke_lock_cause
   if [[ -n $smoke_hold_shared ]]; then
     smoke_lock_drop "$smoke_hold_shared"
     smoke_hold_shared="" smoke_hold_retake=true
   fi
-  if smoke_lock_take -x gate; then
-    gate=$smoke_lock_pid
+  if [[ -n $gate ]]; then
     if smoke_lock_take -x hold; then
       smoke_hold_pid=$smoke_lock_pid
       smoke_hold_taken="$(now_ms)"
     fi
+    smoke_hold_cause=$smoke_lock_cause
     smoke_lock_drop "$gate"
   fi
-  smoke_hold_cause=$smoke_lock_cause
   if [[ -z $smoke_hold_pid && $smoke_hold_cause != wait-bound* ]]; then row_class=operation fail "$1: smoke-hold window=$2 unavailable cause=[$smoke_hold_cause]"; fi
 }
 # smoke_hold_end: drop the exclusive lock; print, beside the window's
@@ -1698,7 +1722,7 @@ smoke_hold_begin() { # ROW WINDOW
 # for and how long it was held; and take this world's shared lock again,
 # behind the gate, when the hold dropped it.
 smoke_hold_end() {
-  local ended
+  local ended retake_started
   ended="$(now_ms)"
   if [[ -n $smoke_hold_pid ]]; then
     smoke_lock_drop "$smoke_hold_pid"
@@ -1708,11 +1732,17 @@ smoke_hold_end() {
   else
     printf '  smoke_hold row=%s window=%s hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_hold_window" "$smoke_hold_cause"
   fi
-  if [[ $smoke_hold_retake == true ]] && ! smoke_hold_share; then
-    if [[ $smoke_lock_cause == wait-bound* ]]; then
-      printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_lock_cause"
+  if [[ $smoke_hold_retake == true ]]; then
+    retake_started="$(now_ms)"
+    if smoke_hold_share; then
+      printf 'qml-smoke: smoke-hold row=%s window=%s lock=shared phase=retake wait_ms=%s%s\n' "$smoke_hold_row_name" "$smoke_hold_window" \
+        "$(( $(now_ms) - retake_started ))" "${smoke_hold_gate_cause:+ gate=none cause=[$smoke_hold_gate_cause]}"
     else
-      row_class=operation fail "$smoke_hold_row_name: smoke-hold lock=shared unavailable after the hold cause=[$smoke_lock_cause]"
+      printf 'qml-smoke: smoke-hold row=%s window=%s lock=shared phase=retake wait_ms=%s hold=none cause=[%s]\n' \
+        "$smoke_hold_row_name" "$smoke_hold_window" "$(( $(now_ms) - retake_started ))" "$smoke_lock_cause"
+      if [[ $smoke_lock_cause != wait-bound* ]]; then
+        row_class=operation fail "$smoke_hold_row_name: smoke-hold lock=shared unavailable after the hold cause=[$smoke_lock_cause]"
+      fi
     fi
   fi
   smoke_hold_retake=false
