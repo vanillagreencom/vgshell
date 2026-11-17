@@ -78,6 +78,11 @@ fail() {
   failures=$((failures + 1))
   [[ $row_class == geometry || $row_class == render ]] || behaviour_failures=$((behaviour_failures + 1))
   printf '  FAIL  %s\n' "$*"
+  # Only the harness supplies sandbox readers; standalone verdict fixtures
+  # count failures without starting a world.
+  if declare -F smoke_failure_focus >/dev/null; then
+    smoke_failure_focus >&"${smoke_check_fd:-2}" 2>&1
+  fi
   smoke_check_secs fail "$*"
   smoke_outcome_journal
 }

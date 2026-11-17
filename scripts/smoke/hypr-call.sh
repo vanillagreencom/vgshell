@@ -24,16 +24,19 @@ hypr_bound_s=10
 # hits the bound, or that hyprctl's own read timeout ends (exit 6 with the
 # line below on stdout), is a stall: smoke_abort ends the run. A call
 # after a stall, from a subshell the harness shell has not ended yet,
-# returns 1 at once.
+# returns 1 at once. A caller's local hypr_advisory=true retains that failed
+# status without aborting the world, for observation-only reads.
 hypr() {
   local out="$sandbox/hypr-$BASHPID.out" status=0 copied=0
   [[ ! -e $sandbox/smoke-aborted ]] || return 1
   "${shell_env[@]}" timeout -k 2 "$hypr_bound_s" hyprctl -i "$signature" "$@" >"$out" || status=$?
   cat -- "$out" || copied=$?
-  if [[ $status -eq 124 || $status -eq 137 ]]; then
-    smoke_abort "the nested compositor stopped answering: hyprctl $*: no answer within ${hypr_bound_s}s"
-  elif [[ $status -eq 6 ]] && grep -qF "Hyprland IPC didn't respond in time" -- "$out"; then
-    smoke_abort "the nested compositor stopped answering: hyprctl $*: hyprctl read timed out after 5s"
+  if [[ ${hypr_advisory:-false} != true ]]; then
+    if [[ $status -eq 124 || $status -eq 137 ]]; then
+      smoke_abort "the nested compositor stopped answering: hyprctl $*: no answer within ${hypr_bound_s}s"
+    elif [[ $status -eq 6 ]] && grep -qF "Hyprland IPC didn't respond in time" -- "$out"; then
+      smoke_abort "the nested compositor stopped answering: hyprctl $*: hyprctl read timed out after 5s"
+    fi
   fi
   rm -f -- "$out"
   [[ $status -ne 0 ]] || status=$copied

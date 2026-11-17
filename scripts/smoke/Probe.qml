@@ -1669,6 +1669,73 @@ Scope {
 
     IpcHandler {
         target: "smoke"
+        // inputSurfaces is the hosts' existing raw-window registry; lock
+        // surfaces publish their content roots through CoverPresentation.
+        // AnchorTracker links reach separate overlay windows, as popupItem
+        // does, including overlays opened inside another popup.
+        function keyboardFocus(): string {
+            const windows = [];
+            const seen = [];
+            try {
+                const pending = Compositor.inputSurfaces.map(record => ({ window: record.window, identity: "" }));
+                const secure = Capabilities.covers.secureRoots;
+                for (const name of Object.keys(secure).sort())
+                    pending.push({ window: secure[name].Window.window, identity: "lock:" + name });
+                for (let i = 0; i < pending.length; i++) {
+                    const entry = pending[i];
+                    const window = entry.window;
+                    if (window === null || window === undefined) throw new Error("window-unavailable");
+                    if (seen.indexOf(window) !== -1) continue;
+                    seen.push(window);
+                    const content = window.contentItem;
+                    if (content === null || content === undefined) throw new Error("content-unavailable");
+                    // QsWindow.window names the shell proxy, whereas
+                    // Window.window names its backing QQuickWindow:
+                    // quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+                    // doc.qt.io/qt-6/qml-qtquick-window.html#window-attached-prop
+                    const proxy = content.QsWindow.window;
+                    let identity = entry.identity;
+                    if (identity === "") {
+                        if (proxy === null || proxy === undefined) throw new Error("proxy-unavailable");
+                        const owner = proxy instanceof PanelWindow ? proxy.WlrLayershell.namespace
+                            : typeof proxy.pluginId === "string" ? proxy.pluginId : root.typeName(proxy);
+                        const screen = proxy.screen === null ? "no-screen" : proxy.screen.name;
+                        identity = root.typeName(proxy) + ":" + owner + ":" + screen;
+                    }
+                    // Window.active includes transient-family activation;
+                    // activeFocusItem plus Item.activeFocus observes the
+                    // item holding keyboard focus instead of focus intent.
+                    // doc.qt.io/qt-6/qwindow.html#isActive
+                    // doc.qt.io/qt-6/qml-qtquick-window.html#activeFocusItem-prop
+                    // doc.qt.io/qt-6/qml-qtquick-item.html#activeFocus-prop
+                    const focused = window.activeFocusItem;
+                    if (focused === undefined) throw new Error("focus-unavailable");
+                    if (focused !== null && focused.activeFocus) windows.push(identity);
+                    // Item.resources contains declared non-Item windows;
+                    // children alone misses PassivePopup's own surface.
+                    // doc.qt.io/qt-6/qml-qtquick-item.html#resources-prop
+                    const items = [content];
+                    const visited = new Set();
+                    for (let j = 0; j < items.length; j++) {
+                        const item = items[j];
+                        if (visited.has(item)) continue;
+                        visited.add(item);
+                        for (const child of item.children || []) items.push(child);
+                        for (const resource of item.resources || []) items.push(resource);
+                        const tracker = item.tracker;
+                        const popup = item instanceof PopupWindow ? item
+                            : tracker === undefined || tracker === null ? null : tracker.popup;
+                        if (popup === null || popup === undefined || !popup.visible) continue;
+                        pending.push({ window: popup.contentItem.Window.window,
+                            identity: identity + "/popup:" + root.typeName(item) + ":" + j });
+                    }
+                }
+                return root.json({ status: "read", focused: windows.length > 0, windows: windows.sort() });
+            } catch (error) {
+                return root.json({ status: "unavailable", focused: windows.length > 0 ? true : null,
+                    windows: windows.sort(), reason: error.message });
+            }
+        }
         function savedFooter(hostKey: string, id: string, operation: string): string { return root.savedFooter(hostKey, id, operation); }
         function captureStageProbe(enabled: bool): string { return root.captureStageProbe(enabled); }
         function captureStageReady(): string { return root.captureStageRefresh(); }

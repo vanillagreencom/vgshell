@@ -120,6 +120,12 @@ mkdir -p -- "$units"
 harness="$repo/scripts/smoke/harness.sh"
 extract "$harness" fn:nested_input_check 'fail "nested-input: refused tool=$1 ' "$units/check.sh" || exit 1
 extract "$harness" fn:type_keys '"${shell_env[@]}" wtype "$@"' "$units/type-keys.sh" || exit 1
+extract "$harness" fn:smoke_failure_focus 'failure-focus' "$units/failure-focus.sh" || exit 1
+{
+  printf 'source "$SOURCE_REPO/scripts/smoke/verdict.sh"\n'
+  cat -- "$units/failure-focus.sh" "$units/type-keys.sh"
+} >"$units/focus-check.sh"
+extract "$harness" fn:ipc_call_last 'ipc_timeout_log' "$units/ipc-read.sh" || exit 1
 extract "$harness" fn:spawn_display 'spawn "$log" "${shell_env[@]}" "$@"' "$units/spawn-display.sh" || exit 1
 extract "$harness" fn:spawn 'setsid "$@"' "$units/spawn.sh" || exit 1
 extract "$harness" fn:write_display_client 'exec "${shell_env[@]}" "$@"' "$units/display-client.sh" || exit 1
@@ -159,7 +165,7 @@ make_world() {
 run_world() {
   local dir="$1" status=0
   env -i PATH="$dir/bin:$PATH" HOME="$dir" LC_ALL=C TMPDIR="$dir" \
-    CASE_WORDS="$4" CASE_CALL="$5" CASE_PREP="${6:-:}" CASE_DIR="$dir" UNITS="$units" timeout 15 "$BASH" -c '
+    CASE_WORDS="$4" CASE_CALL="$5" CASE_PREP="${6:-:}" CASE_DIR="$dir" UNITS="$units" SOURCE_REPO="$repo" timeout 15 "$BASH" -c '
     set -euo pipefail
     # A held drag runs its tool in a coproc, which can outlive a helper
     # that returns early; the world waits for it, so its call is recorded
@@ -206,6 +212,12 @@ run_world() {
     shell_answers() { :; }
     display_record_call() { :; }
     preview_tmux() { :; }
+    ipc() {
+      if [[ $1 == smoke && $2 == keyboardFocus ]]; then
+        printf '\''{"status":"read","focused":true,"windows":["fixture"]}\n'\''
+      else echo 10 20; fi
+    }
+    hypr() { if [[ $* == "-j activewindow" ]]; then printf "{}\n"; else echo 10 20; fi; }
     source "$UNITS/sandbox-env.sh"
     source "$UNITS/start-words.sh"
     source "$UNITS/start-env.sh"
@@ -304,6 +316,82 @@ for row in "${rule_cases[@]}"; do
     fail "rule: $want: $name: ${found:-rule_case-failed}"
   fi
 done
+
+# A failed check records current focus once, without changing its tally
+# or a later send. Missing reads retain their status, never no-focus.
+focus_case() { # NAME SHELL_JSON SHELL_STATUS WINDOW_JSON WINDOW_STATUS UNIT [PREP [PREFIX [CALL]]]
+  local name="$1" shell_read="$2" shell_status="$3" window_read="$4" window_status="$5" unit="$6" dir status prep call='fail fixture; type_keys -k Escape; [[ $failures == 1 && $behaviour_failures == 1 ]]'
+  (( $# < 9 )) || call="$9"
+  dir="$(mktemp -d "$tmp/focus-$name.XXXXXX")" || return 1
+  make_world "$dir" || return 1
+  printf -v prep 'ipc() { printf "%%s\\n" %q; return %q; }; hypr() { printf "%%s\\n" %q; return %q; }' \
+    "$shell_read" "$shell_status" "$window_read" "$window_status"
+  prep+="${7:-}"
+  status="$(run_world "$dir" "$units/check.sh" "$unit" "$(expand "$dir" 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1')" "$call" "$prep")" || return 1
+  [[ $status == 0 && ! -e $dir/fails && ! -e $dir/sandbox/required.ipc-timeout.log && ! -e $dir/sandbox/smoke-aborted ]] || return 1
+  [[ -f $dir/calls && $(<"$dir/calls") == "tool=wtype args=-k Escape display=wayland-1 runtime=$dir/rt" ]] || return 1
+  local expected
+  printf -v expected 'qml-smoke: failure-focus shell-status=%s shell=%q window-status=%s window=%q' \
+    "$shell_status" "$shell_read" "$window_status" "$window_read"
+  [[ $(<"$dir/output") == $'  FAIL  fixture\n'"${8:-}$expected" ]] || return 1
+}
+focus_cases=(
+  'none|{"status":"read","focused":false,"windows":[]}|0|{}|0'
+  'shell-layer|{"status":"read","focused":true,"windows":["layer:fixture"]}|0|{}|0'
+  'native-window|{"status":"read","focused":false,"windows":[]}|0|{"address":"0x1"}|0'
+  'unavailable|{"status":"unavailable","focused":null,"windows":[]}|0|{}|0'
+  'failed-reads|ipc-failed|1|compositor-unread|2'
+)
+for row in "${focus_cases[@]}"; do
+  IFS='|' read -r name shell_read shell_status window_read window_status <<<"$row"
+  if focus_case "$name" "$shell_read" "$shell_status" "$window_read" "$window_status" "$units/focus-check.sh"; then
+    ok "focus: $name records both readings beside one failure and sends once"
+  else
+    fail "focus: $name lost its reading or changed sending"
+  fi
+done
+
+# Exercise the real transport failure owners too: advisory reads must not
+# poison the required IPC latch or signal the harness during diagnosis.
+focus_transport_prep='; source "$UNITS/ipc-read.sh"; source "$SOURCE_REPO/scripts/smoke/hypr-call.sh";
+ipc_timeout_log="$sandbox/required.ipc-timeout.log" ipc_call_bound_s=1;
+mkdir "$sandbox/advisory-bin";
+printf "#!/bin/sh\\nexit 124\\n" >"$sandbox/advisory-bin/timeout";
+chmod 755 "$sandbox/advisory-bin/timeout";
+shell_env+=(PATH="$sandbox/advisory-bin:$PATH");
+ipc() { local status=0; ipc_call_last "$repo/bin/vgshell" "$@" || status=$?; printf "%s\\n" "$ipc_last_reply"; return "$status"; }'
+if focus_case transport-timeout '' 124 '' 124 "$units/focus-check.sh" "$focus_transport_prep" $'ipc-timeout: target=smoke function=keyboardFocus bound_s=1\n'; then
+  ok "focus: transport timeouts preserve failure tally and sending"
+else
+  fail "focus: an advisory transport timeout changed sending"
+fi
+
+# Startup and display refusal failures are observations only: no unsafe
+# query, recursive failure or extra failure count.
+if focus_case not-ready unavailable:not-ready 125 unavailable:not-ready 125 "$units/focus-check.sh" '; unset -f ipc hypr'; then
+  ok "focus: a failure before readers exist remains one failure"
+else
+  fail "focus: unavailable startup readers change the failure"
+fi
+refused_prep='; diagnose() { local -a shell_env=(env -i "XDG_RUNTIME_DIR=$CASE_DIR/host" WAYLAND_DISPLAY=wayland-1); fail fixture; };'
+if focus_case refused unavailable:nested-environment 125 unavailable:nested-environment 125 "$units/focus-check.sh" "$refused_prep" '' \
+  'diagnose; type_keys -k Escape; [[ $failures == 1 && $behaviour_failures == 1 ]]'; then
+  ok "focus: a refused display performs no diagnostic query or recursive failure"
+else
+  fail "focus: a refused display changes the failure or queries focus"
+fi
+
+# A successful send performs no diagnostic read, preserving action timing.
+pass_dir="$(mktemp -d "$tmp/passing-send.XXXXXX")" || exit 1
+make_world "$pass_dir" || exit 1
+pass_status="$(run_world "$pass_dir" "$units/check.sh" "$units/focus-check.sh" \
+  "$(expand "$pass_dir" 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1')" \
+  'type_keys -k Escape' 'ipc() { : >"$CASE_DIR/read"; }; hypr() { : >"$CASE_DIR/read"; }')"
+if [[ $pass_status == 0 && ! -e $pass_dir/read && ! -s $pass_dir/output && -f $pass_dir/calls ]]; then
+  ok "focus: a passing send performs no diagnostic read"
+else
+  fail "focus: a passing send reads focus or changes sending"
+fi
 
 # The display boundary also starts its real session on the nested socket.
 for row in "${rule_cases[@]}"; do
@@ -478,6 +566,17 @@ if source.count(old) != 1:
 out.write_text(source.replace(old, new, 1))
 PY
 }
+
+focus_mutant="$tmp/focus-mutant.sh"
+if plant "$units/focus-check.sh" "printf 'qml-smoke: failure-focus" ": 'qml-smoke: failure-focus" "$focus_mutant"; then
+  if focus_case control '{"status":"read","focused":false,"windows":[]}' 0 '{}' 0 "$focus_mutant"; then
+    fail "control: an unrecorded failure stays green"
+  else
+    ok "control: an unrecorded failure turns the no-focus case red"
+  fi
+else
+  fail "control: the unrecorded failure could not be planted"
+fi
 
 # Rule controls: NAME|rule case it turns red|OLD|NEW, planted in a copy
 # of nested_input_check; the case must go red with a wtype call. No cell

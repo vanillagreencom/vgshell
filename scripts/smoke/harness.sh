@@ -9,6 +9,26 @@ if [[ -n ${qml_smoke_attempt:-} && -r $qml_smoke_attempt/started-us ]]; then
   read -r smoke_world_started_us <"$qml_smoke_attempt/started-us"
   printf 'qml-smoke: fixed-us phase=world-start us=%s\n' "$((smoke_harness_started_us - smoke_world_started_us))"
 fi
+# Failure-time observations leave successful actions and their timing unchanged.
+# Qt's focused item set and Hyprland's active window are separate readings;
+# neither proves which client received an earlier virtual-keyboard event.
+smoke_failure_focus() {
+  local key_focus=unavailable:not-ready key_window=unavailable:not-ready key_focus_status=125 key_window_status=125
+  local ipc_advisory=true hypr_advisory=true nested_input_advisory=true
+  # Startup failures have no readers yet. A refused display prefix must
+  # never send diagnostic requests to the unowned display it names.
+  if declare -F ipc >/dev/null && declare -F hypr >/dev/null && declare -F nested_input_check >/dev/null; then
+    if nested_input_check failure-focus; then
+      key_focus_status=0 key_window_status=0
+      key_focus="$(ipc smoke keyboardFocus)" || key_focus_status=$?
+      key_window="$(hypr -j activewindow)" || key_window_status=$?
+    else
+      key_focus=unavailable:nested-environment key_window=unavailable:nested-environment
+    fi
+  fi
+  printf 'qml-smoke: failure-focus shell-status=%s shell=%q window-status=%s window=%q\n' \
+    "$key_focus_status" "$key_focus" "$key_window_status" "$key_window" >&2
+}
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
 source "$repo/scripts/smoke/tree.sh"
@@ -1860,7 +1880,9 @@ nested_input_check() { # TOOL [ENV_WORDS...], otherwise shell_env
   fi
   if [[ -z ${nested_socket:-} || -z ${rt_dir:-} || $socket != "$rt_dir/$nested_socket" || $prefix_ok != true || $instance != "${signature:-}" ]]; then
     local row_class=operation
-    fail "nested-input: refused tool=$1 socket=$socket nested=${rt_dir:-}/${nested_socket:-} prefix=$prefix_ok instance=$instance"
+    if [[ ${nested_input_advisory:-false} != true ]]; then
+      fail "nested-input: refused tool=$1 socket=$socket nested=${rt_dir:-}/${nested_socket:-} prefix=$prefix_ok instance=$instance"
+    fi
     return 1
   fi
 }
@@ -2071,7 +2093,8 @@ ipc_timeout_log="$sandbox/ipc-timeout.log"
 ipc_call_bound_s=10
 
 # ipc_call_last VGSHELL TARGET FUNCTION [ARG...]: run one IPC call and keep
-# the last stdout line in ipc_last_reply.
+# the last stdout line in ipc_last_reply. A caller's local ipc_advisory=true
+# keeps a timed-out observation from latching a required IPC failure.
 ipc_call_last() {
   local vgshell="$1" out status
   shift
@@ -2087,7 +2110,7 @@ ipc_call_last() {
   status="${status:-0}"
   if [[ $status -eq 124 || $status -eq 137 ]]; then
     printf -v out 'ipc-timeout: target=%s function=%s bound_s=%s' "$1" "$2" "$ipc_call_bound_s"
-    printf '%s\n' "$out" >>"$ipc_timeout_log"
+    if [[ ${ipc_advisory:-false} != true ]]; then printf '%s\n' "$out" >>"$ipc_timeout_log"; fi
     printf '%s\n' "$out" >&2
     # Capture's opt-in Probe observes lifetime drain and passive stages.
     # Retain them before row restoration, without another call to the server.
