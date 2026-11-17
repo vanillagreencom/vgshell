@@ -1345,6 +1345,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
+    fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "TuiArguments.js"), path.join(temp, "shell", "Commons", "TuiArguments.js"));
     fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "PageReference.js"), path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));

@@ -242,7 +242,7 @@ theme_tree() { # SHIPPED_TARGET...
   cp -- "$repo/config/shell.json" "$tree/config/"
   cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/HyprlandState.js" "$repo/shell/Core/Dispatch.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
   cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/"
-  cp -- "$repo/shell/Commons/AccountDirectories.js" "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$repo/shell/Commons/ThemeLogic.js" "$repo/shell/Commons/Tokens.js" "$repo/shell/Commons/Glass.js" "$tree/shell/Commons/"
+  cp -- "$repo/shell/Commons/AccountDirectories.js" "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/TuiArguments.js" "$repo/shell/Commons/PageReference.js" "$repo/shell/Commons/ThemeLogic.js" "$repo/shell/Commons/Tokens.js" "$repo/shell/Commons/Glass.js" "$tree/shell/Commons/"
   theme_path="$tmp/theme-path"; stubs="$tmp/stubs"; mkdir -p "$theme_path" "$stubs"
   local tool tool_bin
   for tool in bash readlink dirname mkdir flock awk git mktemp mv rm head; do

@@ -26,6 +26,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const CORE = path.join(__dirname, "..", "shell", "Core");
 const BIN = path.join(__dirname, "..", "bin");
 const LOGIC = path.join(CORE, "PluginLogic.js");
+const ARGUMENTS = path.join(__dirname, "..", "shell", "Commons", "TuiArguments.js");
 const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join("shell", "Ui", "icons", "Lucide.js")],
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
@@ -1755,6 +1756,14 @@ managerSuite(CAPABILITIES, load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
 // judge's own place in a temporary tree, beside the files it imports.
+const ARGUMENT_CONTROLS = [
+    ["at most sixteen arguments", "if (!Array.isArray(args) || args.length > ARGS_MAX)", "if (!Array.isArray(args))"],
+    ["arguments are a list", "if (!Array.isArray(args) || args.length > ARGS_MAX)", "if (args.length > ARGS_MAX)"],
+    ["an argument is a string", "typeof arg === \"string\" && arg.length > 0", "arg.length > 0"],
+    ["an argument is not empty", "typeof arg === \"string\" && arg.length > 0 && ", "typeof arg === \"string\" && "],
+    ["an argument is at most 256 characters", "Array.from(arg).length <= ARG_MAX && ", ""],
+    ["an argument holds no control character", " && !CONTROL_CHARACTER.test(arg);", ";"],
+];
 const CONTROLS = [
     ["a gone wait is matched to its run by key and run", "return row.key === key && row.run === run;", "return row.key === key;"],
     ["a gone wait of a run still awaited is logged", "logs: awaited ? [prefix + \" reason=gone \"", "logs: false ? [prefix + \" reason=gone \""],
@@ -1770,7 +1779,7 @@ const CONTROLS = [
     ["a title is required", "if (!tuiText(row.title))", "if (false)"],
     ["text is not blank", "value.trim().length > 0 && ", ""],
     ["text is at most 60 characters", "Array.from(value).length <= TUI_TEXT_MAX && ", ""],
-    ["text holds no control character", " && !CONTROL_CHARACTER.test(value);", ";"],
+    ["text holds no control character", " && !TuiArguments.CONTROL_CHARACTER.test(value);", ";"],
     ["a size is a window class", "row.size !== undefined && TUI_SIZES.indexOf(row.size) === -1", "false"],
     ["a presentation is known", "row.presentation !== undefined && TUI_PRESENTATIONS.indexOf(row.presentation) === -1", "false"],
     ["an entry is an object", "if (!isPlainObject(entry))\n        return at + \".entry must be an object\";", "if (false)\n        return at + \".entry must be an object\";"],
@@ -1816,12 +1825,6 @@ const CONTROLS = [
     ["an absent size is default", "size: row.size === undefined ? \"default\" : row.size", "size: row.size"],
     ["an absent presentation is full", "presentation: row.presentation === undefined ? \"full\" : row.presentation", "presentation: row.presentation"],
     ["an absent entry is null", "entry: row.entry === undefined ? null : clone(row.entry)", "entry: row.entry"],
-    ["at most sixteen arguments", "if (!Array.isArray(args) || args.length > TUI_ARGS_MAX)", "if (!Array.isArray(args))"],
-    ["arguments are a list", "if (!Array.isArray(args) || args.length > TUI_ARGS_MAX)", "if (args.length > TUI_ARGS_MAX)"],
-    ["an argument is a string", "typeof arg === \"string\" && arg.length > 0", "arg.length > 0"],
-    ["an argument is not empty", "typeof arg === \"string\" && arg.length > 0 && ", "typeof arg === \"string\" && "],
-    ["an argument is at most 256 characters", "Array.from(arg).length <= TUI_ARG_MAX && ", ""],
-    ["an argument holds no control character", " && !CONTROL_CHARACTER.test(arg);", ";"],
     ["edit refuses a parent path", "if (path.split(\"/\").indexOf(\"..\") !== -1)", "if (false)"],
     ["edit refuses a bad line", "if (!/^[1-9][0-9]*$/.test(text))", "if (false)"],
     ["run opens only a declared script", "if (typeof name !== \"string\" || !hasOwn(manifest.tui, name))", "if (false)"],
@@ -1943,24 +1946,30 @@ try {
         fs.mkdirSync(path.dirname(path.join(temp, relative)), { recursive: true });
         fs.symlinkSync(source, path.join(temp, relative));
     }
-    const source = fs.readFileSync(LOGIC, "utf8");
-    for (const [label, needle, replacement, loadRefusal] of CONTROLS) {
+    const logicSource = fs.readFileSync(LOGIC, "utf8");
+    const argumentSource = fs.readFileSync(ARGUMENTS, "utf8");
+    const logicCopy = path.join(temp, "shell", "Core", "PluginLogic.js");
+    const argumentCopy = path.join(temp, "shell", "Commons", "TuiArguments.js");
+    const controls = CONTROLS.map(row => [logicCopy, logicSource, ...row])
+        .concat(ARGUMENT_CONTROLS.map(row => [argumentCopy, argumentSource, ...row]));
+    for (const [file, source, label, needle, replacement, loadRefusal] of controls) {
         const count = source.split(needle).length - 1;
         if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
-        const mutant = path.join(temp, "shell", "Core", "PluginLogic.js");
-        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        fs.writeFileSync(logicCopy, logicSource);
+        fs.writeFileSync(argumentCopy, argumentSource);
+        fs.writeFileSync(file, source.replace(needle, () => replacement));
         // A control whose rule the shipped CORE_TUIS table reaches when the
         // file loads names the refusal coreTuiTable throws; the load is its
         // red.
         if (loadRefusal !== undefined) {
             let thrown = "loaded";
-            try { load(mutant); } catch (e) { thrown = e.message; }
+            try { load(logicCopy); } catch (e) { thrown = e.message; }
             report("control: the shipped table refuses to load without the rule: " + label, thrown, loadRefusal);
             continue;
         }
         // Loaded outside the try, so a copy that does not evaluate fails the
         // suite instead of passing for a control.
-        const ctx = load(mutant);
+        const ctx = load(logicCopy);
         let red = 0;
         try {
             suite(ctx, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });

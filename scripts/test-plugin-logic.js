@@ -3752,7 +3752,7 @@ const CONTROLS = [
     ["a requirement purpose is a string", "typeof requirement.purpose !== \"string\" || ", ""],
     ["a requirement purpose is not blank", "requirement.purpose.trim().length === 0 || ", ""],
     ["a requirement purpose is at most 120 characters", "Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || ", ""],
-    ["a requirement purpose holds no control character", " || CONTROL_CHARACTER.test(requirement.purpose))", ")"],
+    ["a requirement purpose holds no control character", " || TuiArguments.CONTROL_CHARACTER.test(requirement.purpose))", ")"],
     ["an absent requirement packages is normalized", "packages: entry.packages === undefined ? {} : clone(entry.packages)", "packages: clone(entry.packages)"],
     ["an absent requirement optional is normalized", "optional: entry.optional === true", "optional: entry.optional"],
     ["a requirement's normalized identity is its name", "return { name: requirementName(entry), title:", "return { name: entry.command, title:"],
@@ -4066,6 +4066,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
+    fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "TuiArguments.js"), path.join(temp, "shell", "Commons", "TuiArguments.js"));
     fs.symlinkSync(PAGE_REFERENCE, path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));

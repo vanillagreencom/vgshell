@@ -576,7 +576,7 @@ product_fixture() {
   for file in bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-check-manifests.js scripts/check-plugin-boundary.py \
       shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js \
       shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js \
-      shell/Commons/SettingValues.js shell/Commons/PageReference.js; do
+      shell/Commons/SettingValues.js shell/Commons/PageReference.js shell/Commons/TuiArguments.js; do
     mkdir -p -- "$dir/$(dirname -- "$file")"
     cp -- "$repo/$file" "$dir/$file"
   done

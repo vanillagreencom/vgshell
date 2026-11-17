@@ -49,14 +49,6 @@ var SUMMARY_SCHEMA = "vsys.summary.v2";
 var SUMMARY_LEVELS = ["ok", "warn", "danger"];
 // A summary row names at most this many programs of its cause.
 var MAX_PROGRAMS = 3;
-// The arguments shell.tui.run takes after a script, as the core judges
-// them (shell/Core/PluginLogic.js tuiArgsValid, which judges them again at
-// the press): at most OPEN_ARGS_MAX strings, each 1 to OPEN_ARG_MAX
-// characters with no control character. scripts/test-agent-warden-logic.js
-// holds this copy to the core's answers.
-var OPEN_ARGS_MAX = 16;
-var OPEN_ARG_MAX = 256;
-var OPEN_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 // N with the noun for one or for many: "1 agent", "3 agents".
 function plural(n, one, many) {
@@ -304,13 +296,10 @@ function isObject(v) {
     return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-// Whether OPEN may follow the vsys TUI's script: a list shell.tui.run
-// takes, OPEN_ARGS_MAX and OPEN_ARG_MAX above.
+// A summary or action must supply its list; the launcher also accepts a
+// missing list as no arguments.
 function openValid(open) {
-    if (!Array.isArray(open) || open.length > OPEN_ARGS_MAX) return false;
-    return open.every(function (arg) {
-        return typeof arg === "string" && arg.length > 0 && Array.from(arg).length <= OPEN_ARG_MAX && !OPEN_CONTROL.test(arg);
-    });
+    return open !== undefined && Commons.TuiArguments.valid(open);
 }
 
 // The program names of a cause's PROCESSES, each once in first order, or

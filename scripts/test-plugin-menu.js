@@ -290,6 +290,7 @@ try {
     fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
+    fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "TuiArguments.js"), path.join(temp, "shell", "Commons", "TuiArguments.js"));
     fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "PageReference.js"), path.join(temp, "shell", "Commons", "PageReference.js"));
     const source = fs.readFileSync(LOGIC, "utf8");
     for (const [label, needle, replacement] of CONTROLS) {

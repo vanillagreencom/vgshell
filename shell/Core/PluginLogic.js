@@ -1,6 +1,7 @@
 .pragma library
 .import "ConfigLogic.js" as ConfigLogic
 .import "../Commons/SettingValues.js" as SettingValues
+.import "../Commons/TuiArguments.js" as TuiArguments
 .import "../Ui/icons/Lucide.js" as Lucide
 .import "PackageManagers.js" as PackageManagers
 .import "PackageReview.js" as PackageReview
@@ -171,8 +172,6 @@ var REQUIREMENT_FLOOR = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9
 // dotted numbers, whatever names the program before them (`tool 1.2.3`) or
 // marks a pre-release after them (`1.2.3-rc1`).
 var VERSION_IN_LINE = /(?:^|[^0-9.])([0-9]{1,6})\.([0-9]{1,6})\.([0-9]{1,6})(?![0-9])/;
-// A purpose is one printable line: no C0 or C1 control character.
-var CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 
 
@@ -2566,7 +2565,7 @@ function requirementsError(requirements) {
             if (requirement.command === undefined || requirement.optional !== true)
                 return at + ".drmDriver needs an optional command";
         }
-        if (typeof requirement.purpose !== "string" || requirement.purpose.trim().length === 0 || Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || CONTROL_CHARACTER.test(requirement.purpose))
+        if (typeof requirement.purpose !== "string" || requirement.purpose.trim().length === 0 || Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || TuiArguments.CONTROL_CHARACTER.test(requirement.purpose))
             return at + ".purpose must be one printable line of 1 to " + REQUIREMENT_PURPOSE_MAX + " characters";
         if (!hintFits(requirement.purpose))
             return at + ".purpose" + HINT_RULE;
@@ -3392,10 +3391,6 @@ var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
 var TUI_TEXT_MAX = 60;
 var TUI_SCRIPT = /^tui(\/[A-Za-z0-9_][A-Za-z0-9._-]*)+$/;
-// The arguments shell.tui.run hands a plugin's script: at most TUI_ARGS_MAX
-// strings, each 1 to TUI_ARG_MAX characters with no control character.
-var TUI_ARGS_MAX = 16;
-var TUI_ARG_MAX = 256;
 // The exit status bin/vgshell-tui launch and check give when xdg-terminal-exec
 // is not on PATH, their `terminal=missing` refusal.
 var TUI_LAUNCHER_MISSING = 69;
@@ -3626,7 +3621,7 @@ function tuiShownAnswer(key, answer) {
 
 // One printable line of 1 to TUI_TEXT_MAX characters.
 function tuiText(value) {
-    return typeof value === "string" && value.trim().length > 0 && Array.from(value).length <= TUI_TEXT_MAX && !CONTROL_CHARACTER.test(value);
+    return typeof value === "string" && value.trim().length > 0 && Array.from(value).length <= TUI_TEXT_MAX && !TuiArguments.CONTROL_CHARACTER.test(value);
 }
 
 // The first defect of a manifest's `tui` key, or "": an object of at least
@@ -3671,7 +3666,7 @@ function tuiError(tui, capabilities, requirements) {
         // so two names can open one script for two purposes, such as Add
         // key and the voice's Add a key, with no second script.
         if (row.args !== undefined && (!Array.isArray(row.args) || row.args.length === 0 || !tuiArgsValid(row.args)))
-            return at + ".args must be a non-empty list of at most " + TUI_ARGS_MAX + " printable arguments";
+            return at + ".args must be a non-empty list of at most " + TuiArguments.ARGS_MAX + " printable arguments";
         if (row.entry === undefined)
             continue;
         var entryError = tuiEntryError(at, row.entry);
@@ -3757,7 +3752,7 @@ function coreTuiError(name, row) {
     if (!Array.isArray(row.argv) || typeof row.argv[0] !== "string" || !CORE_TUI_COMMAND.test(row.argv[0]))
         return at + ".argv must start with a command of the core's bin/ directory, got " + JSON.stringify(row.argv);
     if (!tuiArgsValid(row.argv.slice(1)))
-        return at + ".argv takes at most " + TUI_ARGS_MAX + " arguments of 1 to " + TUI_ARG_MAX + " characters with no control character";
+        return at + ".argv takes at most " + TuiArguments.ARGS_MAX + " arguments of 1 to " + TuiArguments.ARG_MAX + " characters with no control character";
     var windowError = tuiWindowError(at, row);
     if (windowError !== "")
         return windowError;
@@ -3862,17 +3857,10 @@ function ipcCallRefusal(name, arg) {
     return typeof arg === "string" ? "" : "refused: ipc=" + name + " arg=not-a-string";
 }
 
-// Whether ARGS may follow a plugin's script: absent, or a list of at most
-// TUI_ARGS_MAX strings, each 1 to TUI_ARG_MAX characters with no control
-// character.
+// Keep the core's entry point for every TUI caller; plugins use the same
+// judge through qs.Commons.
 function tuiArgsValid(args) {
-    if (args === undefined)
-        return true;
-    if (!Array.isArray(args) || args.length > TUI_ARGS_MAX)
-        return false;
-    return args.every(function (arg) {
-        return typeof arg === "string" && arg.length > 0 && Array.from(arg).length <= TUI_ARG_MAX && !CONTROL_CHARACTER.test(arg);
-    });
+    return TuiArguments.valid(args);
 }
 
 // The control characters `vgshell edit` refuses in a path, U+0000 to

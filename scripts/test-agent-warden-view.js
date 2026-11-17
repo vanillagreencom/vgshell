@@ -20,6 +20,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const modules = { "qs.Commons 1.0": {
+    TuiArguments: load(path.join(__dirname, "..", "shell", "Commons", "TuiArguments.js")),
     Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")),
     TextList: load(path.join(__dirname, "..", "shell", "Commons", "TextList.js"))
 } };
@@ -393,9 +394,8 @@ const CONTROLS = [
     ["any level is read", "if (cause.level !== null && SUMMARY_LEVELS.indexOf(cause.level) === -1) return", "if (false) return"],
     ["a cause without a title is read", "if (typeof cause.title !== \"string\" || cause.title === \"\") return", "if (false) return"],
     ["a cause without processes is read", "if (!isObject(p) || typeof p.name !== \"string\") return null;", ""],
-    ["any open list is read", "if (!Array.isArray(open) || open.length > OPEN_ARGS_MAX) return false;", "if (!Array.isArray(open)) return false;"],
-    ["a control character reaches vsys", "&& !OPEN_CONTROL.test(arg)", ""],
-    ["a long argument reaches vsys", "Array.from(arg).length <= OPEN_ARG_MAX", "true"],
+    ["a missing open list is read", "open !== undefined && Commons.TuiArguments.valid(open)", "Commons.TuiArguments.valid(open)"],
+    ["an open list bypasses the shared judge", "Commons.TuiArguments.valid(open)", "true"],
     ["a row names a program twice", "names.indexOf(p.name) === -1", "true"],
     ["a row names a process id", "names.push(p.name);", "names.push(p.name + \" \" + p.pid);"],
     ["a row names every program", "var names = cause.names.slice(0, MAX_PROGRAMS);", "var names = cause.names.slice();"],

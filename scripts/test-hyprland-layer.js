@@ -2621,6 +2621,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Commons", "SettingValues.js"), path.join(temp, "shell", "Commons", "SettingValues.js"));
+    fs.symlinkSync(path.join(__dirname, "..", "shell", "Commons", "TuiArguments.js"), path.join(temp, "shell", "Commons", "TuiArguments.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"), path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
