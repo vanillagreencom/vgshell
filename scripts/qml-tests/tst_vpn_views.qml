@@ -276,6 +276,8 @@ Item {
             remove(root.office);
             publish(root.payload(root.standIn, { problem: Logic.problem("profile-remove", "Office VPN", 1) }));
             verify(named("vpn-problem") !== null, "the problem line shows");
+            verify(named("vpn-problem") instanceof Callout);
+            compare(named("vpn-problem").tone, "danger");
             compare(find(view, item => "removingUuid" in item).removingUuid, "");
         }
 

@@ -598,23 +598,25 @@ FocusScope {
                 header: [
                     Repeater {
                         model: page.row === null ? [] : page.row.errors
-                        LinkText {
+                        Callout {
                             required property string modelData
-                            role: "hint"
+                            level: "raised"
                             text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutText)
-                            color: Theme.color[Steps.problemTone([modelData])]
+                            tone: Steps.problemTone([modelData])
                             width: body.width
-                            wrapMode: Text.Wrap
                             onPageActivated: (id, tab) => page.panel.openPage(id, tab)
                         }
                     },
-                    Label {
-                        role: "hint"
-                        text: page.row === null ? "" : page.panel.headReplies(page.row.id).join("\n")
-                        visible: text !== ""
-                        color: Theme.color.danger
-                        width: body.width
-                        wrapMode: Text.Wrap
+                    Repeater {
+                        model: page.row === null ? [] : page.panel.headReplies(page.row.id)
+                        Callout {
+                            required property string modelData
+                            level: "raised"
+                            tone: "danger"
+                            text: modelData
+                            width: body.width
+                            onPageActivated: (id, tab) => page.panel.openPage(id, tab)
+                        }
                     }
                 ]
                 warningTabs: page.setupNeeded ? ["Setup"] : []

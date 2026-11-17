@@ -221,9 +221,10 @@ assert.throws(() => promptDescriptionSuite(body.replace('Accessible.description:
 console.log("network-logic: control=dialog description names network red");
 function promptReasonSuite(serviceSource, bodySource) {
     const failed = serviceSource.match(/function failed\(n, reason\) \{[\s\S]*?\n    \}/);
-    const hint = bodySource.match(/objectName: "network-problem"[\s\S]*?visible: ([^\n]*)/);
+    const hint = bodySource.match(/Callout \{\s*objectName: "network-problem"[\s\S]*?visible: ([^\n]*)/);
     const message = bodySource.match(/objectName: "network-prompt-reason"[\s\S]*?text: ([^\n]*)/);
     assert.ok(failed && hint && message);
+    assert.match(bodySource, /objectName: "network-problem"[^}]*tone: "danger"/);
     const visible = new Function("text", "root", "return " + hint[1]);
     const reasonText = new Function("root", "return " + message[1]);
     for (const known of [true, false]) {
@@ -244,6 +245,9 @@ function promptReasonSuite(serviceSource, bodySource) {
     }
 }
 promptReasonSuite(service, body);
+const problemTone = 'tone: "danger"\n            text: root.localProblem || root.network.problem || ""';
+assert.equal(body.split(problemTone).length, 2, "control: one network notice tone binding");
+assert.throws(() => promptReasonSuite(service, body.replace(problemTone, problemTone.replace('"danger"', '"warning"'))));
 assert.throws(() => promptReasonSuite(service, body.replace('visible: text !== "" && !root.prompting', 'visible: text !== ""')));
 assert.throws(() => promptReasonSuite(service, body.replace('text: root.network.problem || ""', 'text: ""')));
 const firstTimeReason = service.replace(/(problem = pending\.known \? [^\n]* : )"";/, '$1"unexpected-reason";');

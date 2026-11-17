@@ -114,14 +114,13 @@ FocusScope {
         width: root.width
         spacing: Theme.stack.group
 
-        Label {
+        Callout {
             objectName: "tailscale-exit-problem"
+            level: root.inlineCountries ? "raised" : "base"
             width: parent.width
             visible: text !== ""
-            role: "hint"
-            color: Theme.color.danger
+            tone: "danger"
             text: root.problem
-            wrapMode: Text.Wrap
         }
         DeviceList {
             id: topList

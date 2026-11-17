@@ -128,13 +128,13 @@ FocusScope {
                 width: layout.contentWidth
                 spacing: Theme.stack.group
 
-                Label {
-                    role: "hint"
+                Callout {
+                    objectName: "plugins-notice"
+                    level: "raised"
                     text: page.panel.notice
                     visible: text !== ""
-                    color: Theme.color.warning
+                    tone: "danger"
                     width: parent.width
-                    wrapMode: Text.Wrap
                 }
                 TextField {
                     id: search

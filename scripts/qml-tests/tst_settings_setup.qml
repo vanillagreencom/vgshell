@@ -433,9 +433,8 @@ Item {
             ignoreWarning(new RegExp("^settings: acme\\.optional/\\S+ " + installFailure + "$"));
             mouseClick(review);
             verify(field.error !== "", "the install's refusal reads under Review");
-            const head = descendants(pageOf(window)).filter(item => item instanceof Label && item.visible && item.text !== "" && Qt.colorEqual(item.color, Theme.color.danger) && !descendants(tabsOf(window).currentPage).includes(item));
-            compare(head.length, 1, "the page head draws one refusal line");
-            compare(head[0].text.split("\n").filter(line => line !== "").length, 3, "the page head shows each of the three refusals once");
+            const head = descendants(pageOf(window)).filter(item => item instanceof Callout && item.visible && !descendants(tabsOf(window).currentPage).includes(item));
+            compare(head.map(item => item.tone), ["danger", "danger", "danger"], "the page head draws one banner per refusal");
         }
         // While the plugin is off, a Details fact that declares an action
         // offers Turn on in its place.

@@ -86,8 +86,9 @@ Item {
             const tabs = descendants(page).find(item => item instanceof TabPages);
             tabs.currentIndex = data.tab;
             verify(renderedFrame(page));
-            const line = descendants(page).find(item => item.text === Reply.line(root.startError));
+            const line = descendants(page).find(item => item instanceof Callout && item.visible);
             verify(line !== undefined, "the existing problem line is drawn");
+            compare(line.tone, "danger");
             const barBottom = tabs.tabs.mapToItem(page, 0, tabs.tabs.height).y;
             const lineTop = line.mapToItem(page, 0, 0).y;
             fuzzyCompare(lineTop, barBottom + Theme.stack.section, 1, "problem content starts at the normal tab gap");
@@ -95,7 +96,7 @@ Item {
             const contentTop = tabs.currentPage.mapToItem(page, 0, 0).y;
             fuzzyCompare(contentTop, lineTop + line.height + Theme.stack.page, 1, "content follows the visible problem without a blank band");
             const image = grabImage(page);
-            const color = Qt.color(Theme.color.danger);
+            const color = Qt.color(line.color);
             const at = line.mapToItem(page, 0, 0);
             let ink = 0;
             for (let y = Math.ceil(at.y); y < Math.min(image.height, at.y + line.height); y++)
@@ -103,7 +104,7 @@ Item {
                     if (Math.abs(image.red(x, y) - color.r * 255) < 12
                         && Math.abs(image.green(x, y) - color.g * 255) < 12
                         && Math.abs(image.blue(x, y) - color.b * 255) < 12) ink++;
-            verify(ink > 0, "the error text is visible in the rendered page, not behind the opaque cover");
+            verify(ink > 0, "the notice is visible in the rendered page, not behind the opaque cover");
         }
         function problemBadge(list) {
             return descendants(list).find(item => item instanceof Badge && item.visible && item.text === "1");

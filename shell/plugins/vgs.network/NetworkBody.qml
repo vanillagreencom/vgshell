@@ -347,14 +347,13 @@ FocusScope {
                 onClicked: root.action("check-connectivity", null)
             }
         }
-        LinkText {
+        Callout {
             objectName: "network-problem"
+            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== "" && !root.prompting
-            role: "hint"
-            color: Theme.color.danger
+            tone: "danger"
             text: root.localProblem || root.network.problem || ""
-            wrapMode: Text.Wrap
             onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
         }
         Label {

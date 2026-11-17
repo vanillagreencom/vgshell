@@ -71,12 +71,20 @@ Item {
         switchName: "Bluetooth"
         onSwitchToggled: checked => power.setPower(checked)
 
+        Callout {
+            objectName: "bluetooth-power-problem"
+            level: "base"
+            width: layout.contentWidth
+            visible: text !== ""
+            tone: "danger"
+            text: power.line.error
+        }
+
         Label {
             width: layout.contentWidth
             visible: text !== ""
             role: "hint"
-            text: power.line.hint !== "" ? power.line.hint : power.line.error
-            color: power.line.error !== "" ? Theme.color.danger : Theme.text.hint.color
+            text: power.line.hint
             wrapMode: Text.Wrap
         }
 

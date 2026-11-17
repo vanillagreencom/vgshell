@@ -442,14 +442,13 @@ FocusScope {
             text: root.tailscale.text
             wrapMode: Text.Wrap
         }
-        Label {
+        Callout {
             objectName: "tailscale-problem"
+            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== ""
-            role: "hint"
-            color: Theme.color.danger
+            tone: "danger"
             text: root.problemText
-            wrapMode: Text.Wrap
         }
         Label {
             id: setupHint

@@ -61,13 +61,13 @@ FocusScope {
         width: root.width
         spacing: Theme.stack.group
 
-        Label {
+        Callout {
+            objectName: "packages-problem"
+            level: "raised"
             width: parent.width
-            role: "hint"
             text: root.problem
-            color: Theme.color.danger
+            tone: "danger"
             visible: text !== ""
-            wrapMode: Text.Wrap
         }
 
         Section {

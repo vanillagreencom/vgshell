@@ -480,7 +480,12 @@ tailscale_shown_of() {
   drawn="$(tailscale_drawn "$@")" || return 1
   case "$drawn" in hidden|absent) echo "$drawn" ;; *) echo shown ;; esac
 }
-tailscale_label() { tailscale_drawn panel Label "$1"; }
+tailscale_label() {
+  case "$1" in
+    tailscale-problem|tailscale-exit-problem) tailscale_drawn panel Callout "$1" ;;
+    *) tailscale_drawn panel Label "$1" ;;
+  esac
+}
 tailscale_title() { ipc smoke paneHeader panel vgs.tailscale | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["title"]))'; }
 # tailscale_rows_of TYPE:NAME...: `shown` or `hidden` for each, as one list.
 tailscale_rows_of() {
@@ -1300,6 +1305,7 @@ tailscale_device_menu "attic-nas's menu opens on Star with no terminal" '["Star"
 tailscale_key Down
 tailscale_key Return
 expect_poll "with no terminal launcher Connect leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
+expect "the launcher-missing notice has the danger tone" '"danger"' ipc smoke readMatchingDescendant panel vgs.tailscale Callout objectName tailscale-problem tone
 expect_poll "the launcher's exit 69 records the terminal missing" '"missing"' lent tui.launcher
 cp -- "$sandbox/tailscale-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 tailscale_device_menu "attic-nas's menu opens on Star again" '["Star", "Connect in terminal", "Copy"]' "Star"
@@ -1424,6 +1430,7 @@ tailscale_key Down
 expect_poll "Down reaches the offline gateway" '["DeviceRow","gateway"]' tailscale_focus
 tailscale_key Return
 expect_poll "the offline node is refused with its sentence" '["This exit node is offline."]' tailscale_label tailscale-exit-problem
+expect "the offline exit notice has the danger tone" '"danger"' ipc smoke readMatchingDescendant panel vgs.tailscale Callout objectName tailscale-exit-problem tone
 expect "the refused node leaves the Exit nodes view open" '"exit-nodes"' tailscale_view
 expect "no set reaches the stand-in for the offline node" '[]' tailscale_changes "$tailscale_calls_mark"
 tailscale_key Up

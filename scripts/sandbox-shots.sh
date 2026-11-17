@@ -682,6 +682,7 @@ while [[ $# -gt 0 ]]; do
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
     notification-limits) scenes+=("$1"); shift ;;
+    notice-banners) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|updates-flyout|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -841,6 +842,7 @@ fi
 ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
 scene_ships() {
   case $1 in
+    notice-banners) ships_plugin vgs.settings vgs.system vgs.packages vgs.network vgs.vpn vgs.tailscale vgs.bluetooth vgs.updates vgs.windows ;;
     restart-owed) [[ -f $tree/shell/Hosts/NoticeHost.qml && -f $tree/shell/Core/Registry.qml ]] ;;
     font-rewrite) scene_ships restart-owed && [[ -f $tree/shell/assets/fonts/InterVariable.ttf && -f $tree/shell/assets/fonts/JetBrainsMono-Variable.ttf ]] ;;
     sysmon) ships_plugin vgs.sysmon vgs.settings ;;
@@ -9060,8 +9062,8 @@ DNSCAPTURES
       expect_poll "DNS $dns_case: the notice choice list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen
       type_keys -k Home -k Down -k Down -k Return
       expect_poll "DNS $dns_case: the default choice has an explanation" true network_shot_dns_problem
-      dns_notice="$(ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(json.load(sys.stdin))')"
-      ipc smoke revealText window vgs.system LinkText "$dns_notice" >/dev/null || fail "DNS $dns_case: the notice did not scroll into view"
+      dns_notice="$(ipc smoke readMatchingDescendant window vgs.network Callout objectName network-problem text | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+      ipc smoke revealText window vgs.system Callout "$dns_notice" >/dev/null || fail "DNS $dns_case: the notice did not scroll into view"
       park_pointer
       take "network-$1-dns-$dns_case-default-notice"
     done
@@ -10721,7 +10723,7 @@ network_shot_panel() {
 }
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
-network_shot_dns_problem() { ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
+network_shot_dns_problem() { ipc smoke readMatchingDescendant window vgs.network Callout objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 network_shot_action() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["action"]["kind"])'; }
 network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["network"]["prompt"]))'; }
@@ -12235,6 +12237,70 @@ done
 shots_vsys_title='1 group is near the memory threshold'
 for scene in "${setups[@]}"; do
   case $scene in
+    notice-banners)
+      # Plant refused results in the disposable product tree. The real
+      # callers, their containers and their routing remain the renderer.
+      python3 - "$repo" <<'PYBANNERS'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+def edit(name, old, new):
+    path = root / name
+    assert not path.is_symlink()
+    source = path.read_text()
+    assert source.count(old) == 1, (name, old, source.count(old))
+    path.write_text(source.replace(old, new))
+def method(plugin, entry, code):
+    edit(f"shell/plugins/{plugin}/{entry}.qml", "    id: root\n", "    id: root\n" + code + "\n")
+method("vgs.settings", "Window", '''
+    property var bannerShotHeads: []
+    property string bannerShotText: ""
+    function bannerShot(state) {
+        bannerShotHeads = [];
+        if (state === "list") { showList(Qt.OtherFocusReason); notice = "No plugin named Calendar is available."; }
+        else {
+            openPlugin("vgs.launcher", Qt.OtherFocusReason, "Settings");
+            if (state === "problems") {
+                detail.row = Object.assign({}, detail.row, { errors: ["hyprland: SUPER+COMMA for vgs.launcher:toggle skipped: already bound by vgs.settings"] });
+                bannerShotText = Reply.line(detail.row.errors[0], plugins, ShortcutLabels.shortcutText);
+            }
+            if (state === "refusals") bannerShotHeads = ["Could not save this change. Try again.", "Could not open the tool install notice.", "Could not retry the setup step."];
+        }
+        return state;
+    }''')
+edit("shell/plugins/vgs.settings/Window.qml", "    function headReplies(id) {", "    function headReplies(id) {\n        if (bannerShotHeads.length) return bannerShotHeads;")
+for plugin in ("vgs.packages", "vgs.system"):
+    method(plugin, "Pane" if plugin == "vgs.packages" else "Window", '    function bannerShot(state) { ' + ('problem' if plugin == "vgs.packages" else 'notice') + ' = state; return state; }')
+for plugin in ("vgs.network", "vgs.tailscale"):
+    method(plugin, "Pane", '    function bannerShot(state) { body.localProblem = state; return state; }')
+method("vgs.bluetooth", "Panel", '    function bannerShot(state) { power.shell = null; power.problem = state; return state; }')
+method("vgs.tailscale", "Panel", '''
+    function bannerShot(state) {
+        if (state === "exit") { choosing = true; chooser.problem = "This exit node is offline."; }
+        else { choosing = false; body.localProblem = "Could not connect. Try again."; }
+        return state;
+    }''')
+method("vgs.vpn", "Pane", '    function bannerShot(state) { return body.bannerShot(state); }')
+method("vgs.vpn", "VpnBody", '''
+    function bannerShot(state) {
+        localProblem = state === "problem" ? "Could not connect. Try again." : "";
+        nordSection.bannerShotProblem = state === "problem" ? "" : "Could not load NordVPN locations. Try again.";
+        nordSection.opened = state === "nord-dialog";
+        if (nordSection.opened) Qt.callLater(nordSection.revealPicker);
+        return state;
+    }''')
+edit("shell/plugins/vgs.vpn/VpnBody.qml", '            visible: root.expanded && root.listed\n            shell: root.shell\n            requestProblem:', '            visible: root.expanded\n            shell: root.shell\n            requestProblem:')
+edit("shell/plugins/vgs.vpn/NordSection.qml", '    readonly property string problem: opened && requestProblem !== "" ? requestProblem : state.problem || ""', '    property string bannerShotProblem: ""\n    readonly property string problem: bannerShotProblem || (opened && requestProblem !== "" ? requestProblem : state.problem || "")')
+method("vgs.updates", "Window", '''
+    property var bannerShotOutcome: null
+    function bannerShot(state) { bannerShotOutcome = { ended: state, text: state === "stopped" ? "The update run was stopped." : "The update run failed. Open the last log for details." }; return state; }''')
+edit("shell/plugins/vgs.updates/Window.qml", "readonly property var outcome: values.lastRun ?? null", "readonly property var outcome: bannerShotOutcome ?? values.lastRun ?? null")
+edit("shell/plugins/vgs.updates/Window.qml", "        refresh();", "")
+edit("shell/plugins/vgs.windows/Pane.qml", '    readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""\n        ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1\n            ? layerGlass.observed.reason : ""', '    readonly property string layerGlassProblem: "VGlass could not load. Try rebuilding it."')
+PYBANNERS
+      tree_rescan "the notice banner capture states are scanned"
+      for id in vgs.settings vgs.system; do expect "the banner capture enables $id" ok ipc shell setPluginEnabled "$id" true; done
+      close_notices ;;
     updates-flyout)
       # Keep refresh admission and every external package tool out of this
       # visual fixture; the service still owns the published status provider.
@@ -13724,6 +13790,119 @@ scene_packages() { # MODE
     expect "vgs.updates returns to off after Packages" ok ipc shell setPluginEnabled vgs.updates false
     expect_poll "vgs.updates is off after Packages" False plugin_enabled vgs.updates
   fi
+}
+
+# The page notices and the carried Callout callers, each in the real page
+# with a refused result planted by notice-banners' disposable setup.
+notice_banner_read() { # HOST ID TYPE KEY VALUE PROPERTY
+  ipc smoke readMatchingDescendant "$@"
+}
+notice_banner_type() { # FILE OBJECT_NAME OLD_TYPE
+  python3 - "$tree/$1" "$2" "$3" <<'PYTYPE'
+import re, sys
+from pathlib import Path
+source = Path(sys.argv[1]).read_text()
+print("Callout" if re.search(r'Callout\s*\{\s*objectName:\s*"' + re.escape(sys.argv[2]) + '"', source) else sys.argv[3])
+PYTYPE
+}
+notice_banner_take() { # MODE NAME HOST ID TYPE TEXT
+  local mode="$1" name="$2" host="$3" id="$4" type="$5" text="$6"
+  expect_poll "the $name message is visible" true notice_banner_read "$host" "$id" "$type" text "$text" visible
+  park_pointer
+  take "notice-banners-$mode-$name"
+}
+scene_notice-banners() { # MODE
+  local mode="$1" state type=Label
+  expect "Plugins opens for its notices" ok ipc shell summon window vgs.settings '{}'
+  expect_poll "Plugins maps for its notices" 1 settings_count
+  for state in problems refusals list; do
+    expect "Plugins plants its $state state" "$state" ipc smoke invokeInstance window vgs.settings bannerShot "$state"
+    case $state in
+      problems) type=LinkText; tree_has shell/plugins/vgs.settings/PluginPage.qml 'tone: Steps.problemTone([modelData])' && type=Callout
+        local problem_text
+        problem_text="$(ipc smoke readInstance window vgs.settings bannerShotText | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return 1
+        notice_banner_take "$mode" plugin-problem window vgs.settings "$type" "$problem_text" ;;
+      refusals) type=Label; tree_has shell/plugins/vgs.settings/PluginPage.qml 'model: page.row === null ? [] : page.panel.headReplies(page.row.id)' && type=Callout
+        local refusals=$'Could not save this change. Try again.\nCould not open the tool install notice.\nCould not retry the setup step.'
+        [[ $type != Callout ]] || refusals='Could not save this change. Try again.'
+        notice_banner_take "$mode" plugin-refusals window vgs.settings "$type" "$refusals" ;;
+      list) type=Label; tree_has shell/plugins/vgs.settings/ListPage.qml 'objectName: "plugins-notice"' && type=Callout
+        notice_banner_take "$mode" plugin-list window vgs.settings "$type" 'No plugin named Calendar is available.' ;;
+    esac
+  done
+  settings_close
+  expect "Voice is off for its setup notice" ok ipc shell setPluginEnabled vgs.voice false
+  expect "Plugins opens the disabled Voice setup" ok ipc shell summon window vgs.settings '{"plugin":"vgs.voice","tab":"Setup"}'
+  expect_poll "Plugins maps the disabled setup page" 1 settings_count
+  page_setup
+  expect_poll "the disabled setup notice is visible" true notice_banner_read window vgs.settings Callout title 'Turn on Voice to continue setup' visible
+  take "notice-banners-$mode-disabled-setup"
+  settings_close
+  expect "System opens for its page notice" ok ipc shell summon window vgs.system '{}'
+  expect "System plants its page notice" 'That section is not available.' ipc smoke invokeInstance window vgs.system bannerShot 'That section is not available.'
+  type=Label; tree_has shell/plugins/vgs.system/Window.qml 'objectName: "system-notice"' && type=Callout
+  notice_banner_take "$mode" system window vgs.system "$type" 'That section is not available.'
+  expect "System closes its page notice" ok ipc shell hide window vgs.system
+  local plugin message
+  for plugin in packages network vpn tailscale; do
+    expect "$plugin enables for its notice" ok ipc shell setPluginEnabled "vgs.$plugin" true
+    close_notices
+    expect "System opens $plugin for its notice" ok ipc shell summon window vgs.system "{\"pane\":\"vgs.$plugin\"}"
+    expect_poll "System mounts $plugin for its notice" "[\"vgs.$plugin\"]" window_panes
+    message='Could not connect. Try again.'
+    [[ $plugin != packages ]] || message='Could not save this change. Try again.'
+    if [[ $plugin == vpn ]]; then state=problem; else state="$message"; fi
+    expect "$plugin plants its refused result" "$state" ipc smoke invokeInstance window "vgs.$plugin" bannerShot "$state"
+    type=Label
+    case $plugin in
+      packages) tree_has shell/plugins/vgs.packages/Pane.qml 'objectName: "packages-problem"' && type=Callout ;;
+      network) type="$(notice_banner_type shell/plugins/vgs.network/NetworkBody.qml network-problem LinkText)" || return 1 ;;
+      vpn) type="$(notice_banner_type shell/plugins/vgs.vpn/VpnBody.qml vpn-problem Label)" || return 1 ;;
+      tailscale) type="$(notice_banner_type shell/plugins/vgs.tailscale/TailscaleBody.qml tailscale-problem Label)" || return 1 ;;
+    esac
+    notice_banner_take "$mode" "$plugin" window "vgs.$plugin" "$type" "$message"
+    if [[ $plugin == vpn ]]; then
+      expect "Nord plants its section error" nord-section ipc smoke invokeInstance window vgs.vpn bannerShot nord-section
+      ipc smoke revealText window vgs.system RowAction 'Change location' >/dev/null || fail "Nord's location action is not drawn"
+      notice_banner_take "$mode" nord-section window vgs.vpn Callout 'Could not load NordVPN locations. Try again.'
+      expect "Nord opens its location dialog with the error" nord-dialog ipc smoke invokeInstance window vgs.vpn bannerShot nord-dialog
+      expect_poll "Nord's location dialog is visible" true notice_banner_read window vgs.vpn Dialog objectName vpn-nord-picker visible
+      park_pointer
+      take "notice-banners-$mode-nord-dialog"
+    fi
+    expect "System closes $plugin after its notice" ok ipc shell hide window vgs.system
+  done
+  expect "Tailscale opens its exit chooser for its notice" ok ipc shell summon panel vgs.tailscale '{}'
+  expect "Tailscale plants the offline exit result" exit ipc smoke invokeInstance panel vgs.tailscale bannerShot exit
+  type="$(notice_banner_type shell/plugins/vgs.tailscale/ExitNodes.qml tailscale-exit-problem Label)" || return 1
+  notice_banner_take "$mode" tailscale-exit panel vgs.tailscale "$type" 'This exit node is offline.'
+  expect "Tailscale closes its exit chooser" ok ipc shell hide panel vgs.tailscale
+  expect "Bluetooth enables for its error notice" ok ipc shell setPluginEnabled vgs.bluetooth true
+  close_notices
+  expect "Bluetooth opens its power error notice" ok ipc shell summon panel vgs.bluetooth '{}'
+  expect "Bluetooth plants its refused power result" 'VGS could not turn Bluetooth on.' ipc smoke invokeInstance panel vgs.bluetooth bannerShot 'VGS could not turn Bluetooth on.'
+  # The old caller displays its hint ahead of an error. The fixture keeps
+  # the error visible in the before image by supplying no competing hint.
+  type=Label; tree_has shell/plugins/vgs.bluetooth/Panel.qml 'objectName: "bluetooth-power-problem"' && type=Callout
+  notice_banner_take "$mode" bluetooth panel vgs.bluetooth "$type" 'VGS could not turn Bluetooth on.'
+  expect "Bluetooth closes its power error notice" ok ipc shell hide panel vgs.bluetooth
+  updates_snapshot_plant
+  expect "Updates enables for its outcome notice" ok ipc shell setPluginEnabled vgs.updates true
+  close_notices
+  expect "Updates opens for its outcome notice" ok ipc shell summon window vgs.updates '{}'
+  for state in failed stopped; do
+    expect "Updates plants its $state result" "$state" ipc smoke invokeInstance window vgs.updates bannerShot "$state"
+    if [[ $state == failed ]]; then message='The update run failed. Open the last log for details.'; else message='The update run was stopped.'; fi
+    notice_banner_take "$mode" "updates-$state" window vgs.updates Callout "$message"
+  done
+  expect "Updates closes after its outcome notices" ok ipc shell hide window vgs.updates
+  expect "Windows enables for its VGlass notice" ok ipc shell setPluginEnabled vgs.windows true
+  close_notices
+  expect "System opens Windows for its VGlass notice" ok ipc shell summon window vgs.system '{"pane":"vgs.windows"}'
+  expect_poll "System mounts Windows for its VGlass notice" '["vgs.windows"]' window_panes
+  ipc smoke revealText window vgs.system Callout 'VGlass could not load. Try rebuilding it.' >/dev/null || fail "the VGlass notice is not drawn"
+  notice_banner_take "$mode" windows window vgs.windows Callout 'VGlass could not load. Try rebuilding it.'
+  expect "System closes after the VGlass notice" ok ipc shell hide window vgs.system
 }
 
 park_pointer

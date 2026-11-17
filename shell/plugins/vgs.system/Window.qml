@@ -249,13 +249,13 @@ FocusScope {
                     width: page.contentWidth
                     spacing: Theme.stack.group
 
-                    Label {
-                        role: "hint"
+                    Callout {
+                        objectName: "system-notice"
+                        level: "raised"
                         text: root.notice
                         visible: text !== ""
-                        color: Theme.color.warning
+                        tone: "danger"
                         width: parent.width
-                        wrapMode: Text.Wrap
                     }
 
                 }

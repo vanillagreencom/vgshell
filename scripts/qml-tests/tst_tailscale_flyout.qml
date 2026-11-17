@@ -687,6 +687,8 @@ Item {
             compare(find(panel, item => item.objectName === "tailscale-problem"), null, "a launched terminal leaves no problem");
             root.sshDone({ code: null, reason: "launcher-missing" });
             compare(named("tailscale-problem").text, Reply.line("refused: tui=core/ssh reason=launcher-missing"));
+            verify(named("tailscale-problem") instanceof Callout);
+            compare(named("tailscale-problem").tone, "danger");
         }
 
         // expected-log: tailscale: connect refused: tui=core/ssh reason=launcher-missing -- the refusal the stub answers
@@ -1124,6 +1126,8 @@ Item {
             keyClick(Qt.Key_Return);
             compare(root.actions, [], "no set runs");
             compare(named("tailscale-exit-problem").text, Logic.replyText("refused: exit-node=offline"));
+            verify(named("tailscale-exit-problem") instanceof Callout);
+            compare(named("tailscale-exit-problem").tone, "danger");
             compare(panel.view, "exit-nodes", "the chooser stays");
         }
 

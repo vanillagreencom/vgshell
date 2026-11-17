@@ -345,15 +345,14 @@ FocusScope {
                 if (root.act("profile-down", uuid, "VGS could not turn the VPN off.") === "ok" && keyed) root.focusSwitch(uuid);
             }
         }
-        Label {
+        Callout {
             objectName: "vpn-problem"
+            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== "" && !root.prompting && !nordSection.opened
-            role: "hint"
-            color: Theme.color.danger
-            textFormat: Text.PlainText
+            tone: "danger"
+            plain: true
             text: root.localProblem !== "" ? root.localProblem : root.profiles.problem
-            wrapMode: Text.Wrap
         }
         EmptyState {
             id: empty

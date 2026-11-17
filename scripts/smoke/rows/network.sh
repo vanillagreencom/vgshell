@@ -145,7 +145,7 @@ net_reason_matches() {
   net_snapshot | py_reply 'import json,sys; problem=json.load(sys.stdin)["network"]["problem"]; print("same" if problem and json.loads(sys.argv[1])==problem else "different")' "$reason"
 }
 net_saved_reason() { expect "$1: the dialog draws the service failure reason" same net_reason_matches panel; }
-net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" false ipc smoke readMatchingDescendant panel vgs.network LinkText objectName network-problem visible; }
+net_hint_suppressed() { expect "$1: the list hint is hidden under the dialog" false ipc smoke readMatchingDescendant panel vgs.network Callout objectName network-problem visible; }
 # net_dialog_focus HOST: [whether the dialog holds the focus, whether the
 # body holds it].
 net_dialog_focus() { printf '[%s, %s]\n' "$(ipc smoke activeFocusWithin "$1" vgs.network Dialog)" "$(ipc smoke activeFocusIn "$1" vgs.network)"; }
@@ -368,7 +368,7 @@ custom|3|Your own servers
 DNSACTIONS
 # Non-ready readings offer guidance and never request an undo. On NixOS,
 # setup prints configuration instructions and creates no VGS DNS record.
-net_dns_default_notice() { ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
+net_dns_default_notice() { ipc smoke readMatchingDescendant window vgs.network Callout objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
 while IFS='|' read -r net_dns_case net_dns_want; do
   expect "DNS $net_dns_case: default guidance starts with a fresh pane" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
   network_dns_refresh "$net_dns_case"
@@ -377,6 +377,7 @@ while IFS='|' read -r net_dns_case net_dns_want; do
   hold_runs
   net_dns_choose '' 2 || fail "DNS $net_dns_case: choosing default failed"
   expect_poll "DNS $net_dns_case: default explains its next step" true net_dns_default_notice
+  expect "DNS $net_dns_case: the notice has the danger tone" '"danger"' ipc smoke readMatchingDescendant window vgs.network Callout objectName network-problem tone
   type_keys -k Tab
   expect_poll "DNS $net_dns_case: Tab acknowledges the default choice" false net_dns_focus
   expect "DNS $net_dns_case: a non-ready default starts no system operation" idle/absent net_dns_no_run
