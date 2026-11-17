@@ -194,7 +194,14 @@ Item {
     onSleepAfterSecondsChanged: watchSleep()
     onSleepActionChanged: publishSleepActions()
     onBatteryCriticalChanged: {
-        if (batteryCritical) endStayAwake();
+        if (batteryCritical) {
+            releaseStayAwake();
+            // A configure write here re-enters the batteryCritical binding.
+            // Qt.callLater defers this named method and drops it on deletion:
+            // https://doc.qt.io/qt-6.11/qml-qtqml-qt.html#callLater-method
+            // https://github.com/qt/qtdeclarative/blob/v6.11.2/src/qml/qml/qqmldelayedcallqueue.cpp
+            Qt.callLater(clearInactiveStayAwake);
+        }
     }
 
     // The flyout's and Power's section's one request: `end`, or a
@@ -235,10 +242,16 @@ Item {
         const until = shell.settings.stayAwakeUntil;
         if (until === -1) return;
         if (!Number.isSafeInteger(until) || until < 0 || (until > 0 && until <= Date.now()) || batteryCritical) {
-            saveStayAwake(-1);
+            // The host's key/model bindings are still creating this service.
+            Qt.callLater(clearInactiveStayAwake);
             return;
         }
         takeStayAwake(until);
+    }
+
+    function clearInactiveStayAwake() {
+        // A newer explicit Start already saved its intent and took a handle.
+        if (shell !== null && stayAwakeHold === null) saveStayAwake(-1);
     }
 
     function takeStayAwake(until) {
@@ -251,10 +264,14 @@ Item {
         }, options);
     }
 
-    function endStayAwake() {
+    function releaseStayAwake() {
         const hold = stayAwakeHold;
         stayAwakeHold = null;
         if (hold !== null) hold.end();
+    }
+
+    function endStayAwake() {
+        releaseStayAwake();
         return saveStayAwake(-1);
     }
 

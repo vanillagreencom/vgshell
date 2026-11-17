@@ -1040,6 +1040,7 @@ power_stay_awake() {
   expect_poll "Stay awake until ended holds the pause" '["vgs.power"]' power_stay_holds
   expect_poll "the service publishes it with no end" '[true, false, 0]' power_stay_status
   expect_poll "the start remembers until ended" 0 power_setting stayAwakeMinutes
+  check_unexpected_log "the timed Stay awake restart" "$instance_log"
   stop_shell
   start_shell "$repo" "$sandbox/power-stay-indefinite-restart.log"
   expect_poll "an indefinite Stay awake returns after shell restart" '[true, false, 0]' power_stay_status
@@ -1065,6 +1066,7 @@ power_stay_awake() {
   expect "vgs.power built again holds nothing" '[]' power_stay_holds
   expect "deliberate disable clears saved intent" -1 power_setting stayAwakeUntil
   expect "a timed hold is started before overdue restoration" ok ipc vgs.power invoke stay-awake 30
+  check_unexpected_log "the indefinite Stay awake restart and critical end" "$instance_log"
   stop_shell
   jq '(.plugins[] | select(.id == "vgs.power") | .stayAwakeUntil) = 1' "$home/.config/vgshell/shell.json" >"$sandbox/power-stay-expired.json"
   cp -- "$sandbox/power-stay-expired.json" "$home/.config/vgshell/shell.json"
@@ -1073,6 +1075,7 @@ power_stay_awake() {
   expect "overdue restoration clears saved intent" -1 power_setting stayAwakeUntil
   power_discharging 64.0 7200
   expect_poll "the service reads the battery again after Stay awake" 64 power_level
+  check_unexpected_log "the overdue Stay awake restart" "$instance_log"
 }
 
 # Core scope with the real Power hold and its real display/sleep watches.
@@ -1081,10 +1084,10 @@ power_stay_awake() {
 # result is inferred from a single immediate reading.
 power_scope_state() { ipc shell lent | py_reply 'import json,sys
 ids = {"acme.power-dim", "acme.power-away", "vgs.power"}
-print(json.dumps(sorted([[r["stage"], r["idle"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"])))'; }
+print(json.dumps(sorted([[r["stage"], r["idle"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"]])))'; }
 power_scope_generations() { ipc shell lent | py_reply 'import json,sys
 ids = {"acme.power-dim", "acme.power-away", "vgs.power"}
-print(json.dumps(sorted([[r["stage"], r["generation"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"])))'; }
+print(json.dumps(sorted([[r["stage"], r["generation"]] for r in json.load(sys.stdin)["idle"] if r["id"] in ids and r["stage"]])))'; }
 power_stay_scope() {
   local config="$home/.config/vgshell/shell.json" displays locking wanted generations original_watches
   local defaults='[["dim", true], ["displayOff", true], ["lock", true], ["screensaver", true], ["sleep", false]]'
@@ -1180,8 +1183,8 @@ power_stay_awake_controls() {
   power_move_away "$power_noend_dir"
 
   power_install_fixture acme.power-nocritical "$power_nocritical_dir" Service.qml \
-    '        if (batteryCritical) endStayAwake();' \
-    '        if (batteryCritical) console.warn("power: control kept the hold at critical");'
+    '            releaseStayAwake();' \
+    '            console.warn("power: control kept the hold at critical");'
   expected_errors+=('power: control kept the hold at critical$')
   rescan "rescan after adding the nocritical fixture answers ok"
   expect "enabling the nocritical fixture is allowed" ok ipc shell setPluginEnabled acme.power-nocritical true
