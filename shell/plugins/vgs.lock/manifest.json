@@ -29,7 +29,7 @@
     }
   },
   "settings": {
-    "idleLockSeconds": 300,
+    "idleLockSeconds": 150,
     "lockBeforeSleep": true,
     "allowDelegateUnlock": false
   },

@@ -1326,13 +1326,15 @@ function suite(ctx, configLogic, check) {
     // The bundled owners, read from their shipped manifests: their defaults
     // fire in order, and the lock set to Never fires before none.
     const bundledStages = Object.create(null);
-    for (const id of ["vgs.displays", "vgs.lock", "vgs.screensaver"])
+    for (const id of ["vgs.displays", "vgs.lock", "vgs.screensaver", "vgs.power"])
         bundledStages[id] = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, id, "manifest.json"), "utf8")), "/p").manifest;
     const bundledRows = config => ctx.idleStages(bundledStages, Object.keys(bundledStages), config).stages.map(s => [s.stage, s.plugin, s.setting, s.seconds, s.before]);
     check("idleStages: the bundled defaults read no before", bundledRows({ version: 6, plugins: [] }),
-        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []]]);
+        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 150, []], ["displayOff", "vgs.power", "displayOffSeconds", 450, []], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
     check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 6, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
-        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []]]);
+        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []], ["displayOff", "vgs.power", "displayOffSeconds", 450, ["screensaver"]], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
+    check("idleStages: stored lock and display-off times override the bundled defaults", bundledRows({ version: 6, plugins: [{ id: "vgs.lock", idleLockSeconds: 300 }, { id: "vgs.power", displayOffSeconds: 600 }] }),
+        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []], ["displayOff", "vgs.power", "displayOffSeconds", 600, []], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
     // idleSettingRows refusals: [name, rows, the manifest's own stages,
     // capabilities, the refusal's path, null for accepted].
     for (const [name, rows, own, capabilities, want] of [

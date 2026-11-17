@@ -201,14 +201,14 @@ ROW
 printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
 
 if [[ $selected_case == idle-lock || $selected_case == all ]]; then
-  # Exercise real idle notifications without adding five minutes per world.
+  # Exercise real idle notifications without waiting for the shipped delay.
   # Only the disposable manifest's default changes; the profile must defeat
-  # that default, as it defeats the shipped 300-second value.
+  # that default, as it defeats the shipped 150-second value.
   python3 - "$tree/shell/plugins/vgs.lock/manifest.json" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 doc = json.loads(path.read_text())
-assert doc["settings"]["idleLockSeconds"] == 300
+assert doc["settings"]["idleLockSeconds"] == 150
 doc["settings"]["idleLockSeconds"] = 2
 path.write_text(json.dumps(doc))
 PY

@@ -18,6 +18,7 @@ Item {
     QtObject {
         id: coversStub
         property var told: []
+        property string placement: "none"
         function lockRequested(cause, wasLocked) { told = told.concat([[cause, wasLocked]]); }
     }
     Component { id: ownerComponent; SessionLock { idle: idleStub; covers: coversStub } }
@@ -26,6 +27,7 @@ Item {
         QtObject {
             property var session: null
             readonly property bool locked: session !== null && session.locked
+            readonly property bool covered: session !== null && session.covered
         }
     }
     Component { id: contentComponent; Item { property var screen: null } }
@@ -38,6 +40,7 @@ Item {
         function init() {
             idleStub.liveTicket = null;
             coversStub.told = [];
+            coversStub.placement = "none";
             owner = createTemporaryObject(ownerComponent, root);
             reader = createTemporaryObject(readerComponent, root);
             verify(owner !== null && reader !== null);
@@ -51,6 +54,13 @@ Item {
                 { tag: "confirmed", requested: true, secure: true, locked: true },
                 { tag: "release-pending", requested: false, secure: true, locked: true }
             ];
+        }
+
+        function test_cover_state_follows_the_same_session_reader() {
+            for (const placement of ["desktop", "secure", "none", "secure", "none"]) {
+                coversStub.placement = placement;
+                tryCompare(reader, "covered", placement === "secure", 100);
+            }
         }
 
         function test_live_state(data) {
@@ -76,7 +86,7 @@ Item {
             const session = reader.session;
             try { data.change(session); } catch (e) {}
             verify(Object.isFrozen(session));
-            compare(Object.keys(session).sort().join(","), "displaysOff,locked");
+            compare(Object.keys(session).sort().join(","), "covered,displaysOff,locked");
             compare(session.lock, undefined);
             compare(session.unlock, undefined);
             compare(session.locked, false);

@@ -308,7 +308,7 @@ case "$probe_enabled" in
   *) fail "the capability fixture's enabled state is unreadable: $probe_enabled" ;;
 esac
 expect "enabling the lock plugin is allowed" ok ipc shell setPluginEnabled vgs.lock true
-expect_poll "the lock service registered its shortcut, IPC target and idle watch" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
+expect_poll "the lock service registered its shortcut, IPC target and idle watch" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 150]]]' lock_lent
 expect_poll "the nested instance binds SUPER+DELETE to the lock" '[[64, "DELETE", "vgs.lock:lock"]]' lock_binds
 expect_poll "the before-sleep hook holds" ok sleep_status
 expect "the hook read logind's delay" "ready budget_ms=4000" head -n 1 -- "$sleep_log"
@@ -419,7 +419,7 @@ lock_released "before idle relock"
 lock_relocked "idle relock during temporary access"
 expect "an idle lock during a release keeps its idle cause" '"idle"' lock_cause
 set_setting idleLockSeconds null
-expect_poll "the idle watch returns to its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
+expect_poll "the idle watch returns to its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 150]]]' lock_lent
 
 # A hook that ends takes logind's delay with it, so the release ends at once.
 expect_poll "the hook is ready before it ends" true lock_service sleepReady
@@ -577,7 +577,7 @@ expect_poll "the idle watch follows the setting" '[["vgs.lock:lock"], ["vgs.lock
 expect_poll "two seconds without input locked the session" locked session_lock
 expect "the lock stage watch's lock is an idle lock" '"idle"' lock_cause
 set_setting idleLockSeconds null
-expect_poll "the idle watch is back at its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
+expect_poll "the idle watch is back at its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 150]]]' lock_lent
 release "the idle lock"
 
 # A shell that stops during a release, as `vgshell restart` stops it by

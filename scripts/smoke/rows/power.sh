@@ -156,7 +156,7 @@
 # lending record clear. Its controls, acme.power-noend,
 # acme.power-nocritical and acme.power-writes, are
 # power_stay_awake_controls' too.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/NumberSettingField.qml shell/Ui/controls/IdleTimeField.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Select.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.screensaver/manifest.json shell/Commons/Reply.js bin/lib/dbus_wire.py
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/NumberSettingField.qml shell/Ui/controls/IdleTimeField.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Select.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.screensaver/manifest.json shell/Commons/Reply.js bin/lib/dbus_wire.py scripts/smoke/fixtures/plugins/acme.cover/* shell/Core/CoverPresentation.qml shell/Hosts/CoverHost.qml
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -701,6 +701,7 @@ power_idle_watches() { ipc shell lent | py_reply 'import json,sys
 print(json.dumps(sorted(row["timeout"] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power")))'; }
 power_idle_watch_state() { ipc shell lent | py_reply 'import json,sys
 print(json.dumps(sorted([[row["timeout"], row["idle"]] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power"])))'; }
+power_cover_placement() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["cover"]["placement"])'; }
 power_logind_watch_count() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
 runs=[json.loads(line) for line in sys.stdin]
 watches=[run for run in runs if run[:1] == ["monitor"] and "org.freedesktop.login1" in run]
@@ -930,7 +931,7 @@ power_display_off() {
   expect "Power enables for display-off checks" ok ipc shell setPluginEnabled vgs.power true
   expect "Stay awake starts with display and locking defaults" ok ipc vgs.power invoke stay-awake 0
   expect_poll "Power owns one gdbus monitor of logind" 1 power_logind_watch_count
-  expect_poll "Power holds its default idle watch" '[600]' power_idle_watches
+  expect_poll "Power holds its default idle watch" '[450]' power_idle_watches
   expect "display off accepts a custom two-second timeout" ok power_idle_set vgs.power displayOffSeconds 2
   expect_poll "the new setting replaces the normal watch" '[2]' power_idle_watches
   cat >"$shim/hyprctl.power-idle" <<EOF_IDLE
@@ -960,7 +961,42 @@ EOF_IDLE
   expect_poll "two seconds without input turn every nested output off" True power_idle_outputs false
   type_keys -k Shift_L || fail "the display-off nested wake key failed"
   expect_poll "a nested key wakes every output through Hyprland" True power_idle_outputs true
+  # Equal stage times exercise the real Cover/lock boundary. The ordinary
+  # deadline is shortened, but stays beyond lock plus the short delay.
+  install_plugin_copy acme.cover acme.cover Cover
+  rescan "rescan after adding the display-off cover fixture answers ok"
+  expect "the display-off cover fixture enables" ok ipc shell setPluginEnabled acme.cover true
+  expect "the cover starts at the lock's two-second timeout" ok power_idle_set acme.cover seconds 2
+  expect "the ordinary display-off deadline is beyond the short locked delay" ok power_idle_set vgs.power displayOffSeconds 18
+  expect "the capability fixture releases its exclusive lock for Cover" ok ipc shell setPluginEnabled acme.probe false
+  expect "the lock enables for the equal-time Cover checks" ok ipc shell setPluginEnabled vgs.lock true
+  type_keys -k Shift_L || fail "the equal-time cover's nested input failed"
+  expect_poll "equal lock and screensaver times hold Cover inside the lock" secure power_cover_placement
+  expect_poll "Cover leaves only the ordinary display-off watch" '[18]' power_idle_watches
+  expect "Cover keeps outputs lit past the short locked delay" True power_idle_stays_on 11000
+  expect_poll "the ordinary idle deadline turns every covered output off" True power_idle_outputs false
+  expect_poll "display off ends Cover" none power_cover_placement
+  expect "display off leaves the session locked" true power_idle_locked
+  type_keys -k Shift_L || fail "the covered display-off nested wake failed"
+  expect_poll "waking after Cover lights every output" True power_idle_outputs true
+  expect "waking after Cover keeps the session locked" true power_idle_locked
+  expect_poll "waking after Cover shows the locked session with no Cover" none power_cover_placement
+  expect "the probe releases the lock before the input-during-Cover check" ok ipc smoke sessionUnlock
   expect "the normal idle watch can be set beyond the locked delay" ok power_idle_set vgs.power displayOffSeconds 600
+  type_keys -k Shift_L || fail "the input-during-Cover idle start failed"
+  expect_poll "equal times start a new Cover for the input check" secure power_cover_placement
+  expect_poll "the new Cover again holds no short locked watch" '[600]' power_idle_watches
+  type_keys -k Shift_L || fail "the input that ends Cover failed"
+  expect_poll "input ends Cover" none power_cover_placement
+  expect "the input leaves the session locked" true power_idle_locked
+  expect_poll "the input starts the short locked watch" '[[10, false], [600, false]]' power_idle_watch_state
+  expect "outputs stay lit before the short delay from Cover's ending input" True power_idle_stays_on 8000
+  expect_poll "the short delay after Cover's ending input turns outputs off" True power_idle_outputs false
+  expect "the cover fixture disables after its display checks" ok ipc shell setPluginEnabled acme.cover false
+  rm -rf -- "$home/.config/vgshell/plugins/acme.cover"
+  rescan "rescan after removing the display-off cover fixture answers ok"
+  expect "the probe releases the lock after the Cover checks" ok ipc smoke sessionUnlock
+  type_keys -k Shift_L || fail "the non-Cover lock's nested wake failed"
   expect "the capability fixture releases any exclusive lock" ok ipc shell setPluginEnabled acme.probe false
   expect "the idle lock enables without its sleep helper" ok ipc shell setPluginEnabled vgs.lock true
   type_keys -k Shift_L || fail "the idle lock's nested input failed"
@@ -1309,7 +1345,7 @@ power_lock_shared() {
   cp -- "$config" "$sandbox/power-lock-config.json"
   # The lock's before-sleep helper never starts: its setting is off before
   # the lock is enabled. The saved file returns below.
-  jq '.plugins = ((.plugins // [] | map(select(.id != "vgs.lock"))) + [{"id":"vgs.lock","lockBeforeSleep":false}])' "$config" >"$config.power-lock"
+  jq '.plugins = ((.plugins // [] | map(select(.id != "vgs.lock"))) + [{"id":"vgs.lock","idleLockSeconds":300,"lockBeforeSleep":false}])' "$config" >"$config.power-lock"
   mv -T -- "$config.power-lock" "$config"
   expect "Settings opens on Lock's page for the shared edits" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
   expect_poll "the disabled lock reads its test inputs before it is enabled" '[300, false]' power_idle_lock_inputs
@@ -1317,7 +1353,7 @@ power_lock_shared() {
   expect "Settings hides before the timeline's edits" ok ipc shell hide window vgs.settings
   expect "System Settings opens on Power's section for the shared edits" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted for the shared edits" '["vgs.power"]' window_panes
-  expect_poll "the timeline's Lock after row is the lock's at its default, with no Immediately" '[[300, "", 0, "", "vgs.lock"]]' power_lock_editor window vgs.power
+  expect_poll "the timeline's Lock after row reads the stored time, with no Immediately" '[[300, "", 0, "", "vgs.lock"]]' power_lock_editor window vgs.power
 
   # The list reads Never, the seven presets and Custom…, in that order.
   power_lock_choose "System Settings" vgs.system vgs.power "5 minutes" Down Down Down Down Down
@@ -1372,7 +1408,7 @@ power_lock_shared() {
   expect "the lock disables after the shared edits" ok ipc shell setPluginEnabled vgs.lock false
   cp -- "$sandbox/power-lock-config.json" "$config.power-lock"
   mv -T -- "$config.power-lock" "$config"
-  expect_poll "the shell reads the lock's saved settings back" '[300, true]' power_idle_lock_inputs
+  expect_poll "the shell reads the lock's saved settings back" '[150, true]' power_idle_lock_inputs
   expect "Settings hides after the shared edits" ok ipc shell hide window vgs.settings
   expect "System Settings hides after the shared edits" ok ipc shell hide window vgs.system
 }
@@ -1525,7 +1561,7 @@ EOF_STAND
   expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
   power_display_wake_check
-  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
+  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 450 seconds](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
   expect_poll "the timeline reads each other stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
   expect_poll "the lock row is the lock owner's Lock after editor at its default, offering the screensaver's time" '[[300, "", 150, "", "acme.power-away"]]' power_lock_editor window vgs.power
   expect_poll "with a battery and the profiles service the section draws Power's four battery fields" "$power_battery_keys" power_pane_fields

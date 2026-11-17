@@ -54,6 +54,7 @@ Item {
     property var noticeLatch: Logic.latchInitial()
     readonly property int displayOffSeconds: shell === null ? 0 : shell.settings.displayOffSeconds
     readonly property bool locked: shell !== null && shell.session.locked
+    readonly property bool covered: shell !== null && shell.session.covered
     property var displayOffDisposer: null
     property var lockedDisplayOffDisposer: null
     readonly property int sleepAfterSeconds: shell === null ? 0 : shell.settings.sleepAfterSeconds
@@ -205,6 +206,7 @@ Item {
         watchLockedDisplayOff();
     }
     onLockedChanged: watchLockedDisplayOff()
+    onCoveredChanged: watchLockedDisplayOff()
     onSleepAfterSecondsChanged: watchSleep()
     onSleepActionChanged: publishSleepActions()
     onBatteryCriticalChanged: {
@@ -308,7 +310,7 @@ Item {
     function watchLockedDisplayOff() {
         if (lockedDisplayOffDisposer !== null) lockedDisplayOffDisposer();
         lockedDisplayOffDisposer = null;
-        if (shell === null || displayOffSeconds <= 0 || !locked) return;
+        if (shell === null || displayOffSeconds <= 0 || !locked || covered) return;
         lockedDisplayOffDisposer = shell.idle.watch(lockedDisplayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); }, "displayOff");
     }
 

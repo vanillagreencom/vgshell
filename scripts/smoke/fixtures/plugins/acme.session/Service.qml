@@ -28,7 +28,7 @@ Item {
         for (const change of mutations) {
             try { change(); } catch (e) {}
         }
-        return Object.isFrozen(session) && Object.keys(session).sort().join(",") === "displaysOff,locked"
+        return Object.isFrozen(session) && Object.keys(session).sort().join(",") === "covered,displaysOff,locked"
             && session.displaysOff === off
             && session.locked === before && session.lock === undefined && session.unlock === undefined;
     }

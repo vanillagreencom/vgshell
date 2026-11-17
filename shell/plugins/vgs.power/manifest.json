@@ -143,7 +143,7 @@
     }
   ],
   "settings": {
-    "displayOffSeconds": 600,
+    "displayOffSeconds": 450,
     "sleepAfterSeconds": 0,
     "sleepAction": "suspend",
     "lowThreshold": 20,
@@ -175,7 +175,7 @@
       "type": "number",
       "label": "Turn displays off",
       "description": "After you stop using the computer",
-      "info": "While the screen is locked, the displays turn off after 10 seconds without input. Never keeps them on while locked too.\nA key press or pointer movement turns the displays on only if [your Hyprland config](file:hypr%2Fhyprland.lua) lets it. [Power in System Settings](page:vgs.power) shows if each one can. Some displays do not wake even then.",
+      "info": "While locked, displays turn off after 10 seconds without input. Never keeps them on.\nWhile the screensaver covers the lock, displays turn off at this setting instead.\nKey presses or pointer movement wake displays only if [your Hyprland config](file:hypr%2Fhyprland.lua) allows it.\n[Power in System Settings](page:vgs.power) shows both options. Some displays do not wake.",
       "unit": "seconds",
       "min": 0,
       "max": 7200,
@@ -184,6 +184,7 @@
         { "value": 0, "label": "Never" },
         { "value": 120 },
         { "value": 300 },
+        { "value": 450 },
         { "value": 600 },
         { "value": 900 },
         { "value": 1800 },

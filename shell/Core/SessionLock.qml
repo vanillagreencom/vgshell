@@ -45,6 +45,7 @@ Scope {
     function sessionProvider(ctx) {
         return Object.freeze({
             get locked() { return root.lockRequested || root.lockSecure; },
+            get covered() { return root.covers.placement === "secure"; },
             get displaysOff() { return Compositor.displaysOff; }
         });
     }

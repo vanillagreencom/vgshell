@@ -279,13 +279,13 @@ PY
 expect "no enabled plugin owns an idle stage" '[]' idle_stages
 expect "vgs.lock starts disabled" False plugin_enabled vgs.lock
 expect "enabling vgs.lock while the fixture holds the lock is allowed" ok ipc shell setPluginEnabled vgs.lock true
-expect_poll "the record lists the bundled lock stage at its default" '[["lock", "vgs.lock", "idleLockSeconds", 300, []]]' idle_stages
+expect_poll "the record lists the bundled lock stage at its default" '[["lock", "vgs.lock", "idleLockSeconds", 150, []]]' idle_stages
 expect "the fixture alone holds the lock" '["acme.probe"]' lent holders.lock
 expect "the fixture reads every entry frozen" true read_service idleStagesFrozen
 lock_row idleLockSeconds 0
 expect_poll "the bundled lock set to 0 reads Never" '[["lock", "vgs.lock", "idleLockSeconds", 0, []]]' idle_stages
 lock_row idleLockSeconds null
-expect_poll "the bundled lock reads its default again" '[["lock", "vgs.lock", "idleLockSeconds", 300, []]]' idle_stages
+expect_poll "the bundled lock reads its default again" '[["lock", "vgs.lock", "idleLockSeconds", 150, []]]' idle_stages
 expect "disabling vgs.lock before the fixture declares stages is allowed" ok ipc shell setPluginEnabled vgs.lock false
 expect_poll "the disabled lock owns no stage" '[]' idle_stages
 probe_stages declare

@@ -180,9 +180,7 @@ power_stop_mocks() {
   power_profiles_pid=""
 }
 
-# power_stage_owners: two plugins that declare idle stages at the times the
-# shipped owners default to, dim at 120 s (vgs.displays), screensaver at
-# 150 s (vgs.screensaver) and lock at 300 s (vgs.lock), and run nothing,
+# power_stage_owners: two plugins that declare idle stages and run nothing,
 # each service an empty item, so the core's stage record holds the stages
 # and no watch starts. acme.power-dim owns the dim, acme.power-away the
 # screensaver and the lock, whose time offers the shipped lock's kind of
