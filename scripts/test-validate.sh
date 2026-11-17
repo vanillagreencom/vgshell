@@ -2633,8 +2633,7 @@ PYENTRY
   expected="scripts/qml-smoke.sh --rows $smoke_core,launcher,other,$smoke_always,$smoke_tail"
   case "$name" in
     row-source|js-resource) expected="$smoke_launcher" ;;
-    module-wide) expected="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,other,$smoke_always,$smoke_tail" ;;
-    unknown|unreadable) expected='scripts/qml-smoke.sh' ;;
+    module-wide|unknown|unreadable) expected='scripts/qml-smoke.sh' ;;
   esac
   readable=false
   if plan="$(module_plan)" && [[ $plan == "$expected" ]]; then
