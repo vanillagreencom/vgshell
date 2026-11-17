@@ -4,11 +4,103 @@
 # comes inside the first-start welcome. The welcome must fit a 1440x900
 # output without scrolling; a 1440x320 output, where it cannot, is that
 # reading's control. It answers the welcome the first shell raised and
-# wires the Hyprland layer, so every later row starts with the notice
-# layer gone and the layer's options loaded.
+# wires the Hyprland layer. A disposable copy fails after Connect; its
+# successor checks the managed start classes and the completed consent
+# unit after restarting. Restoring only the unwired loader must fail the
+# same successor while the welcome-seen marker remains present.
 # leaves: layers options
 # inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell bin/vgshell-tui shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml scripts/smoke/toplevel/* shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/Probe.qml
 set -euo pipefail
+if [[ ${hc_running:-false} != true ]]; then
+  hc_running=true
+  hc_dir="$sandbox/consent-boundary"
+  mkdir -p -- "$hc_dir"
+  cp -- "$source_repo/scripts/smoke/rows/hyprland-consent.sh" "$hc_dir/consent-forced.sh"
+  printf '\nfail "hyprland-consent: forced-after-connect"\n' >>"$hc_dir/consent-forced.sh"
+  cat >"$hc_dir/consent-successor.sh" <<'SH'
+# leaves: layers options
+expect "the successor starts at the boundary-owned original classes" "" hc_owned_classes
+stop_shell || fail "the consent successor stops its shell"
+start_shell "$repo" "$sandbox/consent-successor-$hc_case.log" || fail "the consent successor starts its shell"
+expect_poll "the successor completes its consent probe" ready hc_consent_ready
+expect "consent-successor: no-notice: the completed consent unit survives restart" $'1\tpresent\twired\tnull\t0' hc_consent_state
+printf 'consent-successor=continued case=%s\n' "$hc_case"
+SH
+  hc_consent_state() {
+    local wires marker phase record layers
+    wires="$(wire_count)" && marker="$(welcome_marker)" && phase="$(hypr_consent_phase)" && record="$(hypr_consent_record)" && layers="$(layer_count vgs:notice)" || return 1
+    printf '%s\t%s\t%s\t%s\t%s\n' "$wires" "$marker" "$phase" "$record" "$layers"
+  }
+  hc_owned_classes() {
+    local verdicts
+    verdicts="$(leak_judge "$source_repo/scripts/smoke/rows/hyprland-consent.sh" "$hc_baseline" "${leak_starts[-1]}")" || return 1
+    awk -F '\t' '$1 != "declared" && NF' <<<"$verdicts"
+  }
+  hc_consent_ready() {
+    local phase layers
+    phase="$(hypr_consent_phase)" && layers="$(layer_count vgs:notice)" || return 1
+    case "$phase:$layers" in wired:0|asking:1) echo ready ;; *) printf '%s:%s\n' "$phase" "$layers" ;; esac
+  }
+  leak_dir_next
+  hc_baseline="$leak_next"
+  hc_saved_failures="$failures" hc_saved_behaviour="$behaviour_failures"
+  failures=0 behaviour_failures=0
+  smoke_row consent-forced "$hc_dir" >"$sandbox/consent-forced.log" 2>&1
+  hc_result="$failures"
+  failures="$hc_saved_failures" behaviour_failures="$hc_saved_behaviour"
+  control_output "$sandbox/consent-forced.log"
+  expect "the real consent row keeps only its forced failure after Connect" 1 printf '%s\n' "$hc_result"
+  expect "the original forced failure survives restoration" 1 grep -c -x -F '  FAIL  hyprland-consent: forced-after-connect' "$sandbox/consent-forced.log"
+  expect "the failed consent row takes one full restoration" 1 grep -c '^qml-smoke: restore=begin row=consent-forced scope=full original-status=1 ' "$sandbox/consent-forced.log"
+  hc_case=retained
+  smoke_row consent-successor "$hc_dir"
+  hypr_lua_save consent-complete
+
+  # Reintroduce the old partial rollback in a disposable function copy.
+  # The seen marker is untouched, so the successor names the file's cause.
+  declare -f leak_restore_start >"$hc_dir/restore.sh"
+  python3 - "$hc_dir/restore.sh" "$hc_dir/legacy.sh" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+needle = 'hypr_config_reload ||'
+assert source.count(needle) == 1, 'legacy restore mutation must match once'
+changed = source.replace(needle, 'cp -- "$sandbox/hyprland-harness.lua" "$home/.config/hypr/hyprland.lua" || leak_restore_step "$1" hyprland-config write;\n        hypr_config_reload ||')
+assert changed != source
+pathlib.Path(sys.argv[2]).write_text(changed)
+PY
+  source "$hc_dir/legacy.sh"
+  printf '# leaves: layers options\nfail "consent-legacy: forced-after-connect"\n' >"$hc_dir/consent-legacy.sh"
+  hc_saved_failures="$failures" hc_saved_behaviour="$behaviour_failures"
+  failures=0 behaviour_failures=0
+  smoke_row consent-legacy "$hc_dir" >"$sandbox/consent-legacy.log" 2>&1
+  hc_result="$failures"
+  failures="$hc_saved_failures" behaviour_failures="$hc_saved_behaviour"
+  source "$hc_dir/restore.sh"
+  control_output "$sandbox/consent-legacy.log"
+  expect "the legacy partial rollback keeps its original forced failure" 1 printf '%s\n' "$hc_result"
+  hc_case=legacy
+  hc_saved_failures="$failures" hc_saved_behaviour="$behaviour_failures"
+  failures=0 behaviour_failures=0
+  smoke_row consent-successor "$hc_dir" >"$sandbox/consent-legacy-successor.log" 2>&1
+  hc_result="$failures"
+  failures="$hc_saved_failures" behaviour_failures="$hc_saved_behaviour"
+  control_output "$sandbox/consent-legacy-successor.log"
+  expect "control: the same no-notice successor rejects isolated Lua rollback" 1 printf '%s\n' "$hc_result"
+  expect "control: the legacy failure names the no-notice assertion" 1 grep -c '^  FAIL  consent-successor: no-notice:' "$sandbox/consent-legacy-successor.log"
+  expect "control: the rejected successor still runs" 1 grep -c -x -F 'consent-successor=continued case=legacy' "$sandbox/consent-legacy-successor.log"
+  expect "control: unwired Lua raises a question despite the seen marker" $'0\tpresent\tasking\t1' hc_legacy_cause
+  hypr_lua_restore consent-complete || fail "the legacy fixture restores its completed loader"
+  hypr_config_reload || fail "the legacy fixture reloads its completed loader"
+  stop_shell || fail "the legacy fixture stops its shell"
+  start_shell "$repo" "$sandbox/consent-control-restored.log" || fail "the legacy fixture restores its shell"
+  expect_poll "the consent controls leave the completed unit" $'1\tpresent\twired\tnull\t0' hc_consent_state
+  return
+fi
+hc_legacy_cause() {
+  local wires marker phase layers
+  wires="$(wire_count)" && marker="$(welcome_marker)" && phase="$(hypr_consent_phase)" && layers="$(layer_count vgs:notice)" || return 1
+  printf '%s\t%s\t%s\t%s\n' "$wires" "$marker" "$phase" "$layers"
+}
 leak_plugin_setup vgs.themes true || { fail "hyprland-consent: fixture precondition failed"; return 1; }
 
 hypr_lua="$home/.config/hypr/hyprland.lua"

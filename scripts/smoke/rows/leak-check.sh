@@ -12,7 +12,9 @@
 # - layers: a Wayland output, which gets a bar; and a vgs.themes
 #   background, a state file naming a 5000x5000 image, which maps one on
 #   every screen;
-# - options: one live option set through `hyprctl eval`;
+# - options: one live option set through `hyprctl eval`, then the same
+#   option written into Lua before a failed row's full restoration; its
+#   successor retains the completed consent unit and original options;
 # - variables: shell_start_path assigned;
 # - shell: shell_qs_pid pointed at a process holding the shell's
 #   environment with a PATH that holds no stand-in, which breaks
@@ -67,7 +69,7 @@
 # per-screen layers every 0.1 s for up to timeout_s; the end reading's
 # files, for the feed, every 50 ms for up to timeout_s. Notification owner
 # waits poll every 0.2 s at the harness's state-wait bound.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/tree.sh scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/tree.sh scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 expect "the seed starts Themes disabled" False plugin_enabled vgs.themes
 leak_plugin_setup vgs.themes true || { fail "leak-check: fixture precondition failed"; return 1; }
@@ -254,6 +256,23 @@ if [[ $lc_option_was =~ ^[0-9]+$ ]]; then
   expect "the declared row prints the options it left" 1 grep -c -x -F -- "  ok    leak-plant-declared: leaves options, as its header declares: +$lc_option={\"int\": $lc_option_set} -$lc_option={\"int\": $lc_option_was}" "$sandbox/leak-plant-declared.log"
   expect "the option is set back after the declared row" ok hypr eval "hl.config({ general = { gaps_workspaces = $lc_option_was } })"
   expect "the option reads its value again" "$lc_option_was" lc_option_value
+  cat >"$lc_plants/leak-plant-options.sh" <<'SH'
+printf 'hl.config({ general = { gaps_workspaces = %s } })\n' "$lc_option_set" >>"$home/.config/hypr/hyprland.lua"
+hypr_config_reload || fail "leak-plant-options: the temporary Lua option reloads"
+expect_poll "the temporary Lua option is live" "$lc_option_set" lc_option_value
+SH
+  expect "the ordinary option control starts with completed consent" $'1\tpresent\twired\tnull\t0' hc_consent_state
+  leak_dir_next
+  lc_restore_baseline="$leak_next"
+  lc_boundary leak-plant-options
+  expect "the Lua option plant keeps its original failure" 1 printf '%s\n' "$lc_result"
+  expect "the Lua option plant names its option leak" 1 lc_failed leak-plant-options "leaves options: \\+$lc_option=\\{\"int\": $lc_option_set\\} -$lc_option=\\{\"int\": $lc_option_was\\}"
+  expect "the Lua option plant gets one full restoration" 1 grep -c '^qml-smoke: restore=begin .*scope=full ' "$sandbox/leak-plant-options.log"
+  expect "the ordinary failed row restores its captured Lua bytes" "" cmp -- "$lc_restore_baseline/hyprland.lua" "$home/.config/hypr/hyprland.lua"
+  expect "the ordinary failed row restores its original option" "$lc_option_was" lc_option_value
+  lc_boundary leak-successor
+  expect "the option plant's successor passes against the original baseline" 0 printf '%s\n' "$lc_result"
+  expect "the option plant's successor retains completed consent without a notice" $'1\tpresent\twired\tnull\t0' hc_consent_state
 else
   fail "$lc_option is unreadable before the options control: $lc_option_was"
 fi

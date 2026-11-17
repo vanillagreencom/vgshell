@@ -7,8 +7,9 @@
 # prints what the row left. After the raw end judgment, the boundary restores
 # the wallpaper writer's JSON/link selection, then plugin enablement and
 # actual bus relations. Other files, packages and images are not rolled back.
-# A failed row takes one full restoration to its immutable start. A restore
-# phase that cannot finish fails the row and the next phase runs; only the
+# A failed row restores its boundary-owned start classes, honoring declared
+# leaves. Its captured Lua returns unless options are declared retained.
+# A restore phase that cannot finish fails the row and the next phase runs; only the
 # post reading ends this world, when a class reads unreadable or still
 # differs, or shim fails. An unreadable entry reading also ends it. Start,
 # raw end and post readings remain distinct.
@@ -565,7 +566,7 @@ leak_restore_shell() { # NAME
     adopt_shell "$started" || leak_restore_step "$1" start-shell "no-relaunch pid=$started"
   fi
 }
-leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS
+leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS ROW_FILE
   local start="${leak_starts[-1]}" name relation owners current replace=false names=true
   printf 'qml-smoke: restore=begin row=%s scope=%s original-status=%s start=%s end=%s\n' "$1" "$2" "$3" "$start" "$leak_end"
   # declare in a sourced file would create function locals. -g preserves
@@ -585,6 +586,18 @@ leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS
     [[ $inputs_status == 0 ]] || leak_restore_step "$1" persisted-inputs "exit=$inputs_status"
   else
     leak_restore_step "$1" persisted-inputs receipt-directory
+  fi
+  if [[ $2 == full ]]; then
+    local retain_options
+    if retain_options="$(leak_judge --declares "$4" options)"; then
+      # Consent's declared options leave retains its whole completed unit.
+      # Other rows' temporary Lua edits must be gone before a shell probes it.
+      if [[ $retain_options == false ]]; then
+        { cp -- "$start/hyprland.lua" "$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"; } || leak_restore_step "$1" hyprland-config write
+      fi
+    else
+      leak_restore_step "$1" hyprland-config declaration-unreadable
+    fi
   fi
   [[ $2 != full ]] || leak_restore_shell "$1"
   # Persist the target flags before a name-release replacement. Otherwise
@@ -629,8 +642,7 @@ PY
     fi
   fi
   if [[ $2 == full ]]; then
-    { cp -- "$start/hyprland.lua" "$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"; } || leak_restore_step "$1" hyprland-config write
-    hypr reload config-only >/dev/null || leak_restore_step "$1" hyprland-config reload
+    hypr_config_reload || leak_restore_step "$1" hyprland-config reload
     display_record_call anr-cleanup "$1" >/dev/null || leak_restore_step "$1" anr-cleanup refused
     display_record_call row-close-added "$start" "$$" "${shell_qs_pid:-}" "$shell_class" "$shell_reporter_class" >/dev/null || leak_restore_step "$1" close-added refused
     local address
@@ -666,7 +678,7 @@ leak_row_restore() { # NAME DIR FAILED ORIGINAL_STATUS
   # latch of their own, so one stalled call cannot unread the other.
   local ipc_timeout_log="$sandbox/rows/$1.restore.ipc-timeout.log" timeout_line
   : >"$ipc_timeout_log"
-  leak_restore_start "$1" "$scope" "$status"
+  leak_restore_start "$1" "$scope" "$status" "$2/$1.sh"
   leak_input_idle || leak_restore_step "$1" post-idle not-idle
   while IFS= read -r timeout_line || [[ -n $timeout_line ]]; do
     leak_restore_step "$1" ipc "[$timeout_line]"
@@ -743,6 +755,7 @@ leak_unsettled() { # CLASS SIDE START
 # `leaves CLASS VALUES`, `declared CLASS VALUES`, `unreadable CLASS
 # start|end` or `refused WORD` for a `# leaves:` word that names no class.
 # A class unreadable at either end is not compared.
+# --declares ROW_FILE CLASS reads the same header and answers true/false.
 leak_judge() { # ROW_FILE START END
   python3 - "$@" "${leak_classes[@]}" <<'PY'
 import collections, json, os, re, sys
@@ -766,7 +779,27 @@ if sys.argv[1] == "--profile":
         print("plugins: profile=unreadable reason=" + str(error), file=sys.stderr)
         sys.exit(1)
     sys.exit(0)
-row_file, start, end, classes = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+declaration_query = sys.argv[1] == "--declares"
+row_file = sys.argv[2] if declaration_query else sys.argv[1]
+classes = sys.argv[4:]
+declared, refused = set(), False
+with open(row_file) as f:
+    for line in f:
+        if not line.startswith("#"):
+            break
+        found = re.match(r"#\s*leaves:(.*)$", line)
+        for word in found.group(1).split() if found else []:
+            if word in classes:
+                declared.add(word)
+            else:
+                print(f"refused\t{word}\t")
+                refused = True
+if declaration_query:
+    if refused:
+        sys.exit(1)
+    print(str(sys.argv[3] in declared).lower())
+    sys.exit(0)
+start, end = sys.argv[2:4]
 SHOWN, CUT = 8, 200
 
 def items(directory, name):
@@ -818,17 +851,6 @@ def render(added, gone):
         shown.append(f"and {len(words) - SHOWN} more")
     return " ".join(shown).replace("\t", " ")
 
-declared = set()
-with open(row_file) as f:
-    for line in f:
-        if not line.startswith("#"):
-            break
-        found = re.match(r"#\s*leaves:(.*)$", line)
-        for word in found.group(1).split() if found else []:
-            if word in classes:
-                declared.add(word)
-            else:
-                print(f"refused\t{word}\t")
 for name in classes:
     before, after = items(start, name), items(end, name)
     for side, reading in (("start", before), ("end", after)):

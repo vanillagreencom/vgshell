@@ -3493,6 +3493,9 @@ settings_setup() {
 # the file as it found it. The caller reloads the nested instance.
 hypr_lua_save() { cp -p -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-$1.lua"; }
 hypr_lua_restore() { cp -- "$sandbox/hyprland-$1.lua" "$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"; }
+# Consent owns its loader and markers together. Reload the current file
+# to reset live options without rewinding only its loader after Connect.
+hypr_config_reload() { hypr reload config-only >/dev/null; }
 # The key capture rows' readings, rows/key-capture.sh and
 # rows/key-passthrough.sh. key_submap: the nested instance's current
 # submap, `default` for none; a failed read fails. settings_key: the
