@@ -394,7 +394,6 @@ function detailRows(row) {
     if (d.copilotMonthUsed !== undefined) rows.push({ label: "Month credits used", value: compact(d.copilotMonthUsed) });
     if (d.copilotRenewsAt !== undefined) rows.push({ label: "Renews", value: dateText(d.copilotRenewsAt) });
     if (d.gateway !== undefined) {
-        rows.push({ label: "Balance left", value: money(d.gateway.balance, "USD") });
         rows.push({ label: "Total used", value: money(d.gateway.totalUsed, "USD") });
     }
     return rows;
@@ -448,7 +447,25 @@ function creditRow(credit, now, opensGroup) {
 // before them.
 function creditRows(row, now, afterLimits) {
     var pools = (row.details || {}).creditPools;
-    return Array.isArray(pools) ? pools.map(function (credit, at) { return creditRow(credit, now, afterLimits && at === 0); }) : [];
+    return Array.isArray(pools) ? pools.filter(function (credit) {
+        return credit.kind !== "codex" || credit.balance === null;
+    }).map(function (credit, at) { return creditRow(credit, now, afterLimits && at === 0); }) : [];
+}
+
+// Balances and reset credits from the helper, distinct from plan quotas.
+function accountValueRows(row) {
+    var d = row.details || {};
+    var rows = [];
+    (d.creditPools || []).forEach(function (credit) {
+        var balance = Number(credit.balance);
+        if (credit.kind === "codex" && Number.isFinite(balance) && balance > 0)
+            rows.push({ label: "API credits", value: balance < 1 ? String(balance) : wholeNumber(balance) });
+    });
+    if (d.gateway !== undefined && d.gateway.balance > 0)
+        rows.push({ label: "API credits", value: d.gateway.balance < 0.01 ? "$" + String(d.gateway.balance) : money(d.gateway.balance, "USD") });
+    if (d.availableResets > 0)
+        rows.push({ label: "Available resets", value: wholeNumber(d.availableResets) });
+    return rows;
 }
 
 // An account read, or kept through a limited read, whose every window is
@@ -536,7 +553,7 @@ function panel(usage, now, settings) {
             : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
-            note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
+            note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row), values: accountValueRows(row),
             windows: limits.concat(creditRows(row, now, limits.length > 0)) };
     });
 }

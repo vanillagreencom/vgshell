@@ -77,8 +77,8 @@ Item {
             const now = Time.now.getTime();
             window.panel.shell = { settings: { view: data.view }, ipc: { call: () => "ok" }, configure: { set: () => "ok" },
                 status: { values: { usage: { readAt: now, gatewayKey: null, accounts: [
-                    { id: "codex-a", provider: "codex", state: "ok", email: "a@example.com", readAt: now, credits: null,
-                        details: { creditPools: [{ kind: "codex", unlimited: false, balance: "12345" }] },
+                    { id: "claude-a", provider: "claude", state: "ok", email: "a@example.com", readAt: now, credits: null,
+                        details: { creditPools: [{ kind: "cowork", usedPercent: 20, used: null, limit: null, resetsAt: null }] },
                         windows: [
                             { name: "five_hour", usedPercent: 40, resetsAt: now + 2 * 3600000 },
                             { name: "seven_day", usedPercent: 60, resetsAt: now + 2 * 86400000 }
@@ -86,9 +86,9 @@ Item {
             const row = name => find(window.panel, n => n.modelData !== undefined && n.modelData.name === name && n.topPadding !== undefined);
             const first = row("seven_day");
             const last = row("five_hour");
-            const credit = row("credit-codex");
+            const credit = row("credit-cowork");
             verify(first !== null && last !== null && credit !== null, "the card draws two limits followed by its credit");
-            const creditLine = find(credit, n => n.role === "body" && n.text === "Codex credits").parent;
+            const creditLine = find(credit, n => n.role === "body" && n.text === "Claude Code and Cowork credit").parent;
             tryVerify(() => last.y - first.y - first.height === data.rowGap && credit.y >= last.y + last.height,
                 1000, "the limits settle at the view's row gap");
             compare(credit.y + creditLine.y - last.y - last.height, data.creditGap,

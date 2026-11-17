@@ -376,6 +376,16 @@ Item {
                     }
                 }
 
+                Repeater {
+                    model: entry.values
+                    FormRow {
+                        required property var modelData
+                        width: parent.width
+                        label: modelData.label
+                        Label { role: "body"; text: modelData.value }
+                    }
+                }
+
                 Section {
                     visible: root.fullView && entry.details.length > 0
                     title: "Details"

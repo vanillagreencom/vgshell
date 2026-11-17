@@ -191,7 +191,8 @@ function claudeCredits(body) {
  * { windows, details }, or null for a reply of another shape. Source:
  * codex-rs/app-server-protocol/src/protocol/v2/account.rs,
  * GetAccountRateLimitsResponse, RateLimitSnapshot, RateLimitWindow and
- * CreditsSnapshot.
+ * CreditsSnapshot; and result.rateLimitResetCredits.availableCount as
+ * details.availableResets (Codex 0.169.0 RateLimitResetCreditsSummary).
  */
 function codexWindows(result) {
     if (!plain(result) || !plain(result.rateLimits)) return null;
@@ -211,6 +212,11 @@ function codexWindows(result) {
         windows.push({ name, usedPercent, resetsAt: Number.isSafeInteger(resets) ? resets * 1000 : null });
     }
     const details = {};
+    const resets = result.rateLimitResetCredits;
+    if (resets !== undefined && resets !== null) {
+        if (!plain(resets) || !Number.isSafeInteger(resets.availableCount) || resets.availableCount < 0) return null;
+        if (resets.availableCount > 0) details.availableResets = resets.availableCount;
+    }
     if (snapshot.credits !== undefined && snapshot.credits !== null) {
         const credits = snapshot.credits;
         if (!plain(credits) || typeof credits.hasCredits !== "boolean" || typeof credits.unlimited !== "boolean"

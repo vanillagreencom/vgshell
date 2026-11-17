@@ -421,9 +421,10 @@ usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
 usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal"]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 expect_poll "the panel draws a 5-hour row on each card" 2 usage_drawn "5-hour limit"
+expect_poll "the panel draws the Codex API credit balance" 1 usage_drawn "API credits"
 expect "the reset calendar starts closed" false usage_calendar_open
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame before the calendar click"
 usage_calendar_click || fail "the click on the calendar button failed"
@@ -510,7 +511,7 @@ expect "the account choices list each signed-in account by provider and email" '
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
 # A reply with both credit fields (claude-usage-credits.json) draws a row
@@ -523,12 +524,11 @@ usage_credit_want='[["credit-cowork", "Claude Code and Cowork credit", "18%", tr
 for usage_view in compact full; do
   expect "choosing $usage_view view for the credits is allowed" ok usage_apply_setting view "\"$usage_view\""
   click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage over the credits in $usage_view view failed"
-  expect_poll "the $usage_view card draws each credit after the limits" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"], ["credit-cowork", 18, "success"], ["credit-labelled", 20.6, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+  expect_poll "the $usage_view card draws each credit after the limits" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"], ["credit-cowork", 18, "success"], ["credit-labelled", 20.6, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
   expect "the $usage_view card's credits read as the reply's" "$usage_credit_want" usage_credit_rows
   summon_drawn panel vgs.ai-usage || fail "the $usage_view credits panel never drew a frame"
-  for usage_title in "Claude Code and Cowork credit" "API credits" "Codex credits"; do
-    expect_poll "the $usage_view panel draws the $usage_title row" 1 usage_drawn "$usage_title"
-  done
+  expect_poll "the $usage_view panel draws the Cowork credit row" 1 usage_drawn "Claude Code and Cowork credit"
+  expect_poll "the $usage_view panel draws the labelled Claude credit and Codex API balance" 2 usage_drawn "API credits"
   expect_poll "the $usage_view Cowork credit's figure sits on its title's first line" matched usage_first_line "Claude Code and Cowork credit" "18%"
   if [[ $usage_view == full ]]; then usage_bars_want=7; else usage_bars_want=0; fi
   expect_poll "the $usage_view panel draws $usage_bars_want bars, none for the Codex balance" "$usage_bars_want" usage_bars
@@ -544,7 +544,7 @@ expect "the account with no 5-hour limit reads no 5-hour window" '[["ok", [["sev
 for usage_view in full compact; do
   expect "choosing $usage_view view for no 5-hour window is allowed" ok usage_apply_setting view "\"$usage_view\""
   click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with no 5-hour window in $usage_view view failed"
-  expect_poll "the $usage_view card with no 5-hour window draws its weekly limits alone" '[["claude", "", [["seven_day", 60, "warning"], ["seven_day_fable", 96, "danger"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+  expect_poll "the $usage_view card with no 5-hour window draws its weekly limits alone" '[["claude", "", [["seven_day", 60, "warning"], ["seven_day_fable", 96, "danger"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
   summon_drawn panel vgs.ai-usage || fail "the $usage_view panel with no 5-hour window never drew a frame"
   expect_poll "the $usage_view panel draws the Codex 5-hour row alone" 1 usage_drawn "5-hour limit"
   expect "the $usage_view panel with no 5-hour window hides" ok ipc shell hide panel vgs.ai-usage

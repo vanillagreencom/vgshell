@@ -265,6 +265,13 @@ async function main() {
             { details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }] }, windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
         assert.deepEqual(codexWindows({ rateLimits: { primary: null, secondary: null, credits: { hasCredits: false, unlimited: false, balance: "0" } } }),
             { details: {}, windows: [] }, "a Codex account with no credits draws no credit");
+        // Codex 0.169.0 GetAccountRateLimitsResponse carries this summary
+        // beside rateLimits; the optional detail list can be shorter.
+        for (const [summary, expected] of [[undefined, {}], [null, {}],
+            [{ availableCount: 0 }, {}], [{ availableCount: 3, credits: [] }, { availableResets: 3 }]])
+            assert.deepEqual(codexWindows({ rateLimits: {}, rateLimitResetCredits: summary }), { windows: [], details: expected });
+        for (const summary of [[], {}, { availableCount: "3" }, { availableCount: -1 }, { availableCount: 1.5 }])
+            assert.equal(codexWindows({ rateLimits: {}, rateLimitResetCredits: summary }), null, "malformed reset count " + JSON.stringify(summary));
         for (const body of [{}, { rateLimits: 3 }, { rateLimits: { primary: { usedPercent: "5" } } }, { rateLimits: { primary: [] } }])
             assert.equal(codexWindows(body), null, JSON.stringify(body));
 
@@ -296,6 +303,8 @@ async function main() {
     };
     recorded(plugin);
     cases++;
+    await control("reset-summary-dropped", "backend/usage.js", "        if (resets.availableCount > 0) details.availableResets = resets.availableCount;", "", recorded);
+    await control("reset-summary-coerced", "backend/usage.js", "!Number.isSafeInteger(resets.availableCount)", "!Number.isFinite(Number(resets.availableCount))", recorded);
     await control("old-seven-day-scan", "backend/usage.js", "    for (const name of [\"five_hour\", \"seven_day\"]) {",
         "    const names = Object.keys(body).filter(name => /^seven_day_[a-z0-9_]+$/.test(name)).sort();\n    for (const name of [\"five_hour\", \"seven_day\", ...names]) {", recorded);
     await control("limits-parse-removed", "backend/usage.js", "for (const entry of Array.isArray(body.limits) ? body.limits : [])",
@@ -1045,10 +1054,34 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent, w.started]), r.details.map(d => [d.label, d.value])])), [
             ["claude-enterprise", "Claude Code", "", "", "This plan reports no usage limits.", [], []],
-            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true], ["Codex credits", "59,295", 0, true]], []],
+            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true]], []],
             ["copilot-a", "Copilot", "octo-user", "", "", [["AI credits", "45.2k of 1M", 4.5225, true]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
             ["copilot-b", "Copilot", "zero-user", "No premium request pool", "", [], []],
-            ["gateway-a", "AI Gateway", "", "", "", [["AI Gateway credits", "33%", 33.3333333333, true]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
+            ["gateway-a", "AI Gateway", "", "", "", [["AI Gateway credits", "33%", 33.3333333333, true]], [["Total used", "$5.25"]]]]);
+        // The owner's key/value balance is shown in both panel modes, only
+        // above zero. Monthly quotas and unknown balances add no reading.
+        for (const [provider, details, want] of [
+            ["codex", { creditPools: [{ kind: "codex", balance: "12345", unlimited: false }] }, [["API credits", "12,345"]]],
+            ["codex", { creditPools: [{ kind: "codex", balance: "0.25", unlimited: false }] }, [["API credits", "0.25"]]],
+            ["codex", { creditPools: [{ kind: "codex", balance: "0.0001", unlimited: false }] }, [["API credits", "0.0001"]]],
+            ["codex", { creditPools: [{ kind: "codex", balance: "0", unlimited: false }] }, []],
+            ["codex", { creditPools: [{ kind: "codex", balance: "10", unlimited: false }], availableResets: 3 }, [["API credits", "10"], ["Available resets", "3"]]],
+            ["codex", { creditPools: [{ kind: "codex", balance: "0", unlimited: false }], availableResets: 0 }, []],
+            ["codex", { availableResets: 2 }, [["Available resets", "2"]]],
+            ["codex", { creditPools: [{ kind: "codex", balance: null, unlimited: true }] }, []],
+            ["gateway", { gateway: { balance: 10.5, totalUsed: 5 } }, [["API credits", "$10.50"]]],
+            ["gateway", { gateway: { balance: 0.001, totalUsed: 5 } }, [["API credits", "$0.001"]]],
+            ["gateway", { gateway: { balance: 0, totalUsed: 5 } }, []],
+            ["claude", {}, []], ["copilot", { copilotMonthUsed: 4 }, []]
+        ]) {
+            const account = { id: "balance", provider, state: "ok", windows: [], credits: null, details };
+            for (const view of ["compact", "full"]) {
+                const card = View.panel({ accounts: [account] }, NOW, { view })[0];
+                assert.deepEqual(plainOf(card.values.map(r => [r.label, r.value])), want, provider + " " + view);
+                assert.equal(card.windows.some(r => r.name === "credit-codex" && details.creditPools[0].balance !== null), false,
+                    "a numeric balance is not repeated as a limit row");
+            }
+        }
         // A credit row after the limits, one per credit, in either view:
         // [name, title, figure, time left, bar, tone, opens the group]. An
         // amount needs both dollar figures and a bar needs the used share;
@@ -1224,6 +1257,9 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
     await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);
     await control("credit-rows-dropped", "UsageView.js", "windows: limits.concat(creditRows(row, now, limits.length > 0)) };", "windows: limits };", views);
+    await control("account-values-dropped", "UsageView.js", "values: accountValueRows(row)", "values: []", views);
+    await control("zero-api-balance-shown", "UsageView.js", "Number.isFinite(balance) && balance > 0", "Number.isFinite(balance) && balance >= 0", views);
+    await control("zero-reset-count-shown", "UsageView.js", "if (d.availableResets > 0)", "if (d.availableResets >= 0)", views);
     await control("credit-group-every-row", "UsageView.js", "afterLimits && at === 0", "afterLimits", views);
     await control("credit-group-without-limits", "UsageView.js", "creditRows(row, now, limits.length > 0)", "creditRows(row, now, true)", views);
     await control("derived-share", "UsageView.js", 'var share = codex || typeof credit.usedPercent !== "number" ? null : credit.usedPercent;',
