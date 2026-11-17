@@ -27,7 +27,7 @@
 # terminal `vgshell system apply apple-displays`; with hidraw2 open again
 # the pane draws no Access section; the choices persist in the assignments
 # file and come back after the service is rebuilt, and the second Studio
-# Display still waits for its own; the service holds one idle watch at
+# Display still waits for its own; the service holds one dim-stage watch at
 # the default 120 s and none at 0, which the rest of the row keeps, so no
 # dim lands between its readings; System → Displays draws the Dimming
 # section with the settings' values; after 3 s without input every display
@@ -197,11 +197,10 @@ with open(path + ".tmp", "w") as out:
 os.replace(path + ".tmp", path)
 PY
 }
-# The timeouts of the plugin's idle watches, as the lending record lists
-# them.
 # The global VRR option read from the nested compositor after the layer reload.
 disp_vrr() { hypr -j getoption misc:vrr | py_reply 'import json,sys; print(json.load(sys.stdin)["int"])'; }
-disp_watches() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([w["timeout"] for w in json.load(sys.stdin)["idle"] if w["id"] == "vgs.displays"]))'; }
+# The plugin's idle watches as [timeout, stage] from the lending record.
+disp_watches() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([[w["timeout"], w["stage"]] for w in json.load(sys.stdin)["idle"] if w["id"] == "vgs.displays"]))'; }
 # The idle dim as the service holds it: its state, and while dimmed each
 # kept display as [node, level].
 disp_dim() { disp_read dim | py_reply '
@@ -224,7 +223,7 @@ expect "enabling vgs.displays is allowed" ok ipc shell setPluginEnabled vgs.disp
 # its widget in the bar.
 expect "placing the displays widget is allowed" ok ipc shell setPluginPlaced vgs.displays true
 expect_poll "the displays service is built" True record_exists vgs.displays
-expect_poll "the service watches for 120 s without input, the dim's default" '[120]' disp_watches
+expect_poll "the service registers its default 120 s watch for the dim stage" '[[120, "dim"]]' disp_watches
 disp_setting dimAfterSeconds 0
 expect_poll "with the dim off the service holds no idle watch" '[]' disp_watches
 # rows/device-fakes.sh left the XDR's report at 20000, 40 %.
@@ -670,7 +669,7 @@ expect_poll "the System window is gone before the dim" 0 window_count "System Se
 expect_poll "the helper is idle before the dim's watch" True disp_idle
 disp_xdr_sets="$(disp_sets hidraw0)"
 disp_setting dimAfterSeconds 3
-expect_poll "the service watches for 3 s without input" '[3]' disp_watches
+expect_poll "the service watches for 3 s without input" '[[3, "dim"]]' disp_watches
 expect_poll "3 s without input dim the displays above 20 %, keeping their levels" '["dimmed", ["hidraw1", 60], ["hidraw2", 70]]' disp_dim
 expect_poll "the helper is idle after the dim" True disp_idle
 expect "the dim set Studio A and Studio B to 20 % and left the darker XDR" \
@@ -686,7 +685,7 @@ expect_poll "a key ends the dim" '["awake"]' disp_dim
 # A longer watch keeps a second dim off the readings below; the service
 # is awake, so the new watch writes nothing.
 disp_setting dimAfterSeconds 600
-expect_poll "the service watches for 600 s without input" '[600]' disp_watches
+expect_poll "the service watches for 600 s without input" '[[600, "dim"]]' disp_watches
 expect_poll "a key brings Studio A back to 60 %, keeps Studio B at 40 % and the XDR at 10 %" \
   "[[\"hidraw0\", \"ready\", 10, [\"$disp_main\"], true], [\"hidraw1\", \"ready\", 60, [\"$disp_output\"], true], [\"hidraw2\", \"ready\", 40, [], false]]" disp_items
 # 400 + 60 % of 400..60000, 36160.
@@ -712,7 +711,7 @@ cp -- "$disp_service" "$disp_service_saved"
 expect "the restore record owes no levels before restore checks" '[]' disp_restore_owed
 
 disp_setting dimAfterSeconds 3
-expect_poll "the service watches for 3 s for the disable restore" '[3]' disp_watches
+expect_poll "the service watches for 3 s for the disable restore" '[[3, "dim"]]' disp_watches
 expect_poll "3 s without input dim the displays before disable" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
 expect_poll "the helper is idle after the dim before disable" True disp_idle
 expect_poll "the fake holds Studio A and Studio B at 20 % before disable" '01203000000000 01203000000000' disp_reports_ab
@@ -736,7 +735,7 @@ expect_poll "the service is built after the Identify restore" True record_exists
 expect_poll "the helper is idle after the Identify restore" True disp_idle
 
 disp_setting dimAfterSeconds 3
-expect_poll "the service watches for 3 s before the rebuild restore" '[3]' disp_watches
+expect_poll "the service watches for 3 s before the rebuild restore" '[[3, "dim"]]' disp_watches
 expect_poll "3 s without input dim the displays before rebuild" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
 expect_poll "the helper is idle after the dim before rebuild" True disp_idle
 expect_poll "the fake holds Studio A and Studio B at 20 % before rebuild" '01203000000000 01203000000000' disp_reports_ab
@@ -754,7 +753,7 @@ rescan "the displays service source is restored after the rebuild check"
 expect_poll "the helper is idle after the rebuild restore" True disp_idle
 
 disp_setting dimAfterSeconds 3
-expect_poll "the service watches for 3 s before the restart restore" '[3]' disp_watches
+expect_poll "the service watches for 3 s before the restart restore" '[[3, "dim"]]' disp_watches
 expect_poll "3 s without input dim the displays before restart" '["dimmed", ["hidraw1", 60], ["hidraw2", 40]]' disp_dim
 expect_poll "the helper is idle after the dim before restart" True disp_idle
 expect_poll "the fake holds Studio A and Studio B at 20 % before restart" '01203000000000 01203000000000' disp_reports_ab
@@ -769,7 +768,7 @@ expect_poll "the restarted service first list reads restored levels while awake"
 expect_poll "the helper is idle after the restart restore" True disp_idle
 
 disp_setting dimAfterSeconds 3
-expect_poll "the service watches for 3 s before the missing-restore control" '[3]' disp_watches
+expect_poll "the service watches for 3 s before the missing-restore control" '[[3, "dim"]]' disp_watches
 python3 - "$disp_service" <<'PY'
 from pathlib import Path
 import sys

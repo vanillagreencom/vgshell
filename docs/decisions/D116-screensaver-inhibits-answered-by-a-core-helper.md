@@ -4,7 +4,7 @@
 
 **Date**: 2026-11-03
 
-**Status**: Active
+**Status**: Active (Stay awake scope → D136)
 
 **Research**: [VGS-2261](https://linear.app/vanillagreen/issue/VGS-2261); the logind lock: [VGS-2537](https://linear.app/vanillagreen/issue/VGS-2537) (`120b20924`), Jarvis decision 2026-11-13
 

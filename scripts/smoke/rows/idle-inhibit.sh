@@ -452,7 +452,7 @@ fi
 
 # Control: a core whose monitors ignore the pause.
 copy_tree idle-inhibit-unpaused
-if edit_tree idle-inhibit-unpaused shell/Core/IdleRegistry.qml '            enabled: !root.paused' '            enabled: true'; then
+if edit_tree idle-inhibit-unpaused shell/Core/IdleRegistry.qml '            enabled: !root.holdsStage(stage)' '            enabled: true'; then
   start_shell "$sandbox/tree-idle-inhibit-unpaused" "$sandbox/idle-inhibit-unpaused.log"
   expect_poll "control: the unpaused copy takes the name" "$ii_free" ii_pause
   ii_start "$ii_bus" "$sandbox/idle-inhibit-unpaused-hold.log" hold >/dev/null || fail "control: the unpaused copy's caller did not start"

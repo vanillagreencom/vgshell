@@ -68,6 +68,7 @@ FocusScope {
         }
         return out;
     }
+    readonly property var stayAwakeFields: groups.find(group => group.name === "Stay awake")?.keys ?? []
     readonly property Item initialFocus: content
 
     // Each stage's row label, what it does as a verb for its own row, and
@@ -212,13 +213,27 @@ FocusScope {
                     shell: root.shell
                 }
             }
+
+            Repeater {
+                model: root.stayAwakeFields
+
+                SettingField {
+                    required property string modelData
+                    width: stayAwakeSection.width
+                    pluginId: root.shell === null ? "" : root.shell.manifest.id
+                    key: modelData
+                    spec: root.schema[key]
+                    value: root.shell === null ? undefined : root.shell.settings[key]
+                    onApply: value => root.configure(key, value)
+                }
+            }
         }
 
         Section {
             id: timeline
             width: content.width
             title: "Idle timeline"
-            description: stayAwake.awake.active ? "Paused while Stay awake is on. Each time counts from your last input." : "Each time counts from your last input. Select a time to change it."
+            description: stayAwake.awake.active ? "The computer stays awake. Displays and locking follow your Stay awake settings." : "Each time counts from your last input."
 
             // A ScriptModel of stage names keeps each row while the record
             // and the editors are replaced whole on every change.
@@ -276,7 +291,7 @@ FocusScope {
         }
 
         Repeater {
-            model: root.groups
+            model: root.groups.filter(group => group.name !== "Stay awake")
 
             Section {
                 id: group

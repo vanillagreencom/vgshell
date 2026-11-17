@@ -409,7 +409,7 @@ Item {
         idleDisposer = null;
         wake();
         if (shell === null || dimAfterSeconds <= 0) return;
-        idleDisposer = shell.idle.watch(dimAfterSeconds, idle => { if (idle) root.dimSoon(); else root.wake(); });
+        idleDisposer = shell.idle.watch(dimAfterSeconds, idle => { if (idle) root.dimSoon(); else root.wake(); }, "dim");
     }
 
     // The seat went idle: dim once the next list to end has read each

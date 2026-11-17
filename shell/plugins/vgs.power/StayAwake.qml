@@ -17,7 +17,7 @@ Row {
     property string problem: ""
     readonly property var awake: Logic.stayAwakeView(shell === null ? null : shell.status.values.power)
     readonly property var durations: Logic.STAY_AWAKE_DURATIONS
-    readonly property string hint: awake.active ? "Dimming and locking resume after it ends" : "Prevents dimming, locking and sleeping"
+    readonly property string hint: awake.active ? "" : "Prevents the computer from sleeping"
     readonly property real slotWidth: width - button.width - spacing
 
     spacing: Theme.stack.inline
