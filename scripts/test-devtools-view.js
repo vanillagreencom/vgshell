@@ -52,6 +52,8 @@ function worstCaseStatusBytes(logic) {
     const report = { machine: machine, mise: { present: true, version: "2026.9.9 status measurement" }, manager: "pacman", sections: sections, other: [] };
     const values = logic.statusValues({ catalog: { value: report, error: null } });
     values.launcherRows = logic.launcherRows(report, true);
+    assert.ok(PluginLogic.statusWrite(manifest, {}, "catalog", values.catalog).ok,
+        "the projected real catalog passes the production status publisher before serialization");
     return Buffer.byteLength(JSON.stringify(values), "utf8");
 }
 
@@ -246,12 +248,15 @@ function verify(logic) {
     ], apps: [row({ id: "code", name: "Code", section: "apps", kind: "gui", command: "code", launch: ["code"], installed: true, version: "2", origin: "mise", actions: ["update", "remove"] })],
         terminals: [row({ id: "alacritty", name: "Alacritty", section: "terminals", kind: "gui", command: "alacritty", launch: ["alacritty"], installed: true, version: "2", origin: "mise", actions: [] })] });
     const statusBytes = worstCaseStatusBytes(logic);
-    assert.equal(statusBytes, 58064, "the real catalog worst-case status payload size is pinned to this test's model");
+    assert.equal(statusBytes, 47135, "the real catalog worst-case status payload size is pinned to this test's model");
     assert.ok(PluginLogic.STATUS_MAX_BYTES - statusBytes >= 7000, "the Dev Tools status payload keeps at least 7000 bytes below the status ceiling");
-        same(logic.launcherRows(null, true), [], "no list publishes no launcher rows");
+    same(logic.launcherRows(null, true), [], "no list publishes no launcher rows");
     same(logic.launcherRows(launcherList, false), [], "showInLauncher hides launcher rows");
     same(logic.launcherRows(launcherList, true).find(r => r.id === "agents.claude"),
         { id: "agents.claude", label: "Claude Code", icon: "bot", description: "Update available", aliases: ["claude"] });
+    const publishedCatalog = logic.statusValues({ catalog: ok(launcherList) }).catalog;
+    same(logic.sections(publishedCatalog, "", true), JSON.parse(JSON.stringify(logic.sections(Object.assign({}, publishedCatalog, { tools: ok(launcherList) }), "", true))),
+        "projecting status preserves every tool, state, action and search id without changing the raw launcher report");
     assert.equal(logic.sections(Object.assign({}, values.catalog, { tools: ok(launcherList) }), "", false).find(section => section.key === "agents").rows.find(r => r.id === "broken").lines[0], "download failed");
     assert.ok(!logic.launcherRows(launcherList, true).some(r => r.id === "other"), "other is not a launcher category");
     same(logic.launchDecision(launcherList, "apps.code"), { kind: "run", argv: ["code"] }, "installed gui app runs directly");
@@ -285,7 +290,16 @@ function verify(logic) {
     assert.equal(logic.updateEntry([{ key: "a/x", group: "Dev Tools" }]), "");
 
     // Rows.
-    const drawn = r => { const v = logic.toolRow(r.section, r, false); return [v.name, v.icon, v.tile, v.secondary, v.chips, v.channels, v.actions.map(a => a.label), v.lines]; };
+    const drawn = r => {
+        const report = r.section === "other" ? list({}, [r]) : list({ [r.section]: [r] });
+        const published = logic.statusValues({ catalog: ok(report) }).catalog.tools.value;
+        assert.ok(PluginLogic.statusWrite(manifest, {}, "catalog", { tools: ok(published) }).ok,
+            "published catalog rows pass the status publisher before JSON serialization, including sparse other tools");
+        const projected = r.section === "other" ? published.other[0] : published.sections[r.section][0];
+        const v = logic.toolRow(r.section, projected, false);
+        same(v, JSON.parse(JSON.stringify(logic.toolRow(r.section, r, false))), "published tool fields preserve the complete window row");
+        return [v.name, v.icon, v.tile, v.secondary, v.chips, v.channels, v.actions.map(a => a.label), v.lines];
+    };
     same(drawn(row({ installed: true, origin: "mise", version: "2.1", actions: ["update", "remove"] })),
         ["Claude Code", "bot", "brand", "2.1", [{ text: "Installed", tone: "success" }], [], ["Update", "Remove", "Version", "Pin"], []]);
     same(drawn(row({ installed: true, origin: "foreign", path: "/h/.local/bin/claude", actions: [] })),
@@ -437,6 +451,8 @@ for (const [label, needle, replacement] of publicationControls) {
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["published rows keep their origin", 'if (hasOwn(r, key)) out[key] = r[key];', 'if (hasOwn(r, key) && key !== "origin") out[key] = r[key];'],
+    ["sparse published rows stay plain JSON", 'if (hasOwn(r, key)) out[key] = r[key];', 'out[key] = r[key];'],
     ["remove draws in the accent", 'remove: "danger" }', 'remove: "accent" }'],
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["a failed tool action has a message", 'function actionErrorText(reason) {', 'function actionErrorText(reason) { if (/step=failed/.test(String(reason))) return "";'],

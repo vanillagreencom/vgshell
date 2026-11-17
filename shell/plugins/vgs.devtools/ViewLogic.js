@@ -276,6 +276,23 @@ function launcherReport(lines) {
     return out;
 }
 
+// Publish only the tool fields the window reads. Launch decisions use the
+// service's raw answers; repeating unused engine metadata and requested
+// versions in status grows the reply per catalog row.
+function catalogTools(report) {
+    function row(r) {
+        var out = {};
+        ["id", "name", "icon", "brand", "installed", "version", "origin", "package",
+            "launcher", "pinned", "rollbackVersion", "latest", "failed", "channels", "actions", "error"].forEach(function (key) {
+            if (hasOwn(r, key)) out[key] = r[key];
+        });
+        return out;
+    }
+    var sections = {};
+    Object.keys(report.sections).forEach(function (key) { sections[key] = report.sections[key].map(row); });
+    return { mise: report.mise, sections: sections, other: report.other.map(row) };
+}
+
 // The `catalog` status value, everything the window draws: each query's
 // answer as { value, error }, null before its first answer. The
 // requirements are reduced to the missing ones.
@@ -287,7 +304,7 @@ function catalogValue(answers) {
     }
     function same(v) { return v; }
     return {
-        tools: pick("catalog", same),
+        tools: pick("catalog", catalogTools),
         requirements: pick("requirements", missingRequirements),
         vgs: pick("vgs", same),
         updates: pick("updates", same),
@@ -600,7 +617,7 @@ function aliasesFor(row) {
 }
 
 // scripts/test-devtools-view.js computes the worst-case status payload from
-// the real catalog and held it at 58064 bytes in this change, below
+// the real catalog and holds it at 47135 bytes (VGS-2615), below
 // PluginLogic.STATUS_MAX_BYTES, 64 KiB. Keep launcher rows compact:
 // ids, labels, icons, one state line and search aliases only.
 function launcherRows(report, show, catalog) {
