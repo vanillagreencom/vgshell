@@ -2602,7 +2602,9 @@ for spec in \
       printf '.import "Logic.js" as Logic\nItem {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
     added) sed -i '/^ContentRow /d' "$d/shell/Ui/qmldir" ;;
   esac
-  commit "$d" module-contract
+  case "$name" in
+    relative|implicit|js-resource|added) commit "$d" module-contract ;;
+  esac
   case "$name" in
     row-source) printf 'Item { width: 10 }\n' >"$d/shell/Ui/layout/ContentRow.qml" ;;
     module-wide|unknown) printf '%s\n' "$declaration" >>"$d/shell/Ui/qmldir" ;;
