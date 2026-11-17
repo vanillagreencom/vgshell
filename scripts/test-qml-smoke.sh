@@ -19,8 +19,8 @@
 # each lock wait at that bound and finishes, its window logging hold=none;
 # its control, a harness whose lock waits have no bound, is still waiting
 # at twice the bound. Three PID worlds also drive the production admission
-# functions with acknowledged lock queues: pending A/C windows precede B,
-# B then progresses, a killed C releases intent, and the old order fails.
+# functions with acknowledged requests and grants: pending A/C windows precede B,
+# B then progresses, a killed C releases intent, and removing the recheck fails.
 # --case idle-lock holds a nested row past a shortened idle deadline before
 # reading its native frame and focus. Its control restores the old profile.
 # Once the holding run is killed, one world's timed window waits for the
@@ -696,10 +696,10 @@ fi
 
 if [[ $selected_case == all || $selected_case == hold ]]; then
   # Admission has no compositor dependency. Drive its production functions
-  # in three PID worlds, acknowledging real lock requests rather than
-  # guessing their queue order from elapsed sleeps.
+  # in three PID worlds, using request/grant barriers rather than a
+  # namespace-filtered queue listing or elapsed sleeps.
   python3 - "$repo" "$TMP_ROOT" "$BASH" <<'PY'
-import json, os, pathlib, re, selectors, signal, subprocess, sys, time
+import json, os, pathlib, re, selectors, subprocess, sys, time
 repo, root = map(pathlib.Path, sys.argv[1:3])
 bash = sys.argv[3]
 text = (repo / 'scripts/smoke/harness.sh').read_text()
@@ -710,55 +710,71 @@ source = source.replace('smoke_lock_take() {', 'admission_take() {')
 fixture = r'''
 set -euo pipefail
 source "$1"
-name=$2 sandbox=$3 smoke_hold_dir=$4 qml_smoke_idle_secs=8
+name=$2 sandbox=$3 smoke_hold_dir=$4 qml_smoke_idle_secs=$5 fixture_order=$6
 mkdir -p "$sandbox"
 now_ms() { printf '%s\n' "$(( ${EPOCHREALTIME/./} / 1000 ))"; }
 fail() { printf 'failure %s\n' "$*"; exit 1; }
 event() { printf 'event %s %s\n' "$name" "$*"; }
+b_wait_paused=false b_grant_paused=false
 smoke_lock_take() {
   event "request $1 $2"
-  admission_take "$@"
+  if [[ $fixture_order == order ]]; then
+    if [[ $name == B && $1 == -s && $2 == hold && $b_wait_paused == false ]]; then
+      b_wait_paused=true
+      event shared-paused
+      read -r command || return $?
+    elif [[ $name == C && $1 == -x && $2 == hold ]]; then
+      event hold-paused
+      read -r command || return $?
+    fi
+  fi
+  admission_take "$@" || return $?
+  event "granted $1 $2"
+  if [[ $fixture_order == order && $name == B && $1 == -s && $2 == hold && $b_grant_paused == false ]]; then
+    b_grant_paused=true
+    event shared-granted
+    read -r command || return $?
+  fi
 }
 if [[ $name == B ]]; then
   read -r command
+  event row-request
   smoke_hold_row begin B
   event row
   read -r command
 else
-  smoke_hold_row begin "$name"
-  event row
+  # A window can have no shared grant after ordinary admission reaches
+  # its wait bound. Use that supported state for C in the order case,
+  # so A can hold exclusively while B requests its ordinary row.
+  if [[ $name == C && $fixture_order == order ]]; then
+    event ready
+  else
+    smoke_hold_row begin "$name"
+    event row
+  fi
   read -r command
   if [[ $command == window ]]; then
+    event window-request
     smoke_hold_begin "$name" window
     event held
     read -r command
     smoke_hold_end
-    event retaken
+    event window-ended
   fi
 fi
-smoke_hold_row end "$name"
+if [[ $name != C || $fixture_order != order ]]; then smoke_hold_row end "$name"; fi
 event done
 '''
-# Plant the previous admission order in a disposable source copy. Keep
-# the same lock owner and instrument: only the shared-intent/recheck fix
-# is removed, so a rejected result proves the original intervening row.
-mutant = source
-old = '  if smoke_lock_take -s gate; then gate=$smoke_lock_pid; fi\n  smoke_hold_cause=$smoke_lock_cause\n'
-assert mutant.count(old) == 1
-mutant = mutant.replace(old, '')
-anchor = '  if [[ -n $gate ]]; then\n'
-assert mutant.count(anchor) == 1
-mutant = mutant.replace(anchor, old.replace('-s gate', '-x gate') + anchor)
-old = '        smoke_lock_drop "$gate"\n'
-assert mutant.count(old) == 1
-mutant = mutant.replace(old, '')
-old = '    smoke_hold_shared=$smoke_lock_pid\n'
-assert mutant.count(old) == 1
-mutant = mutant.replace(old, old + '    [[ -z $gate ]] || smoke_lock_drop "$gate"\n    return 0\n')
+# The counterexample preserves every barrier and real lock acquisition.
+# It removes only the pending-intent recheck after B's shared grant: B
+# must then start its row before C, rather than leave a barrier unreachable.
+old = '    flock -E 75 -n -x "$smoke_hold_dir/vgs-smoke-gate" true || status=$?'
+assert source.count(old) == 1
+mutant = source.replace(old, '    :')
 assert mutant != source
 base_env = {key: os.environ[key] for key in ('PATH', 'TMPDIR', 'VGSHELL_WORLD_ROOT')}
 base_env.update(LC_ALL='C.UTF-8', VGS_TEST_RUN='1')
-def run(label, functions, killed=False):
+def run(label, functions, killed=False, bounded=False):
     folder = root / label
     folder.mkdir()
     locks = folder / 'locks'
@@ -772,7 +788,9 @@ def run(label, functions, killed=False):
     deadline = time.monotonic() + 30
     def start(name):
         child = subprocess.Popen(['unshare', '--user', '--map-current-user', '--pid', '--fork', '--kill-child', '--mount-proc',
-                                  bash, '-c', fixture, '_', str(script), name, str(folder / name), str(locks)],
+                                  bash, '-c', fixture, '_', str(script), name, str(folder / name), str(locks),
+                                  ('2' if name == 'B' else '60') if bounded else '8',
+                                  'bounded' if bounded else 'killed' if killed else 'order'],
                                  env=base_env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
         children[name] = child
         reports[name] = []
@@ -796,22 +814,21 @@ def run(label, functions, killed=False):
     def send(name, command):
         children[name].stdin.write((command + '\n').encode())
         children[name].stdin.flush()
-    def queued_gate():
-        # The enclosing test world sees all three child PID namespaces.
-        # A kernel-blocked writer acknowledges B's place ahead of C; an
-        # event before flock starts would leave that order to scheduling.
-        inode = str((locks / 'vgs-smoke-gate').stat().st_ino)
-        while time.monotonic() < deadline:
-            for line in pathlib.Path('/proc/locks').read_text().splitlines():
-                fields = line.split()
-                if len(fields) >= 8 and fields[1:5] == ['->', 'FLOCK', 'ADVISORY', 'WRITE'] and fields[6].rsplit(':', 1)[-1] == inode:
-                    return
-            time.sleep(0.01)
-        raise AssertionError(('B-not-queued', label, reports))
     try:
         start('A'); start('C'); start('B')
-        wait_for('A row'); wait_for('C row')
-        if killed:
+        wait_for('A row'); wait_for('C row' if killed or bounded else 'C ready')
+        if bounded:
+            # C's intent cannot drain A. B's own admission bound must let
+            # ordinary work progress while that intent remains pending.
+            send('C', 'window')
+            wait_for('C request -x hold')
+            send('B', 'start')
+            wait_for('B row')
+            assert 'C held' not in events, ('intent-ended-before-row', events)
+            send('B', 'finish'); send('A', 'finish')
+            wait_for('B done'); wait_for('A done'); wait_for('C held')
+            send('C', 'release'); wait_for('C done')
+        elif killed:
             send('C', 'window')
             wait_for('C request -x hold')
             children['C'].kill()
@@ -822,14 +839,17 @@ def run(label, functions, killed=False):
             wait_for('B done'); wait_for('A done')
         else:
             send('A', 'window')
-            wait_for('A request -x hold')
-            send('B', 'start')
-            wait_for('B request -x gate')
-            queued_gate()
-            send('C', 'window')
-            wait_for('C request -s gate', 'C request -x gate')
             wait_for('A held')
+            send('B', 'start')
+            wait_for('B shared-paused')
+            send('C', 'window')
+            wait_for('C granted -s gate'); wait_for('C hold-paused')
+            send('B', 'wait')
             send('A', 'release')
+            # C's intent is real, but its exclusive request is paused.
+            # B therefore receives a real shared grant before C can enter.
+            wait_for('B shared-granted')
+            send('C', 'take'); send('B', 'check')
             first = wait_for('C held', 'B row')
             if first == 'B row':
                 send('B', 'finish')
@@ -844,9 +864,13 @@ def run(label, functions, killed=False):
             child.wait(timeout=max(0.1, deadline - time.monotonic()))
             reports[name].extend(child.stdout.read().decode().splitlines())
             assert child.returncode == 0, (label, name, child.returncode, reports)
-            assert not any('hold=none' in line or 'gate=none' in line for line in reports[name]), (label, reports)
+            assert not any('hold=none' in line for line in reports[name]), (label, reports)
+            if bounded and name == 'B':
+                assert any('gate=none cause=[wait-bound secs=2 lock=gate mode=-x]' in line for line in reports[name]), (label, reports)
+            else:
+                assert not any('gate=none' in line for line in reports[name]), (label, reports)
         if not killed:
-            for name in ('A', 'C'):
+            for name in (('C',) if bounded else ('A',)):
                 assert any(re.fullmatch(r'qml-smoke: smoke-hold row=' + name + r' window=window lock=shared phase=retake wait_ms=[0-9]+', line)
                            for line in reports[name]), (label, 'missing-retake', reports)
         (folder / 'receipts.json').write_text(json.dumps(dict(events=events, reports=reports), indent=2) + '\n')
@@ -858,6 +882,8 @@ def run(label, functions, killed=False):
             child.wait(timeout=5)
         poll.close()
 def ordered(events):
+    assert events.index('A window-request') < events.index('B row-request') < events.index('C window-request'), ('request-order', events)
+    assert events.index('C granted -s gate') < events.index('B shared-granted') < events.index('C held'), ('ownership-barriers', events)
     return events.index('A held') < events.index('C held') < events.index('B row') < events.index('B done')
 events = run('admission-shipped', source)
 assert ordered(events), ('pending-window-overtaken', events)
@@ -865,7 +891,9 @@ control = run('admission-control', mutant)
 assert not ordered(control), ('control-did-not-admit-intervening-row', control)
 killed = run('admission-killed', source, killed=True)
 assert 'C held' not in killed and 'B done' in killed, ('killed-intent-not-released', killed)
-print(json.dumps(dict(case='hold-admission', events=events, control=control, killed=killed, result='pass', counterexample='rejected')), flush=True)
+bounded = run('admission-bounded', source, bounded=True)
+assert bounded.index('B row') < bounded.index('C held'), ('ordinary-row-starved', bounded)
+print(json.dumps(dict(case='hold-admission', events=events, control=control, killed=killed, bounded=bounded, result='pass', counterexample='rejected')), flush=True)
 PY
   # A holder that exits without an answer ends the take. Run harness.sh's
   # own smoke_lock_take against a lock directory with no vgs-smoke-gate,
