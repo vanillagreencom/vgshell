@@ -215,8 +215,18 @@ function ports(root, engine, state) {
                     wait("transcript", caption);
                 };
                 wait("transcript", caption);
+                for (const [gate, reason] of [
+                    ["speech-account", "live=server-error type=server_error code=insufficient_quota"],
+                    ["speech-setup", "live=format"]
+                ]) wait(gate, () => {
+                    for (const owned of ["transcript", "speech-account", "speech-setup"]) gates.drop(owned);
+                    events.failed(reason, require("./ChainedEngine.js").restartOf(reason, {}));
+                });
             },
-            close: e => record("speech-close", e),
+            close: e => {
+                for (const gate of ["speech-account", "speech-setup"]) gates.drop(gate);
+                record("speech-close", e);
+            },
             flush: e => record("speech-flush", e),
             release: () => {}
         }

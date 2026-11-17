@@ -340,6 +340,9 @@
 # jarvis-task-ending draws the shutdown notification. jarvis-shell-tools
 # draws the public-runtime failure hint on Details. Both call the selected
 # revision's service handlers with synthetic results and are named-only.
+# jarvis-voice-account and jarvis-voice-setup use the scripted speech port's
+# failure gates and the selected revision's restart judge, then draw the
+# stopped voice's error and Settings link. Both are named-only.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
@@ -674,7 +677,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     restart-owed|font-rewrite|reboot-notice) scenes+=("$1"); shift ;;
-    jarvis-restart|jarvis-task-ending|jarvis-shell-tools) scenes+=("$1"); shift ;;
+    jarvis-restart|jarvis-task-ending|jarvis-shell-tools|jarvis-voice-account|jarvis-voice-setup) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
@@ -866,7 +869,7 @@ scene_ships() {
     clipboard) ships_plugin vgs.clipboard ;;
     jarvis-console|jarvis-reach|jarvis-history) ships_plugin vgs.jarvis ;;
     jarvis-keys|jarvis-states) [[ $manager_scene == settings ]] && ships_plugin vgs.jarvis vgs.settings vgs.bar ;;
-    jarvis-restart|jarvis-task-ending) ships_plugin vgs.jarvis vgs.bar vgs.notifications ;;
+    jarvis-restart|jarvis-task-ending|jarvis-voice-account|jarvis-voice-setup) ships_plugin vgs.jarvis vgs.bar vgs.notifications ;;
     jarvis-shell-tools) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
@@ -5516,7 +5519,7 @@ scene_jarvis-shell-tools() { # MODE
   expect_poll "the Jarvis page is shown for the shell-tools hint" '"vgs.jarvis"' settings_page
   page_details
   expect "the production shell-tools status handler publishes" true ipc smoke invokeInstanceArgs service vgs.jarvis shellStatus '{"args":[{"kind":"unavailable","reason":"public-runtime"}]}'
-  jarvis_anchor_shot "jarvis-shell-tools-$1" Label "$(jarvis_status_label shell)"
+  jarvis_anchor_shot "jarvis-shell-tools-$1" Label "$(jarvis_status_label shell)" 96
   page_state_record "jarvis-shell-tools-$1" "$1" vgs.jarvis
   settings_close
   expect "Jarvis disables after the shell-tools hint" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -5532,9 +5535,11 @@ scene_jarvis-shell-tools() { # MODE
 # action, the console's Problems list are shot first, while the timed toast
 # shows, then the bubble's restart line; a tree without them shows the first
 # fault and then, after the Talk press that clears it, the second.
-scene_jarvis-restart() { # MODE
-  local plugin="$repo/shell/plugins/vgs.jarvis" saved="$sandbox/jarvis-restart-$1"
-  local gates="$sandbox/jarvis-restart-$1-gates" restarts=false problems=false
+scene_jarvis-voice-account() { scene_jarvis-restart "$1" account; }
+scene_jarvis-voice-setup() { scene_jarvis-restart "$1" setup; }
+scene_jarvis-restart() { # MODE [SPEECH_FAULT]
+  local plugin="$repo/shell/plugins/vgs.jarvis" saved="$sandbox/$scene-$1"
+  local gates="$sandbox/$scene-$1-gates" restarts=false problems=false speech_fault="${2:-}" flags=()
   tree_has shell/plugins/vgs.jarvis/WidgetView.js 'function restartNotice(' && restarts=true
   tree_has shell/plugins/vgs.jarvis/Console.qml 'payload.problems === true' && problems=true
   mkdir -- "$saved"
@@ -5559,7 +5564,8 @@ next(r for r in value["plugins"] if r["id"] == "vgs.jarvis")["holdToTalk"] = Fal
 print(json.dumps(value))
 PYOPEN
   expect "the restart capture selects its fixture Home and open conversations" ok ipc shell reloadConfig
-  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$plugin/backend/jarvisd.js" "$gates" --mapped-indicator
+  [[ -z $speech_fault ]] || flags+=(--duplex)
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$plugin/backend/jarvisd.js" "$gates" --mapped-indicator "${flags[@]}"
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --chained-engine "$plugin/backend/ChainedEngine.js"
   tree_rescan "the Jarvis restart capture fixtures are scanned"
   notes_on "Jarvis restart shots"
@@ -5576,6 +5582,7 @@ PYOPEN
 d=json.load(sys.stdin)["status"].get("detail")
 if d is None: print("pending")
 elif sys.argv[1]=="phase": print(d["phase"])
+elif sys.argv[1]=="fault": print(d["state"]["fault"]["kind"]+":"+d["state"]["fault"].get("category", "none"))
 else: print(d["state"].get(sys.argv[1], {}).get("kind", "absent"))' "$1"
   }
   jarvis_restart_problems() {
@@ -5603,38 +5610,49 @@ print(sum(v["summary"] == "VGS restarted Jarvis" for _, _, v in json.load(sys.st
     : >"$gates/stream-failed"
   }
   expect "Jarvis receives Talk for the restart images" "" ipc smoke invokeInstance service vgs.jarvis intent talk-down
-  jarvis_restart_fail first
-  if [[ $restarts == true ]]; then
-    expect_poll "the first failure restarts Jarvis" restarted jarvis_restart_state restart
-    expect_poll "the restarted conversation listens again" open jarvis_restart_state capture
-    # The card is shot and acted on while its timed toast shows.
-    expect_poll "the restart notification's card is drawn" true jarvis_restart_card_drawn
-    take "jarvis-restart-$1-card"
-    expect "the restart notification's action runs" ok notes invoke-latest
-    expect_poll "the restart notification leaves" 0 notes_on_screen
-    if [[ $problems == true ]]; then
-      expect_poll "the action opens the console" 1 window_count Jarvis
-      expect_poll "the console shows only its Problems list" '"Problems"' ipc smoke readShownDescendant window vgs.jarvis ResultsFilter currentText
-      expect_poll "the Problems list holds the restart's record" '["The reply from the AI model stopped too early."]' jarvis_restart_problems
-      park_pointer
-      take_posed "jarvis-restart-$1-problems"
-      expect "the restart console hides" ok ipc shell hide window vgs.jarvis
-      expect_poll "the restart console is gone" 0 window_count Jarvis
-    fi
+  if [[ -n $speech_fault ]]; then
+    expect_poll "the scripted voice opens" open jarvis_restart_state speech
+    : >"$gates/speech-$speech_fault"
+    expect_poll "the voice failure stops the conversation" error jarvis_restart_state phase
+    expect_poll "the voice failure keeps its origin and category" "voice-connection:$speech_fault" jarvis_restart_state fault
+    expect "the voice failure does not restart" none jarvis_restart_state restart
+    ipc smoke jarvisProcess >"$SHOT_DIR/$scene-$1-state.json" || return
+    record_item "$scene-$1" "$(control_box vgs:layer vgs.jarvis GlassSurface objectName textCard)"
+    take "$scene-$1"
   else
-    expect_poll "the first failure shows its fault" error jarvis_restart_state phase
+    jarvis_restart_fail first
+    if [[ $restarts == true ]]; then
+      expect_poll "the first failure restarts Jarvis" restarted jarvis_restart_state restart
+      expect_poll "the restarted conversation listens again" open jarvis_restart_state capture
+      # The card is shot and acted on while its timed toast shows.
+      expect_poll "the restart notification's card is drawn" true jarvis_restart_card_drawn
+      take "jarvis-restart-$1-card"
+      expect "the restart notification's action runs" ok notes invoke-latest
+      expect_poll "the restart notification leaves" 0 notes_on_screen
+      if [[ $problems == true ]]; then
+        expect_poll "the action opens the console" 1 window_count Jarvis
+        expect_poll "the console shows only its Problems list" '"Problems"' ipc smoke readShownDescendant window vgs.jarvis ResultsFilter currentText
+        expect_poll "the Problems list holds the restart's record" '["The reply from the AI model stopped too early."]' jarvis_restart_problems
+        park_pointer
+        take_posed "jarvis-restart-$1-problems"
+        expect "the restart console hides" ok ipc shell hide window vgs.jarvis
+        expect_poll "the restart console is gone" 0 window_count Jarvis
+      fi
+    else
+      expect_poll "the first failure shows its fault" error jarvis_restart_state phase
+    fi
+    take "jarvis-restart-$1-first"
+    jarvis_restart_tip "$1-first-tooltip"
+    if [[ $restarts != true ]]; then
+      # The fault holds until a Talk press, which starts the next conversation.
+      expect "Jarvis receives the Talk press that clears the fault" "" ipc smoke invokeInstance service vgs.jarvis intent talk-down
+    fi
+    jarvis_restart_fail second
+    expect_poll "the second failure shows its fault" error jarvis_restart_state phase
+    [[ $restarts != true ]] || expect_poll "the second failure spends the restart" spent jarvis_restart_state restart
+    take "jarvis-restart-$1-second"
+    jarvis_restart_tip "$1-second-tooltip"
   fi
-  take "jarvis-restart-$1-first"
-  jarvis_restart_tip "$1-first-tooltip"
-  if [[ $restarts != true ]]; then
-    # The fault holds until a Talk press, which starts the next conversation.
-    expect "Jarvis receives the Talk press that clears the fault" "" ipc smoke invokeInstance service vgs.jarvis intent talk-down
-  fi
-  jarvis_restart_fail second
-  expect_poll "the second failure shows its fault" error jarvis_restart_state phase
-  [[ $restarts != true ]] || expect_poll "the second failure spends the restart" spent jarvis_restart_state restart
-  take "jarvis-restart-$1-second"
-  jarvis_restart_tip "$1-second-tooltip"
   expect "Jarvis disables after restart images" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "the restart capture daemon is gone" absent ipc smoke jarvisProcess
   notes_off "Jarvis restart shots"
