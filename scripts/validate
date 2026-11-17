@@ -1327,24 +1327,25 @@ PY
 # as a word of its comment-free text that its own directory holds as a
 # .qml file or exports through its qmldir, or that a directory it imports
 # does, as `qs.<Dir>` for shell/<Dir> or by a relative path; each qmldir
-# that resolution consults, of its own directory and each it imports; and
+# that resolution consults, refined by named entry use for its hunks; and
 # a file it imports by a relative path, with `import` or `.import`. A word
 # in a string counts too: a match too wide adds a row and never skips one.
 # It reads the files on disk, so a removed file has no loaders here, and
 # smoke_path_reach does not trace one. A load chosen by a value computed at
 # run time, such as a Loader source built in code, is not read; the row's
-# input line names it. Optional BASE JS_PATH narrows only that file's explicit import edges to
-# namespaces that observe its changed functions or local callers, in
-# smoke_observed; an unknown hunk or namespace use retains whole-file reach.
+# input line names it. Optional BASE PATH narrows that file's first loader
+# edges in smoke_observed: explicit JS imports by changed functions, or
+# qmldir imports by changed entry names on both sides. Historical module
+# loads stay local to that traversal. Unknown JS use keeps whole-file reach.
 # The reading cannot read sets smoke_read_fault to `qml-loads-unreadable
 # path=<path>`, and a reading that fails sets it to `qml-loads-failed`,
 # with the failed operation and its cause.
-smoke_loads_read() { # [BASE JS_PATH]
+smoke_loads_read() { # [BASE PATH]
   local out fact loader loaded status
   smoke_observed=whole
   # -B: the reading writes no bytecode into the tree it reads.
   if out="$(python3 -I -B - "$@" 2>&1 <<'PY'
-import json, os, re, shlex, subprocess, sys
+import io, json, os, re, shlex, subprocess, sys, tarfile
 
 sys.path.insert(0, "scripts")
 from qml_controls import OBJECT_ID, blocks, qmldir_exports
@@ -1445,7 +1446,8 @@ try:
     for root in ("shell", "scripts/smoke"):
         for path, text in source_texts(root):
             code[os.path.normpath(path)] = blank_comments(text)
-    if len(sys.argv) == 3:
+    module_change = len(sys.argv) == 3 and os.path.basename(sys.argv[2]) == "qmldir"
+    if len(sys.argv) == 3 and not module_change:
         base, changed = sys.argv[1:]
         reached = changed_functions(base, changed, code[changed])
         if reached is not None:
@@ -1598,37 +1600,110 @@ try:
         except (KeyError, ValueError):
             providers, consumers = {}, {}
 
-    for path, text in code.items():
-        here = os.path.dirname(path)
-        # Stateless/importing JS resources inherit no QML imports, so a
-        # diagnostic naming their QML sibling is no implicit type load:
-        # https://doc.qt.io/qt-6/qtqml-javascript-imports.html
-        # (Imports Within JavaScript Resources).
-        isolated_js = path.endswith(".js") and re.search(r"^\s*\.(?:pragma\s+library|import)\b", text, re.M)
-        seen, loads = ([] if isolated_js else [named(here)]), set()
-        aliases = set()
-        for relative, module, alias in IMPORT.findall(text):
-            target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
-            if alias:
-                aliases.add(alias)
-            if os.path.isdir(target):
-                seen.append(named(target))
-            elif not module:
-                loads.add(target)
-        # A JS namespace is not the same-named QML type in this directory.
-        # Import filenames and namespace declarations are not type uses:
-        # https://quickshell.org/docs/v0.3.1/guide/qml-language (Manual imports).
-        words = set(WORD.findall(IMPORT.sub("", text))) - aliases
-        for table, consulted in seen:
-            loads |= consulted
-            for name in words.intersection(table):
-                loads |= table[name]
-        if path == hub:
-            loads -= providers.keys()
-        loads |= consumers.get(path, set())
-        loads.discard(path)
+    def source_loads(sources, lookup):
+        for path, text in sources.items():
+            here = os.path.dirname(path)
+            # Stateless/importing JS resources inherit no QML imports, so a
+            # diagnostic naming their QML sibling is no implicit type load:
+            # https://doc.qt.io/qt-6/qtqml-javascript-imports.html
+            # (Imports Within JavaScript Resources).
+            isolated_js = path.endswith(".js") and re.search(r"^\s*\.(?:pragma\s+library|import)\b", text, re.M)
+            seen, loads = ([] if isolated_js else [lookup(here)]), set()
+            aliases = set()
+            for relative, module, alias in IMPORT.findall(text):
+                target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
+                if alias:
+                    aliases.add(alias)
+                if (os.path.isdir(target) if sources is code else target in old_directories):
+                    seen.append(lookup(target))
+                elif not module:
+                    loads.add(target)
+            # A JS namespace is not the same-named QML type in this directory.
+            # Import filenames and namespace declarations are not type uses:
+            # https://quickshell.org/docs/v0.3.1/guide/qml-language (Manual imports).
+            words = set(WORD.findall(IMPORT.sub("", text))) - aliases
+            for table, consulted in seen:
+                loads |= consulted
+                for name in words.intersection(table):
+                    loads |= table[name]
+            if sources is code:
+                if path == hub:
+                    loads -= providers.keys()
+                loads |= consumers.get(path, set())
+            loads.discard(path)
+            yield path, loads, words
+    # REVISIT(D138): A module import makes entries available; only named
+    # uses observe an entry. Both hunk sides retain former readers when a
+    # version, filename or visibility changes. Qt qmldir declarations:
+    # https://doc.qt.io/qt-6/qtqml-modules-qmldir.html
+    if module_change:
+        base, changed = sys.argv[1:]
+        operation = "module-diff"
+        diff = subprocess.check_output(["git", "diff", "--no-ext-diff", "--no-color",
+                                       "--no-textconv", "-U0", base, "--", changed],
+                                      text=True, stderr=subprocess.PIPE)
+        entry = re.compile(r"(?:singleton\s+)?([A-Za-z_]\w*)\s+\d+\.\d+\s+(\S+)|internal\s+([A-Za-z_]\w*)\s+(\S+)")
+        names, wide, hunk = set(), False, False
+        for line in diff.splitlines():
+            if line.startswith("@@"):
+                hunk = True
+            elif hunk and line[:1] in ("+", "-"):
+                declaration = line[1:].split("#", 1)[0].strip()
+                if not declaration:
+                    continue
+                match = entry.fullmatch(declaration)
+                if match:
+                    names.add(match[1] or match[3])
+                elif declaration.split()[0] in {"module", "plugin", "optional", "classname", "typeinfo", "depends", "import", "prefer", "designersupported", "static", "system"}:
+                    wide = True
+                else:
+                    raise OSError("module-diff has an unknown declaration: " + changed)
+        if not hunk:
+            raise OSError("module-diff has no attributable hunk: " + changed)
+        if not wide:
+            operation = "module-base-sources"
+            archive = subprocess.check_output(["git", "archive", base, "--", "shell", "scripts/smoke"],
+                                              stderr=subprocess.PIPE)
+            old_code, old_modules = {}, {}
+            with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+                for item in tree:
+                    if not item.isfile() or not (item.name.endswith((".qml", ".js")) or os.path.basename(item.name) == "qmldir"):
+                        continue
+                    text = tree.extractfile(item).read().decode("utf-8-sig")
+                    if os.path.basename(item.name) == "qmldir":
+                        old_modules[item.name] = text
+                    else:
+                        old_code[item.name] = blank_comments(text)
+            old_directories = {os.path.dirname(path) for path in (*old_code, *old_modules)}
+            old_files = {}
+            for path in old_code:
+                folder, name = os.path.split(path)
+                if name.endswith(".qml") and name[:1].isupper():
+                    old_files.setdefault(folder, {}).setdefault(name[:-4], set()).add(path)
+            def prior_named(folder):
+                table = {name: set(paths) for name, paths in old_files.get(folder, {}).items()}
+                module = os.path.join(folder, "qmldir")
+                for line in old_modules.get(module, "").splitlines():
+                    match = entry.fullmatch(line.split("#", 1)[0].strip())
+                    if match:
+                        table.setdefault(match[1] or match[3], set()).add(os.path.normpath(os.path.join(folder, match[2] or match[4])))
+                return table, {module} if module in old_modules else set()
+            print("local")
+            for sources, lookup, fact in ((code, named, "load"), (old_code, prior_named, "prior")):
+                for path, loads, words in source_loads(sources, lookup):
+                    if changed in loads and words & names:
+                        print("observe", path)
+                    if fact == "prior":
+                        for target in sorted(loads):
+                            print(fact, path, target)
+            sys.exit()
+    for path, loads, _ in source_loads(code, named):
         for target in sorted(loads):
             print("load", path, target)
+except subprocess.CalledProcessError as exc:
+    print("failed", f"operation={operation}", f"status={exc.returncode}", f"cause={shlex.quote(exc.stderr.decode() if isinstance(exc.stderr, bytes) else exc.stderr)}")
+except (UnicodeError, tarfile.TarError) as exc:
+    print("failed operation=module-base-sources", f"cause={shlex.quote(str(exc))}")
 except Unreadable as exc:
     print("unreadable", f"path={shlex.quote(exc.path)}", f"cause={shlex.quote(exc.strerror)}")
 except OSError as exc:
@@ -1647,6 +1722,7 @@ PY
       local) smoke_observed="" ;;
       observe) smoke_observed+=" $loader" ;;
       load) smoke_loaded_by[$loaded]+=" $loader" ;;
+      prior) smoke_prior_loaded_by[$loaded]+=" $loader" ;;
       unreadable|failed) smoke_read_fault="qml-loads-$fact $loader${loaded:+ $loaded}"; return 0 ;;
       *) printf -v smoke_read_fault 'qml-loads-failed operation=read-facts cause=%q' "$fact $loader $loaded"; return 0 ;;
     esac
@@ -1789,14 +1865,14 @@ smoke_path_reach() { # BASE PATH
 smoke_load_reach() { # PATH BASE
   local at=0 loader row smoke_observed=whole
   local -a queue=("$1") loaders
-  local -A seen=([$1]=1) added=()
+  local -A seen=([$1]=1) added=() smoke_prior_loaded_by=()
   # Explicit row inputs still observe the whole file. Only the import
-  # edges of an attributable JS hunk narrow; after an observing importer
-  # ordinary file reach remains conservative.
-  if [[ $1 == shell/*.js && -f $1 ]]; then smoke_loads_read "$2" "$1"; fi
+  # edges of an attributable JS or module-entry hunk narrow; after an
+  # observing importer ordinary file reach remains conservative.
+  if [[ ( $1 == shell/*.js || ${1##*/} == qmldir ) && -f $1 ]]; then smoke_loads_read "$2" "$1"; fi
   for row in $smoke_reach; do added[$row]=1; done
   while ((at < ${#queue[@]})); do
-    read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-}"
+    read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-} ${smoke_prior_loaded_by[${queue[at]}]-}"
     at=$((at + 1))
     for loader in "${loaders[@]}"; do
       if [[ ${queue[at-1]} == "$1" && $smoke_observed != whole && " $smoke_observed " != *" $loader "* ]]; then continue; fi

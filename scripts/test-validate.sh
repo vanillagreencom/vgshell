@@ -2260,7 +2260,9 @@ PY
   fi
   # A comment, so the changed stand-in runner still lists its rows.
   for file in $files; do
-    if [[ $file == -* ]]; then rm -- "${d:?}/${file#-}"; else printf '# changed\n' >>"$d/$file"; fi
+    if [[ $file == -* ]]; then rm -- "${d:?}/${file#-}"
+    elif [[ ${file##*/} == qmldir ]]; then printf 'prefer :/changed/\n' >>"$d/$file"
+    else printf '# changed\n' >>"$d/$file"; fi
   done
   # These cases prove ordinary input reach. The text-only exception has its
   # own real-README cases above, so keep these fixtures a mixed change.
@@ -2555,6 +2557,100 @@ for spec in \
     esac
     ok "narrowed Ui selection $name was read"
   else fail "narrowed Ui selection $name could not be read"; fi
+done
+
+# Entry reach must keep its observer, omit an unrelated importer and retain
+# direct inputs. The rule-loss control proves scoped readability first.
+d="$tmp/module-entry-template"; smoke_fixture "$d"
+mkdir -p "$d/shell/Ui/layout" "$d/shell/Commons"
+printf '%s\n' 'module qs.Ui' 'ContentRow 1.0 layout/ContentRow.qml' 'Other 1.0 layout/Other.qml' >"$d/shell/Ui/qmldir"
+printf 'Item {}\n' >"$d/shell/Ui/layout/ContentRow.qml"
+printf 'Item {}\n' >"$d/shell/Ui/layout/Other.qml"
+printf 'import qs.Ui as Ui\nUi.ContentRow {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml"
+printf 'import qs.Ui\nOther {}\n' >"$d/shell/plugins/acme.notify/Panel.qml"
+printf '# inputs: shell/Ui/qmldir\n' >"$d/scripts/smoke/rows/other.sh"
+commit "$d" module-entry
+for spec in \
+  'row-source|source' \
+  'visibility|internal ContentRow layout/ContentRow.qml' \
+  'version|ContentRow 2.0 layout/ContentRow.qml' \
+  'filename|ContentRow 1.0 layout/Other.qml' \
+  'singleton|singleton ContentRow 1.0 layout/ContentRow.qml' \
+  'removed|' \
+  'renamed|NewRow 1.0 layout/ContentRow.qml' \
+  'added|added' \
+  'relative|internal ContentRow layout/ContentRow.qml' \
+  'implicit|internal ContentRow layout/ContentRow.qml' \
+  'js-resource|js' \
+  'prior-reader|internal ContentRow layout/ContentRow.qml' \
+  'module-wide|prefer :/changed/' \
+  'unknown|unrecognized entry' \
+  'unreadable|unreadable' \
+  'control|internal ContentRow layout/ContentRow.qml'; do
+  IFS='|' read -r name declaration <<<"$spec"
+  d="$tmp/module-entry-$name"; cp -a -- "$tmp/module-entry-template" "$d"
+  case "$name" in
+    relative) printf 'import "../../Ui" as Ui\nUi.ContentRow {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    implicit)
+      printf 'ContentRow {}\n' >"$d/shell/Ui/Panel.qml"
+      printf '# inputs: shell/Ui/Panel.qml\n' >"$d/scripts/smoke/rows/launcher.sh" ;;
+    js-resource)
+      printf 'module qs.Commons\nHelper 1.0 Helper.js\nOther 1.0 Other.js\n' >"$d/shell/Commons/qmldir"
+      printf '.pragma library\nfunction valid() { return true; }\n' >"$d/shell/Commons/Helper.js"
+      cp -- "$d/shell/Commons/Helper.js" "$d/shell/Commons/Other.js"
+      printf '.import qs.Commons 1.0 as Commons\nfunction use() { return Commons.Helper.valid(); }\n' >"$d/shell/plugins/acme.launcher/Logic.js"
+      printf '.import "Logic.js" as Logic\nItem {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    added) sed -i '/^ContentRow /d' "$d/shell/Ui/qmldir" ;;
+  esac
+  commit "$d" module-contract
+  case "$name" in
+    row-source) printf 'Item { width: 10 }\n' >"$d/shell/Ui/layout/ContentRow.qml" ;;
+    module-wide|unknown) printf '%s\n' "$declaration" >>"$d/shell/Ui/qmldir" ;;
+    unreadable) printf '\377\n' >>"$d/shell/Ui/qmldir" ;;
+    added) printf 'ContentRow 1.0 layout/ContentRow.qml\n' >>"$d/shell/Ui/qmldir" ;;
+    js-resource) plant "$d/shell/Commons/qmldir" 'Helper 1.0 Helper.js' 'Helper 2.0 Helper.js' ;;
+    *) python3 - "$d/shell/Ui/qmldir" "$declaration" <<'PYENTRY'
+from pathlib import Path
+import sys
+path, new = Path(sys.argv[1]), sys.argv[2]
+text = path.read_text()
+old = 'ContentRow 1.0 layout/ContentRow.qml\n'
+assert text.count(old) == 1
+path.write_text(text.replace(old, new + '\n' if new else ''))
+PYENTRY
+       ;;
+  esac
+  if [[ $name == prior-reader ]]; then
+    printf 'import qs.Ui\nOther {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml"
+  fi
+  module_plan() {
+    local output
+    output="$(cd -- "$d" && "${base_env[@]}" "$BASH" scripts/validate qml --changed HEAD --list 2>"$tmp/module-entry-$name.err")" || return
+    grep '^scripts/qml-smoke.sh' <<<"$output"
+  }
+  expected="scripts/qml-smoke.sh --rows $smoke_core,launcher,other,$smoke_always,$smoke_tail"
+  case "$name" in
+    row-source|js-resource) expected="$smoke_launcher" ;;
+    module-wide) expected="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,other,$smoke_always,$smoke_tail" ;;
+    unknown|unreadable) expected='scripts/qml-smoke.sh' ;;
+  esac
+  readable=false
+  if plan="$(module_plan)" && [[ $plan == "$expected" ]]; then
+    readable=true
+    ok "module entry $name retains required rows and omits unrelated importers"
+  else
+    fail "module entry $name: plan=${plan-} expected=$expected"
+    cat -- "$tmp/module-entry-$name.err"
+  fi
+  if [[ $name == control && $readable == true ]]; then
+    # Keep the matched use, removing only the reader fact in the copy.
+    plant "$d/scripts/validate" 'if changed in loads and words & names:' 'if changed in loads and words & names and False:'
+    "${base_env[@]}" git -C "$d" commit -q -m rule-loss -- scripts/validate
+    expected="scripts/qml-smoke.sh --rows $smoke_core,other,$smoke_always,$smoke_tail"
+    if plan="$(module_plan)" && [[ $plan == "$expected" ]]; then
+      ok 'control: losing the entry rule fails the required observing-row assertion'
+    else fail "entry rule-loss control was not measured: ${plan-}"; fi
+  fi
 done
 
 # A real row and its real shared helpers, without starting their runtime.
