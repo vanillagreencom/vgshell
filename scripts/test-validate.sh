@@ -1479,7 +1479,10 @@ for consumer in \
   "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/backend/ChainedEngine.js|shell/plugins/vgs.jarvis/backend/*.js" \
   "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/backend/PiHarness.js|shell/plugins/vgs.jarvis/backend/*.js" \
   "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/AccountProviders.js|shell/plugins/vgs.jarvis/AccountProviders.js" \
-  "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/manifest.json|shell/plugins/vgs.jarvis/manifest.json"; do
+  "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/manifest.json|shell/plugins/vgs.jarvis/manifest.json" \
+  "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/plugins/vgs.jarvis/WidgetView.js|shell/plugins/vgs.jarvis/WidgetView.js" \
+  "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/plugins/vgs.jarvis/SetupGate.js|shell/plugins/vgs.jarvis/SetupGate.js" \
+  "cli|Jarvis chained engine|node scripts/test-jarvis-engine.js|shell/Commons/PageReference.js|shell/Commons/PageReference.js"; do
   IFS='|' read -r area label command input edge <<<"$consumer"
   d="$tmp/plan-jarvis-input-$area-${input##*/}"; fresh "$d"
   mkdir -p "$d/${input%/*}"

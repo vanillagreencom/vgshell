@@ -3067,9 +3067,12 @@ async function cases(kit, server, only = null, mutation = false) {
 
     // A held action's answer records without a collection. Its producer
     // cause survives capture teardown, and the pending action forbids retry.
-    for (const [name, reply, reason, category] of [
-        ["busy", "refused: dictation=busy holder=vgs.voice", "speech=dictation-busy", "other"],
-        ["failed", "refused: dictation=failed reason=start code=1", "speech=dictation-failed", "dictation"]
+    for (const [name, phase, reply, reason, category] of [
+        ["busy", "start", "refused: dictation=busy holder=vgs.voice", "speech=dictation-busy", "other"],
+        ["failed", "start", "refused: dictation=failed reason=start code=1", "speech=dictation-failed", "dictation"],
+        // DictationModel.transcript's failed stop reaches Service.dictationWords
+        // after Talk release destroyed the capture sink.
+        ["terminal", "stop", "refused: dictation=failed reason=stop code=1", "speech=dictation-failed", "dictation"]
     ]) await run("dictation-held-failure-" + name, async w => {
         const target = path.join(w.workspace, "fixture.txt");
         fs.writeFileSync(target, "fixture");
@@ -3081,12 +3084,45 @@ async function cases(kit, server, only = null, mutation = false) {
         w.runner.dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id });
         await playOut(w);
         w.advanceRunner(1100);
-        w.dictation.start = reply;
+        w.dictation[phase] = reply;
         control.utterances.push(utterance("Yes."));
         w.runner.dispatch({ type: "talk-down" });
+        if (phase === "stop") {
+            await until(() => w.s().capture.kind === "open", "the held answer's microphone opens");
+            assert.equal(w.s().turn.kind, "thinking", "the answer has no collection");
+            const owned = JSON.parse(JSON.stringify(w.s()));
+            const terminal = { type: "approval-input-failed", at: w.runnerNow(), gen: owned.capture.gen,
+                op: hold.op, id: hold.id, digest: hold.digest, reason };
+            // Delayed completions from retired capture generations or replaced
+            // approvals must not acquire the current hold's failure authority.
+            for (const changed of [{ gen: terminal.gen - 1 }, { op: terminal.op + 1 },
+                { id: terminal.id + "-retired" }, { digest: "0".repeat(64) }]) {
+                const rejected = w.Session.reduce(owned, { ...terminal, ...changed }, () => ({ kind: "none", category }));
+                assert.equal(rejected.state.stale, owned.stale + 1);
+                assert.equal(rejected.state.fault.kind, "none");
+                assert.equal(rejected.state.approval.op, hold.op);
+                assert.equal(rejected.effects.some(effect => effect.kind === "fault-record"), false);
+            }
+            const cancelled = w.Session.reduce(owned, { type: "stop", at: terminal.at }).state;
+            const late = w.Session.reduce(cancelled, terminal, () => ({ kind: "none", category }));
+            assert.equal(late.state.stale, cancelled.stale + 1);
+            assert.equal(late.state.fault.kind, "none", "a cancelled held answer cannot fault the conversation");
+            release(w);
+        }
         await until(() => w.s().fault.kind === "error", "the unbound answer retains its producer failure");
         await until(() => w.s().capture.kind === "closed", "the failed answer releases capture");
         assert.deepEqual([w.s().fault.reason, w.s().fault.category, w.s().restart.kind], [reason, category, "none"]);
+        assert.equal(w.s().approval.kind, "none", "the failed answer releases the held approval");
+        assert.deepEqual(w.faults, [], "the typed input failure produces no generic audio fault");
+        if (phase === "stop") {
+            const references = load(path.join(tree, "shell/Commons/PageReference.js"));
+            const view = load(path.join(tree, "shell/plugins/vgs.jarvis/WidgetView.js"),
+                { "qs.Commons 1.0": { PageReference: references } });
+            assert.equal(view.faultKind(w.s().fault), "dictation", "the terminal refusal shows its dictation message");
+            const targets = references.references(view.faultText(w.s().fault, w.s().engine.kind, null).action).links;
+            assert.deepEqual(Array.from(targets, target => [target.page, target.tab]), [["vgs.voice", "Setup"]],
+                "the failure offers the dictation device's settings");
+        }
         assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.category, row.action]), [[category, "stopped"]]);
         assert.deepEqual(w.executions, [], "no held action runs or repeats");
         assert.equal(fs.readFileSync(target, "utf8"), "fixture");
@@ -4397,6 +4433,7 @@ async function groupPlants(root, server) {
             'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
         ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
         ["dictation-refusal-unheard", "            failedInput(result.cause);", "            void result;", "dictation-held-failure-failed"],
+        ["dictation-held-completion-lost", '            else if (answer !== null) {', '            else if (answer !== null && !sink.destroyed) {', "dictation-held-failure-terminal"],
         ...["failed-turn-fresh-brain", "failover-exhausted-starts-primary"].map(scenario => ["failed-turn-keeps-brain-" + scenario,
             '        freshBrain(c);\n        done("brain-failed", { reason, restart });', '        done("brain-failed", { reason, restart });', scenario]),
         ["failover-resend-uncounted", "                        c.turns++;\n                        void respond(", "                        void respond(", "failover-resend-history-bound"],

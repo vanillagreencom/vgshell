@@ -939,7 +939,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // recorder; one utterance yields partials and one final.
     function transcription(c, e) {
         const approval = state().approval;
-        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
+        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest, op: approval.op,
             gen: approval.gen, beganAt: clock.now(), idleAt } : null;
         let output = null;
         // running: transcribing; ending: the row's final came and the
@@ -981,6 +981,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const capturing = session.live(state(), e, "capture", ["opening", "open", "closing"]);
             if (bound) collection.failed(reason);
             else if (capturing) dispatch({ type: "capture-failed", gen: e.gen, op: e.op, reason });
+            else if (answer !== null) {
+                // Dictation's stop can answer after Audio destroyed this sink.
+                // The utterance still owns its held answer, not the recorder's
+                // later close operation. Session judges the unchanged hold.
+                if (conversation === c && c.unbound === utterance)
+                    dispatch({ type: "approval-input-failed", gen: e.gen, op: answer.op,
+                        id: answer.id, digest: answer.digest, reason });
+                if (!sink.destroyed) sink.destroy();
+                return;
+            }
             if (!sink.destroyed) sink.destroy(error);
             else if (!bound && !capturing) fault("speech-transcribe: " + reason);
         }

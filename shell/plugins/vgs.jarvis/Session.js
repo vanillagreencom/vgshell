@@ -32,7 +32,7 @@ var EVENTS = [
     "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
-    "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
+    "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
     "preview", "speech-input-ended", "new-conversation", "conversation-reset"
 ];
@@ -861,6 +861,14 @@ function reduce(state, e, restartFor) {
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn = { kind: "none" };
         e = Object.assign({}, e, { restart: restartFor(e.reason) });
+        failConversation(s, effects, e, { kind: "error", reason: e.reason });
+        break;
+    // A held answer outlives physical capture closure. Its terminal failure
+    // belongs to the unchanged approval, never a replacement hold or generation.
+    case "approval-input-failed":
+        if (e.gen !== s.gen || !live(s, e, "approval", ["held"])
+                || e.id !== s.approval.id || e.digest !== s.approval.digest) { stale(s); break; }
+        e = Object.assign({}, e, { type: "capture-failed", restart: restartFor(e.reason) });
         failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
     case "brain-done":
