@@ -3,7 +3,8 @@ import QtTest
 import qs.Ui
 import qs.Unit
 
-// Every offscreen component qs.Ui lists loads and instantiates with its defaults, so
+// Every offscreen component qs.Ui lists loads and instantiates with its defaults
+// and the required inputs named below, so
 // a component with a broken binding names itself here before any other
 // test reaches it. The list comes from the module's qmldir, read from the
 // module under test, never from a second list.
@@ -32,6 +33,7 @@ Item {
             const listed = names();
             verify(listed.length >= 20, "the qmldir read found " + listed.length + " components; the read is broken");
             const bare = { Icon: "name: \"check\"", IconButton: "iconName: \"x\"; label: \"close\"", FocusRing: "target: root", SlimScrollBar: "thin: 2; wide: 6; minLength: 20; color: \"white\"; radius: 0; idleOpacity: 1; movingOpacity: 1; activeOpacity: 1; widthStep: ({ duration: 0, easing: Easing.Linear }); opacityStep: ({ duration: 0, easing: Easing.Linear }); flickable: Flickable {}", TouchpadScroll: "view: Flickable {}", TextUnderline: "label: Label {}", FieldFrame: "target: TextArea {}", RadialBackdrop: "boxes: []; join: 0.1; blend: 0.15; falloff: \"eased\"; halo: null", IdleTimeField: "field: ({ stage: \"lock\", plugin: \"\", name: \"\", setting: \"\", spec: null, value: null, reason: \"none\", immediately: 0, identity: \"\" })" };
+            bare.GlassSurface = "surface: \"dialogs\"";
             for (const entry of listed) {
                 if (entry.file.endsWith(".js")) continue;
                 if (entry.name === "BarWidget") continue;

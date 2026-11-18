@@ -128,7 +128,11 @@ Item {
 
     // A window that marks itself material, as LayerHost's and SummonLayer's
     // do for a glass-material plugin.
-    QtObject { id: materialHost; property bool glassMaterial: true }
+    QtObject {
+        id: materialHost
+        property bool glassMaterial: true
+        property var screen: ({ width: root.width, height: root.height })
+    }
 
     TestCase {
         name: "glasssurface"

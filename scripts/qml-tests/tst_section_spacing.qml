@@ -167,18 +167,18 @@ Item {
         }
     }
 
-    // Two switch rows of one list, the second with an info mark, as the
-    // Enabled row and Notifications' VGlass row draw: the space rows of a
-    // list leave between them.
+    // The enabled switch and an ungrouped setting drawn in a plain list.
     Column {
         id: listRows
+        property var durationSpec: ({})
+        property var durationValue: undefined
         x: 0
         y: 0
         width: 400
         spacing: Theme.stack.row
         visible: false
         Field { label: "Enabled"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
-        Field { label: "VGlass"; info: "Glass for every surface."; inline: true; width: parent.width; Switch { size: "sm" } }
+        SettingField { key: "duration"; spec: listRows.durationSpec; value: listRows.durationValue }
     }
 
     // A row with a help line, then another row of the list: the group
@@ -420,18 +420,12 @@ Item {
             return inkRows(img, lower)[0] - inkRows(img, upper)[1] - 1;
         }
 
-        // Settings of no group follow the Enabled switch as rows of its
-        // list do, `stack.row` apart. Drawn as a section of no title,
-        // VGlass sat 66 blank rows under the Enabled switch at the default
-        // theme, against 24 between two rows of a list (10 under the
-        // switch's ink in its row box, `stack.row` 4, 10 above the next
-        // row's ink): the section's padding filled `stack.heading`, 32,
-        // from the switch's ink (10, `stack.page` 16, padding 6), then the
-        // untitled heading kept its empty eyebrow line, 16, and
-        // `sectionHeader.paddingBottom`, 8, and VGlass's row box 10 above
-        // its ink: 32 + 16 + 8 + 10 = 66, read by this test under
-        // scripts/qml-unit.sh on e041ebaa9.
+        // Ungrouped settings follow Enabled at list spacing. An empty
+        // section heading used to leave its full heading gap here.
         function test_ungrouped_settings_follow_the_enabled_row() {
+            const row = rowOf("vgs.notifications");
+            listRows.durationSpec = row.schema.duration;
+            listRows.durationValue = row.settings.duration;
             listRows.visible = true;
             verify(renderedFrame(listRows));
             const list = gapBetween(grabImage(root), listRows.children[0], listRows.children[1]);
@@ -441,15 +435,15 @@ Item {
             // QVariantMap, whose keys are sorted.
             const page = createTemporaryObject(pageComponent, root);
             verify(page !== null);
-            page.row = rowOf("vgs.notifications");
+            page.row = row;
             const fields = descendants(page);
             const enabled = fields.find(item => item instanceof Field && item.label === "Enabled");
-            const glass = fields.find(item => item instanceof SettingField && item.key === "glass");
-            verify(enabled !== undefined && glass !== undefined, "the page draws Enabled and VGlass");
-            tryVerify(() => glass.height > 0, 2000);
+            const duration = fields.find(item => item instanceof SettingField && item.key === "duration");
+            verify(enabled !== undefined && duration !== undefined, "the page draws Enabled and the ungrouped setting");
+            tryVerify(() => duration.height > 0, 2000);
             verify(renderedFrame(page));
-            const gap = gapBetween(grabImage(root), enabled, glass);
-            verify(Math.abs(gap - list) <= root.tolerance, "VGlass sits " + gap + " px under the Enabled switch, not " + list + " as rows of a list");
+            const gap = gapBetween(grabImage(root), enabled, duration);
+            verify(Math.abs(gap - list) <= root.tolerance, "the setting sits " + gap + " px under Enabled, not " + list + " as rows of a list");
         }
 
         // A field's stored key list whose line ends in a hint leaves the
