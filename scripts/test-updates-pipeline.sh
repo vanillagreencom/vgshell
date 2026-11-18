@@ -462,15 +462,22 @@ HOOK
 # tui/SCRIPT on a pseudo-terminal; its output in $tmp/out, the exit status
 # in $status, and the calls, but for the free-space probes and
 # the plan box, in $tmp/seq. PIPE_PATH puts a directory before the stubs.
+# Bash EPOCHREALTIME in VGS-2628-measure-1794979707 on cachy measured a
+# longest call of 20.361 s, including the missing-end-marker wait. 60 s
+# leaves over 39 s of headroom for every case and mutation control.
+PIPE_DEADLINE=60
 pipeline() {
-  local script_path="${PLUGIN:-$plugin}/tui/$1" bound=()
+  local script_path="${PLUGIN:-$plugin}/tui/$1" case_name="${PIPE_CASE:-${FUNCNAME[1]:-main}}"
   shift
   : >"$calls"
   status=0
-  [[ -z ${PIPE_DEADLINE:-} ]] || bound=(timeout "$PIPE_DEADLINE")
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" \
-    "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
+    timeout --kill-after=2 "$PIPE_DEADLINE" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
+  if [[ $status == 124 || $status == 137 ]]; then
+    printf 'test-updates-pipeline: case=%s script=%s deadline=%s exit=%s\n' "$case_name" "${script_path##*/}" "$PIPE_DEADLINE" "$status" >&2
+    exit 1
+  fi
   local filtered=0
   grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
@@ -1282,7 +1289,7 @@ row_recheck_cli() {
     touch "$fix/fast-sleep"
     [[ -z $reply ]] || printf '%s\n' "$reply" >"$fix/qs-reply"
     [[ $pending != persistent ]] || touch "$fix/ipc-check-pending" "$fix/ipc-persistent"
-    PIPE_DEADLINE=20 pipeline update-source.sh flatpak
+    pipeline update-source.sh flatpak
     assert "the recheck finishes its CLI response class" test "$status" == 0
     assert "the CLI class makes only its allowed calls" test "$(grep -c '^qs ipc ' "$calls")" == "$expected"
     assert "a refused CLI response retains a diagnostic" grep -q '^updates: recheck=failed exit=69 ' "$state/vgshell/updates/diagnostics.log"
@@ -1572,7 +1579,7 @@ SH
       printf 'y\r' >&"$terminal_input"
     ) &
     answer_pid=$!
-    PIPE_DEADLINE=30 pipeline update-source.sh aur
+    pipeline update-source.sh aur
     wait "$answer_pid"
     assert "$ending build keeps its exit and an answerable prompt" test "$status" == "$expected"
     assert "$ending build retains stdin, stdout and stderr TTYs" test "$(cat "$fix/terminals")" == 012
@@ -2041,7 +2048,7 @@ row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stoppe
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
 # and that row must turn red.
 control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
-  local copy_dir="$tmp/plugin-$1" file="${5:-tui/pipeline.sh}"
+  local copy_dir="$tmp/plugin-$1" file="${5:-tui/pipeline.sh}" PIPE_CASE="$1/$4"
   cp -R -- "$plugin" "$copy_dir"
   copy_with "$1" "$plugin/$file" "$2" "$3"
   cp -- "$copy" "$copy_dir/$file"
@@ -2049,6 +2056,13 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
+# A hung mutant must end the suite, rather than count as a killed mutant.
+deadline_status=0
+( control hung-pipeline 'updates_main all "$@"' 'exec sleep infinity' row_full tui/update.sh ) >"$tmp/deadline-control" 2>&1 || deadline_status=$?
+check "a hung pipeline fails at the default deadline" test "$deadline_status" == 1
+check "the hung control reaches its wait" grep -qxF 'sleep infinity' "$calls"
+check "the deadline failure names the case and its control" grep -qxF \
+  "test-updates-pipeline: case=hung-pipeline/row_full script=update.sh deadline=$PIPE_DEADLINE exit=124" "$tmp/deadline-control"
 control current-vgs-built '    aur_ignore=(--ignore vgshell-git)' '    aur_ignore=()' row_vgs_devel
 control current-vgs-pending 'if (row.package === "vgshell-git" && row.behind === false) {' 'if (false) {' row_vgs_devel UpdatesLogic.js
 # The record helper this suite wrote before VGS-2001: the name, each argument
