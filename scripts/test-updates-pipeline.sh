@@ -372,7 +372,7 @@ esac
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash python3 env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk setpriv; do
+for tool in bash python3 env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk setpriv ps; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -471,9 +471,11 @@ pipeline() {
   shift
   : >"$calls"
   status=0
-  "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
+  # util-linux script sends TERM to the PTY child alone and waits 2 s
+  # before its own KILL. Give it 3 s more to finish before timeout kills it.
+  "${base_env[@]}" SHELL="$BASH" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" \
-    timeout --kill-after=2 "$PIPE_DEADLINE" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
+    timeout --kill-after=5 "$PIPE_DEADLINE" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && exec $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   if [[ $status == 124 || $status == 137 ]]; then
     printf 'test-updates-pipeline: case=%s script=%s deadline=%s exit=%s\n' "$case_name" "${script_path##*/}" "$PIPE_DEADLINE" "$status" >&2
     exit 1
@@ -1922,7 +1924,7 @@ log_tui() {
   : >"$calls"
   set +e
   { if [[ $keys == yes ]]; then while printf x; do sleep 0.2; done; else sleep 3; fi; } |
-    timeout "$ceiling" "${base_env[@]}" PATH="$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
+    timeout "$ceiling" "${base_env[@]}" SHELL="$BASH" PATH="$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
       XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" \
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
@@ -1930,6 +1932,20 @@ log_tui() {
   grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
+}
+# script(1) uses SHELL to interpret -c. Give it a different shell unless
+# the launcher pins Bash; only the TUI fixture returns 42.
+row_pty_shell() {
+  local PLUGIN="$tmp/shell-probe" pipeline_status
+  local -a base_env=("${base_env[@]}" "SHELL=$tmp/non-bash")
+  mkdir -p "$PLUGIN/tui"
+  printf '#!/bin/sh\nexit 43\n' >"$tmp/non-bash"
+  chmod +x "$tmp/non-bash"
+  printf 'exit 42\n' >"$PLUGIN/tui/log.sh"
+  pipeline log.sh
+  pipeline_status=$status
+  log_tui yes
+  assert "both PTY launchers run the TUI instead of the fixture shell" test "$pipeline_status:$status" = "42:42"
 }
 # The first line of the output, without the typed keys the terminal echoed
 # before the script read any.
@@ -2040,7 +2056,7 @@ if [[ $# -gt 0 ]]; then
   rows_done test-updates-pipeline
   exit
 fi
-row_record_whole
+row_pty_shell; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
 
@@ -2056,13 +2072,29 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
+case_group_empty() {
+  awk -v pgid="$1" '$1 == pgid { print "test-updates-pipeline: hung-group-member=" $0; found = 1 }
+    END { exit found }'
+}
+dead_case_group() {
+  local pgid groups occupied=0
+  read -r pgid _ <"$fix/hung-case-process" || return 1
+  [[ $pgid =~ ^[1-9][0-9]*$ ]] || return 1
+  case_group_empty "$pgid" <"$fix/hung-case-process" >/dev/null || occupied=$?
+  [[ $occupied == 1 ]] || { echo "test-updates-pipeline: hung-group=did-not-reject-occupied exit=$occupied" >&2; return 1; }
+  groups="$("$tools/ps" -e -o pgid= -o pid= -o stat=)" || return 1
+  case_group_empty "$pgid" <<<"$groups"
+}
 # A hung mutant must end the suite, rather than count as a killed mutant.
 deadline_status=0
-( control hung-pipeline 'updates_main all "$@"' 'exec sleep infinity' row_full tui/update.sh ) >"$tmp/deadline-control" 2>&1 || deadline_status=$?
+hung_case='ps -o pgid= -o pid= -o stat= -p "$$" >"$FIX/hung-case-process" || exit 1
+exec sleep infinity'
+( control hung-pipeline 'updates_main all "$@"' "$hung_case" row_full tui/update.sh ) >"$tmp/deadline-control" 2>&1 || deadline_status=$?
 check "a hung pipeline fails at the default deadline" test "$deadline_status" == 1
 check "the hung control reaches its wait" grep -qxF 'sleep infinity' "$calls"
 check "the deadline failure names the case and its control" grep -qxF \
   "test-updates-pipeline: case=hung-pipeline/row_full script=update.sh deadline=$PIPE_DEADLINE exit=124" "$tmp/deadline-control"
+check "the hung case leaves no process in its PTY group when timeout returns" dead_case_group
 control current-vgs-built '    aur_ignore=(--ignore vgshell-git)' '    aur_ignore=()' row_vgs_devel
 control current-vgs-pending 'if (row.package === "vgshell-git" && row.behind === false) {' 'if (false) {' row_vgs_devel UpdatesLogic.js
 # The record helper this suite wrote before VGS-2001: the name, each argument
