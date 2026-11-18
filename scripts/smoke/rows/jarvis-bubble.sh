@@ -91,8 +91,10 @@ leak_notifications_setup || { fail "the bubble's notification holder cannot be a
 leak_name_wait org.freedesktop.Notifications shell || { fail "the bubble's notification name is not owned by this shell"; return 1; }
 
 jarvis_bubble_required_box() { # TYPE PROPERTY VALUE
-  local box
-  box="$(control_box vgs:layer vgs.jarvis "$@")" || { echo unreadable; return 1; }
+  local box namespace=vgs:layer
+  # Text and controls below or beside the orb live on the lent plate layer.
+  case "$1" in Answer|Label|RowButton|Words) namespace=vgs:layer-glass ;; esac
+  box="$(control_box "$namespace" vgs.jarvis "$@")" || { echo unreadable; return 1; }
   [[ $box == \[* ]] || { printf '%s\n' "$box"; return 1; }
   printf '%s\n' "$box"
 }
@@ -597,7 +599,7 @@ jarvis_bubble_click() { # LABEL
   read -r x y <<<"$point"
   hover "$x" "$y" || { fail "the pointer reaches the orb under the $1 button"; return 0; }
   expect_poll "the pointer on the orb shows the $1 button" 1 jarvis_bubble_buttons "$1"
-  if ! point="$(point_item vgs:layer vgs.jarvis RowButton label "$1")"; then
+  if ! point="$(point_item vgs:layer-glass vgs.jarvis RowButton label "$1")"; then
     fail "the labelled $1 button reports hover before click"
     printf 'jarvis-bubble: pointer-not-ready=%s\n' "$1"
     ipc smoke layerItems vgs.jarvis RowButton label,hovered,visible >&2 || true
@@ -721,7 +723,7 @@ jarvis_bubble_confirm_key() {
 }
 jarvis_bubble_answer_button() { # BUTTON
   local point x y
-  point="$(point_item vgs:layer vgs.jarvis Answer variant "$([[ $1 == Cancel || $1 == No ]] && echo ghost || echo secondary)")" || return 1
+  point="$(point_item vgs:layer-glass vgs.jarvis Answer variant "$([[ $1 == Cancel || $1 == No ]] && echo ghost || echo secondary)")" || return 1
   read -r x y <<<"$point" || return 1
   click "$x" "$y" || return 1
   jarvis_key_state approval
@@ -1261,7 +1263,7 @@ jarvis_key_talk_up
 jarvis_key_stop
 
 jarvis_bubble_begin
-expect "losing the mapped host hides the indicator" ok ipc smoke layerWindowSet vgs.jarvis visible false
+expect "losing the mapped host hides the indicator" ok ipc smoke withdrawPresentedLayer vgs.jarvis visible
 jarvis_bubble_no_capture
 jarvis_key_talk_up
 jarvis_key_stop
@@ -1269,7 +1271,7 @@ jarvis_disable
 expect_poll "disable destroys the bubble registration" '[]' ipc smoke layerWindows vgs.jarvis
 jarvis_enable
 jarvis_bubble_begin
-expect "a screen loss reaches the content binding" ok ipc smoke layerWindowSet vgs.jarvis screen false
+expect "a screen loss reaches the content binding" ok ipc smoke withdrawPresentedLayer vgs.jarvis screen
 jarvis_bubble_no_capture
 expect_poll "no screen maps no bubble surface" 0 layer_count vgs:layer
 jarvis_key_talk_up
@@ -1462,8 +1464,8 @@ edits=[
     ('approvalText.prompt === null ? "" : approvalText.prompt.payload', 'approvalText.filePrompt ? approvalText.lines.slice(2).join("\\n") : ""'),
     ('id: fullPath\n                width: parent.width\n                visible: text !== ""',
      'id: fullPath\n                width: parent.width\n                visible: approvalText.filePrompt && text !== ""'),
-    ('leftPadding: payloadArea.rightInset\n                    visible: text !== ""',
-     'leftPadding: payloadArea.rightInset\n                    visible: approvalText.filePrompt && text !== ""')]
+    ('leftPadding: payloadArea.rightInset\n                        visible: text !== ""',
+     'leftPadding: payloadArea.rightInset\n                        visible: approvalText.filePrompt && text !== ""')]
 for needle,replacement in edits:
     assert s.count(needle)==1
     s=s.replace(needle,replacement)
@@ -1573,7 +1575,7 @@ PY
 jarvis_rescan
 jarvis_enable
 jarvis_bubble_begin
-expect "control: the same host disappears after acquisition" ok ipc smoke layerWindowSet vgs.jarvis visible false
+expect "control: the same host disappears after acquisition" ok ipc smoke withdrawPresentedLayer vgs.jarvis visible
 expect "control: ignoring presentation fails lost-host capture teardown" 2 jarvis_bubble_loss_control
 jarvis_key_talk_up
 jarvis_key_stop

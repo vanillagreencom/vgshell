@@ -508,9 +508,17 @@ Item {
                     verify(bridge.x < hit.x + hit.width && bridge.x + bridge.width > hit.x
                         && bridge.y < hit.y + hit.height && bridge.y + bridge.height > hit.y,
                         "the bridge overlaps the fitted hit square");
-                    verify(bridge.x < capsule.x + capsule.width && bridge.x + bridge.width > capsule.x
-                        && bridge.y < capsule.y + capsule.height && bridge.y + bridge.height > capsule.y,
-                        "the bridge overlaps the capsule");
+                    // Across two input layers the bridge ends at the
+                    // capsule, so it leaves no gap and cannot cover a button.
+                    const bridgeBox = bridge.mapToItem(root, 0, 0, bridge.width, bridge.height);
+                    const capsuleBox = capsule.mapToItem(root, 0, 0, capsule.width, capsule.height);
+                    const across = Math.min(bridgeBox.y + bridgeBox.height, capsuleBox.y + capsuleBox.height)
+                        - Math.max(bridgeBox.y, capsuleBox.y);
+                    const down = Math.min(bridgeBox.x + bridgeBox.width, capsuleBox.x + capsuleBox.width)
+                        - Math.max(bridgeBox.x, capsuleBox.x);
+                    verify((across > 0 && Math.abs(bridgeBox.x + bridgeBox.width - capsuleBox.x) <= 0.5)
+                        || (down > 0 && Math.abs(bridgeBox.y + bridgeBox.height - capsuleBox.y) <= 0.5),
+                        "the bridge meets the capsule across a shared edge");
                 }
                 for (const item of bubble.inputItems) {
                     const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
@@ -526,7 +534,7 @@ Item {
                 // the pointer rests on the connected route to them.
                 wait(bubble.look.icon.hold + 1);
                 compare(bubble.iconOpacity, 1);
-                const controls = collect(overlay, item => item.entry !== undefined, []);
+                const controls = collect(bubble.plateLayer, item => item.entry !== undefined, []);
                 for (const intent of ["voice-mute", "microphone-mute", "stop"]) {
                     const control = controls.find(item => item.entry.intent === intent);
                     verify(control !== undefined && control.visible && control.enabled);
@@ -568,7 +576,8 @@ Item {
             const overlay = findChild(bubble, "overlay");
             const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
             const hit = findChild(bubble, "orbHit");
-            const button = collect(overlay, item => item.entry !== undefined, [])[0];
+            const button = collect(bubble.plateLayer, item => item.entry !== undefined, [])[0];
+            verify(button !== undefined && button.width > 0, "the lent capsule has an icon button");
             const usable = () => JSON.stringify({ presented: bubble.capturePresented, orb: orb.width, hit: hit.width, button: button.width });
             verify(bubble.besideConsole && bubble.capturePresented && orb.width >= button.width && hit.width >= button.width,
                 "the whole layer presents the group with a usable orb: " + usable());
@@ -577,6 +586,27 @@ Item {
             verify(bubble.besideConsole, "the shorter layer keeps the overlay beside Console");
             verify(!bubble.capturePresented || orb.width >= button.width && hit.width >= button.width,
                 "a capture shows only on an orb as wide as its icon button: " + usable());
+        }
+
+        function test_lent_fault_plate_follows_the_requested_output() {
+            service.sessionState = conversation({
+                visibility: { kind: "hidden" },
+                fault: { kind: "error", reason: "jarvis-test=unknown", category: "other" }
+            });
+            const plate = findChild(bubble, "textCard");
+            verify(plate !== null);
+            bubble.plateLayer.parent = root;
+            try {
+                verify(plate.visible, "the requested output shows the required fault without the orb");
+                service.focusedOutput = "other-output";
+                tryCompare(plate, "visible", false, 100, "the unfocused copy does not show the fault");
+                service.focusedOutput = "SMOKE-1";
+                verify(plate.visible, "the focused copy shows the fault again");
+                service.bubbleWanted = false;
+                tryCompare(plate, "visible", false, 100, "the plate hides when the reply card owns the fault");
+            } finally {
+                bubble.plateLayer.parent = bubble;
+            }
         }
 
         // The judgement reads the box the overlay draws in at the bottom

@@ -298,6 +298,15 @@ Item {
         if (entry.intent !== undefined) service.intent(entry.intent);
         else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
     }
+
+    // A Menu must open against the window that received the tap. The
+    // overlay and its lent plates can live in different native windows.
+    function openMenu(item, point) {
+        if (menuOpened) return;
+        menuUi.parent = item;
+        menuUi.active = true;
+        menuUi.item.openAt(point.x, point.y);
+    }
     // The state's name on a deliberate hover over the orb's middle: one of
     // the four names of the approved design (VGS-2593), acting reading as
     // thinking. Another look shows a line of its own, a fault, the
@@ -641,10 +650,7 @@ Item {
         TapHandler {
             acceptedButtons: Qt.RightButton
             enabled: root.active
-            onTapped: eventPoint => {
-                menuUi.active = true;
-                menuUi.item.openAt(eventPoint.position.x, eventPoint.position.y);
-            }
+            onTapped: eventPoint => root.openMenu(overlay, eventPoint.position)
         }
 
         // The menu is built on the first right click and released once
@@ -705,6 +711,10 @@ Item {
         objectName: "plateRoot"
         width: root.width
         height: root.height
+        // The lent item no longer inherits the overlay's visibility.
+        // Required text must not appear on the unfocused copies or while
+        // the reply card owns a hidden fault.
+        visible: root.wanted || root.closing
 
         Item {
             id: plateBox
@@ -712,6 +722,14 @@ Item {
             y: overlay.y
             width: overlay.width
             height: overlay.height
+
+            // pointer-cursor-exempt: a right click on plate text, which shows no control
+            // keyboard-path: the bar widget's menu holds the same actions
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                enabled: root.active && plateRoot.parent !== root
+                onTapped: eventPoint => root.openMenu(plateBox, eventPoint.position)
+            }
 
             // The words' card is as wide as the caption's column, so no word
             // moves its sides, and as tall as the lines shown, the newest at

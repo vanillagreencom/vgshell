@@ -1889,6 +1889,19 @@ Scope {
             return "ok";
         }
         function layerWindowForget(): string { root.rememberedLayers = []; return "ok"; }
+        // Withdraw the host that actually admitted the capture, not the
+        // other per-screen copies, which may have no backing window.
+        function withdrawPresentedLayer(id: string, property: string): string {
+            const windows = Layers.entries.filter(entry => entry.pluginId === id)
+                .flatMap(entry => Object.values(entry.screens))
+                .map(item => item.QsWindow.window)
+                .filter(win => win !== null && win.presented);
+            if (windows.length !== 1) return "presented-windows=" + windows.length;
+            if (property === "screen") windows[0].targetScreen = null;
+            else if (property === "visible") windows[0].visible = false;
+            else return "refused: property";
+            return "ok";
+        }
         // Plant lost map, screen or presentation in the owned sandbox host.
         // Disable/redraw restores its original bindings.
         function layerWindowSet(id: string, property: string, value: bool): string {
