@@ -6,6 +6,7 @@
 #                                 [--theme-card NAME]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
 #                                 [--ground light|dark|busy]
+#                                 [--glass-style auto|light|dark|clear] [--hyprglass PATH]
 #                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
 #                                 [--info LIST] [--click PANE]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
@@ -394,8 +395,17 @@
 # scripts/smoke/fixtures/theme-image.jpg; both made at 2560x1600 by
 # ImageMagick from the same inputs on every run, so a before and an after
 # set stand over the same ground. Without --ground a scene keeps its own
-# desktop choice
-# (scripts/theme-previews.sh passes them). A scene argument that is missing
+# desktop choice. --glass-style writes the Glass page's style,
+# shell.json `appearance.glassStyle`, before the first scene. --hyprglass
+# names a hyprglass module built for this host's Hyprland; it turns layer
+# glass on, `appearance.layerGlass`, and a block put before the nested
+# compositor's own configuration hands the shell's load of the managed
+# module (HyprlandLayer.layerGlassPath) that file instead, so the module
+# loads into the nested compositor alone, through the shell's own lines.
+# The first scene waits for the shell to read layer glass as ready, and
+# every shot keeps the nested compositor's `hyprglass status`, `layers`
+# and `configerrors` replies beside it under hyprglass/ in the output. A
+# scene argument that is missing
 # or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
 # The screensaver-lock scene runs the screensaver from its idle watch and
 # lets the lock's idle watch lock the session under it: screensaver-lock-
@@ -656,6 +666,8 @@ theme_card="frankenstein"
 preview_themes=()
 declare -A preview_wallpaper=()
 ground=""
+glass_style=""
+hyprglass=""
 preview_dotfiles=""
 page_ids=()
 info_entries=()
@@ -677,6 +689,8 @@ while [[ $# -gt 0 ]]; do
     --preview-themes) IFS=, read -r -a preview_themes <<<"$2"; shift 2 ;;
     --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
     --ground) ground="$2"; shift 2 ;;
+    --glass-style) glass_style="$2"; shift 2 ;;
+    --hyprglass) hyprglass="$2"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
     --info) IFS=, read -r -a info_entries <<<"$2"; shift 2 ;;
@@ -713,6 +727,8 @@ for mode in "${mode_list[@]}"; do
   [[ $mode =~ ^catalog-[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
 done
 [[ $scale == 1 || $scale == 2 ]] || { printf 'sandbox-shots: refused: scale=%s\n' "$scale" >&2; exit 2; }
+[[ -z $glass_style || $glass_style =~ ^(auto|light|dark|clear)$ ]] || { printf 'sandbox-shots: refused: glass-style=%s\n' "$glass_style" >&2; exit 2; }
+[[ -z $hyprglass || ( $hyprglass == /* && -f $hyprglass ) ]] || { printf 'sandbox-shots: refused: hyprglass=%s\n' "$hyprglass" >&2; exit 2; }
 [[ -z $shot_size || $shot_size =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { printf 'sandbox-shots: refused: size=%s\n' "$shot_size" >&2; exit 2; }
 [[ $theme_card =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: theme-card=%s\n' "$theme_card" >&2; exit 2; }
 # A plugin id has the shape of ID_PATTERN in shell/Core/PluginLogic.js.
@@ -1045,6 +1061,43 @@ APPS
   shell_start_words+=(XDG_DATA_DIRS="$sandbox/launcher-data")
   start_shell "$repo" "$sandbox/qs.log" || exit 1
 fi
+# The style and layer glass the shell draws every scene in, written before
+# the first scene; the shell reads shell.json as it changes.
+if [[ -n $hyprglass ]]; then
+  {
+    cat <<EOF
+do
+    local managed = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "/var/cache/hyprpm/$(id -un)/HyprGlass/hyprglass.so")
+    local built = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$hyprglass")
+    local load = hl.plugin.load
+    hl.plugin.load = function(path)
+        if path == managed then return load(built) end
+        return load(path)
+    end
+end
+EOF
+    cat -- "$home/.config/hypr/hyprland.lua"
+  } >"$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua" || exit 1
+fi
+if [[ -n $glass_style || -n $hyprglass ]]; then
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$glass_style" "${hyprglass:+on}" <<'PYGLASS' || exit 1
+import json, sys
+doc = json.load(open(sys.argv[1]))
+appearance = doc.setdefault("appearance", {})
+if sys.argv[2]:
+    appearance["glassStyle"] = sys.argv[2]
+if sys.argv[3]:
+    appearance["layerGlass"] = True
+print(json.dumps(doc))
+PYGLASS
+  if [[ -n $glass_style && $glass_style != auto ]]; then
+    expect_poll "the shell draws glass in $glass_style" "\"$glass_style\"" ipc smoke themeValue glassStyle
+  fi
+  if [[ -n $hyprglass ]]; then
+    expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
+    glass_readings start
+  fi
+fi
 source "$checkout/scripts/smoke/power-fakes.sh"
 if [[ " ${scenes[*]} " == *" sysmon "* || " ${scenes[*]} " == *" flyout-titles "* ]]; then
   # Presence draws See all; the scene never invokes this stand-in.
@@ -1170,7 +1223,18 @@ clean_shot_chrome() {
   return 1
 }
 # take_raw NAME: one shot.
+# glass_readings NAME: the nested compositor's hyprglass status, layers and
+# configuration errors as shot NAME was taken, under hyprglass/.
+glass_readings() {
+  local kind
+  mkdir -p -- "$SHOT_DIR/hyprglass" || { fail "shot $1: the hyprglass readings have no directory"; return; }
+  for kind in "hyprglass status" layers configerrors; do
+    # shellcheck disable=SC2086 # the kind is the reply's words
+    hypr -j $kind >"$SHOT_DIR/hyprglass/$1.${kind##* }.json" || fail "shot $1: hyprctl $kind is unreadable"
+  done
+}
 take_raw() { # NAME
+  [[ -z $hyprglass ]] || glass_readings "$1"
   if shot "$1"; then
     if [[ $title_inventory == true ]]; then
       local inventory

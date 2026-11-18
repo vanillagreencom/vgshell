@@ -2280,6 +2280,10 @@ scene_cases=(
   "a scale other than 1 or 2 is refused" 2 "sandbox-shots: refused: scale=3" --scale 3 settings
   "a ground other than light, dark or busy is refused" 2 "sandbox-shots: refused: ground=grey" --ground grey launcher
   "a busy ground is taken" 77 "qml-smoke: status=not-measured" --ground busy launcher
+  "a glass style other than auto, light, dark or clear is refused" 2 "sandbox-shots: refused: glass-style=frosted" --glass-style frosted launcher
+  "the clear glass style is taken" 77 "qml-smoke: status=not-measured" --glass-style clear launcher
+  "a hyprglass module that is no file is refused" 2 "sandbox-shots: refused: hyprglass=/nonexistent/hyprglass.so" --hyprglass /nonexistent/hyprglass.so launcher
+  "a relative hyprglass module path is refused" 2 "sandbox-shots: refused: hyprglass=hyprglass.so" --hyprglass hyprglass.so launcher
   "scale 2 is taken" 77 "qml-smoke: status=not-measured" --scale 2 settings
   "a theme card that is no catalog name is refused" 2 "sandbox-shots: refused: theme-card=../x" --theme-card ../x settings
   "a theme card the catalog lacks is refused" 2 "sandbox-shots: refused: theme-card=nosuch tree=checkout" --theme-card nosuch theme-browser
