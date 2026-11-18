@@ -508,7 +508,10 @@ FocusScope {
     // speech only (ROUTE, the Voice provider reading), saying how to talk
     // (TALK).
     function speechOnlyLine(route, talk) {
-        return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;
+        const message = (route === undefined || route === null ? "This voice" : route.text) + " takes speech only.";
+        const repair = PageReference.parse(talk);
+        return repair.page === "" ? message + " " + talk
+            : message + "\n[Set Talk key](page:" + repair.page + (repair.tab === "" ? "" : "/" + repair.tab) + ")";
     }
 
     // Chat's line for REACH, the daemon's reading of the main Jarvis
@@ -534,9 +537,9 @@ FocusScope {
                 : "choose This computer, then " + reach.host + ".")
                 + "\n[Change main host](page:vgs.jarvis/Settings/mainHost)";
         if (reach.cause === "package")
-            return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
+            return blocked + "the Jarvis package in your home folder has no session program.\n[Repair session](page:vgs.jarvis/Setup/sessionStart)";
         if (reach.cause === "not-set-up")
-            return blocked + "this home folder is not a Jarvis home yet. [Set it up in Home folder](page:vgs.jarvis/Setup/setupHome).";
+            return blocked + "this home folder is not a Jarvis home yet.\n[Set up home](page:vgs.jarvis/Setup/setupHome)";
         if (reach.kind === "unavailable")
             return blocked + "the Jarvis package in your [Home folder](page:vgs.jarvis/Settings/home) cannot be opened.";
         if (reach.cause === "setting-invalid")
