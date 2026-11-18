@@ -257,7 +257,6 @@ FocusScope {
             }
 
             Callout {
-                level: "raised"
                 visible: root.layerGlassProblem !== ""
                 width: parent.width
                 tone: root.layerGlass !== null && root.layerGlass.operation.reason === "" && root.layerGlass.observed.kind === "shaders-pending" ? "info" : "danger"

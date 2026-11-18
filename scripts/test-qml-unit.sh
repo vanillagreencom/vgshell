@@ -81,7 +81,7 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
-  "a notice message loses its main-line weight|feedback/Callout.qml|role: \"bodyStrong\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|role: \"body\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
+  "a notice message becomes bold|feedback/Callout.qml|role: \"body\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|role: \"bodyStrong\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
   "a notice icon centres on x-height alone|feedback/Callout.qml|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)|tst_callout.qml|test_the_message_is_the_main_line"
   "a notice breaks inside a page reference|feedback/Callout.qml|wrapAtSpaces: true|wrapAtSpaces: false|tst_callout.qml|test_a_page_reference_wraps_before_its_words"
   "a notice loses its tone's default icon|feedback/Callout.qml|name: root.iconName !== \"\" ? root.iconName : root.tokens.icon|name: root.iconName|tst_callout.qml|test_the_tone_supplies_its_icon"
@@ -1007,7 +1007,9 @@ mutations=(
   "wrapped row actions sit on their line's top|controls/RowActions.qml|+ Math.round((Theme.row.height - spot.item.height) / 2) : 0|+ 0 : 0|tst_rowaction.qml"
   "one line of row actions takes the row height|controls/RowActions.qml|implicitHeight: placed.lines > 1 ?|implicitHeight: placed.lines > 0 ?|tst_rowaction.qml"
   "a hidden row action keeps its room|controls/RowActions.qml|child => child.visible && child.width > 0|child => child.width > 0|tst_rowaction.qml"
-  "a notice draws the panel fill on a window|feedback/Callout.qml|level === \"raised\" ? Theme.color.surfaceHover : Theme.color.surfaceRaised|Theme.color.surfaceRaised|tst_callout.qml"
+  "a notice draws the old Bluetooth fill|feedback/Callout.qml|Qt.tint(ground.fill, Theme.callout.background)|Theme.color.surfaceRaised|tst_callout.qml|test_the_ground_follows_the_container"
+  "a notice ignores its sibling panel ground|feedback/Callout.qml|HintGround.groundUnder(root, Window.window, true)|HintGround.groundUnder(root, Window.window)|tst_callout.qml|test_the_ground_follows_the_container"
+  "a change link stays in its cause sentence|../Commons/Reply.js|cause + \".\\n[Change shortcut]|cause + \". [Change shortcut]|tst_callout.qml|test_the_change_link_starts_its_own_line"
   "a notice's icon ignores its state's ink|feedback/Callout.qml|size: Theme.icon.size.md"$'\n'"            color: root.tokens.foreground|size: Theme.icon.size.md"$'\n'"            color: Theme.color.text|tst_callout.qml"
   "a notice's title bypasses its solved ink|feedback/Callout.qml|role: \"bodyStrong\""$'\n'"                color: Theme.callout.title|role: \"bodyStrong\""$'\n'"                color: Theme.color.text|tst_callout.qml"
   "a notice's text bypasses its solved ink|feedback/Callout.qml|color: Theme.callout.text"$'\n'"                linkColor:|color: Theme.color.textMuted"$'\n'"                linkColor:|tst_callout.qml"

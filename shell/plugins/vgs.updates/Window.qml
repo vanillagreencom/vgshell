@@ -160,7 +160,6 @@ FocusScope {
                 // next run's outcome replaces it. The footer's Open last log
                 // is its action, so the notice has none.
                 Callout {
-                    level: "raised"
                     width: parent.width
                     visible: root.outcome !== null && root.outcome.ended !== "finished"
                     tone: visible && root.outcome.ended === "stopped" ? "warning" : "danger"

@@ -63,7 +63,6 @@ FocusScope {
 
         Callout {
             objectName: "packages-problem"
-            level: "raised"
             width: parent.width
             text: root.problem
             tone: "danger"

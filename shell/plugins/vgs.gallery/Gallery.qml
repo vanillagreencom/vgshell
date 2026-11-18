@@ -562,7 +562,6 @@ Item {
                             width: parent ? parent.width : 0
                             spacing: Theme.stack.inline
                             Callout {
-                                level: "raised"
                                 tone: example.modelData.tone
                                 title: "Callout: " + example.modelData.tone
                                 text: "Read the [setup guide](page:vgs.gallery) before you start. The text wraps to fit the available width."
@@ -571,7 +570,6 @@ Item {
                                 onPageActivated: (page, tab) => text = "The page link was selected."
                             }
                             Callout {
-                                level: "raised"
                                 tone: example.modelData.tone
                                 title: "Dismissible callout: " + example.modelData.tone
                                 text: "Read the [setup guide](page:vgs.gallery) before you start."
@@ -583,7 +581,6 @@ Item {
                                 onDontShowAgain: visible = false
                             }
                             Callout {
-                                level: "raised"
                                 tone: example.modelData.tone
                                 title: "Callout with links"
                                 text: "Each action is a link in one row under the text."
@@ -591,22 +588,20 @@ Item {
                                 onActionActivated: index => text = "The link " + links[index] + " was selected."
                             }
                             Callout {
-                                level: "raised"
                                 tone: example.modelData.tone
                                 text: "Text without a title wraps under its first line, which the icon stays level with."
                                 linkText: "Try again"
                                 onActivated: text = "The action was selected."
                             }
                             Callout {
-                                level: "raised"
                                 tone: example.modelData.tone
                                 text: example.modelData.line + ". [Open Settings](page:vgs.gallery/Settings)."
                                 onPageActivated: (page, tab) => text = "The page link was selected."
                             }
                         }
                     }
-                    Callout { level: "raised"; title: "Title only" }
-                    Callout { level: "raised"; text: "Text only, in the default info state" }
+                    Callout { title: "Title only" }
+                    Callout { text: "Text only, in the default info state" }
                 }
                 Flow {
                     width: parent.width

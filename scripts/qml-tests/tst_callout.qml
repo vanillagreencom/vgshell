@@ -4,8 +4,8 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// The notice's fill is one surface step above its container in both
-// modes; only its icon takes a tone. Actions stay below the words, the
+// The notice reads its container's ground in both modes and blends its
+// shared fill over it; only its icon takes a tone. Actions stay below the words, the
 // opt-out keeps the right edge, and the X centres on the title line.
 // Each action has its keyboard path and its own signal. Plain text
 // supplied by another program creates no page link.
@@ -28,6 +28,29 @@ Item {
     Component {
         id: made
         Callout { width: 360 }
+    }
+
+    Component {
+        id: panelMade
+        Item {
+            width: 360; height: 240
+            property alias notice: banner
+            property alias fill: plate.hintGround
+            Surface { id: plate; anchors.fill: parent; level: "raised" }
+            Pane {
+                anchors.fill: parent
+                Callout { id: banner; text: "A power problem" }
+            }
+        }
+    }
+    Component {
+        id: cardMade
+        Card {
+            width: 360
+            property alias notice: banner
+            readonly property color fill: color
+            Callout { id: banner; text: "An account problem" }
+        }
     }
 
     TestCase {
@@ -64,8 +87,7 @@ Item {
             const rows = [];
             for (const theme of root.themes)
                 for (const tone of ["danger", "warning", "info"])
-                    for (const level of ["base", "raised"])
-                        rows.push({ tag: tone + " " + theme.tag + " " + level, tone: tone, theme: theme.tokens, level: level });
+                    rows.push({ tag: tone + " " + theme.tag, tone: tone, theme: theme.tokens });
             return rows;
         }
 
@@ -92,9 +114,9 @@ Item {
 
         function test_only_the_icon_takes_the_tone(data) {
             compare(UnitTheme.override(data.theme), "ok");
-            const callout = make({ level: data.level, tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], dismissible: true, showDontShowAgain: true });
+            const callout = make({ tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], dismissible: true, showDontShowAgain: true });
             const want = Theme.callout.tone[data.tone];
-            compare(colour(callout.color), colour(data.level === "raised" ? Theme.color.surfaceHover : Theme.color.surfaceRaised), "the fill");
+            compare(colour(callout.color), colour(Qt.tint(callout.ground.fill, Theme.callout.background)), "the fill");
             compare(callout.border.width, 0, "no border");
             compare(colour(icon(callout).color), colour(want.foreground));
             compare(colour(title(callout).color), colour(Theme.callout.title));
@@ -166,12 +188,50 @@ Item {
             const callout = make({ text: "Notice available", plain: data.plain });
             const words = data.plain ? plainBody(callout) : body(callout);
             const drawn = data.plain ? words : words.children[0];
-            verify(drawn.font.weight > Theme.text.body.weight, "the message has stronger text weight than body copy");
+            compare(drawn.font.weight, Theme.text.body.weight, "a message with no title has regular weight");
             const centre = words.mapToItem(callout, 0, (words.height + words.inkAbove - words.inkBelow) / 2).y;
             const ratio = words.Screen.devicePixelRatio;
             const snapped = Math.round((centre - icon(callout).height / 2) * ratio) / ratio + icon(callout).height / 2;
             fuzzyCompare(icon(callout).mapToItem(callout, 0, icon(callout).height / 2).y, snapped, 0.01, "the icon shares the single line's ink centre on a device pixel");
             callout.destroy();
+        }
+
+        function test_only_the_title_is_bold() {
+            for (const plain of [false, true]) {
+                const callout = make({ title: "A title", text: "A problem.\n[Change shortcut](page:vgs.launcher/Settings/Keys)", plain: plain, linkText: "Try again" });
+                compare(title(callout).font.weight, Theme.text.bodyStrong.weight);
+                const words = plain ? plainBody(callout) : body(callout).children[0];
+                compare(words.font.weight, Theme.text.body.weight, "the message and any inline page link are regular");
+                compare(link(callout).contentItem.children[1].font.weight, Theme.text.body.weight, "the bottom action is regular");
+                callout.destroy();
+            }
+        }
+
+        function test_the_ground_follows_the_container_data() { return root.themes; }
+        function test_the_ground_follows_the_container(data) {
+            compare(UnitTheme.override(data.tokens), "ok");
+            const original = root.Window.window.color;
+            // Keep the window distinct from the panel and card, so an
+            // ancestor-only read cannot pass the sibling-panel case.
+            root.Window.window.color = Theme.color.background;
+            const page = make({ text: "A settings problem" });
+            const panel = panelMade.createObject(root);
+            const card = cardMade.createObject(root);
+            verify(panel !== null && card !== null);
+            const cases = [{ notice: page, fill: root.Window.window.color }, panel, card];
+            const endpoint = data.tag === "dark" ? 1 : 0;
+            for (const item of cases) {
+                verify(Qt.colorEqual(item.notice.ground.fill, item.fill), "the banner reads the actual panel, page or card ground");
+                const ground = Qt.color(item.fill);
+                const drawn = Qt.color(item.notice.color);
+                // Independent of the token expression and Qt.tint: the
+                // approved rule moves each channel 8% toward contrast.
+                for (const channel of ["r", "g", "b"])
+                    fuzzyCompare(drawn[channel], ground[channel] + (endpoint - ground[channel]) * 0.08, 1 / 255);
+                verify(!Qt.colorEqual(drawn, ground), "the Bluetooth arrangement cannot draw its panel's own fill");
+            }
+            page.destroy(); panel.destroy(); card.destroy();
+            root.Window.window.color = original;
         }
 
         function test_a_page_reference_wraps_before_its_words() {
@@ -187,6 +247,20 @@ Item {
             tryVerify(() => words.underlined.length === 1 && words.underlined[0].line === 0);
             callout.width = narrow;
             tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
+            callout.destroy();
+        }
+
+        function test_the_change_link_starts_its_own_line() {
+            const message = Reply.line("hyprland: SUPER+SPACE for vgs.launcher:toggle skipped: already bound by acme.other", [], () => ({ kind: "resolved", text: "Super+Space" }));
+            const callout = make({ text: message });
+            const words = body(callout);
+            for (const width of [800, 240]) {
+                callout.width = width;
+                tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
+                compare(words.links[0].page, "vgs.launcher");
+                compare(words.links[0].tab, "Settings/Keys");
+                compare(words.children[0].font.weight, Theme.text.body.weight);
+            }
             callout.destroy();
         }
 

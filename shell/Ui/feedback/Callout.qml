@@ -1,17 +1,17 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "../foundation/HintGround.js" as HintGround
 
 // The notice banner: one thing a reader needs before the rows under it,
 // such as an error that stops a feature, a warning that limits one, or a
-// guide to read first. The container supplies its Surface `level`, `base`
-// or `raised`: the banner draws one step above it, surfaceRaised or
-// surfaceHover, with no border. `tone` names a group of
+// guide to read first. The banner blends callout.background over its
+// container's published ground, with no border. `tone` names a group of
 // `Theme.callout.tone`: `danger`, `warning` or `info`, the default; an
 // unknown name is logged and drawn as `info`. The tone supplies the icon
 // when `iconName` is empty. Only the leading icon
 // takes its `foreground`; the title and text use callout.title in
-// bodyStrong and callout.text in bodyStrong, solved from normal text and muted
+// bodyStrong and callout.text in body, solved from normal text and muted
 // text to the readability floor on the banner fill. The lines stand
 // `callout.gap` apart, `callout.iconGap`
 // after the icon. The icon centres on the first shown line as a leading
@@ -55,13 +55,13 @@ Rectangle {
     property string title: ""
     property string text: ""
     property string linkText: ""
-    property string level: "base"
     property string tone: "info"
     property bool plain: false
     property bool dismissible: false
     property bool showDontShowAgain: false
     property var links: []
     readonly property var tokens: toneOf(tone)
+    readonly property var ground: Theme.hintContext(null, () => HintGround.groundUnder(root, Window.window, true))
     readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : dismissal.visible ? dismissal : close.visible ? close : null
     // The first shown line, which the icon leads.
     readonly property Item leadLine: titleLabel.visible ? titleLabel : plain ? plainBody : body
@@ -83,7 +83,9 @@ Rectangle {
     implicitHeight: content.height + inset.topPadding + inset.bottomPadding
     radius: Theme.callout.radius
     border.width: 0
-    color: level === "raised" ? Theme.color.surfaceHover : Theme.color.surfaceRaised
+    // Qt.tint composites its second colour over its first:
+    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#tint-method
+    color: ground === null ? Theme.callout.background : Qt.tint(ground.fill, Theme.callout.background)
 
     ClearingInset {
         id: inset
@@ -126,7 +128,7 @@ Rectangle {
                 id: body
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
-                role: "bodyStrong"
+                role: "body"
                 color: Theme.callout.text
                 linkColor: Theme.callout.link.foreground
                 text: root.plain ? "" : root.text
@@ -138,7 +140,7 @@ Rectangle {
                 id: plainBody
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
-                role: "bodyStrong"
+                role: "body"
                 color: Theme.callout.text
                 textFormat: Text.PlainText
                 text: root.plain ? root.text : ""

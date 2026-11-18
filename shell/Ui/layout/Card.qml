@@ -19,6 +19,7 @@ Rectangle {
     default property alias content: column.data
     readonly property real contentInset: clearingInset.inset
     property bool floating: false
+    readonly property color hintGround: floating && ground.item !== null ? ground.item.hintGround : color
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth + 2 * contentInset

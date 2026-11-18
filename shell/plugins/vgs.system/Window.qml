@@ -251,7 +251,6 @@ FocusScope {
 
                     Callout {
                         objectName: "system-notice"
-                        level: "raised"
                         text: root.notice
                         visible: text !== ""
                         tone: "danger"

@@ -78,7 +78,7 @@ function shortcutProblem(match, plugins, shortcutText) {
     const key = label.kind === "resolved" ? label.text : "";
     const cause = holder === undefined ? "Another plugin uses this shortcut" + (key === "" ? "" : ": " + key)
         : holder.name + " already uses " + (key === "" ? "this shortcut" : key);
-    return cause + ". Change this shortcut in [Settings/Keys](page:" + match[2] + "/Settings/Keys).";
+    return cause + ".\n[Change shortcut](page:" + match[2] + "/Settings/Keys)";
 }
 
 // An idle time's owner is off: the words its field reads (IdleTimeField),

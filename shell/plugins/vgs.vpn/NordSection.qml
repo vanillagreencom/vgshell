@@ -97,7 +97,6 @@ Section {
         onClicked: root.show()
     }
     Callout {
-        level: "raised"
         width: root.width
         visible: !root.opened && root.problem !== ""
         tone: "danger"
@@ -138,7 +137,6 @@ Section {
             text: "Changing server…"
         }
         Callout {
-            level: "raised"
             width: parent.width
             visible: root.problem !== ""
             tone: "danger"
