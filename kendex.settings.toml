@@ -4,16 +4,10 @@
 # `.env` is never read.
 
 [env]
-CI_FIX_MAX_CYCLES = "6"
-# Reviews are optional; no reviewer wait or required evidence.
-PR_REVIEW_GATE = "off"
 DECISIONS_DIR = "docs/decisions"
 DECISIONS_BASE_REF = "origin/main"
 # Issue branches use the vgs Linear identifier: vgs-<n>-<slug>.
 GH_ISSUE_PATTERN = "vgs-[0-9]+"
-LINEAR_FORMAT = "safe"
-ORCH_STATE_DIR = "tmp"
-ORCH_USER_MODE = "ceo"
 
 # Extra test-path globs branch-size-check adds to its built-in test rule, which
 # names none of them. The controls `scripts/validate` runs are validation code;
@@ -43,38 +37,13 @@ SECOND_OPINION_PI_COPILOT_GPT_ROOM_CMD = "env ORCH_LANE_HOST=local .agents/skill
 SECOND_OPINION_CODEX_MODEL = "gpt-6.1-sol"
 SECOND_OPINION_CODEX_CMD = "codex exec -m gpt-6.1-sol -s read-only -c model_reasoning_effort=xhigh --disable hooks --ephemeral"
 SECOND_OPINION_CODEX_ROOM_CMD = "env ORCH_LANE_HOST=local .agents/skills/orch/scripts/lanes pick --harness codex --model gpt-6.1-sol --binding-floor --max-pct 100"
-SECOND_OPINION_TIMEOUT = "1080"
 WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
-WORKTREE_COPIES = ""
 WORKTREE_DEFAULT_BRANCH = "main"
 WORKTREE_MKDIRS = "tmp"
-WORKTREE_RELATIVE_SYMLINKS = ""
 WORKTREE_SYMLINKS = ".env.local .cache"
 
-# Optional trusted check-run or commit-status name accepted as review
-# evidence on the current head. Empty accepts review objects only. Names
-# do not authenticate publishers; use only where all publishers are trusted.
-PR_REVIEW_CHECK = ""
 
-# Total concurrent reviewer-session budget, including the primary session.
-# Zero allows all reviewers. A bounded budget runs sequential waves and
-# releases completed sessions.
-REVIEWER_SLOT_BUDGET = "0"
-
-# On total reviewer silence, proceed records a local timeout override.
-# Unresolved threads still block, and CI and comment checks still apply.
-PR_REVIEW_ON_TIMEOUT = "proceed"
-
-# Workflow decision policy: ask prompts the user; auto-recommended selects
-# and records the recommended option. Scope changes and decision-record
-# revisits still require confirmation. Merge uses ORCH_MERGE_AUTONOMY.
-ORCH_DECISION_MODE = "auto-recommended"
-
-
-# The team every Linear write targets. No default: an empty value refuses
-# writes instead of guessing inside whatever workspace the API key reaches
-# (the create actions still take `--team <name>` per call). Confirm with
-# `linear.sh auth-check --strict`.
+# The team for Linear issue writes.
 LINEAR_TEAM = "vgs"
 
 # Issue identifier prefix used in examples (e.g. PROJ-123).
@@ -87,28 +56,9 @@ REVIEW_GATE_MODE = "off"
 # carrying none of them is refused: such an issue is invisible to routing.
 LINEAR_AGENT_LABELS = "agent:frontend, agent:runtime, agent:maintainer, agent:multi, agent:human, agent:researcher"
 
-# Every created issue names what reaches it in a `Reached by:` line.
-LINEAR_REQUIRE_REACH = "1"
-
-# Total review-wait budget in seconds before the on-timeout policy applies;
-# an explicit max_wait argument always wins.
-PR_REVIEW_WAIT_SECS = "900"
-
-# Seconds per brief-delivery verification pass on tmux handoff lanes.
-ORCH_TMUX_VERIFY_SECS = "15"
-ORCH_LANE_SSH_PROMPT_SECS = "60"
-
-# Used by: orch (`start-worktree` § 5.5). "auto" merges without asking once
-# every merge gate is green; "ask" presents the merge decision.
-# MERGE_READY = false never auto-merges.
-ORCH_MERGE_AUTONOMY = "auto"
-ORCH_LANE_OUTPUT = "quiet"
-
-# Owner clock for oversee-report. Quiet hours are the owner's, 9 pm to 8 am
-# Pacific (owner Slack 1792183764, 2026-10-16; set by Jarvis decision,
-# 2026-11-13). The 23-8 window the owner-message night rule names is a
-# separate instruction; changing these hours needs the owner.
-ORCH_OWNER_TIME_ZONE = "America/Los_Angeles"
+# The owner's quiet hours are 9 pm to 8 am Pacific (owner Slack
+# 1792183764, 2026-10-16; Jarvis decision, 2026-11-13). The 23-8 owner-message
+# night rule is separate. Changing these hours needs the owner.
 ORCH_REPORT_QUIET_HOURS = "21-8"
 
 # Owner asks bound to an item post on it, assigned to the owner
@@ -137,14 +87,6 @@ PM_CREATE_AUTONOMY = "auto"
 # actual current model for each invocation, including after switching models.
 # Never put that session identity in a project settings file.
 
-# Opinions a review collects; 2+ unions distinct models on one diff.
-SECOND_OPINION_COUNT = "1"
-
-# Home for review/audit records written without --output; a directory the
-# script CREATES is seeded with a "*" .gitignore (a pre-existing one is
-# left alone — ignore it yourself).
-SECOND_OPINION_ARTIFACT_DIR = "tmp/second-opinion"
-
 
 # Repo-local check the pre-commit shim runs LAST: a repo-root-relative
 # executable following the family exit contract (0 clean, 1 violations,
@@ -152,9 +94,6 @@ SECOND_OPINION_ARTIFACT_DIR = "tmp/second-opinion"
 # missing or non-executable value. Empty = no repo-local check; the chain
 # runs the staged bot-instructions check itself.
 COMMIT_GUARDS_PRE_COMMIT_LOCAL = ""
-
-# Optional manual guard runs use changed files; git hooks remain unarmed.
-COMMIT_GUARDS_MD_SCOPE = "touched"
 
 # md-refs judges every tracked markdown file, decision records and READMEs
 # included, not only the agent-loaded set.
@@ -164,10 +103,6 @@ COMMIT_GUARDS_MD_REFS_PATHS = "*.md"
 # default list is extensions only, so this is that list plus the
 # extensionless scripts, whose grammar their `#!` line names.
 COMMIT_GUARDS_MD_REFS_SOURCE_PATHS = "*.rs *.go *.c *.h *.cc *.cpp *.hpp *.java *.kt *.kts *.swift *.wgsl *.js *.mjs *.cjs *.jsx *.ts *.tsx *.css *.scss *.less *.sh *.bash *.zsh *.py *.rb *.toml *.yml *.yaml *.sql *.lua *.html *.htm *.xml *.svg *.vue *.svelte Makefile */Makefile *.mk Dockerfile */Dockerfile bin/vgshell* shell/plugins/*/bin/* scripts/smoke/fixtures/updates-bin/* scripts/validate scripts/release scripts/vendor-lucide"
-
-# Max re-review cycles per issue before the verdict pass; the re-review
-# re-entry refuses once cycles is past it.
-REVIEW_MAX_CYCLES = "1"
 
 # Diff-scoped local checks, including the isolated smoke only when affected.
 DEV_VALIDATE_CMD = "scripts/validate"
@@ -183,32 +118,11 @@ DEV_VALIDATE_TIMEOUT_SECS = "21600"
 # The expected run time the run-time warning reads: a time is a reading, never a stop.
 DEV_VALIDATE_EXPECTED_SECS = "7200"
 
-# Read by a dev round that changes a view, which builds to this doc, and by
-# the `needs-ui-review` pass, which judges that round's screenshots against it.
+# A dev round checks changed views and its screenshot pair against this doc.
 QA_UI_DESIGN_DOC = "docs/architecture/design-system.md"
 
-# View sources: a change to one makes the dev round capture its screenshot
-# set and adds `needs-ui-review` to a review round, where one runs.
+# View sources whose changes need the lane's sandbox screenshot check.
 QA_UI_PATHS = "shell/*.qml shell/**/*.qml"
-
-# Optional extra verification command for GitHub-side checks; empty means
-# none beyond the guard chain.
-GH_VERIFY_CMD = ""
-
-# Bot identity for gate-side commits; empty means the default account.
-BOT_EMAIL = ""
-
-# Bot display name for gate-side commits; empty means the default account.
-BOT_NAME = ""
-
-# Remote the bot pushes through; empty means origin.
-BOT_REMOTE_NAME = ""
-
-# GitHub login the bot acts as; empty means the default account.
-GH_BOT_USERNAME = ""
-
-# Maximum external review rounds before findings receive dispositions.
-REVIEW_MAX_EXTERNAL_ROUNDS = "4"
 
 # The kendex command-safety hook refuses a systemd-run command whose MemoryMax
 # or MemoryHigh value is a number followed by K or M; a value in G, a bare

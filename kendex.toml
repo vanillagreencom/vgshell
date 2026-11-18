@@ -12,18 +12,9 @@ tracker = "VGS"
 # Setup evidence and remaining vendor checks: .bot-instructions/README.md.
 codex = true
 copilot = true
-coderabbit = false
-qodo = false
-qodo_best_practices = false
-qodo_review_md = false
-macroscope = false
 
 [bot-instructions.exclusions]
 derive_render = true
-
-
-
-
 
 
 [bot-instructions.doctrine.append]
@@ -36,8 +27,6 @@ This personal project deliberately has no branch protection, merge queue, requir
 """
 no-preferences = """
 The helper owns parsing and generation; a helper module split is separate work. Theme packages intentionally keep parallel per-theme app files. Agent instructions and architecture references do not require product README copies or release notes.
-Plans, research reports, measurements and handoffs belong in tmp/ or on the owning tracker issue. Review bots must apply this repository artifact policy to proposed tracked documents.
-Use the installed decider skill to judge whether this repository needs a decision record. A record preserves a choice that code cannot explain and that a later maintainer could otherwise reverse. Do not create a record only to restate the change.
 """
 
 [[bot-instructions.surface]]
@@ -291,7 +280,7 @@ source = "kendex"
 enabled = true
 
 # Declared as it already runs through orch: the fleet watch uses its pr-watch.
-# PR_REVIEW_GATE and REVIEW_GATE_MODE stay off, so nothing waits on CI (owner, 2026-10-03).
+# REVIEW_GATE_MODE stays off, so nothing waits on CI (owner, 2026-10-03).
 [skills.review-gate]
 source = "kendex"
 enabled = true
@@ -301,8 +290,6 @@ enabled = true
 [skills.dep-radar]
 source = "kendex"
 enabled = true
-
-
 
 
 [skills.vgs-plugin]
@@ -443,37 +430,10 @@ maintainer = [
     "code-quality",
     "preflight",
 ]
-runtime = [
-    "decider",
-    "dev",
-    "github",
-    "linear",
-    "code-quality",
-    "preflight",
-]
-planner = [
-    "github",
-    "linear",
-]
-researcher = [
-    "decider",
-    "deep-research",
-    "github",
-    "linear",
-]
-reviewer-arch = ["reviewer", "code-quality"]
-reviewer-correctness = ["reviewer", "code-quality"]
-reviewer-doc = ["reviewer"]
-reviewer-error = ["reviewer", "code-quality"]
-reviewer-perf = ["reviewer"]
-reviewer-quality = ["reviewer", "code-quality"]
-reviewer-safety = ["reviewer"]
-reviewer-security = ["reviewer"]
-reviewer-test = ["reviewer", "code-quality"]
-scout = [
-    "github",
-    "linear",
-]
+[shared-text]
+vgs-delivery = """
+Work targets main. Direct pushes and immediate PR merges are allowed. Do not wait for CI or a merge queue, request bot review, or arm commit/push guards. Run one internal review, the orch review panel, only for a change where a defect would affect performance, stability, races, leaks or lifetimes. Layout, copy, styling, tokens, docs and settings-field-only changes run no review round. Run no UI review round. Google Drive lanes run no review round. The lane checks changed views with its dark/light before-and-after sandbox screenshots under docs/architecture/validation.md § Screenshot baselines. Name the applicable review choice and screenshot check in the done line. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round and reuse passing results while inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+"""
 
 [skill-instructions]
 code-quality = """
@@ -489,63 +449,15 @@ Quickshell rules for this shell. They add to the rules above.
 linear = '''
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
 - Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
 - In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per `.agents/skills/project-management/SKILL.md` § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 
 ## Tracker policy: Linear is canonical; GitHub Issues is intake-only
 
-Create, label, and work issues ONLY in Linear (team vgs, identifiers VGS-<n>). GitHub Issues stays as intake, and nothing syncs back. Before creating a Linear issue, dedupe across BOTH trackers (`gh issue list --search` + Linear cache) — never file the same problem twice.
+Create, label, and work issues ONLY in Linear (team vgs, identifiers VGS-<n>). GitHub Issues stays as intake, and nothing syncs back. Before creating a Linear issue, dedupe across BOTH trackers (`gh issue list --search` + live Linear search) — never file the same problem twice.
 
-Mirroring GitHub intake into Linear is a MANUAL triage step. No automation does it: there is no sync workflow under `.github/` and no Linear-side GitHub integration creating issues, so an unmirrored GitHub issue never reaches the canonical tracker and can sit unseen indefinitely. Run the triage pass when picking up work:
-
-```bash
-gh issue list --state open --limit 50 --json number,title,url,createdAt \
-  --jq '.[] | [.number, .createdAt, .url, .title] | @tsv' &&
-.agents/skills/linear/scripts/linear.sh issues list --all-projects --max
-```
-
-The two listings are chained: a `gh issue list` that fails prints nothing, and unchained the Linear listing's success becomes the block's — an empty GitHub column then reads as "nothing to mirror", the exact false-clean this pass exists to prevent.
-
-For each GitHub issue with no Linear counterpart, fetch title, body and url in one call and build the description — the full body plus a provenance line back to the GitHub issue — then create it in team vgs and work the Linear issue rather than the GitHub one:
-
-```bash
-gh_json= gh_body= &&
-gh_json="$(mktemp)" &&
-gh_body="$(mktemp)" &&
-gh issue view <n> --json title,body,url > "$gh_json" &&
-jq -r '(.body | sub("\\s+$"; "")) + "\n\n---\n\nMirrored from GitHub issue [" + .url + "](<" + .url + ">) (intake-only tracker)."' "$gh_json" > "$gh_body" &&
-{ [ -s "$gh_body" ] || { echo "mirror: description body is empty, not creating" >&2; false; }; } &&
-title="$(jq -r .title "$gh_json")" &&
-.agents/skills/linear/scripts/linear.sh issues create --title "$title" \
-  --description-file "$gh_body"
-created=$?
-cleaned=0
-for tmp in "$gh_json" "$gh_body"; do
-  [ -n "$tmp" ] || continue
-  rm -f -- "$tmp" || { cleaned=1; echo "mirror: could not remove $tmp, which still holds the issue JSON or body" >&2; }
-done
-( exit "$(( created ? created : cleaned ))" )
-```
-
-Run that block as a UNIT, in one shell — the `mktemp` paths live in variables, so a command run on its own would find them empty and redirect to nothing.
-
-NO STEP'S FAILURE MAY BE MASKED BY A LATER STEP'S SUCCESS. Every producing step is chained with `&&`, so the first failure short-circuits the rest and becomes the list's status; `created=$?` captures it, the cleanup loop runs on every path, and `( exit ... )` re-raises it. That direction is the worst one here — this is the manual GitHub-to-Linear step, so a masked failure means work never filed and never noticed. Each shape below was a real silent failure before it was written this way:
-
-* `rm -f` last made ITS status the block's, and `rm -f` almost always succeeds: a create that failed on credentials, validation or an API error reported success and the agent believed the issue was filed.
-* `gh issue view` and the description `jq` ran unchecked, so the create ran on whatever landed in the file — an empty description, the GitHub body and the provenance line lost, reported as success.
-* the title `jq` ran inside the create's own argument list, where a command substitution's status is discarded whatever it exits with; hoisting it into `title=` is what makes that status visible.
-* `[ -s "$gh_body" ]` because a status is a PROXY — what must be true is that the file has CONTENT — and it speaks when it refuses, since an empty-but-succeeded producer prints no diagnostic of its own.
-* the cleanup itself ran unchecked, so a `rm` that failed after a successful create left the issue JSON and the rendered body on disk while the block reported success. `cleaned` records it, the loop names the file that survived, and the status is `created` when the create failed and `cleaned` otherwise — the create's failure is the more important one and still wins, but a cleanup failure cannot vanish behind it.
-
-`gh_json= gh_body=` BEFORE the first `mktemp`, and this one is about the operator's own shell rather than about statuses. You paste this block into an interactive shell, where `set -u` is off and both names may already be in use. If the FIRST `mktemp` fails, the `&&` chain stops before `gh_body` is ever assigned — and the cleanup at the bottom still runs, expanding whatever `gh_body` happened to mean in your session and `rm`-ing a file this block never created. Initializing both to empty first is what makes that impossible, and the loop skips an empty path rather than passing it to `rm`. A runbook a person pastes into their own shell must not be able to delete a file they named.
-
-`( exit ... )` rather than a bare `exit`, which would close an operator's interactive shell, and rather than a `trap ... EXIT`, which would linger in that shell for the rest of the session. `mktemp`, not `/tmp/gh-<n>.json`: that path is fully predictable from the issue number, so two lanes mirroring the same issue overwrite each other's file, and a pre-created symlink there would be followed by the redirect.
-
-The list query carries `url` so the triage table is actionable; `body` is fetched per issue rather than for all 50, and every field the description needs comes from these commands alone — no extra lookup.
-
-Automating this needs owner action (Linear workspace admin, or a LINEAR_API_KEY repo secret); no decision record covers it.
+GitHub intake is mirrored manually. When selecting work, compare the open GitHub issues with the team's Linear issues. For an unmatched issue, create the Linear issue with the complete GitHub body and a link to its source. Stop and report an unreadable listing, empty body or failed create; none means that intake is complete. Keep work in Linear. Do not add synchronization automation as part of triage.
 
 Link work to its issue through the branch name: `vgs-<n>-<slug>`. Linear's GitHub integration matches that to attach the PR, and `GH_ISSUE_PATTERN` in kendex.settings.toml reads the same shape. Commit subjects carry the identifier as the scope: `area(VGS-12): imperative summary`.
 
@@ -567,7 +479,6 @@ Kept from KEN-3470:
 project-management = """
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
 - In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per `.agents/skills/project-management/SKILL.md` § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 
@@ -619,7 +530,7 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 
 ### Work priority
 
-Priority rule: performance, optimization, efficiency, scalability, maintainability, architecture and CI issues precede product/features. Run CI first, then Verifying items. Exceptions require the owner's word on a named item, a production outage, a security or data-loss defect, or a hard deadline. Target at least 10 lanes while accounts have headroom. Keep the existing eligibility and ownership gates. Select eligible work. Never invent tasks to fill slots.
+Priority rule: performance, optimization, efficiency, scalability, maintainability, architecture and CI issues precede product/features. Run CI first, then Verifying items. Exceptions require the owner's word on a named item, a production outage, a security or data-loss defect, or a hard deadline. Launch eligible work up to ORCH_OVERSEER_LANES while accounts and local smoke capacity permit it. Keep the existing eligibility and ownership gates. Select eligible work. Never invent tasks to fill slots.
 
 `ci-infra` implies Urgent unless the issue deliberately records why it is lower. Everything VGS uses to decide whether a change is safe to merge lives in that category, so a defect there invalidates the evidence behind every other issue's "verified" claim.
 
@@ -679,7 +590,7 @@ Repository-wide verification uses VGS's own source roots and patterns, every sup
 reviewer = """
 Problems with a kendex-owned skill go through `kendex report`; check ownership in the file first.
 
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
@@ -689,12 +600,11 @@ Kendex workflow policy VGS keeps (KEN-3470):
 
 Read root `AGENTS.md § Code Review Rules` and the generated `.github/instructions/` files for the changed paths.
 
-A file under docs/architecture/ is a principle document for one reader's task and the harmful mistake it prevents. It holds the approach, reason, rules and one canonical code example. Raise a review finding only where the document contradicts the code at this head. Do not request wording, structure or length changes, code walkthroughs, file or test inventories, history, dates or measurements. Change the document beside code only when the code change makes a claim false. (KEN-3470: bot-instructions-18)
 """
 dev = """
 Problems with a kendex-owned skill go through `kendex report`; check ownership in the file first.
 
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
@@ -705,24 +615,23 @@ Kendex workflow policy VGS keeps (KEN-3470):
 For each changed view, capture a before image from the base revision and an after image from HEAD in every supported theme, dark and light. Put the images under tmp/ui-shots/ in the worktree; `scripts/sandbox-shots.sh` captures them. List each image on its own line in the round summary as `tmp/ui-shots/[FILE]` - [View], [before|after], [THEME]. A later change to the view replaces its after images and carries its before images forward. List the full set in that round's summary. A new view has after images only.
 """
 docs-writing = """
+Before a rewrite removes a tracked copy, preserve its evidence on the owning tracker issue.
+
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
 
 ## VGS documentation policy (KEN-3470)
 
-- This repository adopts bot-instructions for its GitHub review bots. Keep the generated GitHub instruction files and review doctrine consistent with the effective manifest, and render them through their owning package. (DW05)
 - Write the README for a reader with moderate technical knowledge: what the product does and why it matters. Engineering implementation detail goes in DEVELOPMENT.md or docs/architecture/. (DW07)
 """
 orch = """
 Problems with a kendex-owned skill go through `kendex report`; check ownership in the file first.
 
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair under docs/architecture/validation.md § Screenshot baselines; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
 - In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per `.agents/skills/project-management/SKILL.md` § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 - A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
@@ -732,7 +641,6 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - Before selecting work or setting the lane target, follow `.agents/skills/project-management/SKILL.md` § Work priority.
 - Use the configured owner communication routes. Send a decision request or critical notice to Slack and chat. Keep a voice reply on its call. Send progress reports to open text media, not the phone. Reply in the owner message thread. Route questions from an unattended lane through lane-mail. (ORCH-D22)
 - Owner reports link each item to its live tracker issue URL, taken from the tracker response for the VGS workspace. Do not build a URL from another workspace or show an unlinked issue identifier. (ORCH-D25)
-- The vanillagreen-overseer GitHub App supplies organization approval and security-alert access separately from lane credentials. The fleet worker supplies the overseer credential on the overseer host. Keep its token in a private mode-600 file outside lane roots and replace it atomically before expiry. ORCH_SECURITY_ALERT_TOKEN_FILE names the security-alert token file. Never put the token value in tracked settings or reports. (ORCH-D27)
 - Claude capacity entries measured on this fleet: fable and opus names, claude-sonnet-5 and claude-sonnet-5-5 use 1000000; claude-haiku-4-5 and claude-haiku-4-5-20251001 use 200000. A different provider or model needs its own declared or measured capacity. (ORCH-M07)
 - If no overseer mailbox is registered, use the organization owner-note fallback to reach the owner or master. Keep the work held until that route returns the required answer. A missing mailbox is never approval. (ORCH-M08)
 - Organization cycle targets in seconds: render=300, trivial=300, micro=1200, small=1800, standard=5400. Review-round targets: micro=1, small=1, standard=2, with 600 seconds per round. A micro task aims for about eight minutes in its lane and three in the overseer. Report measured time against these targets, and request a process issue on the third qualifying miss of the same cycle phase, with the miss evidence and the phase. (ORCH-M12, ORCH-M13)
@@ -741,7 +649,6 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - Preserve the fleet account selection when launching Copilot. Retain GitHub token environment values only where the supplied tokens are GitHub App tokens that the selected Copilot authentication path skips; never replace the chosen Copilot account with an inherited personal token. (ORCH-M18)
 - VGS selects the full-bypass permission mode for its Claude handoff lanes explicitly; carry it through the existing launch arguments. Do not infer it from the use of orchestration alone. (ORCH-M21)
 - For an outside contribution, maintainers supply missing version, changelog and generated-render bookkeeping during takeover; never send the contributor back only for those steps. (ORCH-M27)
-- In review-pr and submit-pr local pre-PR review, external second-opinion review is advisory: if its script fails, record the stated failure and continue. VGS has no stricter second-opinion gate. (second-opinion-16)
 
 ## VGS dependency pin check
 
@@ -752,7 +659,7 @@ On its first pass of each UTC day, the overseer runs the upstream check command 
 - An exit the cell says needs the owner: report the row and its output line to the owner.
 """
 worktree = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
@@ -761,44 +668,33 @@ Kendex workflow policy VGS keeps (KEN-3470):
 VGS uses GitHub pull requests. Worktree ownership discovery checks the live GitHub pull requests as well as native Git refs before reuse or creation, and resolves the default branch, main, from WORKTREE_DEFAULT_BRANCH or the provider. (KEN-3470: WT-026)
 """
 github = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
 - VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
 """
-deep-research = """
-Kendex workflow policy VGS keeps (KEN-3470):
-
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
-"""
 commit-guards = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 """
 review-gate = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 """
 harness-ci = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 """
 preflight = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+{{shared-text:vgs-delivery}}
 """
 dep-radar = """
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
-
-Kendex workflow policy VGS keeps (KEN-3470):
-
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
+{{shared-text:vgs-delivery}}
 """
 
 [agent-frontmatter.claude.planner]
-color = "blue"
 deny-tools = ["Agent"]
 background = false
 
 [agent-frontmatter.claude.researcher]
-color = "purple"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -806,7 +702,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-arch]
-color = "yellow"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -814,7 +709,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-correctness]
-color = "red"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -822,7 +716,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-doc]
-color = "yellow"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -830,7 +723,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-error]
-color = "orange"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -838,7 +730,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-perf]
-color = "red"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -846,7 +737,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-quality]
-color = "purple"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -854,7 +744,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-safety]
-color = "red"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -862,7 +751,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-security]
-color = "red"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -870,7 +758,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.reviewer-test]
-color = "blue"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -878,7 +765,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.scout]
-color = "cyan"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -886,7 +772,6 @@ deny-tools = [
 background = true
 
 [agent-frontmatter.claude.maintainer]
-color = "green"
 deny-tools = [
     "Agent",
     "AskUserQuestion",
@@ -1037,7 +922,6 @@ nickname-candidates = [
 ]
 
 [agent-frontmatter.pi.planner]
-color = "blue"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1049,7 +933,6 @@ allowed-subagents = []
 pane = true
 
 [agent-frontmatter.pi.researcher]
-color = "purple"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1062,7 +945,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-arch]
-color = "yellow"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1076,7 +958,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-correctness]
-color = "red"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1090,7 +971,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-doc]
-color = "yellow"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1104,7 +984,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-error]
-color = "orange"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1118,7 +997,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-perf]
-color = "red"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1132,7 +1010,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-quality]
-color = "purple"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1146,7 +1023,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-safety]
-color = "red"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1160,7 +1036,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-security]
-color = "red"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1174,7 +1049,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.reviewer-test]
-color = "blue"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1188,7 +1062,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.scout]
-color = "cyan"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1201,7 +1074,6 @@ allowed-subagents = []
 pane = false
 
 [agent-frontmatter.pi.maintainer]
-color = "green"
 deny-tools = [
     "subagent",
     "get_subagent_result",
@@ -1216,4 +1088,4 @@ pane = true
 all = "Problems with a kendex-owned skill go through `kendex report`; check ownership in the file first."
 
 [model-bindings.copilot]
-standard = "gpt-6.1-sol"
+standard = "gpt-6.2-sol"
