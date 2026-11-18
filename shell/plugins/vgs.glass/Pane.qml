@@ -175,6 +175,7 @@ FocusScope {
         }
 
         Column {
+            id: surfaceOptions
             width: parent.width
             spacing: Theme.stack.row
 
@@ -183,7 +184,7 @@ FocusScope {
 
                 FormRow {
                     required property var modelData
-                    width: parent.width
+                    width: surfaceOptions.width
                     label: modelData.label
                     info: modelData.info
                     onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)

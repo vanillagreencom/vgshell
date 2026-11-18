@@ -102,7 +102,10 @@ Item {
     // rim (design-system.md § Glass plates over wallpaper).
     readonly property real cardInsetFloor: {
         const r = look.plate.card.radius, rise = Math.max(0, r - look.plate.card.paddingY);
-        return Math.ceil(wordsCard.rim + r - Math.sqrt(r * r - rise * rise));
+        // Use the material's full rim here. The drawn rim clamps to the
+        // plate's size, which in turn depends on this inset.
+        const rim = wordsCard.on ? wordsCard.look.rim.width : 0;
+        return Math.ceil(rim + r - Math.sqrt(r * r - rise * rise));
     }
     function cardInset(boxWidth, widest) {
         return Math.max(cardInsetFloor, Math.min(look.plate.card.paddingX, Math.floor((boxWidth - widest) / 2)));
@@ -190,8 +193,10 @@ Item {
         if (drawn === null) return;
         // LayerHost observes this swap too. Its presented value must settle
         // before the service checks this frame's unchanged request identity.
+        const window = root.plateWindow;
         Qt.callLater(() => {
-            if (!root.platesPresented || root.hold === null || root.hold.id !== drawn.id
+            if (!root || window === null || root.plateWindow !== window
+                    || !root.platesPresented || root.hold === null || root.hold.id !== drawn.id
                     || root.hold.gen !== drawn.gen || root.hold.digest !== drawn.digest) return;
             root.displayedHold = drawn;
             if (root.service !== null) root.service.shownApproval(root, drawn);
