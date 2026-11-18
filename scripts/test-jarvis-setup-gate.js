@@ -2915,8 +2915,8 @@ try {
     for (const [label, needle, replacement] of [
         ["console-talk-line-fixed", 'readonly property string talkLine: Gate.talkHint(shell !== null && shell.settings.holdToTalk, spelledKeys.talk) + "."',
             'readonly property string talkLine: "Tap or hold " + spelledKeys.talk + ", then speak."'],
-        ["console-speech-line-drops-talk", 'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;',
-            'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only.";']]) {
+        ["console-speech-line-drops-talk", 'message + " " + talk',
+            'message']]) {
         assert.equal(consoleText.split(needle).length, 2, label + ": the text to replace occurs once");
         assert.throws(() => verifyConsoleTalk(load(file), consoleText.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
