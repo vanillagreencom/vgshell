@@ -276,7 +276,7 @@ const UNWRITTEN = {
     borders: "-- Theme appearance: borders left to the user's config by shell.json appearance.borderWidth.",
     radius: "-- Theme appearance: radius left to the user's config by shell.json appearance.windowRadius.",
     motion: "-- Theme appearance: motion left to the user's config by shell.json appearance.windowAnimations.",
-    glass: "-- Theme appearance: glass left to the user's config by shell.json appearance.windowGlass.",
+    glass: "-- Theme appearance: glass left to the user's config by shell.json appearance.glassSurfaces.",
     glow: "-- Theme appearance: glow left to the user's config by shell.json appearance.windowGlow."
 };
 const TUI_SECTION = [
@@ -548,8 +548,8 @@ function captureSection(pluginLines) {
         "    local capture = hl.__vgs_overlay_capture or { directions = setmetatable({}, { __mode = \"k\" }) }",
         "    hl.__vgs_overlay_capture = capture",
         "    capture.submap = \"vgs:capture\"",
-        "    capture.namespace = \"vgs:overlay\"",
-        "    capture.selection = { submap = \"vgs:selection\", namespace = \"selection\" }",
+        "    capture.namespaces = { [\"vgs:overlay\"] = true, [\"vgs:overlay-glass\"] = true }",
+        "    capture.selection = { submap = \"vgs:selection\", namespaces = { [\"selection\"] = true } }",
         "    capture.globals = { left = \"vgs:overlay-left\", right = \"vgs:overlay-right\", up = \"vgs:overlay-up\", down = \"vgs:overlay-down\", l = \"vgs:overlay-left\", r = \"vgs:overlay-right\", u = \"vgs:overlay-up\", d = \"vgs:overlay-down\" }",
         "    hl.define_submap(capture.submap, function()",
         ...pluginLines,
@@ -561,17 +561,17 @@ function captureSection(pluginLines) {
         "        hl.bind(\"mouse:275\", hl.dsp.send_key_state({ mods = \"\", key = \"Escape\", state = \"down\" }), { description = \"vgs:selection-cancel\", ignore_mods = true })",
         "        hl.bind(\"mouse:276\", hl.dsp.send_key_state({ mods = \"\", key = \"Escape\", state = \"down\" }), { description = \"vgs:selection-cancel\", ignore_mods = true })",
         "    end)",
-        "    local function vgs_overlay_capture_open(namespace, closing)",
+        "    local function vgs_overlay_capture_open(namespaces, closing)",
         "        for _, layer in ipairs(hl.get_layers()) do",
-        "            if layer ~= closing and layer.namespace == namespace and layer.mapped then return true end",
+        "            if layer ~= closing and namespaces[layer.namespace] and layer.mapped then return true end",
         "        end",
         "        return false",
         "    end",
         "    local function vgs_overlay_capture_update(closing)",
         "        local current = hl.get_current_submap()",
-        "        if vgs_overlay_capture_open(capture.selection.namespace, closing) then",
+        "        if vgs_overlay_capture_open(capture.selection.namespaces, closing) then",
         "            hl.dispatch(hl.dsp.submap(capture.selection.submap))",
-        "        elseif vgs_overlay_capture_open(capture.namespace, closing) then",
+        "        elseif vgs_overlay_capture_open(capture.namespaces, closing) then",
         "            hl.dispatch(hl.dsp.submap(capture.submap))",
         "        elseif current == capture.submap or current == capture.selection.submap then",
         "            hl.dispatch(hl.dsp.submap(\"reset\"))",
@@ -1230,7 +1230,7 @@ function verify(logic, configLogic, layer, shellText) {
     const glassApplied = applied(glassy);
     same(glassApplied.slice(glassApplied.indexOf(GLASS_SECTION[0]), glassApplied.indexOf(GLASS_SECTION[0]) + GLASS_SECTION.length), GLASS_SECTION, "window glass writes Hyprland's blur, opacity and shadow, byte for byte");
     assert.ok(glassApplied.indexOf("-- Theme vgs: window, group and group bar borders.") < glassApplied.indexOf(GLASS_SECTION[0]), "window glass follows the borders, so its shadow colour holds");
-    same(glassy.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.active_opacity", value: 0.9 }], "a written glass group reports the active opacity it wrote");
+    same(glassy.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "glassSurfaces", path: "decoration.active_opacity", value: 0.9 }], "a written glass group reports the active opacity it wrote");
     same(lines(glassy)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.active_opacity\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the active opacity while window glass is written");
     assert.ok(!lines(glassy).includes(UNWRITTEN.glass), "written window glass leaves no comment");
     const glassyLines = lines(glassy);
@@ -1259,7 +1259,7 @@ function verify(logic, configLogic, layer, shellText) {
     const glowApplied = applied(glowing);
     same(glowApplied.slice(glowApplied.indexOf(GLOW_SECTION[0]), glowApplied.indexOf(GLOW_SECTION[0]) + GLOW_SECTION.length), GLOW_SECTION, "window glow writes Hyprland's glow from the theme's tokens, byte for byte");
     assert.ok(glowApplied.indexOf(GLASS_SECTION[0]) !== -1 && glowApplied.indexOf(GLASS_SECTION[0]) < glowApplied.indexOf(GLOW_SECTION[0]), "window glow follows window glass");
-    same(glowing.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.active_opacity", value: 0.9 }, { id: "", setting: "windowGlow", path: "decoration.glow.enabled", value: true }], "a written glow group reports its switch on");
+    same(glowing.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "glassSurfaces", path: "decoration.active_opacity", value: 0.9 }, { id: "", setting: "windowGlow", path: "decoration.glow.enabled", value: true }], "a written glow group reports its switch on");
     same(lines(glowing)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.active_opacity\", \"decoration.glow.enabled\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the glow switch while window glow is written");
     assert.ok(!lines(glowing).includes(UNWRITTEN.glow), "written window glow leaves no comment");
     same([lines(glassy).includes(UNWRITTEN.glow), lines(glassy).some(line => /glow = \{|decoration\.glow/.test(line))], [true, false], "unwritten window glow is a comment and sets nothing, so the user's own glow stays");
@@ -1340,7 +1340,7 @@ function verify(logic, configLogic, layer, shellText) {
     same([offLines.slice(offStart - 2, offStart + 1), offLines.slice(offStart, offEnd).includes('    local vgs_monitors_off = { "eDP-1" }'), turnsOff.length > 0 && turnsOff.every(index => index > offStart && index < offEnd)],
         [['hl.monitor({ output = "DP-2", scale = 2 })', 'hl.monitor({ output = "eDP-1", scale = 1 })', "do"], true, true],
         "an output a rule turns off is turned off only inside the guard block after the rules");
-    same(layer.OVERLAY_CAPTURE, { submap: "vgs:capture", namespace: "vgs:overlay", appid: "vgs", shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" } }, "the overlay capture names its submap, namespace and shortcuts");
+    same(layer.OVERLAY_CAPTURE, { submap: "vgs:capture", namespaces: ["vgs:overlay", "vgs:overlay-glass"], appid: "vgs", shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" } }, "the overlay capture names its submap, namespace and shortcuts");
     same(layer.overlayCaptureDirections(), ["left", "right", "up", "down"], "the overlay capture direction list");
     assert.equal(layer.overlayCaptureGlobal("left"), "vgs:overlay-left", "the overlay capture global is derived");
     assert.throws(() => layer.overlayCaptureGlobal("next"), /overlay direction/, "unknown overlay directions are refused");
@@ -2033,7 +2033,8 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
             shadow: Object.assign({}, result.values.hyprland.shadow, { color: toColor(result.values.hyprland.shadow.color) })
         });
         published.appearanceState = themeJudge.published(tokens, result, "").appearance;
-        published.glass = glassOf(result.values);
+        published.themeGlass = glassOf(result.values);
+        published.glassStyle = themeJudge.glassStyle(published.appearanceState.values, result.values.scheme.mode);
         const appearance = vm.runInNewContext(bindings[0][1], { root: APPEARANCE_ROOT, Theme: published, terminalCell: TERMINAL_CELL, Capabilities: APPEARANCE_CAPABILITIES });
         same(appearance.tuiCell, { width: 10, height: 22 }, `${entry.name}: the floating TUIs' cell is whole pixels`);
         const lines = layer.borderLines(appearance, entry.name).join("\n");
@@ -2126,7 +2127,8 @@ function verifyAppearanceLayer(layer) {
     const shipped = themeJudge.defaults(tokens);
     const render = (user, scale) => {
         const result = themeJudge.published(tokens, shipped, user === undefined ? "" : JSON.stringify(user));
-        const published = Object.assign({}, result.values, { appearanceState: result.appearance, glass: glassOf(result.values) });
+        const published = Object.assign({}, result.values, { appearanceState: result.appearance, themeGlass: glassOf(result.values),
+            glassStyle: themeJudge.glassStyle(result.appearance.values, result.values.scheme.mode) });
         for (const group of ["color", "palette"])
             published[group] = Object.fromEntries(Object.entries(result.values[group]).map(([key, value]) => [key, toColor(value)]));
         const glow = result.values.hyprland.glow;
@@ -2175,8 +2177,8 @@ function verifyAppearanceLayer(layer) {
     const glassLines = out => block(out).filter(line => /active_opacity|inactive_opacity|^\s+size = |passes = |range = |render_power|color = "rgba\(00000073\)"/.test(line));
     const WINDOW_GLASS = ["        active_opacity = 0.92,", "        inactive_opacity = 0.86,", "            size = 8,", "            passes = 2,", "            range = 30,", "            render_power = 3,", "            color = \"rgba(00000073)\","];
     assert.ok(shippedOut.text.split("\n").includes(UNWRITTEN.glass), "with no Appearance value the user's own window decoration stays");
-    same(glassLines(render({ windowGlass: true })), WINDOW_GLASS, "the windows' own glass writes Glass.js's window values");
-    same(glassLines(render({ glass: "on" })), WINDOW_GLASS, "glass on everywhere writes window glass");
+    same(glassLines(render({ glassSurfaces: { windows: "on" } })), WINDOW_GLASS, "the windows' own glass writes Glass.js's window values");
+    same(glassLines(render({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", dialogs: "on", indicators: "on", clipboard: "on" } })), WINDOW_GLASS, "glass on everywhere writes window glass");
     // Glass on everywhere also blurs toplevel popups, the shell's own layers
     // and their popups, and the bar's popups alone, each below a pixel alpha
     // of 0.7, above the scrim's 0.6 and under the glass fill's 0.8; the
@@ -2184,14 +2186,14 @@ function verifyAppearanceLayer(layer) {
     const SURFACE_RULE = "hl.layer_rule({ name = \"vgs:glass\", match = { namespace = \"^vgs:(panel|menu|overlay|layer|notice|dialog)$\" }, blur = true, blur_popups = true, ignore_alpha = 0.7 })";
     const BAR_RULE = "hl.layer_rule({ name = \"vgs:glass-bar\", match = { namespace = \"^vgs:bar$\" }, blur_popups = true, ignore_alpha = 0.7 })";
     const surfaceLines = out => block(out).filter(line => /popups/.test(line)).concat(out.text.split("\n").filter(line => /^hl\.layer_rule\(\{ name = "vgs:glass/.test(line)));
-    same(surfaceLines(render({ glass: "on" })), ["            popups = true,", "            popups_ignorealpha = 0.7,", SURFACE_RULE, BAR_RULE], "glass on everywhere blurs toplevel popups and, at the top level, the shell's own layers, their popups and the bar's popups");
-    same(surfaceLines(render({ windowGlass: true })), [], "the windows' own glass blurs no popup and no shell layer");
-    same(surfaceLines(render({ glass: "off", windowGlass: true })), [], "glass off everywhere blurs no popup and no shell layer");
-    const offEverywhere = render({ glass: "off", windowGlass: true });
+    same(surfaceLines(render({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", dialogs: "on", indicators: "on", clipboard: "on" } })), ["            popups = true,", "            popups_ignorealpha = 0.7,", SURFACE_RULE, BAR_RULE], "glass on everywhere blurs toplevel popups and, at the top level, the shell's own layers, their popups and the bar's popups");
+    same(surfaceLines(render({ glassSurfaces: { windows: "on" } })), [], "the windows' own glass blurs no popup and no shell layer");
+    same(surfaceLines(render({ glassEnabled: false, glassSurfaces: { windows: "on" } })), [], "glass off everywhere blurs no popup and no shell layer");
+    const offEverywhere = render({ glassEnabled: false, glassSurfaces: { windows: "on" } });
     same([glassLines(offEverywhere), offEverywhere.text.split("\n").includes(UNWRITTEN.glass)], [[], true], "glass off everywhere leaves window decoration to the user, whatever the windows' own choice");
     // The shell's windows' opacity rule comes and goes with window glass.
     const shellOpacity = out => out.text.split("\n").filter(line => /vgs:window-glass/.test(line));
-    for (const [values, want, label] of [[{ windowGlass: true }, [APP_GLASS_SECTION[1]], "the windows' own glass"], [{ glass: "on" }, [APP_GLASS_SECTION[1]], "glass on everywhere"], [undefined, [], "no Appearance value"], [{ glass: "off", windowGlass: true }, [], "glass off everywhere"]])
+    for (const [values, want, label] of [[{ glassSurfaces: { windows: "on" } }, [APP_GLASS_SECTION[1]], "the windows' own glass"], [{ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", dialogs: "on", indicators: "on", clipboard: "on" } }, [APP_GLASS_SECTION[1]], "glass on everywhere"], [undefined, [], "no Appearance value"], [{ glassEnabled: false, glassSurfaces: { windows: "on" } }, [], "glass off everywhere"]])
         same(shellOpacity(render(values)), want, label + ": the shell's windows' opacity rule");
     // Window glow from the shipped Tokens.js, written only while window
     // glass is: the vgs palette's background mixed toward its accent and
@@ -2211,9 +2213,9 @@ function verifyAppearanceLayer(layer) {
         "    },",
         "})"
     ];
-    same(glowLines(render({ windowGlass: true, windowGlow: true })), WINDOW_GLOW, "the windows' glow writes Tokens.js's hyprland.glow values");
-    same(glowLines(render({ glass: "on", windowGlow: true })), WINDOW_GLOW, "glass on everywhere lets the windows' glow write");
-    for (const user of [{ windowGlass: true }, { windowGlow: true }, { glass: "off", windowGlass: true, windowGlow: true }]) {
+    same(glowLines(render({ glassSurfaces: { windows: "on" }, windowGlow: true })), WINDOW_GLOW, "the windows' glow writes Tokens.js's hyprland.glow values");
+    same(glowLines(render({ glassSurfaces: { windows: "on", menus: "on" }, windowGlow: true })), WINDOW_GLOW, "glass on everywhere lets the windows' glow write");
+    for (const user of [{ glassSurfaces: { windows: "on" } }, { windowGlow: true }, { glassEnabled: false, glassSurfaces: { windows: "on" }, windowGlow: true }]) {
         const out = render(user);
         same([glowLines(out), out.text.split("\n").includes(UNWRITTEN.glow), out.appearance.some(row => row.setting === "windowGlow")], [[], true, false], "no window glow is written, so the user's own glow stays: " + JSON.stringify(user));
     }
@@ -2243,7 +2245,9 @@ do
                 seen[#seen + 1] = prefix .. "config"
             end,
             layer = function(namespace, value)
-                assert(namespace == "vgs:layer" and value.mask_mode == "contour" and value.mask_threshold == 0.7 and value.preset == "glass")
+                assert(value.mask_mode == "contour" and value.preset == "glass")
+                assert((namespace == "vgs:layer" and value.mask_threshold == 0.7)
+                    or ((namespace == "vgs:layer-glass" or namespace == "vgs:overlay-glass" or namespace == "vgs:panel-glass") and value.mask_threshold == 0.04))
                 seen[#seen + 1] = prefix .. "layer"
             end
         }
@@ -2262,13 +2266,13 @@ do
     ${layer.layerGlassLines(input(true, loading, permit)).join("\n")}
     assert(#declarations == ${loading && (present || permit) ? 1 : 0})
     assert((hl.plugin.hyprglass ~= nil) == ${present})
-    assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer" : ""}")
+    assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer,parse-layer,parse-layer,parse-layer" : ""}")
     assert(#callbacks == 1)
     seen = {}
     hl.plugin.hyprglass = module("reload-")
     callbacks[1]()
     callbacks[1]()
-    assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-config,reload-layer")
+    assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-layer,reload-layer,reload-layer,reload-config,reload-layer,reload-layer,reload-layer,reload-layer")
 end`).join("\n");
     const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
         env: { PATH: process.env.PATH, VGS_TEST_RUN: "1" } });
@@ -2276,6 +2280,29 @@ end`).join("\n");
     assert.equal(run.status, 0, "layer-glass emitted declaration/configuration calls: " + run.stderr);
 }
 verifyLayerGlass(load(layerFile));
+// The namespaces layer glass reaches follow the main switch and the style:
+// off lists one namespace no surface uses, so no layer gets glass; Clear
+// defines its preset and hands it to the material namespaces alone.
+function verifyGlassNamespaces(layer) {
+    const lines = values => layer.layerGlassLines(Object.assign({}, theme, { layerGlass: true, layerGlassLoad: true, layerGlassPermit: true, layerGlassUser: "test-user" }, values))
+        .filter(line => /hg\.(layer|preset)\(/.test(line)).map(line => line.trim());
+    const material = preset => ["vgs:layer-glass", "vgs:overlay-glass", "vgs:panel-glass"].map(namespace => 'hg.layer("' + namespace + '", { mask_mode = "contour", mask_threshold = 0.04, preset = "' + preset + '" })');
+    const passive = 'hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = 0.7, preset = "glass" })';
+    same(lines({ glassEnabled: true, glassStyle: "dark" }), [passive, ...material("glass")], "Dark: the passive layer and the material layers on the glass preset");
+    same(lines({ glassEnabled: true, glassStyle: "light" }), [passive, ...material("glass")], "Light: the same namespaces");
+    same(lines({ glassEnabled: true, glassStyle: "clear" }), ['hg.preset("vgs-clear", { inherits = "glass", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, tint_color = 0xffffff00 })',
+        passive, ...material("vgs-clear")], "Clear: its tone preset, on the material layers alone");
+    same(lines({ glassEnabled: false, glassStyle: "clear" }), ['hg.layer("vgs:glass-off")'], "the main switch off lists no surface's namespace");
+    // Clear's tone, transcribed from hyprglass's shader: white dims to
+    // 255 * 0.47 = 119.85; black stays black; a mid grey under the curve's
+    // start, 0.2, keeps its value; magenta keeps 80% of its colour.
+    const toned = rgb => Object.values(layer.clearTone({ r: rgb[0], g: rgb[1], b: rgb[2], a: 1 })).slice(0, 3).map(c => Math.round(c * 1000) / 1000);
+    same(toned([1, 1, 1]), [0.47, 0.47, 0.47], "white dims by the adaptive dim");
+    same(toned([0, 0, 0]), [0, 0, 0], "black stays black");
+    same(toned([0.2, 0.2, 0.2]), [0.2, 0.2, 0.2], "a dark grey is left");
+    same(toned([1, 0, 1]), [0.84, 0.056, 0.84], "saturated magenta keeps 80% of its colour and dims a little");
+}
+verifyGlassNamespaces(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 // Control: a caption drawn in its fill's own colour.
@@ -2394,8 +2421,8 @@ const CONTROLS = [
     [layerFile, "the recorder reads the written groups' options", "var paths = options.written.concat(appearance).filter(", "var paths = options.written.filter("],
     [layerFile, "a written group reports its option", "appearance.push({ id: \"\", setting: APPEARANCE_PATHS[group].member, path: APPEARANCE_PATHS[group].path, value: appearanceValue(group, theme) });", ""],
     [layerFile, "window glass is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glow\"];"],
-    [layerFile, "window glass reads its active opacity as a float", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.active_opacity\", type: \"int\", member: \"windowGlass\" }"],
-    [layerFile, "window glass reads its active opacity", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.blur.enabled\", type: \"float\", member: \"windowGlass\" }"],
+    [layerFile, "window glass reads its active opacity as a float", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"glassSurfaces\" }", "glass: { path: \"decoration.active_opacity\", type: \"int\", member: \"glassSurfaces\" }"],
+    [layerFile, "window glass reads its active opacity", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"glassSurfaces\" }", "glass: { path: \"decoration.blur.enabled\", type: \"float\", member: \"glassSurfaces\" }"],
     [layerFile, "window glass writes the inactive opacity", "\"        inactive_opacity = \" + luaNumber(glass.inactiveOpacity) + \",\",", "\"        inactive_opacity = \" + luaNumber(glass.opacity) + \",\","],
     [layerFile, "window glass writes its own shadow colour", "hyprColour(\"glass.window.shadowColor\", glass.shadowColor)", "hyprColour(\"hyprland.shadow.color\", theme.hyprland.shadow.color)"],
     [layerFile, "window glass enables the blur", "\"            enabled = true,\",\n        \"            size = \"", "\"            enabled = false,\",\n        \"            size = \""],
@@ -2499,7 +2526,12 @@ const CONTROLS = [
     [layerFile, "capture binds enabled plugin shortcuts", "].concat(overlayCapturePluginBindLines(plan), [", "].concat([], ["],
     [layerFile, "capture wraps focus dispatchers", "hl.dsp.focus = function(opts)", "hl.dsp.focus = capture.focus --"],
     [layerFile, "capture wraps binds", "hl.bind = function(keys, dispatcher, opts)", "hl.bind = capture.bind --"],
-    [layerFile, "capture tracks overlay layers", "layer.namespace == namespace and layer.mapped", "false"],
+    [layerFile, "capture tracks overlay layers", "namespaces[layer.namespace] and layer.mapped", "false"],
+    [layerFile, "capture tracks a glass material overlay", "namespaces: [\"vgs:overlay\", \"vgs:overlay-glass\"],", "namespaces: [\"vgs:overlay\"],"],
+    [layerFile, "the main switch off lists no surface's namespace", "if (theme.glassEnabled === false)", "if (false)", verifyGlassNamespaces],
+    [layerFile, "Clear's preset reaches the material layers", "preset = \"' + (clear ? CLEAR_PRESET.name : \"glass\") + '\" })';", "preset = \"glass\" })';", verifyGlassNamespaces],
+    [layerFile, "Clear's tone dims bright backdrops", "var dim = CLEAR_TONE.brightness * (1 - CLEAR_TONE.adaptive_dim * curve);", "var dim = CLEAR_TONE.brightness;", verifyGlassNamespaces],
+    [layerFile, "Clear's tone takes colour away", "(luminance + (c - luminance) * CLEAR_TONE.saturation)", "c", verifyGlassNamespaces],
     [layerFile, "the selection submap turns every button but the left into Escape", "\"mouse:273\", \"mouse:274\", \"mouse:275\", \"mouse:276\"", "\"mouse:274\", \"mouse:275\", \"mouse:276\""],
     [layerFile, "the selection submap leaves when the selection closes", "current == capture.submap or current == capture.selection.submap", "current == capture.submap"],
     [layerFile, "capture resets only its submap", "elseif current == capture.submap or current == capture.selection.submap then", "else"],
