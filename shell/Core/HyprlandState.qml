@@ -512,8 +512,26 @@ Scope {
                 root.readPermissions();
             } else if (event.name === "activelayout") {
                 root.readDevices();
+            } else if ((event.name === "openlayer" || event.name === "closelayer") && root.layerGlassHeld
+                    && root.layerGlassObserved.kind === "shaders-pending") {
+                shadersDrawn.restart();
             }
         }
+    }
+
+    // hyprglass builds its shaders on the first draw of a layer it glasses
+    // and reports `shaders: pending` until then (VGS-2594's nested run read
+    // pending before a material layer mapped and ready after the launcher
+    // had drawn); it sends no event when they are built. Clear waits for
+    // that reading (Theme.layerGlassReady), so a layer that maps or unmaps
+    // while it reads pending, Hyprland's openlayer and closelayer events
+    // (https://wiki.hypr.land/IPC/), has layer glass read again once that
+    // layer has had time to draw. The next such event reads again if the
+    // shaders were still pending.
+    Timer {
+        id: shadersDrawn
+        interval: 500
+        onTriggered: if (root.layerGlassHeld && root.layerGlassObserved.kind === "shaders-pending") root.refreshLayerGlass(false)
     }
 
     // Hyprland can omit activelayout after a keymap reload. Read after

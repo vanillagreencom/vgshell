@@ -3,7 +3,7 @@
 # loading, recursive reload lifetime, before-draw safety or rendered glass.
 # Polls use expect_poll's 200 ms interval; the manager fixture's 120 s
 # hang guard polls its release file every 50 ms. No latency is measured.
-# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json
 set -euo pipefail
 
 lg_read() { ipc smoke readInstance service acme.appearance "$1"; }
@@ -140,8 +140,15 @@ expect 'pending Off removes its applied configuration' absent lg_block
 expect 'a second On starts from the unloaded state' ok lg_choose true
 expect_poll 'second On waits for its first layer draw' 'shaders-pending|verifying|false' lg_state
 printf 'ready\n' >"$lg_dir/shaders"
-lg_refresh
-expect_poll 'Check again completes On after shaders are ready' 'eligible|idle|true' lg_state
+expect 'ready shaders are not read before a layer maps' 'shaders-pending|verifying|false' lg_state
+# A layer that maps and unmaps while shaders read pending has layer glass
+# read again once it has drawn, with no Check again.
+expect 'the launcher enables to map a layer' ok ipc shell setPluginEnabled vgs.launcher true
+expect_poll "the launcher's service is built for the layer" True record_exists vgs.launcher
+expect 'a launcher layer maps while shaders read pending' ok ipc shell summon overlay vgs.launcher '{}'
+expect_poll 'a mapped layer completes On after shaders are ready' 'eligible|idle|true' lg_state
+expect 'the launcher layer unmaps' ok ipc shell hide overlay vgs.launcher
+expect 'the launcher disables after the layer' ok ipc shell setPluginEnabled vgs.launcher false
 expect 'On preference is saved after verification' true lg_saved
 expect 'the one writer contributes its plugin declaration' present lg_block
 printf 'false\n' >"$lg_dir/loaded"
