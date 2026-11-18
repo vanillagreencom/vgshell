@@ -13,8 +13,8 @@
 // and every line stand on the shared glass (qs.Ui GlassSurface, the Glass
 // page's Jarvis row), whose style picks this table's overrides: TOKENS for
 // Dark, LIGHT for Light and CLEAR for Clear (ThemeLogic.acceptAppearance).
-// The glass hands it `glass.ground`, the plate over its worst backdrop, and
-// each ink reads at 4.5:1 there. Nothing stands behind the orb: each style
+// The lent plates use `glass.ground`, their glass over its worst backdrop.
+// The hover name reads on solid glass. Nothing stands behind the orb: each style
 // draws its own disc, with a glow on dark ground and a shadow on light
 // ground. Text takes its family and size from its qs.Ui Label role;
 // this table hands it its colour.
@@ -280,6 +280,8 @@ var TOKENS = {
     // tint. The look hands a Label its colour alone, in both modes.
     ink: {
         state: color("#f4f5f8"),
+        // The name sits over the orb and reads on solid glass.
+        name: color("#f4f5f8"),
         title: color("#f4f5f8"),
         action: color("#f4f5f8"),
         link: color("#c4dcff"),
@@ -374,6 +376,7 @@ var LIGHT = {
     },
     ink: {
         state: "#141518",
+        name: "#141518",
         title: "#141518",
         action: "#141518",
         link: "#1d4f9e",
@@ -412,6 +415,7 @@ var CLEAR = {
     },
     ink: {
         state: "#ffffff",
+        name: "#ffffff",
         title: "#ffffff",
         action: "#ffffff",
         link: "#ffffff",

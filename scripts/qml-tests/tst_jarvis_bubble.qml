@@ -167,6 +167,9 @@ Item {
             const rowShown = () => pill.visible && pill.opacity === 1;
             mouseMove(root, centre.x, centre.y);
             tryVerify(() => plate.visible && plate.opacity === 1, bubble.look.name.delay + 1000, "the name shows on a rested hover");
+            compare(plate.parent, overlay, "the name stays with the orb, not on the lent plate layer");
+            compare(plate.surface, "jarvis");
+            verify(plate.solidOnly && plate.solid, "the orb cannot show through the name");
             verify(rowShown(), "the icon row shows with the name");
             for (const row of stateRows()) {
                 service.sessionState = conversation(row.over);

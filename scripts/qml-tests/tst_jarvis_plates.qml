@@ -290,12 +290,11 @@ Item {
             if (bubble.iconsShown)
                 for (const icon of all(bubble, []).filter(item => item.entry !== undefined))
                     holds(shown.iconPill, icon.mapToItem(root, 0, 0, icon.width, icon.height), root.look.plate.pill.paddingX, root.look.plate.pill.paddingY, "the icon " + icon.entry.intent);
-            // Inside its band a plate draws its fill alone, so no content
-            // stands on the band.
+            // No content stands on the rim.
             for (const name in shown) {
                 const pad = name === "iconPill" ? root.look.plate.pill : card;
-                verify(shown[name].item.bezel > 0 && Math.min(pad.paddingX, pad.paddingY) >= shown[name].item.bezel,
-                    name + " pads its content past its band of " + shown[name].item.bezel);
+                const rim = shown[name].item.rim;
+                verify(rim > 0 && Math.min(pad.paddingX, pad.paddingY) >= rim, name + " pads its content past its rim of " + rim);
             }
             // Nothing stands behind the orb. The box the plates keep clear
             // holds every state's outermost strand, 1.095 of the state's

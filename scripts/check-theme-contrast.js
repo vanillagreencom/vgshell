@@ -182,6 +182,15 @@ function glassShortfalls(values, style) {
                         surface: (fill ? `${name}.${fill} over ` : "") + `glass.fill over ${wallpaper}`, ratio: read.ratio, floor: logic.READABILITY_FLOOR });
             }
         }
+        if (name === "jarvis") {
+            // The name sits on the orb, not on wallpaper. Match Theme.glassSolid's
+            // opaque lift and channel rounding for a styled GlassSurface.
+            const fill = logic.parseColor(material.values.glass.fill);
+            const solid = logic.parseColor(logic.formatColor(logic.liftedOpaque(fill, material.values.glass.solidLift)));
+            const { ratio } = inkRatio(look.values, solid, "ink.name");
+            if (ratio < logic.READABILITY_FLOOR)
+                out.push({ text: `${style} jarvis.ink.name`, surface: "glass.fill solid", ratio, floor: logic.READABILITY_FLOOR });
+        }
     }
     return { shortfalls: out };
 }

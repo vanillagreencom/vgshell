@@ -575,11 +575,9 @@ Item {
         // The state's name on a capsule of the plates' glass over the orb,
         // centred across it and standing below the middle square,
         // so the pointer resting on the middle, whose arrow hangs below its
-        // tip, does not cover it. It lies over the overlay, so it moves
-        // nothing. The orb draws
-        // under it in this window, so it draws solid, never a tint the
-        // orb would show through unblurred (GlassSurface.solidOnly). It
-        // fades as the icon capsule does.
+        // tip, does not cover it. It takes no layout space. The orb draws
+        // under it in this window, so the capsule must draw solid: the
+        // compositor cannot blur the orb through a translucent capsule.
         GlassSurface {
             id: namePlate
             objectName: "stateName"
@@ -591,11 +589,8 @@ Item {
             height: nameLine.implicitHeight + 2 * root.look.name.paddingY
             visible: root.nameAllowed && root.nameOpacity > 0
             opacity: root.nameOpacity
-            optIn: true
+            surface: "jarvis"
             solidOnly: true
-            elevation: "none"
-            lens: root.look.plate.lens
-            fill: overlay.card.fill
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
             HoverHandler { id: plateHover }
             Label {
@@ -603,7 +598,7 @@ Item {
                 x: root.look.name.paddingX
                 y: root.look.name.paddingY
                 role: "label"
-                color: root.look.ink.state
+                color: root.look.ink.name
                 text: root.stateName
                 textFormat: Text.PlainText
             }

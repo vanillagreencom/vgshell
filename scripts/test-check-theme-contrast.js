@@ -231,8 +231,11 @@ try {
     // reads 1.00 on the accent, not the accent's ratio on the bare card,
     // which holds the answer's own fill in the ground. A pressed fill in
     // the label's colour, black on the default accent, reads 1.00, which
-    // holds the pressed state in the reading.
+    // holds the pressed state in the reading. The hover name uses a solid
+    // plate over the orb; a dark name on the Dark style's solid fill fails.
     for (const [name, needle, replacement, lines] of [
+        ["Jarvis's hover name in dark ink on the Dark style", /name: color\("#f4f5f8"\),/, 'name: color("#303030"),',
+            [/^short    vgs: dark jarvis\.ink\.name on glass\.fill solid ratio=[0-9.]+ floor=4\.5$/m]],
         ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
             [/^short    vgs: dark jarvis\.icon\.on on glass\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
                 /^short    catalog\/flexoki-light: light jarvis\.icon\.on on glass\.fill over #000000 ratio=[0-9.]+ floor=4\.5$/m]],
