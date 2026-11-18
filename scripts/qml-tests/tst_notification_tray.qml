@@ -1,88 +1,74 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
+import qs.Unit
 import qs.Commons
 import "../../shell/plugins/vgs.notifications" as Notifications
 import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 
-// A notification card's text stays clear of its action pills for as long
-// as the pills draw: through the fade in, at rest, and through the whole
-// fade out after the pointer leaves, frame by frame. A text pixel is one
-// whose colour changes when the summary and body text change colour, read
-// from two grabs taken in one step; a pill is its drawn plate in the
-// scene, the tray's slide included. The control builds the shipped card
-// with the reserve that ends the moment the pointer leaves and expects
-// the same reading to see text under a pill during the fade out.
+// Actions overlay the resting text geometry. The real text objects keep
+// their width, position and line count while the row appears and leaves;
+// native Text widths and pixels establish complete labels and the gradient.
 Item {
     id: scene
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
-    // The text column the stack hands its cards, as CardScroll computes it.
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
-    readonly property var actions: [{ id: "reply", label: "Reply" }, { id: "dismiss", label: "Dismiss" }]
-
     width: look.card.width
     height: look.card.maxHeight
+    Rectangle { id: ground; anchors.fill: parent; color: scene.look.card.base }
+    Component { id: shippedCard; Notifications.NotificationCard {} }
+    Component { id: shippedFace; Notifications.CardFace {} }
+    // Paint the existing text-layer bounds from a non-layout child so
+    // probing its two-dimensional alpha cannot change the measured size.
+    Component { id: markerInk; Rectangle { x: -parent.x; y: -parent.y; width: parent.parent.width; height: parent.parent.height; color: "#ff00ff" } }
+    Component { id: overflowInk; Rectangle { width: parent.width; height: 1; y: parent.height + 2; color: "#ff00ff" } }
 
-    Rectangle { anchors.fill: parent; color: scene.look.card.base }
-
-    Component {
-        id: shippedCard
-        Notifications.NotificationCard {}
-    }
-
-    TestCase {
+    UnitCase {
         name: "notification_tray"
         when: windowShown
-
-        // Far from every colour the card's text draws in, so each glyph
-        // pixel changes when the text takes it.
-        readonly property color marker: "#ff00ff"
-        readonly property string fixedReserve: "readonly property real trayReserve: trayShown || tray.visible ?"
-        readonly property string leavingReserve: "readonly property real trayReserve: trayShown ?"
+        function actions(count) {
+            return count === 3 ? [
+                { id: "open", label: "Open recording" },
+                { id: "folder", label: "Show in folder" },
+                { id: "dismiss", label: "Dismiss" }
+            ] : [
+                { id: "sync", label: "Set up two-way sync" },
+                { id: "open", label: "Open recording" },
+                { id: "folder", label: "Show in folder" },
+                { id: "copy", label: "Copy link" },
+                { id: "dismiss", label: "Dismiss" }
+            ];
+        }
 
         function build(component) {
             const card = component.createObject(scene, {
-                look: scene.look,
-                textColumn: scene.textColumn,
-                summary: "Row 3 notification",
-                body: "Body text for row 3, long enough to wrap onto a second line",
-                actions: scene.actions
+                look: scene.look, textColumn: scene.textColumn,
+                summary: "A sender title that is longer than one line with every action shown",
+                body: "MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM ".repeat(8),
+                hintIcon: "bell", actions: actions(5)
             });
-            verify(card !== null, "the card was built");
+            verify(card !== null, "the shipped card builds");
             card.anchors.centerIn = scene;
             return card;
         }
 
-        // The shipped card with the reserve ending as soon as the pointer
-        // leaves. The card's body becomes an inline component of a wrapper
-        // placed in the plugin's directory, so its relative imports and
-        // the plugin's own types resolve, and its required properties are
-        // set as the shipped card's are.
         function alteredCard(needle, replacement) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.notifications/NotificationCard.qml"), false);
             request.send();
             const source = request.responseText;
-            verify(source.split(needle).length === 2, "the control matches the shipped card once");
+            compare(source.split(needle).length, 2, "the control matches its production owner once");
             const planted = source.replace(needle, replacement);
-            verify(planted !== source, "the control changed the card");
-            const root = planted.search(/^Item \{$/m);
-            verify(root > 0, "the card's root item was found");
-            const wrapper = planted.slice(0, root)
-                + "Item {\n    component LeavingCard: " + planted.slice(root)
-                + "\n    readonly property Component card: Component { LeavingCard {} }\n}\n";
-            const holder = Qt.createQmlObject(wrapper, scene, Qt.resolvedUrl("../../shell/plugins/vgs.notifications/ControlCard.qml"));
-            verify(holder !== null, "the control card compiled");
+            verify(planted !== source);
+            const at = planted.search(/^Item \{$/m);
+            verify(at > 0);
+            const wrapper = planted.slice(0, at) + "Item {\n    component ControlCard: " + planted.slice(at)
+                + "\n    readonly property Component card: Component { ControlCard {} }\n}\n";
+            const holder = Qt.createQmlObject(wrapper, scene, Qt.resolvedUrl("../../shell/plugins/vgs.notifications/OverlayControl.qml"));
+            verify(holder !== null);
             const card = build(holder.card);
             card.Component.onDestruction.connect(holder, holder.destroy);
             return card;
-        }
-
-        function parts(card) {
-            const caption = findChild(card, "notificationCaption");
-            const title = findChild(card, "notificationTitleText");
-            const body = findChild(card, "notificationBodyText");
-            verify(caption !== null && title !== null && body !== null, "the card's parts were found");
-            return { tray: caption.parent, title: title, body: body };
         }
 
         function descendants(item) {
@@ -90,267 +76,248 @@ Item {
             for (const child of item.children) found.push(child, ...descendants(child));
             return found;
         }
-
-        function sceneRect(item, width, height) {
-            const mapped = item.mapToItem(scene, 0, 0, width, height);
-            return { x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height };
+        function parts(card) {
+            const title = findChild(card, "notificationTitleText");
+            const body = findChild(card, "notificationBodyText");
+            const tray = findChild(card, "notificationCaption").parent;
+            verify(title !== null && body !== null && tray !== null);
+            return { title: title, body: body, tray: tray };
         }
-
-        function clipped(rect, bound) {
-            const left = Math.max(rect.x, bound.x);
-            const top = Math.max(rect.y, bound.y);
-            const right = Math.min(rect.x + rect.width, bound.x + bound.width);
-            const bottom = Math.min(rect.y + rect.height, bound.y + bound.height);
-            return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
-        }
-
-        // One frame of the card, read in a single step so no animation
-        // advances between the two grabs: the scene as drawn, the scene
-        // with the text in the marker colour, and where the pills and the
-        // body are drawn. mapToItem applies each ancestor's transform, so a
-        // pill's place includes the tray's slide (a probe under this runner
-        // mapped an item at x 5 under Translate { x: 10 } to 15). The card
-        // clips what it draws, so each pill is read within the card.
-        function sample(card) {
+        function geometry(card) {
             const part = parts(card);
-            const plain = grabImage(scene);
-            const cardRect = sceneRect(card, card.width, card.height);
-            const pills = part.tray.opacity > 0
-                ? descendants(part.tray).filter(child => child.emphasized !== undefined && child.visible)
-                    .map(pill => clipped(sceneRect(pill.background, pill.background.width, pill.background.height), cardRect))
-                : [];
-            const body = sceneRect(part.body, part.body.width, part.body.height);
-            part.title.color = marker;
-            part.body.color = marker;
-            const marked = grabImage(scene);
-            part.title.color = Qt.binding(() => card.look.text.foreground);
-            part.body.color = Qt.binding(() => card.look.text.body.color);
-            return { opacity: part.tray.opacity, plain: plain, marked: marked, pills: pills, body: body };
-        }
-
-        function textPixel(frame, x, y) {
-            return !Qt.colorEqual(frame.plain.pixel(x, y), frame.marked.pixel(x, y));
-        }
-
-        // A frame's reading: whether the body draws text, the text pixels
-        // inside a drawn pill, and whether the body's text and a pill share
-        // a row.
-        function judge(frame) {
-            let text = false;
-            for (let y = Math.floor(frame.body.y); !text && y < Math.ceil(frame.body.y + frame.body.height); y++)
-                for (let x = Math.floor(frame.body.x); !text && x < Math.ceil(frame.body.x + frame.body.width); x++)
-                    text = textPixel(frame, x, y);
-            let overlap = 0;
-            let sharedRow = false;
-            for (const pill of frame.pills) {
-                const top = Math.floor(pill.y), bottom = Math.ceil(pill.y + pill.height);
-                for (let y = top; y < bottom; y++) {
-                    for (let x = Math.floor(pill.x); x < Math.ceil(pill.x + pill.width); x++)
-                        if (textPixel(frame, x, y)) overlap++;
-                    for (let x = Math.floor(frame.body.x); !sharedRow && x < Math.ceil(frame.body.x + frame.body.width); x++)
-                        if (y >= frame.body.y && y < frame.body.y + frame.body.height && textPixel(frame, x, y)) sharedRow = true;
-                }
+            const values = [card.width, card.height];
+            for (const item of [part.title, part.body]) {
+                const at = item.mapToItem(card, 0, 0);
+                values.push(at.x, at.y, item.width, item.height, item.lineCount);
             }
-            return { opacity: frame.opacity, text: text, overlap: overlap, sharedRow: sharedRow };
+            return values;
         }
-
-        // One sample per drawn frame until the tray's opacity reaches
-        // `end`: a sample, then a wait until the fade moves on.
-        function framesUntil(card, end) {
-            const tray = parts(card).tray;
-            const limit = 10 * card.look.motion.duration.short4;
-            const read = [sample(card)];
-            let waited = 0;
-            while (tray.opacity !== end) {
-                const last = tray.opacity;
-                while (tray.opacity === last) {
-                    verify(waited < limit, "the tray's fade moved on within " + limit + " ms");
-                    wait(1);
-                    waited++;
-                }
-                read.push(sample(card));
-            }
-            return read;
+        function pills(card) { return descendants(parts(card).tray).filter(child => child.emphasized !== undefined); }
+        function labelsWhole(card) {
+            return pills(card).every(pill => {
+                const label = pill.contentItem;
+                const at = label.mapToItem(card, 0, 0);
+                return label instanceof Text && !label.truncated && label.width >= label.implicitWidth
+                    && at.x >= 0 && at.x + label.width <= card.width
+                    && at.y >= 0 && at.y + label.height <= card.height;
+            });
         }
-
-        // Every frame from the hover to rest, then every frame from the
-        // pointer leaving until the tray has gone, judged once the fade
-        // has ended so the judging costs no frame.
-        function fades(card) {
-            compare(parts(card).tray.opacity, 0, "the tray starts hidden");
-            card.showActions = true;
-            const fadeIn = framesUntil(card, 1);
-            card.showActions = false;
-            const fadeOut = framesUntil(card, 0);
-            return { fadeIn: fadeIn.map(judge), fadeOut: fadeOut.map(judge) };
+        function test_actions_overlay_unchanged_bounded_text_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const test of [
+                    { name: "three full labels", count: 3, control: "" },
+                    { name: "five actions", count: 5, control: "" },
+                    { name: "narrowed-text control", count: 5, control: "geometry" },
+                    { name: "capped-label control", count: 5, control: "labels" }
+                ]) rows.push({ tag: mode + "/" + test.name, mode: mode, count: test.count, control: test.control });
+            return rows;
         }
-
-        // A fade is read part way through often enough to see it, and on
-        // a frame where a pill stands level with the body's text, so the
-        // reading can show text under a pill.
-        function verifyCanSee(frames, fade) {
-            const between = frames.filter(frame => frame.opacity > 0 && frame.opacity < 1);
-            verify(between.length >= 5, "frames part way through the " + fade + ": " + between.length);
-            verify(frames.every(frame => frame.text), "every frame of the " + fade + " draws body text");
-            verify(frames.some(frame => frame.sharedRow), "a pill shares a row with the body's text in the " + fade);
-        }
-
-        function overlaps(frames) {
-            return frames.filter(frame => frame.overlap > 0).map(frame => frame.opacity.toFixed(3) + ":" + frame.overlap);
-        }
-
-        function test_text_clears_the_pills_through_both_fades_data() {
-            return [
-                { tag: "shipped card", leaving: false },
-                { tag: "control: the reserve ends when the pointer leaves", leaving: true }
-            ];
-        }
-
-        function test_text_clears_the_pills_through_both_fades(row) {
-            const card = row.leaving ? alteredCard(fixedReserve, leavingReserve) : build(shippedCard);
-            const read = fades(card);
-            verifyCanSee(read.fadeIn, "fade in");
-            verifyCanSee(read.fadeOut, "fade out");
-            compare(overlaps(read.fadeIn), [], "text under a pill in the fade in");
-            if (row.leaving)
-                verify(overlaps(read.fadeOut).length > 0, "the reading saw text under a pill in the fade out");
-            else
-                compare(overlaps(read.fadeOut), [], "text under a pill in the fade out");
-            card.destroy();
-        }
-
-        // The Google Drive notice with its long actions shown and settled.
-        function showDriveActions(card) {
-            card.summary = "Google Drive folder sync stopped";
-            card.body = "Sync stopped for Documents and Agent uploads. Two-way sync needs setup.";
-            card.hintIcon = "cloud-alert";
-            tryCompare(card, "showsSlot", true);
-            card.actions = [{ id: "setup", label: "Set up two-way sync" }, { id: "dismiss", label: "Dismiss" }];
-            card.showActions = true;
-            tryCompare(parts(card).tray, "opacity", 1);
-            card.settleHeight();
-        }
-
-        function test_long_actions_leave_the_message_readable_data() {
-            return [{ tag: "shipped card", control: false }, { tag: "control: actions consume the message width", control: true }];
-        }
-
-        function test_long_actions_leave_the_message_readable(row) {
-            const card = row.control ? alteredCard("readonly property bool trayBelow:", "readonly property bool trayBelow: false &&")
-                : build(shippedCard);
-            // An open list card gives the full title and message room.
-            card.open = true;
-            showDriveActions(card);
-            const part = parts(card);
-            verify(card.trayReserve > 0, "the holder retains either tray layout while actions draw");
-            if (row.control) {
-                verify(part.body.width < card.textWidth / 2, "the control leaves the message less room than its actions");
-                card.destroy();
-                return;
-            }
-            verify(!part.title.truncated, "the complete title stays readable with the actions shown");
-            verify(!part.body.truncated, "both stopped-folder names and their setup explanation remain readable");
-            const body = sceneRect(part.body, part.body.width, part.body.height);
-            const tray = sceneRect(part.tray, part.tray.width, part.tray.height);
-            verify(tray.y >= body.y + body.height, "the actions leave the message its own complete row");
-            verify(tray.y + tray.height <= card.y + card.height - card.pad + 0.5,
-                "every action stays within the card");
-            verify(part.body.width >= card.textWidth - 0.5, "folder names keep the full message column");
-            const selected = [];
-            card.actionTriggered.connect(id => selected.push(id));
-            const setup = descendants(part.tray).find(child => child.emphasized === true);
-            verify(setup !== undefined);
-            scene.height = card.fullHeight + 2 * card.pad;
-            mouseClick(setup);
-            compare(selected, ["setup"], "the readable action remains reachable");
-            card.showActions = false;
-            tryCompare(part.tray, "opacity", 0);
-            compare(card.trayReserve, 0, "the holder releases the tray only after its fade");
-            card.destroy();
-            scene.height = scene.look.card.maxHeight;
-        }
-
-        function test_actions_end_at_the_right_data() {
-            return [
-                { tag: "beside the text: two short actions", drive: false, below: false, centred: false, inset: "pad" },
-                { tag: "under the text: the Drive notice's long actions", drive: true, below: true, centred: false, inset: "textColumn" },
-                { tag: "control: the row under the text centred on the card", drive: true, below: true, centred: true, inset: "textColumn" }
-            ];
-        }
-
-        // At rest the pills end at the right: beside the text at the card's
-        // padding, where the curve is furthest out, and under the text where
-        // the text ends, clear of the rounded end.
-        function test_actions_end_at_the_right(row) {
-            const card = row.centred ? alteredCard("anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad",
-                "anchors.rightMargin: card.trayBelow ? (card.fullWidth - width) / 2 : card.pad") : build(shippedCard);
-            if (row.drive) {
-                showDriveActions(card);
-            } else {
+        function test_actions_overlay_unchanged_bounded_text(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, motion: { scale: 0 } }), "ok");
+            const card = row.control === "geometry"
+                ? alteredCard("            Layout.fillHeight: false", "            Layout.fillHeight: false\n            Layout.rightMargin: card.trayShown ? card.contentWidth / 2 : 0")
+                : row.control === "labels"
+                    ? alteredCard('                    text: overflow ? "…" : senderAction.label', '                    text: overflow ? "…" : senderAction.label\n                    width: Math.min(implicitWidth, card.contentWidth / 6)')
+                    : build(shippedCard);
+            try {
+                card.actions = actions(row.count);
+                card.settleHeight();
+                verify(renderedFrame(card));
+                const before = geometry(card);
+                const part = parts(card);
+                compare(part.title.lineCount, 1);
+                compare(part.body.lineCount, 2);
+                verify(part.title.truncated && part.body.truncated);
                 card.showActions = true;
-                tryCompare(parts(card).tray, "opacity", 1);
+                tryCompare(part.tray, "opacity", 1);
+                card.settleHeight();
+                verify(renderedFrame(card));
+                const shownGeometry = geometry(card);
+                if (row.control === "geometry") expectFail("", "an action-dependent column must change resting geometry");
+                compare(shownGeometry, before, "actions keep every title/body coordinate and line count");
+                if (row.control === "geometry") return;
+                compare(pills(card).length, 3);
+                compare(pills(card).map(pill => pill.contentItem.text), row.count === 5
+                    ? card.actions.slice(0, 2).map(action => action.label).concat(["…"])
+                    : card.actions.map(action => action.label), "the native painted words are the sender's full labels");
+                const wholeLabels = labelsWhole(card);
+                if (row.control === "labels") expectFail("", "the old width cap cannot contain a complete painted label");
+                compare(wholeLabels, true, "every native label is whole and inside the card");
+                if (row.control === "labels") return;
+                const media = findChild(card, "notificationMediaSlot");
+                const mediaAt = media.mapToItem(card, 0, media.height / 2);
+                fuzzyCompare(mediaAt.y, card.height / 2, 0.5);
+                fuzzyCompare(part.tray.y + part.tray.height / 2, card.height / 2, 0.5);
+                if (row.count === 5) {
+                    const menu = findChild(card, "notificationOverflowMenu");
+                    compare(pills(card)[2].text, "…");
+                    mouseClick(pills(card)[2]);
+                    tryCompare(menu, "opened", true);
+                    compare(menu.anchorItem, pills(card)[2]);
+                    compare(menu.items().map(item => item.text), card.actions.slice(2).map(action => action.label));
+                    readyMenu(menu);
+                    mouseClick(menu.items()[0]);
+                    tryCompare(menu, "opened", false);
+                }
+                card.showActions = false;
+                tryCompare(part.tray, "opacity", 0);
+                card.settleHeight();
+                compare(geometry(card), before, "leaving actions restore no different text geometry");
+            } finally {
+                card.destroy();
+                UnitTheme.reset();
             }
-            compare(card.trayBelow, row.below, "the placement under test");
-            const tray = sceneRect(parts(card).tray, parts(card).tray.width, parts(card).tray.height);
-            const bound = sceneRect(card, card.width, card.height);
-            const end = tray.x + tray.width;
-            const expected = bound.x + bound.width - card[row.inset];
-            if (row.centred)
-                verify(Math.abs(end - expected) > 0.5, "the centred row ends away from the text's end: " + end + " vs " + expected);
-            else
-                fuzzyCompare(end, expected, 0.5, "the actions end " + row.inset + " from the card's right edge");
-            card.destroy();
         }
 
-        function test_side_action_height_data() {
-            return [
-                { tag: "a card at the limit: centred on the card", tall: false, media: false, control: false },
-                { tag: "an open tall card: on the title's first line", tall: true, media: false, control: false },
-                { tag: "an open tall card beside media: on the title's first line", tall: true, media: true, control: false },
-                { tag: "control: an open tall card centres its action", tall: true, media: false, control: true }
-            ];
+        function test_action_mask_fades_only_text_alpha_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const control of ["", "hard-edge", "clipped-ink", "hidden-text", "missing-mask", "flat-vertical"])
+                    rows.push({ tag: mode + "/" + control, mode: mode, control: control });
+            return rows;
         }
 
-        // A single action beside the text stays at the top of a card past
-        // the pill limit, level with the title's first line and at least
-        // `pad` from the top edge, so it does not drift down as an open
-        // card grows; on a card within the limit, it centres.
-        function test_side_action_height(row) {
-            const card = row.control ? alteredCard("? Math.max(card.pad + height / 2, textBlock.textTop(card.showsSlot ? mediaSlot.implicitHeight : 0) + textBlock.firstLineCentre) - card.fullHeight / 2",
-                "? 0") : build(shippedCard);
-            card.actions = [{ id: "dismiss", label: "Dismiss" }];
-            if (row.media) {
-                card.hintIcon = "cloud-alert";
-                tryCompare(card, "showsSlot", true);
+        // MultiEffect's mask is a smoothstep, not direct alpha. For the
+        // card's threshold 0.5 and spread 1, Qt 6.12 derives these bounds.
+        // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/effects/qquickmultieffect.cpp#L1443
+        // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/effects/data/shaders/multieffect.frag#L99
+        function maskedChannel(alpha) {
+            const t = Math.max(0, Math.min(1, (alpha - 0.0001) / 1.0001));
+            return 255 * t * t * (3 - 2 * t);
+        }
+
+        function test_action_mask_fades_only_text_alpha(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, motion: { scale: 0 } }), "ok");
+            ground.color = "#000000";
+            const card = row.control === "hard-edge"
+                ? alteredCard("position: actionMask.fadeStart;", "position: actionMask.fadeEnd;")
+                : row.control === "clipped-ink"
+                    ? alteredCard("paddingRect: Qt.rect(card.pad, card.pad, card.pad, card.pad)", "paddingRect: Qt.rect(0, 0, 0, 0)")
+                    : row.control === "hidden-text"
+                        ? alteredCard("1 - tray.opacity * (1 - card.look.tray.fadeAlpha)", "1 - tray.opacity")
+                        : row.control === "missing-mask"
+                            ? alteredCard("            layer.enabled: card.visible && tray.visible", "            layer.enabled: false && card.visible && tray.visible")
+                            : row.control === "flat-vertical"
+                                ? alteredCard("            Rectangle {\n                anchors.fill: parent\n                gradient: Gradient {", "            Rectangle {\n                opacity: 0\n                anchors.fill: parent\n                gradient: Gradient {") : build(shippedCard);
+            try {
+                // The recording worker's actual Open/Show actions and the
+                // shell Dismiss leave original ink before the fade band.
+                // The separate full-label table covers the longest row.
+                card.actions = [
+                    { id: "open", label: "Open" },
+                    { id: "show", label: "Show" },
+                    { id: "dismiss", label: "Dismiss" }
+                ];
+                card.showActions = true;
+                const part = parts(card);
+                tryCompare(part.tray, "opacity", 1);
+                card.settleHeight();
+                const ink = markerInk.createObject(part.body);
+                verify(ink !== null);
+                // ImageText's link underline paints below its line box.
+                // A marker in that existing clearance reads the layer's
+                // capture boundary without depending on the font's glyphs.
+                verify(overflowInk.createObject(part.body) !== null);
+                for (const pill of pills(card)) pill.opacity = 0;
+                verify(renderedFrame(card));
+                const image = grabImage(scene);
+                const below = part.body.mapToItem(scene, 1, part.body.height + 2);
+                const rowAt = part.tray.mapToItem(scene, 0, 0);
+                verify(below.x >= 0 && below.x < scene.width && below.y >= 0 && Math.ceil(below.y) < scene.height,
+                    "the overflow probe is inside the captured scene");
+                verify(below.x < rowAt.x - card.look.tray.fadeWidth, "the overflow marker is before the action fade");
+                const layer = part.body.parent;
+                const layerAt = layer.mapToItem(scene, 0, 0);
+                const y = Math.floor(rowAt.y + part.tray.height / 2);
+                const top = Math.floor(rowAt.y - 1);
+                const bottom = Math.ceil(rowAt.y + part.tray.height + 1);
+                const x = Math.floor(rowAt.x - card.look.tray.fadeWidth / 2);
+                const behindX = Math.ceil(rowAt.x + 2);
+                const beforeX = Math.floor(rowAt.x - card.look.tray.fadeWidth - 2);
+                verify(beforeX >= layerAt.x && behindX < layerAt.x + layer.width
+                    && top >= layerAt.y && bottom < layerAt.y + layer.height,
+                    "every alpha probe is inside the marker ink");
+                const expected = {
+                    behind: maskedChannel(card.look.tray.fadeAlpha),
+                    middle: maskedChannel((1 + card.look.tray.fadeAlpha) / 2)
+                };
+                verify(expected.behind > 0 && expected.behind < 255, "the look keeps faint original ink behind buttons");
+                const observed = {
+                    overflow: image.red(Math.floor(below.x), Math.ceil(below.y)),
+                    behind: image.red(behindX, y),
+                    middle: image.red(x, y),
+                    green: image.green(x, y),
+                    blue: image.blue(x, y),
+                    before: image.red(beforeX, y),
+                    top: image.red(behindX, top),
+                    bottom: image.red(behindX, bottom)
+                };
+                // A planted defect can break more than one alpha reading.
+                // Judge the complete observation once, after all reads,
+                // so an earlier scalar cannot consume a later control.
+                const contract = {
+                    clearance: observed.overflow > 0,
+                    faintCentre: Math.abs(observed.behind - expected.behind) <= 12,
+                    softHorizontalBand: Math.abs(observed.middle - expected.middle) <= 12,
+                    alphaOnly: observed.green === 0 && observed.blue === observed.middle,
+                    originalInk: observed.before === 255,
+                    verticalRecovery: Math.min(observed.top, observed.bottom) > observed.behind + (255 - observed.behind) / 2
+                };
+                if (row.control !== "") expectFail("", row.control + " breaks the rendered text-alpha contract");
+                compare(contract, {
+                    clearance: true, faintCentre: true, softHorizontalBand: true,
+                    alphaOnly: true, originalInk: true, verticalRecovery: true
+                }, "text-alpha readings " + JSON.stringify({ observed: observed, expected: expected }));
+            } finally {
+                card.destroy();
+                ground.color = Qt.binding(() => scene.look.card.base);
+                UnitTheme.reset();
             }
-            if (row.tall) {
-                card.open = true;
-                card.body = Array(12).fill("Another line of the open message, long enough to wrap.").join(" ");
-            }
-            card.showActions = true;
-            const part = parts(card);
-            tryCompare(part.tray, "opacity", 1);
-            card.settleHeight();
-            compare(card.trayBelow, false, "the action stands beside the text");
-            compare(card.fullHeight > card.look.card.maxHeight, row.tall, "the card's height against the pill limit");
-            const tray = sceneRect(part.tray, part.tray.width, part.tray.height);
-            const trayCentre = tray.y + tray.height / 2;
-            const title = sceneRect(part.title, part.title.width, part.title.height);
-            const firstLine = title.y + part.title.implicitHeight / Math.max(1, part.title.lineCount) / 2;
-            const bound = sceneRect(card, card.width, card.height);
-            const cardCentre = bound.y + bound.height / 2;
-            const atTop = Math.max(bound.y + card.pad + tray.height / 2, firstLine);
-            if (row.control) {
-                verify(Math.abs(trayCentre - atTop) > 0.5, "the centred action stands away from the top: " + trayCentre + " vs " + atTop);
-            } else if (row.tall) {
-                fuzzyCompare(trayCentre, atTop, 0.5, "the action stands on the title's first line, pad from the top");
-                verify(tray.y - bound.y >= card.pad - 0.5, "the action keeps pad from the top edge: " + (tray.y - bound.y));
-                verify(bound.x + bound.width - (tray.x + tray.width) >= card.pad - 0.5,
-                    "the action keeps pad from the right edge: " + (bound.x + bound.width - tray.x - tray.width));
+        }
+
+        function test_toast_holds_its_lifetime_until_the_action_menu_closes_data() {
+            return [{ tag: "menu closes", destroy: false }, { tag: "card is destroyed", destroy: true }];
+        }
+
+        function test_toast_holds_its_lifetime_until_the_action_menu_closes(row) {
+            mouseMove(scene, scene.width - 1, scene.height - 1);
+            const face = shippedFace.createObject(scene, { look: scene.look, textColumn: scene.textColumn,
+                key: "held-menu", summary: "A notification", actions: Array.from({ length: 5 }, (_, index) => ({ id: "a" + index, label: "Action " + index })) });
+            verify(face !== null);
+            const holds = [];
+            face.hoverRequested.connect((key, held) => holds.push([key, held]));
+            face.hovered = true;
+            face.showActions = true;
+            tryCompare(parts(face.card).tray, "opacity", 1);
+            compare(face.hoverReported, true);
+            face.card.activateAction(2, "pointer");
+            const menu = findChild(face.card, "notificationOverflowMenu");
+            tryCompare(menu, "opened", true);
+            compare(menu.anchorItem, findChild(face.card, "notificationAction2"));
+            face.hovered = false;
+            compare(face.hoverReported, true, "the menu retains the same service hover hold");
+            if (row.destroy) {
+                face.destroy();
+                tryVerify(() => holds.length === 2);
             } else {
-                fuzzyCompare(trayCentre, cardCentre, 0.5, "the action centres on the card");
+                menu.close();
+                tryCompare(face, "hoverReported", false);
+                face.destroy();
             }
-            card.destroy();
+            compare(holds, [["held-menu", true], ["held-menu", false]]);
         }
+
+        // Activate the stand-in popup's native window and ask UnitCase
+        // for its first frame before sending input.
+        function readyMenu(menu) {
+            const scope = menu.surface.scope;
+            scope.Window.window.requestActivate();
+            scope.forceActiveFocus();
+            tryCompare(scope.Window, "active", true);
+            tryCompare(scope, "activeFocus", true);
+            verify(renderedFrame(menu.surface.contentItem));
+        }
+
     }
 }

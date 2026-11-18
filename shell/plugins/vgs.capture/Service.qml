@@ -446,13 +446,15 @@ Item {
         publish();
     }
 
-    function notice(title, message) {
-        const reply = shell.notify.send({ title: title, message: String(message).slice(0, 200), tone: "danger", icon: "camera" });
+    function notice(title, message, log) {
+        const body = String(message).slice(0, 200) + (log ? "\n" + PageReference.fileReference("Recorder log", log) : "");
+        const reply = shell.notify.send({ title: title, message: body, tone: "danger", icon: "camera" });
         if (reply !== "ok") console.error("capture: notice " + reply);
     }
 
     function errorNotice(event) {
-        notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message);
+        notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed",
+            event.message, event.log);
     }
 
     // The sender gets labels and hints; only this run retains the worker's
@@ -466,14 +468,18 @@ Item {
         if (event.event === "saved") {
             title = recording ? "Recording saved" : "Screenshot saved";
             message = event.path;
+            message = message.slice(0, 200);
             image = recording ? event.thumbnail : event.path;
             if (recording && event.processing === "failed") {
-                message += "\nProcessing failed, so the recording is kept as recorded.";
+                message = "Recording cleanup failed."
+                    + (event.log ? "\n" + PageReference.fileReference("Recorder log", event.log) : "");
             }
         }
         const hints = { "x-vgs-icon": "camera", "x-vgs-tone": "success" };
         if (image !== "") hints["image-path"] = image;
-        return { title: title, message: message.slice(0, 200), hints: hints,
+        const reference = PageReference.parse(message);
+        if (reference.page !== "") hints["x-vgs-page"] = reference.reference;
+        return { title: title, message: reference.text, hints: hints,
             actions: (event.actions || []).map(action => ({ id: action.id, label: action.label })) };
     }
 
@@ -568,6 +574,14 @@ Item {
         for (const run of notices) closeKnownNotice(run);
     }
 
+    // SplitParser delivers newline-delimited stderr as it arrives, before
+    // a foreground clipboard provider releases this job.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/SplitParser/
+    function workerError(job, line) {
+        if (line.startsWith("capture: recorder-log-move-failed ")) console.error(line);
+        else job.errorText += line + "\n";
+    }
+
     function finished(job, completion, error) {
         thaw(job);
         restoreFocus(job);
@@ -594,6 +608,7 @@ Item {
             property bool freezeCursor: false
             property bool armed: false
             property string terminalEvent: ""
+            property string errorText: ""
             // The share request its recorder opened, "" before one opens.
             property string shareId: ""
             // The outputs the worker launched with.
@@ -601,11 +616,11 @@ Item {
             property var completion: null
             stdinEnabled: true
             stdout: SplitParser { onRead: line => root.accept(worker, line) }
-            stderr: StdioCollector { id: errors }
+            stderr: SplitParser { onRead: line => root.workerError(worker, line) }
             onExited: (code, status) => { completion = { code: code, status: status }; }
             // The pinned engine's src/io/process.cpp ends both parser streams
             // before runningChanged; a failed start emits only runningChanged.
-            onRunningChanged: if (!running && armed) root.finished(worker, completion, errors.text)
+            onRunningChanged: if (!running && armed) root.finished(worker, completion, errorText)
         }
     }
 

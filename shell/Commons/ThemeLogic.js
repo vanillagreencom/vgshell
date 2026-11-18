@@ -520,8 +520,7 @@ var GLASS_SOLID = "glass.fill solid";
 // solid glass draws, since no backdrop under drawn glass can be judged.
 var GLASS_PLATE_PAIRS = [["listItem.selectedForeground", "listItem.selected"]];
 
-// Notice copy shared by the terminal and ThemeRunner. Each role names
-// its weakest surface; the verdict keeps every shortfall unchanged.
+// Readability labels shared by the terminal report and ThemeRunner.
 var READABILITY_NAMES = {
     "color.text": "Body text", "color.textHeading": "Headings",
     "color.textMuted": "Muted text", "color.textFaint": "Faint text",
@@ -578,32 +577,20 @@ function readabilityTitle(name, displayName) {
     return (displayName === null ? name : displayName) + ": some text may be hard to read";
 }
 
-function readabilityNotice(shortfalls, figures) {
-    var worst = {};
-    var roles = [];
-    for (var i = 0; i < shortfalls.length; i++) {
-        var row = shortfalls[i];
-        if (!hasOwn(worst, row.text)) { worst[row.text] = row; roles.push(row.text); }
-        else if (worst[row.text].ratio !== null && (row.ratio === null || row.ratio < worst[row.text].ratio)) worst[row.text] = row;
-    }
-    if (roles.length === 0) return "";
-    var lines = [];
-    for (var j = 0; j < roles.length; j++) {
-        var shortfall = worst[roles[j]];
+function readabilityNotice(shortfalls) {
+    var roles = {};
+    for (var i = 0; i < shortfalls.length; i++)
+        roles[shortfalls[i].text] = true;
+    var count = Object.keys(roles).length;
+    return count === 0 ? "" : count + " text style" + (count === 1 ? "" : "s") + " affected.";
+}
+
+function readabilityReport(shortfalls) {
+    return shortfalls.map(function (shortfall) {
         var ratio = shortfall.ratio === null ? "contrast cannot be measured" : "contrast " + (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";
-        var line = readabilityName(shortfall.text) + " on " + readabilityName(shortfall.surface)
-            + (figures ? ": " + ratio + ", needs " + shortfall.floor + ":1." : "");
-        // PluginLogic.notifyOptions accepts at most 600 message characters.
-        // Reserve the final line before adding a role so omission is explicit.
-        var remaining = roles.length - j - 1;
-        var tail = remaining > 0 ? "\n" + (figures ? remaining + " more roles may be hard to read." : "And " + remaining + " more.") : "";
-        if (lines.concat([line]).join("\n").length + tail.length > 600) {
-            lines.push(figures ? (roles.length - j) + " more roles may be hard to read." : "And " + (roles.length - j) + " more.");
-            break;
-        }
-        lines.push(line);
-    }
-    return lines.join("\n");
+        return readabilityName(shortfall.text) + " on " + readabilityName(shortfall.surface)
+            + ": " + ratio + ", needs " + shortfall.floor + ":1.";
+    }).join("\n");
 }
 
 function valueAt(values, path) {

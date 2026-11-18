@@ -34,8 +34,6 @@ Item {
     property real edgeBoost: 1
     property bool edgeVisible: false
     property bool reportHover: true
-    // Whether the card shows its whole text: an inbox card only.
-    property bool open: false
     property bool glassChoice: false
     // Whether the pointer is on the card: the card's own hover, unless the
     // surface hands the hover of the slot that holds the card.
@@ -51,10 +49,11 @@ Item {
     implicitHeight: card.implicitHeight
 
     property bool hoverReported: false
-    onHoveredChanged: {
-        if (!reportHover || key === "" || hovered === hoverReported) return;
-        hoverReported = hovered;
-        hoverRequested(key, hovered);
+    readonly property bool interactionHeld: hovered || card.menuOpened
+    onInteractionHeldChanged: {
+        if (!reportHover || key === "" || interactionHeld === hoverReported) return;
+        hoverReported = interactionHeld;
+        hoverRequested(key, interactionHeld);
     }
     Component.onDestruction: {
         if (hoverReported && reportHover && key !== "") hoverRequested(key, false);
@@ -64,7 +63,6 @@ Item {
         id: card
         look: face.look
         textColumn: face.textColumn
-        open: face.open
         anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width
         height: parent.height

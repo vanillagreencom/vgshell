@@ -1914,7 +1914,30 @@ capture_languages() { ipc smoke readDescendant window vgs.capture Options langua
 # The published Language data value: [available, carries a hint].
 capture_languages_unavailable() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; v=json.load(sys.stdin).get("languages") or {}; print(json.dumps([v.get("available", True), bool(v.get("hint"))]))'; }
 capture_titles() { capture_cards | py_reply 'import json,sys; print(json.load(sys.stdin).count(sys.argv[1]))' "$1"; }
-capture_log_holds() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text() and p.stat().st_mode & 0o777 == 0o600)' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "$1"; }
+capture_log_holds() {
+  local rows
+  rows="$(ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving)" || return 1
+  node -e '
+const fs = require("fs"), path = require("path");
+const [repo, raw, cause] = process.argv.slice(1);
+const { load } = require(path.join(repo, "bin", "lib", "qml-library.js"));
+const reference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
+const rows = raw === "absent" ? [] : JSON.parse(raw);
+const notices = Array.isArray(rows) ? rows.filter(r => r[0] === "Capture" && r[1] === "Capture failed" && r[3] === "") : [];
+const link = reference.parse(notices.length === 1 ? notices[0][2] : "");
+const file = reference.file(link.page);
+let holds = false;
+if (link.words === "Recorder log" && file !== "") {
+    try {
+        const fd = fs.openSync(file, "r");
+        try {
+            const stat = fs.fstatSync(fd);
+            holds = stat.isFile() && (stat.mode & 0o777) === 0o600 && fs.readFileSync(fd, "utf8").includes(cause);
+        } finally { fs.closeSync(fd); }
+    } catch (_) { holds = false; }
+}
+console.log(holds ? "True" : "False");' "$repo" "$rows" "$1"
+}
 open_toplevel "$sandbox/capture-record-target.log" smoke.capture-record "Capture record target" || fail "capture: the recording target did not map"
 capture_record_pid="$toplevel_pid"
 capture_record_address="$(toplevel_address "$capture_record_pid")"
@@ -2699,7 +2722,7 @@ original, helper, control = sys.argv[1:]
 changes = {
     "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
     "no-clipboard": ('os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)', 'os.execvpe(sys.executable, [sys.executable, "-c", "pass"], os.environ)'),
-    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True'),
+    "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                        stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                        stopping = True'),
     "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
 }
 source = Path(original).read_text()

@@ -92,32 +92,10 @@ ColumnLayout {
         pad: root.rowCard.pad
         content: root
     }
-    // Where the text block's top stands in the card: beside media
-    // MEDIAHEIGHT tall, which stands `pad` down, a title alone on one line
-    // centres on the media (Label.topForLeadingIcon), and other text
-    // shorter than the media centres its ink on it. Taller text has its
-    // first line's ink `pad` down; the two meet where the ink is as tall
-    // as the media, so a growing card keeps its top. The ink edges are the
-    // inset's settled ones: the live edges read assigned geometry, a
-    // binding loop through the card's placement.
-    function textTop(mediaHeight) {
-        if (mediaHeight <= 0) return inset.topPadding;
-        if (rowCard.singleLine && rowCard.summary.length > 0 && titleText.lineCount === 1)
-            return Math.max(inset.topPadding, rowCard.pad - summaryRow.y - titleText.y - titleText.topForLeadingIcon(mediaHeight));
-        return Math.max(inset.topPadding, rowCard.pad + (mediaHeight - inset.topInk - implicitHeight + inset.bottomInk) / 2);
+    function fullHeight(mediaHeight) {
+        return Math.max(mediaHeight + 2 * rowCard.pad, implicitHeight + inset.topPadding + inset.bottomPadding);
     }
-    function fullHeight(mediaHeight) { return Math.max(mediaHeight + 2 * rowCard.pad, textTop(mediaHeight) + implicitHeight + inset.bottomPadding); }
-    // Centres the ink, not the line boxes, of text without media.
     readonly property real verticalOffset: (inset.topPadding - inset.bottomPadding) / 2
-    // The centre of the first line box in this layout: the title's, or
-    // the body's when there is no title.
-    readonly property real firstLineCentre: rowCard.summary.length > 0
-        ? summaryRow.y + titleText.y + bodyText.titleLine / 2
-        : bodyText.y + bodyText.implicitHeight / Math.max(1, bodyText.lineCount) / 2
-    // Qt Text's own default maximumLineCount, no limit:
-    // https://doc.qt.io/qt-6/qml-qtquick-text.html#maximumLineCount-prop
-    readonly property int noLimit: 2147483647
-    readonly property bool opened: rowCard.open === true
 
     // The model measurer has no layout parent. Give this same layout the
     // card's text-column width, rather than overwriting its children's
@@ -222,7 +200,7 @@ ColumnLayout {
             styleColor: rowCard.look.text.summaryShadow
             wrapMode: Text.WordWrap
             elide: Text.ElideRight
-            maximumLineCount: root.opened ? root.noLimit : rowCard.look.card.summaryLines
+            maximumLineCount: rowCard.look.card.summaryLines
         }
 
         FontMetrics {
@@ -234,12 +212,6 @@ ColumnLayout {
     ImageText {
         id: bodyText
         objectName: "notificationBodyText"
-        // The height left for the body under maxHeight beside a closed
-        // title, and so the whole lines a closed card shows; the last one
-        // elides. The column's spacing is the one gap under the summary.
-        readonly property real titleLine: titleText.implicitHeight / Math.max(1, titleText.lineCount)
-        readonly property real room: rowCard.look.card.maxHeight - 2 * rowCard.pad - (rowCard.summary.length > 0 ? titleLine * rowCard.look.card.summaryLines + root.spacing : 0)
-        readonly property int restLines: Math.min(rowCard.look.card.bodyLines, Math.max(1, Math.floor(room / bodyMetrics.height)))
         Layout.fillWidth: true
         visible: !rowCard.singleLine
         // StyledText, since the server advertises body markup. The
@@ -254,11 +226,7 @@ ColumnLayout {
         hovered: rowCard.hovered === true
         color: rowCard.look.text.body.color
         font: Qt.font({ family: rowCard.look.font.family.sans, pixelSize: rowCard.look.text.body.size })
-        maximumLineCount: root.opened ? root.noLimit : restLines
+        maximumLineCount: rowCard.look.card.bodyLines
     }
 
-    FontMetrics {
-        id: bodyMetrics
-        font: bodyText.font
-    }
 }

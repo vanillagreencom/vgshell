@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Widgets
 import qs.Commons
@@ -7,6 +8,9 @@ import qs.Ui
 import "NotificationLogic.js" as Logic
 
 // The card holds plain display values, never a live notification object.
+// Every title stays on one line and every body on at most two; no input expands it.
+// Media and up to three full-label pills centre on its height.
+// Pills overlay the unchanged text column over a soft horizontal gradient.
 // Its slot owns size, content fade and lifetime; GlassSurface owns the fill.
 Item {
     id: card
@@ -40,9 +44,7 @@ Item {
     // full-size layout and stays centred while the card is narrower, so the
     // text never reflows.
     property real contentOpacity: 1
-    // [{ id, label }] shown while `showActions` as pills at the right edge,
-    // beside the text where they fit, else in a row under it that ends
-    // where the text ends.
+    // At most three right-side pills; overflow keeps every remaining action in Menu.
     property var actions: []
     property bool showActions: false
     // A short muted line at the right end in the actions' place, such as
@@ -59,31 +61,19 @@ Item {
     property int actionIndex: -1
     property bool keyboardActions: false
     readonly property bool hovered: hoverTracker.hovered
-    // The existing clearance bound keeps short cards round; taller cards
-    // take the media square's generous corner. Each drawer clamps it to
-    // half its smaller side, so a toast's dot stays round without another
-    // morph rule: GlassSurface.corner, EdgeLight.corner, and Qt 6.11's
-    // QSGBasicInternalRectangleNode::updateGeometry for Orb's Rectangle:
-    // https://raw.githubusercontent.com/qt/qtdeclarative/v6.11.0/src/quick/scenegraph/qsgbasicinternalrectanglenode.cpp
-    readonly property real radius: tall ? look.media.size : look.radius.full
-    // Taller than the clearance bound that keeps a card fully round.
-    readonly property bool tall: fullHeight > look.card.maxHeight
-    // Whether the card shows its whole title and message, past
-    // card.summaryLines and maxHeight: the inbox opens a cut card; a toast
-    // never opens.
-    property bool open: false
+    readonly property bool menuOpened: overflowMenu.opened
+    readonly property real radius: look.radius.full
     signal actionTriggered(string id)
     signal closeRequested()
     signal cardClicked()
 
     readonly property real fullWidth: captionOnly ? Math.ceil(captionText.implicitWidth) + 2 * pad : look.card.width
-    // A tray releasing the text width must finish the same real layouts
-    // before its virtual slot can retain the collapsed card height.
+    // Finish the shared text layout before its virtual slot reads height.
     function settleHeight() {
         content.ensurePolished();
         textBlock.settleLayout();
     }
-    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + captionInset.topPadding + captionInset.bottomPadding : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0) + trayBottomReserve
+    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + captionInset.topPadding + captionInset.bottomPadding : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -103,16 +93,21 @@ Item {
     readonly property real contentWidth: Math.max(0, fullWidth - contentLeftInset - textColumn)
     readonly property real contentOffset: contentLeftInset - (fullWidth - contentWidth) / 2
     readonly property real slotLeft: showsSlot ? content.x + mediaSlot.x : -1
-    // Keep at least as much room for the message as for its actions.
-    // A wider tray uses its own row instead of hiding the message.
-    // Both reservations last until the last frame of the tray's fade.
-    readonly property real textWidth: contentWidth - (showsSlot ? mediaSlot.implicitWidth + look.card.gapIcon : 0)
-    readonly property bool trayBelow: !captionMode && tray.width + look.tray.gap > textWidth - tray.width
-    readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
-    // Holders use a nonzero reserve to retain the card through its fade,
-    // regardless of whether the tray takes horizontal or vertical space.
-    readonly property real trayReserve: trayShown || tray.visible ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
-    readonly property real trayBottomReserve: trayBelow && (trayShown || tray.visible) ? tray.height + look.tray.gap : 0
+    readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0) || overflowMenu.opened
+    readonly property int buttonCount: Math.min(3, actions.length)
+    // A mask reads alpha alone, so the native gradient never paints a
+    // second ground over either glass or the standard card material.
+    function maskColor(alpha) {
+        const color = Qt.color(look.tray.fadeInk);
+        color.a = alpha;
+        return color;
+    }
+    function activateAction(index, opener) {
+        if (index < 0 || index >= buttonCount) return false;
+        if (actions.length > 3 && index === 2) overflowMenu.open(opener);
+        else actionTriggered(actions[index].id);
+        return true;
+    }
     readonly property string title: showsBadge ? enrichment.title : summary
 
     // An icon value as an image source: a URL as it is, a path as a file
@@ -150,20 +145,10 @@ Item {
         }
     }
 
-    // Beside media, the text starts at the card's top: where its first
-    // line's ink is `pad` down, or, no taller than the media, centred on it
-    // (RowMeasure.textTop). The media centres on the text's height up to
-    // the pill limit and stands `pad` down past it. Text alone sizes the
-    // card, so it stays centred by its ink, and a growing card keeps its
-    // top. Centring aligns to whole pixels
-    // (anchors.alignWhenCentered, default true):
-    // https://doc.qt.io/qt-6/qml-qtquick-item.html#anchors.alignWhenCentered-prop
+    // Text ink, media and actions centre on the card at every content length.
     RowLayout {
         id: content
-        anchors.top: card.showsSlot ? parent.top : undefined
-        anchors.topMargin: card.pad
-        anchors.verticalCenter: card.showsSlot ? undefined : parent.verticalCenter
-        anchors.verticalCenterOffset: -card.trayBottomReserve / 2
+        anchors.verticalCenter: parent.verticalCenter
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.horizontalCenterOffset: card.contentOffset
         width: card.contentWidth
@@ -175,16 +160,7 @@ Item {
             objectName: "notificationMediaSlot"
             Layout.preferredWidth: implicitWidth
             Layout.preferredHeight: implicitHeight
-            Layout.alignment: Qt.AlignTop
-            // The text's height leaves out a tray row under it, so showing
-            // actions does not move the media. Whole pixels keep it sharp,
-            // as the centred content's anchors do.
-            transform: Translate {
-                y: {
-                    const block = textBlock.fullHeight(mediaSlot.implicitHeight);
-                    return block > card.look.card.maxHeight ? 0 : Math.round((block - mediaSlot.implicitHeight) / 2) - card.pad;
-                }
-            }
+            Layout.alignment: Qt.AlignVCenter
             visible: card.showsSlot
             look: card.look
             kind: card.mediaKind
@@ -208,30 +184,33 @@ Item {
             // which adds a second, rounded centring inside the ink offset.
             // https://doc.qt.io/qt-6/qml-qtquick-layouts-layout.html#fillHeight-attached-prop
             Layout.fillHeight: false
-            Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve
-            Layout.alignment: Qt.AlignTop
-            // Keep the preferred text envelope centred over the layout's
-            // rounded assigned height. Remove its rounded alignment with
-            // the layout's own y before placing the first line's ink.
-            // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/quicklayouts/qquickgridlayoutengine_p.h?h=6.11
-            // Translate leaves the layout's assigned geometry unchanged.
-            transform: Translate { y: card.showsSlot ? textBlock.textTop(mediaSlot.implicitHeight) + (textBlock.implicitHeight - textBlock.height) / 2 - card.pad - textBlock.y : (content.height - textBlock.height) / 2 - textBlock.y + textBlock.verticalOffset }
+            Layout.alignment: Qt.AlignVCenter
+            transform: Translate { y: textBlock.verticalOffset }
+            // As CardScroll does, texture the text alone while its alpha
+            // mask is needed; its layout and the media remain unchanged.
+            // https://doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html
+            layer.enabled: card.visible && tray.visible && !card.captionOnly && width > 0 && height > 0
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                // ImageText's underline and styled ink extend outside the
+                // layout box. MultiEffect pads both source and output in
+                // its updateSourcePadding; it owns layer sourceRect too.
+                // https://doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html#paddingRect-prop
+                paddingRect: Qt.rect(card.pad, card.pad, card.pad, card.pad)
+                maskEnabled: true
+                maskSource: actionMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1
+            }
         }
     }
 
-    // Actions beside the text centre on the card. On a tall card they stay
-    // at its top as it grows, level with the first text line and at least
-    // `pad` from the top edge.
     Item {
         id: tray
         anchors.right: parent.right
-        anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad
+        anchors.rightMargin: card.pad
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2
-            : card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2
-            : !card.captionMode && card.tall
-                ? Math.max(card.pad + height / 2, textBlock.textTop(card.showsSlot ? mediaSlot.implicitHeight : 0) + textBlock.firstLineCentre) - card.fullHeight / 2
-            : 0
+        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2 : 0
         width: card.captionMode ? captionText.implicitWidth : actionRow.width
         height: card.captionMode ? captionText.implicitHeight : actionRow.height
         visible: opacity > 0
@@ -239,6 +218,50 @@ Item {
         Behavior on opacity { Anim { duration: card.look.motion.duration.short4; curve: card.look.motion.curve.standard } }
         onOpacityChanged: if (opacity === 0 && card.caption === "") card.heldCaption = ""
         transform: Translate { x: (1 - tray.opacity) * card.look.tray.slide }
+
+        // The hidden gradient is texture alpha for the text's own layer,
+        // mapped to the row's drawn start, including its slide and fade.
+        // https://doc.qt.io/qt-6/qml-qtquick-gradient.html#orientation-prop
+        Rectangle {
+            id: actionMask
+            objectName: "notificationActionMask"
+            width: textBlock.width + 2 * card.pad
+            height: textBlock.height + 2 * card.pad
+            readonly property real rowStart: tray.x + (1 - tray.opacity) * card.look.tray.slide - content.x - textBlock.x + card.pad
+            readonly property real fadeStart: Math.max(0, Math.min(1, (rowStart - card.look.tray.fadeWidth) / Math.max(1, width)))
+            readonly property real fadeEnd: Math.max(0, Math.min(1, rowStart / Math.max(1, width)))
+            readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
+            readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
+            readonly property real fadeTop: Math.max(0, Math.min(1, rowTop / Math.max(1, height)))
+            readonly property real fadeMiddle: Math.max(0, Math.min(1, (rowTop + tray.height / 2) / Math.max(1, height)))
+            readonly property real fadeBottom: Math.max(0, Math.min(1, (rowTop + tray.height) / Math.max(1, height)))
+            visible: false
+            layer.enabled: textBlock.layer.enabled
+            layer.smooth: true
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: card.look.tray.fadeInk }
+                GradientStop { position: actionMask.fadeStart; color: card.look.tray.fadeInk }
+                GradientStop { position: actionMask.fadeEnd; color: card.maskColor(actionMask.textAlpha) }
+                GradientStop { position: 1; color: card.maskColor(actionMask.textAlpha) }
+            }
+            // Compose only texture alpha: the vertical gradient restores
+            // ink above and below the buttons within this same mask layer.
+            // Qt layers capture the subtree, and child rectangles blend
+            // above the parent's horizontal gradient, not above the card.
+            // https://doc.qt.io/qt-6/qml-qtquick-item.html#item-layers
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0; color: card.look.tray.fadeInk }
+                    GradientStop { position: actionMask.fadeTop; color: card.look.tray.fadeInk }
+                    GradientStop { position: actionMask.fadeMiddle; color: card.maskColor(0) }
+                    GradientStop { position: actionMask.fadeBottom; color: card.look.tray.fadeInk }
+                    GradientStop { position: 1; color: card.look.tray.fadeInk }
+                }
+            }
+        }
 
         Label {
             id: captionText
@@ -259,21 +282,42 @@ Item {
             visible: !card.captionMode
             spacing: card.look.tray.spacing
             Repeater {
-                model: card.actions
+                id: actionRepeater
+                model: card.buttonCount
                 PillButton {
-                    required property var modelData
+                    id: actionPill
                     required property int index
                     look: card.look
-                    text: modelData.label
-                    emphasized: modelData.id !== "dismiss"
+                    readonly property bool overflow: card.actions.length > 3 && index === 2
+                    readonly property var senderAction: card.actions[index]
+                    objectName: "notificationAction" + index
+                    text: overflow ? "…" : senderAction.label
+                    emphasized: overflow || senderAction.id !== "dismiss"
                     focusPreview: card.showActions && card.actionIndex === index
                     tabFocusable: false
                     Tooltip {
-                        text: card.keyboardActions ? (modelData.id === "dismiss" ? "Delete" : "Left/Right, Enter") : ""
+                        text: actionPill.overflow ? "More actions"
+                            : card.keyboardActions ? (actionPill.senderAction.id === "dismiss" ? "Delete" : "Left/Right, Enter") : ""
                     }
-                    onClicked: card.actionTriggered(modelData.id)
+                    onClicked: card.activateAction(index, "pointer")
                 }
             }
         }
     }
+    Menu {
+        id: overflowMenu
+        objectName: "notificationOverflowMenu"
+        // Repeater publishes its count after creating the delegates:
+        // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#count-prop
+        parent: actionRepeater.count > 2 ? (actionRepeater.itemAt(2) || card) : card
+        Repeater {
+            model: card.actions.length > 3 ? card.actions.slice(2) : []
+            MenuItem {
+                required property var modelData
+                text: modelData.label
+                onTriggered: card.actionTriggered(modelData.id)
+            }
+        }
+    }
+
 }

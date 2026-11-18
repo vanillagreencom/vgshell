@@ -35,14 +35,55 @@ Scope {
             : ["applied", "unchanged", "partial"].indexOf(result.state) !== -1 && result.shell !== "failed";
         if (!success || result.readabilityShortfalls === undefined) return "ok";
         if (!Array.isArray(result.readabilityShortfalls)) return "refused: theme-completed=shortfalls";
-        let message;
-        try { message = ThemeLogic.readabilityNotice(result.readabilityShortfalls); }
-        catch (e) { return "refused: theme-completed=shortfall-role"; }
-        if (message === "") return "ok";
-        return Notifier.send({ id: "core" }, "VGS", {
-            title: ThemeLogic.readabilityTitle(result.theme, result.displayName), message: message,
-            tone: "warning", icon: "triangle-alert"
-        }, notificationHub);
+        let message, report;
+        try {
+            message = ThemeLogic.readabilityNotice(result.readabilityShortfalls);
+            report = ThemeLogic.readabilityReport(result.readabilityShortfalls);
+        } catch (e) { return "refused: theme-completed=shortfall-role"; }
+        const title = ThemeLogic.readabilityTitle(result.theme, result.displayName);
+        readabilityWrites = readabilityWrites.concat([{ title: title, message: message, report: message === "" ? "All contrast targets are met.\n" : title + "\n\n" + report + "\n" }]);
+        if (readabilityWrites.length === 1) writeReadability();
+        return "ok";
+    }
+
+    // One latest report, serialized with its notices so a link is published
+    // only after the complete text landed. Each successful check overwrites it.
+    readonly property string readabilityPath: Paths.stateDir + "/theme-readability.txt"
+    property var readabilityWrites: []
+    function writeReadability() {
+        // FileView skips text matching its retained failed write too.
+        readabilityFile.path = "";
+        readabilityFile.path = readabilityPath;
+        readabilityFile.setText(readabilityWrites[0].report);
+    }
+    function readabilityWritten(saved, error) {
+        const job = readabilityWrites[0];
+        if (!saved) console.error("theme: readability-report path=" + readabilityPath + " error=" + error);
+        if (job.message !== "") {
+            const reply = Notifier.send({ id: "core" }, "VGS", {
+                title: job.title,
+                message: job.message + (saved ? "\n" + PageReference.fileReference("Full report", readabilityPath) : ""),
+                tone: "warning", icon: "triangle-alert"
+            }, notificationHub);
+            if (reply !== "ok") console.error("theme: readability-notice " + reply);
+        }
+        readabilityWrites = readabilityWrites.slice(1);
+        if (readabilityWrites.length > 0) Qt.callLater(writeReadability);
+    }
+    FileView {
+        id: readabilityFile
+        objectName: "themeReadabilityReport"
+        path: root.readabilityPath
+        preload: false
+        printErrors: false
+        // Quickshell 0.3.1 can emit saved after an atomic commit failure
+        // (src/io/fileview.cpp, FileViewWriter::write). Reload before publishing
+        // the link, so it always names the complete report on disk.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/
+        onSaved: Qt.callLater(() => { reload(); text(); })
+        onLoaded: root.readabilityWritten(text() === root.readabilityWrites[0].report, "readback-mismatch")
+        onLoadFailed: error => root.readabilityWritten(false, error)
+        onSaveFailed: error => root.readabilityWritten(false, error)
     }
 
     // The queue's jobs in order, the first one running once started. A job

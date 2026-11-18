@@ -1412,51 +1412,6 @@ note_card_reading() { # LABEL SUMMARY
   t="$(text_space "$2")" || { fail "$1: no card reading"; return; }
   ok "$1: $t"
 }
-# Whether a card's text runs under its shown pills, from one JSON reading
-# {"texts": [[x, y, w, h], ...], "bodies": [...], "pills": [...]}: the
-# boxes of the card's visible title, its visible body and its visible
-# pills, in one coordinate space. A text's box is its whole laid-out width,
-# so a box that ends before a pill holds every glyph of that text. Prints
-# `clear` when text and pills do not overlap, including a tray below the
-# message, `overlap` when text runs under a pill, and `no-pill` while no
-# pill shows. An empty text reading is not clearance evidence. A state
-# word, such as `absent`, prints as it is.
-pill_clear_value() {
-  py_reply 'import json,sys
-v = json.load(sys.stdin)
-if not v["pills"]: print("no-pill"); sys.exit()
-if not v["texts"] + v["bodies"]: print("text-absent"); sys.exit()
-rows = lambda a, b: a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
-under = [1 for r in v["texts"] + v["bodies"] for p in v["pills"] if rows(r, p) and r[0] + r[2] > p[0] + 0.5 and r[0] < p[0] + p[2]]
-print("overlap" if under else "clear")'
-}
-# The reading above for the inbox card whose summary is SUMMARY: the card
-# is the one whose box holds that summary's title, and its texts and pills
-# are the visible ones inside its box.
-panel_pill_clear() { # SUMMARY
-  ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
-items = json.load(sys.stdin)
-inside = lambda r, c: c[0] <= r[0] < c[0] + c[2] and c[1] <= r[1] < c[1] + c[3]
-title = next((i["box"] for i in items if i["name"] == "notificationTitleText" and i["visible"] and i["text"] == sys.argv[1]), None)
-card = next((i["box"] for i in items if title is not None and i["type"] == "NotificationCard" and inside(title, i["box"])), None)
-if card is None: print("absent"); sys.exit()
-mine = lambda kind: [i["box"] for i in items if i["visible"] and kind(i) and inside(i["box"], card)]
-print(json.dumps({"texts": mine(lambda i: i["name"] == "notificationTitleText"), "bodies": mine(lambda i: i["name"] == "notificationBodyText"), "pills": mine(lambda i: i["type"] == "PillButton")}))' "$1" | pill_clear_value
-}
-# The same for the toast whose summary is SUMMARY on the first screen.
-layer_pill_clear() { # SUMMARY
-  local cards texts bodies pills
-  cards="$(ipc smoke layerItems vgs.notifications NotificationCard summary)" || return
-  texts="$(ipc smoke layerItems vgs.notifications QQuickText visible,objectName)" || return
-  bodies="$(ipc smoke layerItems vgs.notifications ImageText visible,objectName)" || return
-  pills="$(ipc smoke layerItems vgs.notifications PillButton visible)" || return
-  python3 -c 'import json,sys
-card = next(((s, r) for s, r, v in json.loads(sys.argv[2]) if v["summary"] == sys.argv[1]), None)
-if card is None: print("absent"); sys.exit()
-screen, (x, y, w, h) = card
-mine = lambda items, name: [r for s, r, v in json.loads(items) if s == screen and v["visible"] and v.get("objectName", name) == name and x <= r[0] < x + w and y <= r[1] < y + h]
-print(json.dumps({"texts": mine(sys.argv[3], "notificationTitleText"), "bodies": mine(sys.argv[4], "notificationBodyText"), "pills": mine(sys.argv[5], "")}))' "$1" "$cards" "$texts" "$bodies" "$pills" | pill_clear_value
-}
 # The header's title and subtitle and its pill, as `left=<px> top=<px>
 # height=<px> control=<px> centre=<px>`: the titles' inset and top in the
 # header, and the pill's inset from the right end and its centre.
@@ -1594,13 +1549,6 @@ expect_poll "a multiline card's text is on the stack's column and clears the rou
 expect_poll "a browser calendar card's text is on the stack's column and clears the rounded ends" ok checked_space "Weekly eStaff" avatarless
 expect_poll "a browser Slack card keeps its round slot at the pad and ends its text on the column" ok checked_space "New message in master-operator" slot
 expect_poll "a cut card stays within its height budget with its text on the column" ok checked_space "Even max" avatarless clamped
-expect "the pill predicate passes text that ends before the pill" clear pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 300, 30]], "pills": [[340, 30, 66, 28]]}'
-expect "control: the pill predicate refuses a body under the pill" overlap pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 380, 30]], "pills": [[340, 30, 66, 28]]}'
-expect "control: the pill predicate refuses a title under the pill" overlap pill_clear_value <<<'{"texts": [[20, 30, 380, 18]], "bodies": [[20, 50, 300, 30]], "pills": [[340, 30, 66, 28]]}'
-expect "the pill predicate passes text and pills on separate rows" clear pill_clear_value <<<'{"texts": [[20, 14, 380, 18]], "bodies": [[20, 80, 380, 18]], "pills": [[340, 40, 66, 28]]}'
-expect "control: a separate body does not hide a title under a pill" overlap pill_clear_value <<<'{"texts": [[20, 30, 380, 18]], "bodies": [[20, 80, 380, 18]], "pills": [[340, 30, 66, 28]]}'
-expect "control: absent text cannot prove pill clearance" text-absent pill_clear_value <<<'{"texts": [], "bodies": [], "pills": [[340, 30, 66, 28]]}'
-expect_poll "a hovered action card keeps its text clear of its pills" clear layer_pill_clear "Hover geometry"
 expect_poll "a card with an image keeps its round slot at the pad and ends its text on the column" ok checked_space Pictured slot
 expect_poll "a Slack faces card keeps its round slot at the pad and ends its text on the column" ok checked_space "[acme] in ada, grace, alan, edsger, barbara" slot
 # Read the tuples while these toast cards are still visible. Opening the
@@ -2680,38 +2628,6 @@ expect "dismissing the Delete control notification is allowed" ok notes dismiss-
 cp -- "$sandbox/Panel.qml.kept" "$panel_qml"
 rescan "a rescan restores the real panel"
 expect_poll "the restored panel is built" True record_exists vgs.notifications
-# The selected inbox card's Dismiss pill beside its text: the newest card,
-# which the inbox opens on with its pill shown, carries a body that wraps
-# to three lines, and no line of its text runs under the pill. The control
-# is a NotificationCard.qml copy whose text keeps the whole column while
-# the pills show, which runs the body under the pill.
-pill_body="flagship: Since 2:52 pm: the VGS package channels are ready, and kendex's check on other repos comes off its merge rules now."
-pill_inbox() { # SUMMARY NAME EXPECTED: one inbox opened on a new card SUMMARY
-  notify smoke-app 0 "$1" "$pill_body" '[]' '{"urgency": <byte 1>}' 0 >/dev/null
-  expect "the inbox opens on $1" ok notes inbox
-  expect_poll "the inbox selects $1" "$1" panel_selected_summary
-  geometry expect_poll "$2" "$3" panel_pill_clear "$1"
-  expect "the inbox on $1 closes" ok notes close
-  expect_poll "the inbox on $1 closed" '""' read_notes panelMode
-}
-pill_inbox "Pill clearance" "the selected inbox card ends its three-line body before its Dismiss pill" clear
-card_qml="$repo/shell/plugins/vgs.notifications/NotificationCard.qml"
-cp -- "$card_qml" "$sandbox/NotificationCard.qml.kept"
-python3 - "$card_qml" <<'PY'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-needle = "            Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve\n"
-assert text.count(needle) == 1, "the text column's reservation occurs once"
-open(path, "w").write(text.replace(needle, ""))
-PY
-rescan "a rescan builds the whole-column card copy"
-expect_poll "the whole-column card copy is built" True record_exists vgs.notifications
-pill_inbox "Pill control" "control: a card whose text keeps the whole column runs its body under the Dismiss pill" overlap
-cp -- "$sandbox/NotificationCard.qml.kept" "$card_qml"
-rescan "a rescan restores the real card"
-expect_poll "the restored card is built" True record_exists vgs.notifications
-expect "dismissing the pill cards is allowed" ok notes dismiss-all
 expect "clearing history before the keyboard path is allowed" ok notes clear-history
 keyboard_first_id="$(sender_note "Keyboard first" 1)"
 keyboard_second_id="$(sender_note "Keyboard second" 1)"
@@ -4221,7 +4137,6 @@ except (OSError,ValueError): print("unreadable")
     *) echo 'notification-capture: geometry-reader=unreadable' >&2; return 1 ;;
   esac
 }
-# The tray reservation can change card heights until its fade has drawn.
 # A layout is settled only when it is unchanged across a drawn panel frame.
 fade_capture_layout() { # SAMPLE_NAME
   local previous="$1-previous.json" items_file previous_file frames same
@@ -4590,8 +4505,6 @@ for action in rows[8]["actions"]: print(json.dumps(action))' <<<"$fade_inventory
   [[ ${#actions[@]} -gt 0 ]] || return 1
   for action in "${actions[@]}"; do
     label="$(py_reply 'import json,sys;print(json.load(sys.stdin)["label"])' <<<"$action")" || return
-    # The card the selection left keeps its reservation until its tray
-    # fades out, then rewraps and moves the cards under it.
     fade_capture_layout "fade-shortcut-$1-$action_index-items.json" || return
     rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "$fade_middle" PillButton "$label")" || return
     [[ $rect == \[* ]] || { echo 'notification-shortcut: action-pill-absent' >&2; return 1; }
@@ -4664,8 +4577,7 @@ fade_active_states() { # MODE
       fade_inventory || return
       expect_poll "the $1 $state $edge selects its current middle row" "$fade_middle" panel_selected_summary
       expect_poll "the $1 $state $edge selects its current middle key" "$fade_middle_key" panel_selected_key
-      # Selection can grow an action tray and queue the panel's reveal.
-      # Finish that real layout before deliberately placing ink in a band.
+      # Finish the panel's selection reveal before placing ink in a band.
       fade_capture_layout "fade-active-$1-$state-$edge-ready-items.json" || return
       fade_position_active "$edge" || return
       if [[ $state == keyboard-focus ]]; then
@@ -6434,10 +6346,10 @@ Scope {
         geometryReading = { key: entry.key, summary: entry.summary, before: geometryPrediction,
             predicted: predicted, actual: card.fullHeight, slotHeight: slot.height,
             selected: slot.selected, badge: card.showsBadge, title: card.title, segments: card.bodySegments,
-            trayReserve: card.trayReserve, top: top, bottom: top + face.height,
+            top: top, bottom: top + face.height,
             contentHeight: scroll.flickable.contentHeight, contentY: scroll.flickable.contentY,
             matches: slot.height === face.height + panel.look.card.gap
-                && (slot.selected || predicted === card.fullHeight && geometryPrediction.key === entry.key && geometryPrediction.height === card.fullHeight) };
+                && predicted === card.fullHeight && geometryPrediction.key === entry.key && geometryPrediction.height === card.fullHeight };
         if (entry.workspaceIcon.length > 0 && !card.showsBadge) return "pending";
         if (Number(arg) === 26 && !card.bodySegments.some(segment => segment.image !== undefined)) return "pending";
         return geometryReading.matches ? "ok" : "pending";
@@ -6677,7 +6589,7 @@ for geometry_theme in dark light; do
     done
     type_keys -k End || fail "the mixed view did not receive End"
     expect_poll "End selects the offscreen mixed row" 27 ipc smoke readInstance panel vgs.notifications currentIndex
-    expect_poll "the selected card reserves its action tray and updates its slot" ok ipc smoke runnerCall geometryCheck 27
+    expect_poll "the selected card keeps its shared measured height and matching slot" ok ipc smoke runnerCall geometryCheck 27
     ipc smoke runnerCall geometryRecord '' >"$panel_geometry_dir/$geometry_theme-selected.json"
     type_keys -k Home || fail "the mixed view did not receive Home"
     expect_poll "Home returns to the first mixed row" 0 ipc smoke readInstance panel vgs.notifications currentIndex

@@ -151,12 +151,9 @@ var TOKENS = {
         glyphStroke: length(2),
         // Under the summary.
         lineGap: length(1),
-        // One line, cut with an ellipsis; an open inbox card shows it whole.
-        summaryLines: number(1, 1, 8),
-        // The message cap remains two lines even without a title or when
-        // the user chooses a smaller interface font. An open inbox card
-        // shows every line instead.
-        bodyLines: number(2, 1, 8),
+        // Every card cuts its title at one line and its body at two.
+        summaryLines: number(1, 1, 1),
+        bodyLines: number(2, 2, 2),
         exitScale: share(0.3)
     },
 
@@ -232,12 +229,17 @@ var TOKENS = {
         fill: ink(0)
     },
 
-    // The hover actions: pills at the right end, `gap` past the end of the
-    // text, which gives way to them while they show.
+    // Full-label actions overlay the unchanged text column at the right.
     tray: {
         spacing: length(6),
-        gap: length(12),
-        slide: length(8)
+        slide: length(8),
+        // Two pill side paddings let text fade out before the first label.
+        fadeWidth: length(24),
+        // Leave faint text at the button row's centre; its uncovered
+        // upper and lower edges keep more of the original ink.
+        fadeAlpha: share(0.18),
+        // Only alpha reaches the text's mask; this ink paints no plate.
+        fadeInk: color("{text.foreground}")
     },
 
     pill: {

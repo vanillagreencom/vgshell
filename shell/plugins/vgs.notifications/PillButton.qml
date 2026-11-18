@@ -21,7 +21,6 @@ T.Button {
     Keys.onEnterPressed: Ui.KeyNavLogic.activate(pill)
 
     contentItem: Text {
-        id: label
         textFormat: Text.PlainText
         text: pill.text
         color: pill.look.text.foreground

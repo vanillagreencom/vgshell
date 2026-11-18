@@ -98,7 +98,6 @@ Item {
             Notifications.NotificationCard {
                 id: card
                 look: holder.ownLook
-                open: true
                 textColumn: scrollMeasure.textColumn
                 summary: fixtureRoot.bodyNote ? "" : fixtureRoot.words
                 body: fixtureRoot.bodyNote ? fixtureRoot.words : ""
@@ -161,7 +160,10 @@ Item {
                         { name: "notification", component: notificationBox, pad: 14, side: 20 },
                         { name: "notification-body", component: notificationBox, pad: 14, side: 20 }
                     ])
-                        rows.push({ tag: box.name + "/" + size + "/" + lines, box: box, size: size, lines: lines });
+                        // Titles are one line; elided text cannot fill its
+                        // natural width for an ink-padding measurement.
+                        if (box.name !== "notification" || lines === 1)
+                            rows.push({ tag: box.name + "/" + size + "/" + lines, box: box, size: size, lines: lines });
             return rows;
         }
 
@@ -237,34 +239,7 @@ Item {
             }
             const side = data.box.side === undefined ? data.box.pad : data.box.side;
             const expected = [side, data.box.pad, side, data.box.pad];
-            let geometry = "";
-            if (data.tag === "notification/20/2") {
-                const title = text.find(item => item.objectName === "notificationTitleText");
-                if (title === undefined) {
-                    geometry = " geometry=" + JSON.stringify({ unavailable: "notification title is absent" });
-                } else {
-                    const summary = title.parent;
-                    const measure = summary.parent;
-                    // Nonvisual objects declared in Item.data also belong
-                    // to Item.resources; no production accessor is needed.
-                    // https://doc.qt.io/qt-6/qml-qtquick-item.html#resources-prop
-                    const clearing = Array.from(measure.resources).find(item => item.content === measure && typeof item.topInk === "number");
-                    geometry = " geometry=" + JSON.stringify({
-                        preferredTextHeight: measure.implicitHeight, assignedTextHeight: measure.height,
-                        measureY: measure.y, summaryY: summary.y, titleY: title.y,
-                        titleAtCard: title.mapToItem(card, 0, 0).y,
-                        titleHeight: title.height, titleContentHeight: title.contentHeight, titleLines: title.lineCount,
-                        titleBaseline: title.baselineOffset, titleLastBaseline: title.lastBaseline(), titleCapTop: title.capTop(),
-                        titleInkAbove: title.inkAbove, titleInkBelow: title.inkBelow,
-                        measureInkAbove: measure.inkAbove, measureInkBelow: measure.inkBelow,
-                        cardHeight: card.height,
-                        clearing: clearing === undefined ? { unavailable: "ClearingInset is absent from layout resources" }
-                            : { topInk: clearing.topInk, bottomInk: clearing.bottomInk,
-                                topPadding: clearing.topPadding, bottomPadding: clearing.bottomPadding }
-                    });
-                }
-            }
-            console.log("box-ink: " + data.tag + " gaps=" + gaps + " want=" + expected + geometry);
+            console.log("box-ink: " + data.tag + " gaps=" + gaps + " want=" + expected);
             for (let i = 0; i < 4; i++)
                 fuzzyCompare(gaps[i], expected[i], 1, data.tag + " edge " + i + ": " + gaps);
             const equal = gaps.map((gap, i) => gap - (i % 2 === 0 ? side - data.box.pad : 0));

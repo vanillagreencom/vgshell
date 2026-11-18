@@ -43,7 +43,7 @@ FocusScope {
         let cached = measuredRows[entry.key];
         if (cached === undefined || cached.payload !== payload) {
             const height = rowMeasure.measure(entry, look, listScroll.textColumn) + look.card.gap;
-            cached = { payload: payload, height: height, estimate: height, collapsed: null };
+            cached = { payload: payload, height: height };
             measuredRows[entry.key] = cached;
         }
         return cached.height;
@@ -64,13 +64,12 @@ FocusScope {
         listScroll.cards.ensurePolished();
         if (above) view.contentY = before + height - old;
     }
-    function actualRowHeight(key, height, resting) {
+    function actualRowHeight(key, height) {
         const cached = measuredRows[key];
         if (indexOfKey(key) === -1 || cached === undefined) return;
         // The estimate belongs only to an unbuilt row. A live card is the
-        // authority, including its collapsed height after a tray fades.
+        // authority for its current content and resources.
         // Unloading performs no height write and keeps this actual value.
-        if (resting) cached.collapsed = height;
         if (cached.height === height) return;
         cached.height = height;
         setRowExtent(key, height);
@@ -357,7 +356,7 @@ FocusScope {
 
     function actionsOf(index) {
         const row = rowAt(index);
-        return row !== null && Array.isArray(row.actions) ? row.actions : [];
+        return row !== null && Array.isArray(row.actions) ? row.actions.slice(0, 3) : [];
     }
 
     function choose(key, choice) {
@@ -402,8 +401,8 @@ FocusScope {
         const row = rowAt(currentIndex);
         const actions = actionsOf(currentIndex);
         if (row === null || actionIndex < 0 || actionIndex >= actions.length) return false;
-        choose(row.key, actions[actionIndex].id);
-        return true;
+        const slot = rowRepeater.itemAt(currentIndex);
+        return slot !== null && slot.face !== null && slot.face.card.activateAction(actionIndex, "key");
     }
 
     function moveAction(delta) {
@@ -569,24 +568,14 @@ FocusScope {
                         readonly property real hover: selected || pointer.hovered ? 1 : 0
                         width: root.look.card.width
                         height: extent
+                        readonly property var face: faceLoader.item
                         property bool positioned: false
-                        // Keep an existing face until its tray fade finishes.
-                        // Loader.active must not read Loader.item: creating or
-                        // destroying that item would change its own binding.
-                        property bool holdsTray: false
-                        function updateTrayRetention() {
-                            if (faceLoader.item !== null && holdsTray && faceLoader.item.card.trayReserve === 0) {
-                                reportHeight();
-                            }
-                            holdsTray = faceLoader.item !== null && faceLoader.item.card.trayReserve > 0;
-                        }
                         readonly property real viewY: list.y + y + listScroll.topGutter - listScroll.flickable.contentY
                         function reportHeight() {
                             if (faceLoader.item !== null) {
                                 faceLoader.item.card.settleHeight();
                                 if (faceLoader.item.height > 0)
-                                    root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap,
-                                        faceLoader.item.card.trayReserve === 0);
+                                    root.actualRowHeight(entry.key, faceLoader.item.height + root.look.card.gap);
                             }
                         }
 
@@ -594,25 +583,15 @@ FocusScope {
 
                         HoverHandler { id: pointer }
 
-                        Connections {
-                            target: faceLoader.item === null ? null : faceLoader.item.card
-                            function onTrayReserveChanged() {
-                                Qt.callLater(slot.reportHeight);
-                                Qt.callLater(slot.updateTrayRetention);
-                            }
-                        }
-
                         Loader {
                             id: faceLoader
                             active: slot.positioned && root.initialLayoutReady && root.opened && listScroll.flickable.height > 0
-                                && ((slot.viewY + y < listScroll.flickable.height
-                                    && slot.viewY + y + slot.height - root.look.card.gap > 0)
-                                    || slot.holdsTray)
+                                && slot.viewY + y < listScroll.flickable.height
+                                && slot.viewY + y + slot.height - root.look.card.gap > 0
                             width: parent.width
                             y: pointer.hovered ? -root.look.card.lift : 0
                             onItemChanged: {
                                 Qt.callLater(slot.reportHeight);
-                                Qt.callLater(slot.updateTrayRetention);
                             }
                             // An unloaded slot keeps its last real height. Its
                             // extent must not return to the initial estimate.
@@ -644,9 +623,6 @@ FocusScope {
                                     emoji: slot.entry.emoji || null
                                     actions: slot.entry.actions || []
                                     showActions: (slot.selected || hovered) && actions.length > 0
-                                    // A cut card opens to its whole text while the
-                                    // pointer is on it or the keyboard selects it.
-                                    open: slot.selected || hovered
                                     actionIndex: slot.selected ? root.actionIndex : -1
                                     keyboardActions: true
                                     glassChoice: root.glassChoice

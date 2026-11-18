@@ -721,22 +721,32 @@ const plain = value => JSON.parse(JSON.stringify(value));
 function verifyReadabilityNotice(judge) {
     assert.equal(judge.readabilityTitle("tokyo-night", null), "tokyo-night: some text may be hard to read");
     assert.equal(judge.readabilityTitle("tokyo-night", "Tokyo Night"), "Tokyo Night: some text may be hard to read");
-    assert.equal(judge.readabilityNotice([]), "", "a passing theme has no notice");
-    const worst = { text: "color.textFaint", surface: "color.surface", ratio: 1.25, floor: judge.READABILITY_FLOOR };
-    const better = { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: judge.READABILITY_FLOOR };
-    const notice = judge.readabilityNotice([worst]);
-    assert.equal(judge.readabilityNotice([better, worst, better]), notice, "each role names only its worst surface");
-    assert.equal(judge.readabilityNotice([worst, better]), notice, "worst selection does not depend on input order");
-    assert.equal(notice, "Faint text on panel backgrounds", "a notification line names only its text and background");
-    assert.equal(judge.readabilityNotice([better], true), `Faint text on the main background: contrast 2.25:1, needs ${judge.READABILITY_FLOOR}:1.`);
-    assert.equal(judge.readabilityNotice([Object.assign({}, worst, { text: "checkbox.borderColor", floor: judge.BOUNDARY_FLOOR })], true),
-        `Checkbox outline on panel backgrounds: contrast 1.25:1, needs ${judge.BOUNDARY_FLOOR}:1.`, "a mark keeps its own minimum");
-    assert.ok(judge.readabilityNotice([worst], true).includes("1.25:1"), "the terminal contains the judged ratio");
-    assert.ok(!judge.readabilityNotice([better, worst], true).includes("2.25:1"), "the terminal omits stronger surfaces");
-    const translucent = Object.assign({}, worst, { surface: "color.surfaceRaised", ratio: null });
-    assert.equal(judge.readabilityNotice([translucent], true), `Faint text on raised panel backgrounds: contrast cannot be measured, needs ${judge.READABILITY_FLOOR}:1.`);
-    assert.equal(judge.readabilityNotice([better, translucent]), judge.readabilityNotice([translucent]), "an unmeasurable surface takes priority");
-    assert.equal(judge.readabilityNotice([translucent, worst]), judge.readabilityNotice([translucent]), "a measurable ratio cannot replace an unmeasurable one");
+    // The count is the notification's result; the complete plain text is
+    // delivered to the terminal and the report opened from that notice.
+    for (const { label, rows, notice, report } of [
+        { label: "a passing theme", rows: [], notice: "", report: "" },
+        {
+            label: "one role failing on two surfaces",
+            rows: [
+                { text: "color.textFaint", surface: "color.surface", ratio: 1.259, floor: 4.5 },
+                { text: "color.textFaint", surface: "color.background", ratio: 2.25, floor: 4.5 }
+            ],
+            notice: "1 text style affected.",
+            report: "Faint text on panel backgrounds: contrast 1.25:1, needs 4.5:1.\nFaint text on the main background: contrast 2.25:1, needs 4.5:1."
+        },
+        {
+            label: "unmeasurable text and a failing boundary",
+            rows: [
+                { text: "color.textFaint", surface: "color.surfaceRaised", ratio: null, floor: 4.5 },
+                { text: "checkbox.borderColor", surface: "color.scrim over color.surfaceRaised", ratio: 1, floor: 3 }
+            ],
+            notice: "2 text styles affected.",
+            report: "Faint text on raised panel backgrounds: contrast cannot be measured, needs 4.5:1.\nCheckbox outline on the dimmed background over raised panel backgrounds: contrast 1.00:1, needs 3:1."
+        }
+    ]) {
+        assert.equal(judge.readabilityNotice(rows), notice, label + ": the notice counts distinct roles");
+        assert.equal(judge.readabilityReport(rows), report, label + ": every shortfall keeps its contrast and target");
+    }
     // Discover the source table's roles and surfaces, including composites.
     const pairs = judge.READABILITY_PAIRS.concat(judge.BOUNDARY_PAIRS);
     const keys = new Set(judge.READABILITY_TEXT_ROLES.concat(judge.READABILITY_SURFACES, judge.BOUNDARY_ROLES,
@@ -755,12 +765,15 @@ function verifyReadabilityNotice(judge) {
     const roles = Array.from(new Set(judge.READABILITY_TEXT_ROLES.concat(judge.BOUNDARY_ROLES,
         pairs.map(pair => pair[0]), judge.RAIL_TEXT_ROLES, judge.RAIL_MARK_ROLES, judge.TOOLTIP_TEXT_ROLES,
         [judge.MODAL_BORDER, judge.MODAL_FILL, judge.FAILURE_LINE])));
-    const crowded = judge.readabilityNotice(roles.map(text => ({ text, surface: "color.scrim over color.surfaceRaised", ratio: 1.25, floor: 4.5 })));
+    const crowdedRows = roles.map(text => ({ text, surface: "color.scrim over color.surfaceRaised", ratio: 1.25, floor: 4.5 }));
+    const crowded = judge.readabilityNotice(crowdedRows);
     assert.ok(crowded.length <= 600, "one notice stays within the notifier's message limit");
-    const omitted = /^And (\d+) more\.$/.exec(crowded.split("\n").slice(-1)[0]);
-    assert.notEqual(omitted, null, "a bounded notice names how many roles remain");
-    assert.equal(crowded.split("\n").length - 1 + Number(omitted[1]), roles.length, "each role is listed or counted");
+    assert.ok(crowded.split("\n").length <= 2, "the count fits the card's two-line message");
+    assert.equal(crowded, `${roles.length} text styles affected.`, "the count includes every readability role");
     assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");
+    const report = judge.readabilityReport(crowdedRows);
+    assert.ok(report.length > 600, "the full report reaches past the old notification limit");
+    assert.equal(report.split("\n").length, crowdedRows.length, "the report omits no role when the notice is crowded");
 }
 
 function verifyInputMeter(judge) {
@@ -2177,15 +2190,13 @@ const CONTROLS = [
     ["a surface-solved hint word keeps the old margin", "var margin = valueAt(values, spec.margin);", "var margin = spec.cap ? valueAt(values, spec.margin) : 4.95;", judge => verifyHintMargin(judge)],
     ["screensaver gradient is judged", '    ["screensaver.gradientStart", "screensaver.background"],\n', "", verifyScreensaver],
     ["screensaver fixed canvas", 'leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1)', "false", verifyScreensaver],
-    ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],
-    ["notice names the main background", '"color.background": "the main background"', '"color.background": "desktop"'],
-    ["notice names panel backgrounds", '"color.surface": "panel backgrounds"', '"color.surface": "panels"'],
+    ["notice counts distinct roles", "var count = Object.keys(roles).length;", "var count = shortfalls.length;", verifyReadabilityNotice],
+    ["report keeps every surface", "return shortfalls.map(function (shortfall) {", "return shortfalls.slice(0, 1).map(function (shortfall) {", verifyReadabilityNotice],
+    ["report states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."', verifyReadabilityNotice],
+    ["report names the main background", '"color.background": "the main background"', '"color.background": "desktop"', verifyReadabilityNotice],
+    ["report names panel backgrounds", '"color.surface": "panel backgrounds"', '"color.surface": "panels"', verifyReadabilityNotice],
     ["notice names its theme", '(displayName === null ? name : displayName) + ": some text may be hard to read"', '": some text may be hard to read"'],
     ["notice uses the display name", 'displayName === null ? name : displayName', 'name'],
-    ["notice omits the repeated introduction", 'var lines = [];', 'var lines = ["Some parts may be hard to read."];'],
-    ["notice groups each role", "if (!hasOwn(worst, row.text)) { worst[row.text] = row; roles.push(row.text); }", "if (true) { worst[row.text] = row; roles.push(row.text); }"],
-    ["notice picks the weakest surface", "row.ratio < worst[row.text].ratio", "row.ratio > worst[row.text].ratio"],
-    ["notice message limit", 'lines.concat([line]).join("\\n").length + tail.length > 600', 'lines.concat([line]).join("\\n").length + tail.length > 6000'],
     ["regular drawn ink", "regular: 0.966", "regular: 1"],
     ["bold drawn ink", "bold: 1.000", "bold: 0.966"],
     ["drawn ink on every text pair", "pairs[q][2] === READABILITY_FLOOR", "false"],

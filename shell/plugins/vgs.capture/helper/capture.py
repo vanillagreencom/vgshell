@@ -2,6 +2,8 @@
 """Service.qml consumes JSON lines for action progress and completion.
 
 An error's optional reason language-data-unavailable selects its notice title.
+A failed recording's saved event or error carries `log` only after this
+worker moved its full log beside the capture, so later runs cannot replace it.
 
 A selection asks the service to read targets and hold the screen still with
 freeze, then reads `frozen {"windows":[...],"outputs":[...]}` or
@@ -136,11 +138,6 @@ PROCESSING_PREFIX = ".screencast-processing-"
 # STATUS_LABEL_MAX characters.
 CHOICES_MAX = 32
 CHOICE_LABEL_MAX = 60
-# The failure notice shows this much of the recorder log's end; the service
-# cuts a notice message at 200 characters.
-LOG_TAIL_LINES = 4
-LOG_TAIL_CHARS = 140
-LOG_TAIL_READ = 4096
 # gpu-screen-recorder's exit status when the user cancels the portal picker.
 PORTAL_CANCELLED = 60
 # The service's stdin line that hands a picked screen to Display mode.
@@ -158,6 +155,7 @@ class Capture:
         self.children = []
         self.pidfds = {}
         self.recorder = None
+        self.recorder_log = None
         self.control = b""
         self.signalled = 0
         signal.signal(signal.SIGTERM, self.terminate)
@@ -604,74 +602,84 @@ class Capture:
         path = new_file(folder, "screencast", ".mp4")
         # Only the portal's recorder waits on a picker that can hand over.
         portal = request["action"] == "record-portal"
-        with open_log(state / "recorder.log") as log:
-            while True:
-                if camera is not None:
-                    target += "|v4l2:" + camera + WEBCAM
-                args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
-                try:
-                    self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-                except OSError:
-                    path.unlink(missing_ok=True)
-                    raise
-                # The reserved file starts empty. Publish recording only after the
-                # recorder writes it, so an encoding failure never shows a live
-                # icon. The portal's picker can stay open here, so a second press
-                # or stdin EOF cancels it; a stop that meets a written file stops.
-                line = handed = None
-                while self.recorder.poll() is None and path.stat().st_size == 0:
-                    line = self.read_control(0.01)
-                    if line is not None:
-                        if portal and line.startswith(PICKED_OUTPUT):
-                            handed = line.removeprefix(PICKED_OUTPUT)
-                            break
-                        if line in ("", "cancel") or path.stat().st_size == 0:
-                            self.end_recorder()
-                            path.unlink(missing_ok=True)
-                            emit("cancelled")
-                            return
-                        break
-                if handed is None:
-                    break
-                target = self.hand_off(handed, request["outputs"], path)
-                portal = False
-            if self.recorder.poll() is not None:
-                path.unlink(missing_ok=True)
-                if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:
-                    emit("cancelled")
-                    return
-                raise RuntimeError(f"Recording failed to start (exit {self.recorder.returncode})" + log_tail(log))
-            emit("recording", path=str(path))
-            stopping = False
-            while self.recorder.poll() is None:
-                # stdin carries stop; the short wait also observes a recorder crash.
-                if line != "stop":
-                    line = self.read_control(0.1)
-                    if line is None:
-                        continue
-                if line == "" or line.strip() == "stop":
-                    self.recorder.send_signal(signal.SIGINT)
-                    stopping = True
+        log_path = state / "recorder.log"
+        with open_log(log_path) as log:
+            try:
+                while True:
+                    if camera is not None:
+                        target += "|v4l2:" + camera + WEBCAM
+                    args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
                     try:
-                        self.wait(self.recorder, timeout=5)
-                    except subprocess.TimeoutExpired:
-                        raise RuntimeError("The recorder did not stop; the video may be incomplete")
-                    break
-            if not stopping or self.recorder.returncode not in (0, -signal.SIGINT) or path.stat().st_size == 0:
-                if path.stat().st_size == 0:
-                    path.unlink()
-                raise RuntimeError(f"Recording failed (exit {self.recorder.returncode})" + log_tail(log))
-            emit("stopped", path=str(path))
-            processing = "off"
-            if request["postProcess"] or audio:
-                processing = "done" if self.postprocess(path, audio.count("-a"), request["postProcess"], log) else "failed"
-            thumbnail = self.thumbnail(path, state, log)
-        try:
-            child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
-        except (OSError, RuntimeError) as error:
-            raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
-        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing,
-             actions=actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser"))))
+                        self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                    except OSError:
+                        path.unlink(missing_ok=True)
+                        raise
+                    # The reserved file starts empty. Publish recording only after the
+                    # recorder writes it, so an encoding failure never shows a live
+                    # icon. The portal's picker can stay open here, so a second press
+                    # or stdin EOF cancels it; a stop that meets a written file stops.
+                    line = handed = None
+                    while self.recorder.poll() is None and path.stat().st_size == 0:
+                        line = self.read_control(0.01)
+                        if line is not None:
+                            if portal and line.startswith(PICKED_OUTPUT):
+                                handed = line.removeprefix(PICKED_OUTPUT)
+                                break
+                            if line in ("", "cancel") or path.stat().st_size == 0:
+                                self.end_recorder()
+                                path.unlink(missing_ok=True)
+                                emit("cancelled")
+                                return
+                            break
+                    if handed is None:
+                        break
+                    target = self.hand_off(handed, request["outputs"], path)
+                    portal = False
+                if self.recorder.poll() is not None:
+                    path.unlink(missing_ok=True)
+                    if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:
+                        emit("cancelled")
+                        return
+                    raise RuntimeError(f"Recording failed to start (exit {self.recorder.returncode})")
+                emit("recording", path=str(path))
+                stopping = False
+                while self.recorder.poll() is None:
+                    # stdin carries stop; the short wait also observes a recorder crash.
+                    if line != "stop":
+                        line = self.read_control(0.1)
+                        if line is None:
+                            continue
+                    if line == "" or line.strip() == "stop":
+                        self.recorder.send_signal(signal.SIGINT)
+                        stopping = True
+                        try:
+                            self.wait(self.recorder, timeout=5)
+                        except subprocess.TimeoutExpired:
+                            raise RuntimeError("The recorder did not stop; the video may be incomplete")
+                        break
+                if not stopping or self.recorder.returncode not in (0, -signal.SIGINT) or path.stat().st_size == 0:
+                    if path.stat().st_size == 0:
+                        path.unlink()
+                    raise RuntimeError(f"Recording failed (exit {self.recorder.returncode})")
+                emit("stopped", path=str(path))
+                processing = "off"
+                if request["postProcess"] or audio:
+                    processing = "done" if self.postprocess(path, audio.count("-a"), request["postProcess"], log) else "failed"
+                thumbnail = self.thumbnail(path, state, log)
+                try:
+                    child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
+                except (OSError, RuntimeError) as error:
+                    raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
+                offered = actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser")))
+            except (OSError, ValueError, RuntimeError):
+                # End every writer before the failure artifact becomes immutable.
+                self.release()
+                self.recorder_log = preserve_log(log, log_path, path)
+                raise
+            if processing == "failed":
+                self.recorder_log = preserve_log(log, log_path, path)
+        fields = {"log": self.recorder_log} if self.recorder_log is not None else {}
+        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, actions=offered, **fields)
         self.clipboard_exit(child)
 
     def hand_off(self, name, outputs, path):
@@ -762,7 +770,7 @@ class Capture:
             # Silence measures -inf; each option takes -99 to 99.
             i, tp, lra, thresh = (min(99.0, max(-99.0, float(found[key]))) for key in ("input_i", "input_tp", "input_lra", "input_thresh"))
         except (ValueError, KeyError, TypeError):
-            # Only a failure's output goes to the log, whose end its notice shows.
+            # Keep a failed measurement in the recorder's full diagnostic log.
             log.write(err)
             log.flush()
             return None
@@ -927,26 +935,66 @@ def plugin_state(state_dir):
 
 
 @contextmanager
+def log_name(path):
+    """Serialize the shared log name without holding up recording or processing."""
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(directory)
+
+
+@contextmanager
 def open_log(path):
     """This recording's own owner-only log; every writer appends to its end.
 
     A recording that starts while an earlier one post-processes replaces the
     name, and the earlier worker keeps writing and reading its own file.
+    Name replacement and failure moves share the directory lock, so an older
+    failure can remove only its own name, never the next recording's log.
     """
-    path.unlink(missing_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with log_name(path):
+        path.unlink(missing_ok=True)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "r+b") as log:
         yield log
 
 
-def log_tail(log):
-    """The end of this recording's log on a new line, or "" for an empty log."""
-    fd = log.fileno()
-    size = os.fstat(fd).st_size
-    text = os.pread(fd, LOG_TAIL_READ, max(0, size - LOG_TAIL_READ)).decode(errors="replace")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    tail = "\n".join(lines[-LOG_TAIL_LINES:])[-LOG_TAIL_CHARS:]
-    return "\n" + tail if tail else ""
+def preserve_log(log, source, recording):
+    """Move this failed run's full diagnostics to its capture's reserved stem.
+
+    The stem retains the recording start time even if no video survived.
+    Copy from the held descriptor: a newer run may already have unlinked
+    this run's state name, and the capture folder may be on another device.
+    """
+    destination = recording.with_suffix(".log")
+    created = False
+    try:
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        created = True
+        with os.fdopen(fd, "wb") as kept:
+            log.flush()
+            log.seek(0)
+            shutil.copyfileobj(log, kept)
+        with log_name(source):
+            try:
+                current = source.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                current = None
+            held = os.fstat(log.fileno())
+            if current is not None and (current.st_dev, current.st_ino) == (held.st_dev, held.st_ino):
+                source.unlink()
+        return str(destination)
+    except OSError as error:
+        detail = str(error)
+        if created:
+            try:
+                destination.unlink()
+            except OSError as cleanup:
+                detail += f"; removing incomplete log failed: {cleanup}"
+        print(f"capture: recorder-log-move-failed {source} -> {destination}: {detail}", file=sys.stderr)
+        return None
 
 
 def remove_stale_processing(folder):
@@ -1421,11 +1469,13 @@ def main():
     except CaptureCancelled:
         emit("cancelled")
         return 0
-    except CaptureFailure as error:
-        emit("error", reason=error.reason, message=str(error))
-        return 1
     except (OSError, ValueError, RuntimeError) as error:
-        emit("error", message=str(error))
+        fields = {"message": str(error)}
+        if isinstance(error, CaptureFailure):
+            fields["reason"] = error.reason
+        if capture.recorder_log is not None:
+            fields["log"] = capture.recorder_log
+        emit("error", **fields)
         return 1
     finally:
         capture.release()

@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell.Io
 import qs.Core
+import qs.Commons
 
 // ThemeRunner against the stand-in Process, whose jobs the test finishes
 // by hand, with a reader bound to `last` that queues reads from its change
@@ -45,7 +46,7 @@ Item {
         property int lastChanges: 0
 
         function init() {
-            runner = createTemporaryObject(runnerComponent, root, { notificationHub: null });
+            runner = createTemporaryObject(runnerComponent, root, { notificationHub: { holdsName: false, active: false } });
             verify(runner !== null, "the runner builds");
             lastChanges = 0;
             runner.lastChanged.connect(() => lastChanges++);
@@ -62,6 +63,49 @@ Item {
             process.stdout.read(JSON.stringify(answer));
             process.exited(0, 0);
             process.running = false;
+        }
+
+        function test_readability_report_link_follows_successful_write_data() {
+            return [{ tag: "saved", state: "saved" }, { tag: "write failed", state: "failed" },
+                { tag: "commit lost", state: "lost" }, { tag: "read refused", state: "unreadable" }, { tag: "no shortfalls", state: "empty" }];
+        }
+
+        // expected-log: theme: readability-report path= -- Refused writes and failed readbacks log their own cause before a notice without a link.
+        function test_readability_report_link_follows_successful_write(row) {
+            const result = { state: "applied", shell: "applied", theme: "vgs", readabilityShortfalls: [
+                { text: "color.textFaint", surface: "color.background", ratio: 1, floor: 4.5 }
+            ] };
+            if (row.state === "empty") result.readabilityShortfalls = [];
+            const file = findChild(runner, "themeReadabilityReport");
+            verify(file !== null);
+            const notices = () => ProcessRegistry.processes.filter(process => process.pluginId === "core" && process.running);
+            const before = notices().length;
+            compare(runner.completed("apply", JSON.stringify(result)), "ok");
+            compare(file.live, "write");
+            verify(file.written.length > 0);
+            compare(notices().length, before, "a pending write publishes no link");
+            const saved = row.state === "saved" || row.state === "empty";
+            file.live = "";
+            if (row.state === "failed") file.saveFailed(FileViewError.PermissionDenied);
+            else {
+                file.saved();
+                tryCompare(file, "live", "read");
+                compare(notices().length, before, "a saved signal alone proves no report");
+                if (row.state === "unreadable") file.failRead(FileViewError.PermissionDenied);
+                else file.finishRead(saved ? file.written : "stale report");
+            }
+            compare(runner.readabilityWrites.length, 0);
+            if (row.state === "empty") {
+                compare(notices().length, before, "a clean check replaces the latest report without a warning");
+                return;
+            }
+            compare(notices().length, before + 1);
+            const notice = notices()[notices().length - 1];
+            const references = notice.command.filter(argument => argument.indexOf("--hint=string:x-vgs-page:") === 0);
+            compare(references.length, saved ? 1 : 0);
+            if (saved) compare(PageReference.file(PageReference.parse(references[0].slice("--hint=string:x-vgs-page:".length)).page), runner.readabilityPath);
+            notice.exited(0, 0);
+            notice.running = false;
         }
 
         function test_reads_queued_at_a_download_end_leave_last_alone() {

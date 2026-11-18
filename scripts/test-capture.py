@@ -1280,6 +1280,7 @@ def refused_before_recorder(root, helper, payload, reason):
     """A device refusal comes before any selection, file or recorder."""
     code, messages, err = worker(root, payload, helper, timeout=5)
     return (code == 1 and messages[-1].get("reason") == reason and not tool_calls(root, "gpu-screen-recorder")
+            and "log" not in messages[-1]
             and not tool_calls(root, "slurp") and "freeze" not in [message["event"] for message in messages]
             and not list((root / "videos").glob("*.mp4")))
 
@@ -1353,8 +1354,12 @@ def handoff_holds(root, helper):
 def handoff_refused(root, helper):
     """A picked name that is no enabled output records nothing more."""
     code, messages, err = worker(root, request(root, "record-portal"), helper, line="picked-output portal\n", ready="picker-ready", timeout=5)
-    return (code == 1 and [m["event"] for m in messages] == ["error"] and len(tool_calls(root, "gpu-screen-recorder")) == 1
-            and not list((root / "videos").glob("*")) and not alive(root, "gpu-screen-recorder"))
+    argv = tool_calls(root, "gpu-screen-recorder")
+    if code != 1 or [m["event"] for m in messages] != ["error"] or len(argv) != 1:
+        return False
+    log = Path(option(argv[0], "-o")).with_suffix(".log")
+    return (messages[-1].get("log") == str(log) and log.is_file() and list((root / "videos").iterdir()) == [log]
+            and not alive(root, "gpu-screen-recorder"))
 
 
 def saved_holds(root, helper, audio="desktop", post=True):
@@ -1392,7 +1397,8 @@ def saved_holds(root, helper, audio="desktop", post=True):
     elif processing or saved["processing"] != "off":
         return False
     clipboard = (root / "clipboard").read_bytes() if (root / "clipboard").exists() else b""
-    return (path.read_bytes() == b"finalized" and saved["thumbnail"] == str(state / "thumbnails" / (path.stem + ".jpg"))
+    return (path.read_bytes() == b"finalized" and "log" not in saved and not list(path.parent.glob("*.log"))
+            and saved["thumbnail"] == str(state / "thumbnails" / (path.stem + ".jpg"))
             and Path(saved["thumbnail"]).read_bytes().startswith(b"\xff\xd8\xff") and len(thumbnail) == 1
             and clipboard == (path.as_uri() + "\r\n").encode() and tool_calls(root, "wl-copy")[-1] == ["--foreground", "--type", "text/uri-list"]
             and stat_mode(state) == 0o700 and stat_mode(state / "recorder.log") == 0o600
@@ -1403,12 +1409,24 @@ def stat_mode(path):
     return path.stat().st_mode & 0o777
 
 
-def processing_failure_holds(root, helper):
-    """Function 18: a failed post-process keeps the recording whole and reports failure."""
+def processing_failure_holds(root, helper, diagnostics=b"fixture ffmpeg failure\n"):
+    """Function 18: a failed post-process keeps the video and its full log;
+    a later successful recording replaces only the state log."""
     code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
     saved = messages[-1] if messages else {}
-    return (code == 0 and saved.get("event") == "saved" and saved["processing"] == "failed"
-            and Path(saved["path"]).read_bytes() == b"finalized" and not list((root / "videos").glob(".screencast-processing-*")))
+    if code != 0 or saved.get("event") != "saved" or saved["processing"] != "failed":
+        return False
+    path = Path(saved["path"])
+    log = path.with_suffix(".log")
+    state_log = root / "state/plugins/vgs.capture/recorder.log"
+    expected = f"fixture recorder started {path.name}\n".encode() + diagnostics
+    if (saved.get("log") != str(log) or not log.is_file() or log.read_bytes() != expected or stat_mode(log) != 0o600
+            or state_log.exists() or path.read_bytes() != b"finalized" or list(path.parent.glob(".screencast-processing-*"))):
+        return False
+    code, messages, argv, err = next_recording(root, helper, ffmpegFail=False, fail=None)
+    return (code == 0 and messages[-1].get("processing") == "done" and "log" not in messages[-1]
+            and log.read_bytes() == expected and list(path.parent.glob("*.log")) == [log]
+            and state_log.read_bytes() == f"fixture recorder started {Path(messages[-1]['path']).name}\n".encode())
 
 
 class Lines:
@@ -1491,23 +1509,42 @@ const rows = [
   ["saved", {code:1,status:0}, 1], ["copied", {code:0,status:1}, 1], ["saved", null, 1],
   ["error", {code:1,status:0}, 0], ["cancelled", {code:0,status:0}, 0]
 ];
-const outcomes = rows.map(([terminalEvent, completion, expected]) => {
-  let notices=0, destroyed=0, finished=0, thawed=[];
-  const job = {terminalEvent, destroy:()=>destroyed++};
-  const run = new Function("restoreFocus","notice","finishAction","thaw","jobs","publish","console",input.body+"; return finished;")(
-    ()=>{}, ()=>notices++, ()=>finished++, held=>thawed.push(held), [job], ()=>{}, {error:()=>{}});
-  run(job,completion,"fixture provider error");
-  return notices===expected && destroyed===1 && finished===1 && thawed.length===1 && thawed[0]===job;
-});
+const outcomes = rows.flatMap(([terminalEvent, completion, expected]) => [false, true].map(logFailure => {
+  let notices=0, destroyed=0, finished=0, thawed=[], diagnostics=[], messages=[];
+  const job = {terminalEvent, errorText:"", destroy:()=>destroyed++};
+  const api = new Function("restoreFocus","notice","finishAction","thaw","jobs","publish","console",input.errors+input.body+"; return {finished,workerError};")(
+    ()=>{}, (title,message)=>{notices++; messages.push(message);}, ()=>finished++, held=>thawed.push(held), [job], ()=>{}, {error:line=>diagnostics.push(line)});
+  const cause = "capture: recorder-log-move-failed /state/recorder.log -> /videos/a.log: Permission denied";
+  api.workerError(job,"fixture provider error");
+  if (logFailure) api.workerError(job,cause);
+  // The foreground clipboard provider can retain this job indefinitely.
+  // Its preservation cause must already be in the shell log before exit.
+  const delivered = diagnostics.length===Number(logFailure) && (!logFailure || diagnostics[0]===cause);
+  api.finished(job,completion,job.errorText);
+  const clipboardFailure = expected === 1 && terminalEvent !== "";
+  return delivered && notices===expected && destroyed===1 && finished===1 && thawed.length===1 && thawed[0]===job
+    && diagnostics.filter(line=>line.includes("recorder-log-move-failed")).length===Number(logFailure)
+    && diagnostics.length===Number(logFailure)+Number(clipboardFailure)
+    && (terminalEvent!=="" || messages[0].trim()==="fixture provider error")
+    && messages.every(message=>!message.includes("recorder-log-move-failed"));
+}));
 console.log(JSON.stringify(outcomes));
 '''
-    def holds(body):
-        result = subprocess.run(["node", "-e", program, json.dumps({"body": body})], stdin=subprocess.DEVNULL,
+    def holds(body, errors=None):
+        result = subprocess.run(["node", "-e", program, json.dumps({"body": body, "errors": errors if errors is not None else service_function(source, "workerError")})], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
         assert result.returncode == 0, result.stderr
         return all(json.loads(result.stdout))
+    # The real live parser hands each stderr line to the tested owner;
+    # only other errors remain available to later clipboard completion.
+    assert "stderr: SplitParser { onRead: line => root.workerError(worker, line) }" in source
+    assert "root.finished(worker, completion, errorText)" in source
     body = service_function(source, "finished")
-    assert holds(body), "provider completion and failed start reporting"
+    assert holds(body), "provider completion and live log-preservation cause reporting"
+    errors = service_function(source, "workerError")
+    before = 'console.error(line);'
+    assert errors.count(before) == 1
+    assert not holds(body, errors.replace(before, 'void 0;')), "control: a lost preservation cause must fail"
     before = "completion.code !== 0"
     assert body.count(before) == 1
     assert not holds(body.replace(before, "false")), "control: a nonzero clipboard exit must fail"
@@ -1647,24 +1684,42 @@ def killed_processing_failure(root, helper, signum):
         (root / "ffmpeg-release").touch()
 
 
-def overlapping_processing_failure_holds(root, helper):
+def overlapping_processing_failure_holds(root, helper, blocked_move=False):
     """Function 20: a post-process that fails after the next recording started
-    reports failure for its original recording and keeps that recording whole."""
+    preserves its own full log without removing the next run's state log.
+    An occupied destination preserves the failure but publishes no log link."""
     proc, lines, events, first, _ = held_processing(root, helper)
     try:
         if first is None:
             return False
+        state_log = root / "state/plugins/vgs.capture/recorder.log"
+        # A full log exceeds a notice's text limit and includes bytes written
+        # before the other worker replaces the shared state name.
+        with state_log.open("ab") as log:
+            log.write(b"diagnostic payload\n" * 512)
+        first_log = state_log.read_bytes()
+        kept_log = first.with_suffix(".log")
+        if blocked_move:
+            kept_log.mkdir()
         code, messages, argv, err = next_recording(root, helper, ffmpegHold=False, ffmpegFail=False)
         if code != 0:
             return False
+        next_log = state_log.read_bytes()
         (root / "ffmpeg-release").touch()
         deadline = time.monotonic() + 5
         while not lines.closed and time.monotonic() < deadline:
             events += lines.read(0.05)
         proc.wait(timeout=5)
         saved = events[-1]
-        return (saved["event"] == "saved" and saved["path"] == str(first) and saved["processing"] == "failed"
-                and first.read_bytes() == b"finalized")
+        err = proc.stderr.read().decode()
+        if (proc.returncode != 0 or saved["event"] != "saved" or saved["path"] != str(first) or saved["processing"] != "failed"
+                or first.read_bytes() != b"finalized" or not state_log.is_file() or state_log.read_bytes() != next_log):
+            return False
+        if blocked_move:
+            return ("log" not in saved and kept_log.is_dir() and not list(kept_log.iterdir())
+                    and err.count("recorder-log-move-failed") == 1 and str(kept_log) in err)
+        return (saved.get("log") == str(kept_log) and kept_log.is_file() and stat_mode(kept_log) == 0o600
+                and kept_log.read_bytes() == first_log + b"fixture ffmpeg failure\n" and not err)
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -1694,35 +1749,38 @@ def service_notices(source=None):
 const input = JSON.parse(process.argv[1]);
 const shown = [];
 const shell = { notify: { send: options => { shown.push(options); return "ok"; } } };
-const api = new Function("shell", input.functions + "; return { noticeRequest, errorNotice };")(shell);
+const PageReference = require(input.loader).load(input.pageReference);
+const api = new Function("shell", "PageReference", input.functions + "; return { noticeRequest, errorNotice };")(shell, PageReference);
 const record = { actionName: "record-output" };
 const actions = [{ id: "default", label: "Open", argv: ["imv", "/pictures/a.png"] }, { id: "edit", label: "Edit", argv: ["satty", "/pictures/a.png"] }];
 const commands = [
     api.noticeRequest({ actionName: "screenshot-area" }, { event: "saved", path: "/pictures/a.png", actions: actions }),
-    api.noticeRequest(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", actions: [] }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", log: "/videos/a.log", actions: actions }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/no-log.mp4", thumbnail: "", processing: "failed", actions: [] }),
     api.noticeRequest(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", actions: [actions[0]] }),
     api.noticeRequest({ actionName: "text" }, { event: "copied" }),
     api.noticeRequest({ actionName: "screenshot" }, { event: "copied" }),
 ];
 api.errorNotice({ reason: "language-data-unavailable", message: "no deu data" });
-api.errorNotice({ message: "Recording failed (exit 1)\nfixture recorder crash" });
+api.errorNotice({ message: "Recording failed (exit 1)", log: "/state/recorder.log" });
 console.log(JSON.stringify([commands, shown]));
 '''
-    result = subprocess.run(["node", "-e", program, json.dumps({"functions": functions})], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+    result = subprocess.run(["node", "-e", program, json.dumps({"functions": functions, "loader": str(REPO / "bin/lib/qml-library.js"), "pageReference": str(REPO / "shell/Commons/PageReference.js")})], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                             env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
-    (screenshot, failed, done, text, copied), (language, crash) = json.loads(result.stdout)
+    (screenshot, failed, no_log, done, text, copied), (language, crash) = json.loads(result.stdout)
     styled = {"x-vgs-icon": "camera", "x-vgs-tone": "success"}
     pairs = [{"id": "default", "label": "Open"}, {"id": "edit", "label": "Edit"}]
     return (notice_shape(screenshot, {**styled, "image-path": "/pictures/a.png"}, pairs, "/pictures/a.png")
-            and notice_shape(failed, {**styled, "image-path": "/state/a.jpg"}, [], "/videos/a.mp4")
-            and failed["message"].endswith("Processing failed, so the recording is kept as recorded.")
+            and notice_shape(failed, {**styled, "image-path": "/state/a.jpg", "x-vgs-page": "[Recorder log](file:%2Fvideos%2Fa.log)"}, pairs, None)
+            and failed["message"] == "Recording cleanup failed.\nRecorder log"
+            and notice_shape(no_log, styled, [], None) and no_log["message"] == "Recording cleanup failed."
             and notice_shape(done, styled, pairs[:1], "/videos/b.mp4")
             and notice_shape(text, styled, [], None)
             and notice_shape(copied, styled, [], None)
             and language["tone"] == crash["tone"] == "danger" and language["icon"] == crash["icon"] == "camera"
             and language["title"] != crash["title"]
-            and language["message"] == "no deu data" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
+            and language["message"] == "no deu data" and crash["message"].endswith("[Recorder log](file:%2Fstate%2Frecorder.log)"))
 
 
 def notice_shape(request, hints, actions, path):
@@ -1812,10 +1870,17 @@ def notification_functions(base, source, plant_world):
 
 
 def failure_log_holds(root, helper, reason):
-    """Function 20: a failed start or a crash shows the end of the recorder log, which stays out of the worker's stderr."""
+    """Function 20: a failed recorder moves its own log beside its run's
+    timestamped output name, even when no video survives."""
     code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
-    log = root / "state/plugins/vgs.capture/recorder.log"
-    return (code == 1 and messages[-1]["event"] == "error" and reason in messages[-1]["message"] and reason in log.read_text()
+    if not argv:
+        return False
+    path = Path(option(argv, "-o"))
+    log = path.with_suffix(".log")
+    return (code == 1 and messages[-1]["event"] == "error" and messages[-1].get("log") == str(log)
+            and log.is_file() and reason not in messages[-1]["message"] and reason in log.read_text()
+            and not (root / "state/plugins/vgs.capture/recorder.log").exists()
+            and re.fullmatch(r"screencast-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-.+\.log", log.name)
             and reason not in err and stat_mode(log) == 0o600 and not list((root / "videos").glob("*.mp4")))
 
 
@@ -2006,9 +2071,14 @@ def recording_functions(base, source):
         assert not mode_holds(case, mutated(name, before, after)), "control did not fail: " + name
     for name, extra, wanted in options_cases():
         assert options_hold(world("options-" + name), HELPER, extra, wanted), name
-    payload = request(world("fractional-rate"), "record-output")
+    root = world("fractional-rate")
+    old_log = root / "state/plugins/vgs.capture/recorder.log"
+    old_log.parent.mkdir(parents=True)
+    old_log.write_text("An earlier recording's log")
+    payload = request(root, "record-output")
     payload["frameRate"] = 59.5
-    assert refused_before_recorder(base / "rec-fractional-rate", HELPER, payload, "invalid-frame-rate"), "fractional frame rate"
+    assert refused_before_recorder(root, HELPER, payload, "invalid-frame-rate"), "a refusal before recording links no earlier log"
+    assert old_log.read_text() == "An earlier recording's log", "an early refusal leaves the earlier log unchanged"
     for name, before, after, check in [
         ("no-recorder-options", '*options, ', '', lambda helper: options_hold(world("no-options"), helper, *options_cases()[1][1:])),
         ("fixed-pointer", '"yes" if request["recordCursor"] else "no"', '"yes"', lambda helper: options_hold(world("fixed-pointer"), helper, *options_cases()[0][1:])),
@@ -2048,13 +2118,17 @@ def recording_functions(base, source):
     for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False),
                               ("saved-unprocessed-silent", "none", False)]:
         assert saved_holds(world(name), HELPER, audio, post), name
-    assert processing_failure_holds(world("processing-failure", ffmpegFail=True), HELPER), "processing failure keeps the recording"
+    for name, config, diagnostics in [
+        ("processing-failure", {"ffmpegFail": True}, b"fixture ffmpeg failure\n"),
+        ("measurement-and-thumbnail-failure", {"fail": "ffmpeg"}, b"fixture failure\nfixture failure\n"),
+    ]:
+        assert processing_failure_holds(world(name, **config), HELPER, diagnostics), name
     for signum in (signal.SIGKILL, signal.SIGTERM):
         failed = killed_processing_failure(world("processing-" + signum.name, ffmpegHold=True), HELPER, signum)
         assert not failed, f"{signum.name}: {failed}"
     # Each worker fault fails function 18 under the condition that names it.
     for name, before, after, signum, reason in [
-        ("stopped-after-processing", '            emit("stopped", path=str(path))\n', '', signal.SIGKILL, "no-stopped-before-hold"),
+        ("stopped-after-processing", '                emit("stopped", path=str(path))\n', '', signal.SIGKILL, "no-stopped-before-hold"),
         ("unprefixed-processing-output", 'tempfile.mkstemp(prefix=PROCESSING_PREFIX', 'tempfile.mkstemp(prefix=".other-"', signal.SIGTERM, "processing-temp-count"),
         ("live-output-refused", 'except BlockingIOError:\n            continue', 'except BlockingIOError:\n            raise', signal.SIGKILL, "live-next-recording-exit"),
         ("unlocked-processing-output", 'fcntl.flock(fd, fcntl.LOCK_EX)', 'pass', signal.SIGKILL, "live-temp-removed"),
@@ -2085,7 +2159,13 @@ def recording_functions(base, source):
         (base / (name + ".py")).write_text(changed)
         failed = killed_processing_failure(world(name, ffmpegHold=True, ffmpegOutlivesTerm=outlives), base / (name + ".py"), signal.SIGTERM)
         assert failed.startswith(wanted) and bool(failed) == bool(wanted), f"{name}: {failed or 'held'}"
-    assert overlapping_processing_failure_holds(world("own-log", ffmpegHold=True, ffmpegFail=True), HELPER), "overlapping processing failure keeps the original recording"
+    for name, blocked in [("own-log", False), ("log-move-failure", True)]:
+        assert overlapping_processing_failure_holds(world(name, ffmpegHold=True, ffmpegFail=True), HELPER, blocked), name
+    for name, before, after in [
+        ("log-copies-next-run", 'shutil.copyfileobj(log, kept)', 'with source.open("rb") as current:\n                shutil.copyfileobj(current, kept)'),
+        ("log-removes-next-run", 'current is not None and (current.st_dev, current.st_ino) == (held.st_dev, held.st_ino)', 'current is not None'),
+    ]:
+        assert not overlapping_processing_failure_holds(world(name, ffmpegHold=True, ffmpegFail=True), mutated(name, before, after)), "control did not fail: " + name
     assert portal_exit_holds(world("portal-exit", portalCancel=True), HELPER), "portal picker cancel"
     assert service_notices(), "service notices"
     service = (HELPER.parent.parent / "Service.qml").read_text()
@@ -2095,6 +2175,7 @@ def recording_functions(base, source):
         ("notice-unstyled", '{ "x-vgs-icon": "camera", "x-vgs-tone": "success" }', '{}'),
         ("notice-imageless", 'if (image !== "") hints["image-path"] = image;', ''),
         ("notice-buttonless", '(event.actions || []).map(action => ({ id: action.id, label: action.label }))', '[]'),
+        ("notice-linkless", 'if (reference.page !== "") hints["x-vgs-page"] = reference.reference;', ''),
         ("notice-pathless", 'message = event.path;', 'message = "";'),
     ]:
         assert service.count(before) == 1, name
@@ -2106,11 +2187,14 @@ def recording_functions(base, source):
         ("old-clean-up-audio", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', lambda helper: saved_holds(world("old-clean-up-audio"), helper)),
         ("raw-audio-kept", 'if request["postProcess"] or audio:', 'if request["postProcess"]:', lambda helper: saved_holds(world("raw-audio-kept"), helper, "desktop", False)),
         ("recorder-log-to-stderr", 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)', 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=sys.stderr)', lambda helper: saved_holds(world("log-to-stderr"), helper)),
-        ("no-log-tail", 'return "\\n" + tail if tail else ""', 'return ""', lambda helper: failure_log_holds(world("no-log-tail", crash=True), helper, "fixture recorder crash: no encoder")),
+        ("no-recorder-log-reference", 'return str(destination)', 'return None', lambda helper: failure_log_holds(world("no-log-reference", crash=True), helper, "fixture recorder crash: no encoder")),
+        ("mutable-recorder-log-reference", 'return str(destination)', 'return str(source)', lambda helper: failure_log_holds(world("mutable-log-reference", crash=True), helper, "fixture recorder crash: no encoder")),
+        ("premature-recorder-log-reference", 'if capture.recorder_log is not None:', 'if True:',
+         lambda helper: refused_before_recorder(base / "rec-premature-log-reference", helper, {**payload, "recordFolder": str(world("premature-log-reference") / "videos")}, "invalid-frame-rate")),
     ]:
         assert not check(mutated(name, before, after)), "control did not fail: " + name
-    assert failure_log_holds(world("crash", crash=True), HELPER, "fixture recorder crash: no encoder"), "crash log tail"
-    assert failure_log_holds(world("start-failure", fail="gpu-screen-recorder"), HELPER, "fixture failure"), "failed start log tail"
+    assert failure_log_holds(world("crash", crash=True), HELPER, "fixture recorder crash: no encoder"), "crash log reference"
+    assert failure_log_holds(world("start-failure", fail="gpu-screen-recorder"), HELPER, "fixture failure"), "failed start log reference"
     for name, languages in [("text-english", "eng"), ("text-german", "deu+eng")]:
         assert text_holds(world(name, languages=["eng", "deu", "osd"]), HELPER, languages), name
     root = world("text-invalid")
@@ -2140,10 +2224,10 @@ def recording_functions(base, source):
     assert not language_tui_holds(base, control, "-apt-control"), "control did not fail: tui-apt-underscore"
     return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,webcam-old-place,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
             "no-audio-sources,no-missing-check,camera-any-format,camera-labels-shared,absent-camera,picker-ignores-cancel,handoff-ignored,handoff-any-name,raw-replaced,kept-processing-output,stopped-after-processing,"
-            "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
+            "no-uri-copy,recorder-log-to-stderr,no-recorder-log-reference,mutable-recorder-log-reference,log-copies-next-run,log-removes-next-run,premature-recorder-log-reference,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,reaping-handler,untimed-processing-wait,unprefixed-processing-output,live-output-refused,unowned-tool,processed-in-place,"
             "terminated-output-kept,stale-output-unremovable,portal-cancel-failure,notice-processing-ignored,notice-reason-renamed,"
-            "notice-unstyled,notice-imageless,notice-buttonless,notice-pathless")
+            "notice-unstyled,notice-imageless,notice-buttonless,notice-linkless,notice-pathless")
 
 
 def hyprctl_records(base):
@@ -2316,7 +2400,7 @@ def main():
         mutations = [
             ("no-output", 'args = ["grim", "-o", request["output"]]', 'args = ["grim"]', "screenshot"),
             ("no-clipboard", 'os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)', 'os.execvpe(sys.executable, [sys.executable, "-c", "pass"], os.environ)', "screenshot"),
-            ("hard-stop", 'self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True', "record"),
+            ("hard-stop", 'self.recorder.send_signal(signal.SIGINT)\n                        stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                        stopping = True', "record"),
         ]
         for name, before, after, action in mutations:
             assert source.count(before) == 1, name

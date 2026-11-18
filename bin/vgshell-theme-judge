@@ -1920,7 +1920,7 @@ function report(format, result, run, tail) {
         for (const t of result.targets) console.log("target=" + t.name + " state=" + t.state + (t.reason === null ? "" : " reason=" + t.reason) +
             (t.dropped === undefined || t.dropped.length === 0 ? "" : " dropped=" + t.dropped.join(",")));
         if (result.readabilityShortfalls !== undefined) {
-            const notice = logic.readabilityNotice(result.readabilityShortfalls, true);
+            const notice = logic.readabilityReport(result.readabilityShortfalls);
             if (notice !== "") console.log(logic.readabilityTitle(result.theme, result.displayName) + "\n" + notice);
         }
         console.log((result.state === "partial" ? "partial" : "ok") + " " + tail(result));
@@ -2553,7 +2553,7 @@ function add(result, configDir, stage, lock, url) {
 
 function addedLines(result) {
     const lines = ["ok added=" + result.theme + " path=" + result.path + (result.shadows === null ? "" : " shadows=" + result.shadows)];
-    const notice = logic.readabilityNotice(result.readabilityShortfalls, true);
+    const notice = logic.readabilityReport(result.readabilityShortfalls);
     if (notice !== "") lines.unshift(logic.readabilityTitle(result.theme, result.displayName) + "\n" + notice);
     return lines;
 }

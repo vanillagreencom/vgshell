@@ -1377,7 +1377,12 @@ terminal_readability() {
 import pathlib, re, sys
 text = pathlib.Path(sys.argv[1]).read_text()
 rows = [line for line in text.splitlines() if "Faint text" in line]
-sys.exit(0 if text.splitlines().count("faint: some text may be hard to read") == 1 and "Some parts may be hard to read." not in text and rows == ["Faint text on the main background: contrast 1.00:1, needs 4.5:1."] else 1)
+readings = [re.fullmatch(r"Faint text on (.+): contrast (\d+\.\d{2}):1, needs 4\.5:1\.", row) for row in rows]
+surfaces = [reading.group(1) for reading in readings if reading is not None]
+sys.exit(0 if text.splitlines().count("faint: some text may be hard to read") == 1
+         and all(readings) and surfaces == ["the main background", "panel backgrounds", "raised panel backgrounds", "inset panel backgrounds"]
+         and rows[0] == "Faint text on the main background: contrast 1.00:1, needs 4.5:1."
+         and all(1 <= float(reading.group(2)) < 4.5 for reading in readings) else 1)
 PY
 }
 tinst "a faint user theme adds with no shell" "$readability_cfg" "$rt_empty" 0 "$any_out" "" theme add "$src/faint.git"

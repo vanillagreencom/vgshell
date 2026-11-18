@@ -45,7 +45,7 @@
 # A copy with a reserved bottom gap must fail the same reading.
 # The room shrinks under the open long inbox, its last card selected: the
 # short-room fixture maps while the inbox stands, and the view holds the
-# selected card whole (panel_fit's selected mode). The control is a
+# selected card whole, read from its persistent slot. The control is a
 # Panel.qml copy whose view-height handler does nothing, which leaves that
 # card past the shrunken view's bottom (cut-bottom=selected).
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
@@ -180,7 +180,7 @@ Item {
 }
 QML
 }
-# The long inbox's forty rows: thirty-nine tall cards and, newest, one
+# The long inbox's forty rows: thirty-nine two-line cards and, newest, one
 # with actions, the card a selected inbox opens on. They are low, so their
 # toasts leave the screen within NotificationLogic's LOW_LIFETIME, and the
 # inbox opens on history alone, as the owner's did: while a toast shows,
@@ -192,13 +192,7 @@ QML
 long_inbox_rows() {
   local n shown=""
   for n in $(seq 1 39); do
-    if [[ ${1:-} == estimate && $n == 20 ]]; then
-      # This image exists for the initial estimate. The control removes
-      # its stored copy before this offscreen row first builds a card.
-      notify smoke-app 0 "Long $n" "" '[]' "{\"urgency\": <byte 0>, \"image-path\": <\"$home/estimate-control.jpg\">}" 0 >/dev/null
-    else
-      notify smoke-app 0 "Long $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
-    fi
+    notify smoke-app 0 "Long $n" "A body long enough to wrap onto a second line of the card" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
   done
   notify smoke-app 0 "Long newest" "Waiting for your input" '["default", "Show"]' '{"urgency": <byte 0>}' 0 >/dev/null
   for _ in $(seq 1 75); do
@@ -343,8 +337,8 @@ for line in open(sys.argv[1]).readlines()[int(sys.argv[2]):]:
     if "notification-height-trace:" not in line: continue
     try: row=json.loads(line.split("notification-height-trace:",1)[1])
     except ValueError: continue
-    if row["resting"] and (row["summary"]=="Long newest" or row["summary"].startswith("Long ")): rows[row["key"]]=row["height"]
-print("notification-collapsed-observations: count=%s signature=%s rows=%s"%(len(rows),hashlib.sha256(json.dumps(rows,sort_keys=True).encode()).hexdigest(),json.dumps(rows,sort_keys=True)),file=sys.stderr)
+    if row["summary"]=="Long newest" or row["summary"].startswith("Long "): rows[row["key"]]=row["height"]
+print("notification-height-observations: count=%s signature=%s rows=%s"%(len(rows),hashlib.sha256(json.dumps(rows,sort_keys=True).encode()).hexdigest(),json.dumps(rows,sort_keys=True)),file=sys.stderr)
 print(len(rows))
 PY_BUILT
 }
@@ -353,9 +347,9 @@ PY_BUILT
 nk_height_roundtrip() { # X Y PLAN TRACE_START
   local x=$1 y=$2 plan=$3 trace=$4 built top end back height down_status=0 up_status=0
   # End releases the first card's selected tray. The last row already
-  # had a collapsed observation while the warm traversal passed it.
+  # reported its actual height while the warm traversal passed it.
   type_keys -k End || { echo invalid-end-key; return; }
-  expect_poll "every long row has an actual collapsed-height observation" 40 nk_height_built "$trace" >&2
+  expect_poll "every long row has an actual-height observation" 40 nk_height_built "$trace" >&2
   built="$(nk_height_built "$trace")" || { echo invalid-trace; return; }
   [[ $built == 40 ]] || { echo "invalid-built=$built"; return; }
   nk_wheel_train "$x" "$y" -1 "$plan" warm-top || { echo invalid-warm-top; return; }
@@ -505,9 +499,6 @@ long_inbox_ends() {
   top="$(long_inbox_settled)"
   before="$(panel_current_view)" || before=unread
   [[ $before == \{* ]] || { echo "view=$before"; return; }
-  if [[ ${nk_require_estimate_distinct:-false} == true ]]; then
-    nk_estimate_fixture_remove || { echo invalid-estimate-image; return; }
-  fi
   plan="$(nk_wheel_plan "$before")" || return
   spot="$(py_reply 'import json,sys;print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$before")" || return
   read -r x y < <(panel_point "$spot" 4 -) || { echo "view=$before"; return; }
@@ -524,7 +515,6 @@ print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]
   local artifact
   artifact="$(mktemp -d "$smoke_log_dir/notifications-height.XXXXXX")" || return
   tail -n +"$((trace + 1))" -- "$instance_log" >"$artifact/instance.log"
-  cp -- "$artifact/instance.log" "$sandbox/height-last-trace.log"
   printf 'result=%s\nplan=%s\n' "$stable" "$plan" >"$artifact/result.txt"
   cp -- "$nk_panel" "$artifact/Panel.qml"
   printf 'notification-height-artifact: %s\n' "$artifact" >&2
@@ -533,49 +523,69 @@ print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
   nk_event_control "$trace" || { echo event-control-failed; return; }
-  if [[ ${nk_require_estimate_distinct:-false} == true && $(nk_estimate_fixture_distinct) != True ]]; then
-    echo invalid-estimate-fixture
-    return
-  fi
   [[ $stable == stable ]] || { echo "$stable"; return; }
   echo "top=$top end=$end"
 }
-nk_estimate_fixture_distinct() {
-  python3 - "$sandbox/height-last-trace.log" <<'PY_DISTINCT'
-import json,sys
-rows=[]
-for line in open(sys.argv[1]):
-    if "notification-height-trace:" not in line: continue
-    row=json.loads(line.split("notification-height-trace:",1)[1])
-    if row["summary"]=="Long 20" and row["resting"] and row["height"]!=row["estimate"]: rows.append(row)
-print("notification-estimate-fixture:"+json.dumps(rows),file=sys.stderr)
-print(bool(rows))
-PY_DISTINCT
+# Panel.qml retains each slot's measured extent when its offscreen face
+# unloads. Its viewY is relative to CardScroll's view; the slot includes
+# the trailing card gap. The pointer rests outside, so no hover lift moves
+# the card. Reading a shown Long 1 face would lose the intended no-reveal
+# counterexample as that face unloads below the shortened view.
+nk_selected_view() {
+  local scroll slots key
+  key="$(panel_selected_key)" || return 1
+  scroll="$(ipc smoke itemValues panel vgs.notifications CardScroll flickable.contentY,flickable.contentHeight,flickable.height,look.card.gap)" || return 1
+  slots="$(ipc smoke itemValues panel vgs.notifications QQuickItem entry.key,entry.summary,selected,viewY,width,height)" || return 1
+  py_reply 'import json,math,sys
+values = {}
+for name, raw in (("scroll", sys.argv[1]), ("selected-key", sys.argv[2]), ("slots", sys.stdin.read())):
+    try:
+        values[name] = json.loads(raw)
+    except ValueError:
+        print("unread %s=invalid-json" % name)
+        sys.exit()
+scrolls, slots, key = values["scroll"], values["slots"], values["selected-key"]
+if not isinstance(scrolls, list) or len(scrolls) != 1 or not isinstance(scrolls[0], dict):
+    print("unread scrolls=%s" % (len(scrolls) if isinstance(scrolls, list) else "invalid"))
+    sys.exit()
+if not isinstance(slots, list) or not all(isinstance(slot, dict) for slot in slots):
+    print("unread slots=invalid")
+    sys.exit()
+selected = [slot for slot in slots if slot.get("selected") is True]
+if len(selected) != 1:
+    print("unread selected=%d" % len(selected))
+    sys.exit()
+slot, scroll = selected[0], scrolls[0]
+if not isinstance(key, str) or not key or slot.get("entry.key") != key or slot.get("entry.summary") != "Long 1":
+    print("unread selected=identity")
+    sys.exit()
+for owner, names in ((scroll, ("flickable.contentY", "flickable.contentHeight", "flickable.height", "look.card.gap")),
+                     (slot, ("viewY", "width", "height"))):
+    for name in names:
+        value = owner.get(name)
+        if type(value) not in (int, float) or not math.isfinite(value):
+            print("unread geometry=" + name)
+            sys.exit()
+height, gap = scroll["flickable.height"], scroll["look.card.gap"]
+if height <= 0 or scroll["flickable.contentHeight"] <= 0 or gap < 0 or slot["width"] <= 0 or slot["height"] <= gap:
+    print("unread geometry=empty")
+    sys.exit()
+bad = []
+if slot["viewY"] < -0.5:
+    bad.append("cut-top=selected")
+if slot["viewY"] + slot["height"] - gap > height + 0.5:
+    bad.append("cut-bottom=selected")
+print(json.dumps({"contentY": scroll["flickable.contentY"], "contentHeight": scroll["flickable.contentHeight"],
+    "height": height, "gap": gap, "selectedKey": key, "selected": slot,
+    "fit": " ".join(sorted(bad)) if bad else "fits"}, sort_keys=True))' "$scroll" "$key" <<<"$slots"
 }
-nk_estimate_fixture_remove() {
-  local cache
-  cache="$(ipc smoke readInstance panel vgs.notifications measuredRows)" || return 1
-  python3 - "$cache" "$nk_estimate_key" "$nk_estimate_image" "$home" "$(look_at media.size)" "$(look_at card.pad)" "$(look_at card.gap)" <<'PY_REMOVE'
-import json,os,sys
-cache=json.loads(sys.argv[1]);key,path,home=sys.argv[2:5]
-row=cache.get(key)
-media,pad,gap=map(float,sys.argv[5:])
-if not isinstance(row,dict) or row["collapsed"] is not None or row["estimate"]!=media+2*pad+gap:
-    raise SystemExit("estimate fixture has no unbuilt media estimate")
-if not os.path.realpath(path).startswith(os.path.realpath(home)+os.sep) or not os.path.isfile(path):
-    raise SystemExit("estimate fixture image is not a sandbox-owned file")
-print("notification-estimate-initial:"+json.dumps({"key":key,"estimate":row["estimate"],"collapsed":row["collapsed"],"image":path}),file=sys.stderr)
-os.unlink(path)
-PY_REMOVE
-}
-# nk_view_settled: the long inbox's view, the probe's viewHolding reading,
-# once two readings 0.1 s apart match whole, height and place both, so a
-# resize of the panel's card is over; `unsettled` with the last reading at
-# smoke_poll_bound_ms, and the probe's answer for a missing view.
+# nk_view_settled: the stable scroll and selected slot once two complete
+# snapshots 0.1 s apart match. Missing or ambiguous inputs stay unread;
+# `unsettled` carries the last snapshot at smoke_poll_bound_ms.
 nk_view_settled() {
   local view last=""
   for _ in $(seq 1 $((smoke_poll_bound_ms / 100))); do
-    view="$(ipc smoke viewHolding panel vgs.notifications "Long 1")" || return 1
+    view="$(nk_selected_view)" || return 1
     [[ $view == \{* ]] || { echo "$view"; return 0; }
     [[ $view == "$last" ]] && { echo "$view"; return 0; }
     last="$view"
@@ -588,7 +598,7 @@ nk_view_settled() {
 # changes hover as the layout moves, selects the last card with End once
 # the list holds the keyboard, which scrolls the list to its end, and
 # enables the short-room fixture, whose layer takes the screen's bottom
-# from the panel. Prints panel_fit's selected reading once the panel reads
+# from the panel. Prints the persistent selected slot's fit once the panel reads
 # shorter than its panelMaxHeight, polled every 200 ms for up to
 # smoke_poll_bound_ms, and nk_view_settled reads a shorter view: `fits`, or
 # `cut-bottom=selected` where the view kept its place. Where the
@@ -597,7 +607,7 @@ nk_view_settled() {
 # $sandbox/rows/notifications-keys.room-shrink.txt, which nk_room_shrink_readings prints. It
 # leaves the inbox closed and the fixture enabled.
 nk_room_shrink() {
-  local shown x y focused=False selected=none fit=unread capped=unread before after reply reading
+  local shown x y focused=False fit=unread capped=unread before after reply reading
   rm -f -- "${sandbox:?}/rows/notifications-keys.room-shrink.txt"
   nk_press >/dev/null || { echo open-failed; return; }
   shown="$(long_inbox_shown)"
@@ -611,17 +621,22 @@ nk_room_shrink() {
   [[ $focused == True ]] || { echo "list-focus=$focused"; return; }
   type_keys -k End || { echo end-key-failed; return; }
   for _ in $(seq 1 25); do
-    selected="$(panel_selected_summary)" || selected=unread
-    fit="$(panel_fit selected)" || fit=unread
-    [[ $selected == "Long 1" && $fit == fits ]] && break
+    before="$(nk_selected_view)" || before=unread
+    if [[ $before == \{* ]]; then
+      fit="$(py_reply 'import json,sys;print(json.load(sys.stdin)["fit"])' <<<"$before")" || fit=unread
+    else
+      fit="$before"
+    fi
+    [[ $fit == fits ]] && break
     sleep 0.2
   done
-  [[ $selected == "Long 1" ]] || { echo "selected=$selected"; return; }
   [[ $fit == fits ]] || { echo "before=$fit"; return; }
   capped="$(room_caps)" || capped=unread
   [[ $capped == False ]] || { echo "whole-room=$capped"; return; }
-  before="$(view_at_rest panel vgs.notifications "Long 1")" || before=unread
+  before="$(nk_view_settled)" || before=unread
   [[ $before == \{* ]] || { echo "view-before=$before"; return; }
+  fit="$(py_reply 'import json,sys;print(json.load(sys.stdin)["fit"])' <<<"$before")" || fit=unread
+  [[ $fit == fits ]] || { echo "before=$fit"; return; }
   reply="$(ipc shell setPluginEnabled acme.notifications-short-room true)" || reply=failed
   [[ $reply == ok ]] || { echo "fixture=$reply"; return; }
   for _ in $(seq 1 $((smoke_poll_bound_ms / 200))); do
@@ -632,11 +647,16 @@ nk_room_shrink() {
   [[ $capped == True ]] || { echo "short-room=$capped"; return; }
   after="$(nk_view_settled)" || after=unread
   [[ $after == \{* ]] || { echo "view-after=$after"; return; }
-  reading="$(panel_fit selected)" || reading=unread
+  reading="$(py_reply 'import json,sys;print(json.load(sys.stdin)["fit"])' <<<"$after")" || reading=unread
   printf 'before=%s after=%s reading=%s' "$before" "$after" "$reading" >"$sandbox/rows/notifications-keys.room-shrink.txt"
   nk_press >/dev/null || { echo close-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
-  python3 -c 'import json,sys; before,after=map(json.loads,sys.argv[1:3]); print(sys.argv[3] if after["height"] < before["height"] else "view-not-shorter")' "$before" "$after" "$reading"
+  python3 -c 'import json,sys
+before,after=map(json.loads,sys.argv[1:3])
+if after["selectedKey"] != before["selectedKey"]:
+    print("selection-changed")
+else:
+    print(sys.argv[3] if after["height"] < before["height"] else "view-not-shorter")' "$before" "$after" "$reading"
 }
 # nk_second_press: five rounds of the open long inbox taking Super+N twice
 # from one wtype call, with the key marker behind them. Prints `kept` when
@@ -985,9 +1005,9 @@ python3 - "$nk_panel" <<'PY_HEIGHT_TRACE'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=p.read_text()
-needle="        if (resting) cached.collapsed = height;"
+needle="        if (cached.height === height) return;"
 assert s.count(needle)==1
-trace='        console.log("notification-height-trace:" + JSON.stringify({ key: key, summary: rows[indexOfKey(key)].summary, old: cached.height, height: height, estimate: cached.estimate, collapsed: cached.collapsed, resting: resting }));\n'
+trace='        console.log("notification-height-trace:" + JSON.stringify({ key: key, summary: rows[indexOfKey(key)].summary, old: cached.height, height: height }));\n'
 p.write_text(s.replace(needle,trace+needle))
 PY_HEIGHT_TRACE
 rescan "a rescan reads height tracing"
@@ -995,81 +1015,6 @@ expect "enabling height tracing is allowed" ok ipc shell setPluginEnabled vgs.no
 expect_poll "the height-traced service is built" True record_exists vgs.notifications
 expect_poll "the inbox shortcut is listed beside the height-traced service" 1 note_shortcuts
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
-# Control: returning a real collapsed extent to its initial estimate
-# must change the established range during the same native roundtrip.
-cp -- "$nk_panel" "$sandbox/Panel.qml.keys-traced"
-expect "clearing the long inbox before the estimate fixture is allowed" ok notes clear-history
-cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$home/estimate-control.jpg"
-expect "Silence prevents a decoded toast image in the estimate fixture" on notes silence on
-expect "the estimate fixture's toasts leave the screen" 0 long_inbox_rows estimate
-expect_poll "the estimate fixture holds forty cards alone" 40 note_status history
-expect "Silence turns off after the estimate fixture is stored" off notes silence off
-read -r nk_estimate_key nk_estimate_image < <(note_state_py 'import json,os,sys
-rows=[r for r in json.load(open(sys.argv[1]))["history"] if r["summary"]=="Long 20"]
-if len(rows)!=1: raise SystemExit("estimate fixture has no unique Long 20")
-r=rows[0];path=r["image"].removeprefix("file://")
-if not os.path.isfile(path): raise SystemExit("estimate fixture image is not stored")
-print(r["key"],path)') || fail "the estimate fixture's stored image is unreadable"
-expect "disabling notifications before estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-expect_poll "the estimate-restoration copy has no registered or installed inbox binding" 0 note_shortcuts
-python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]);s=p.read_text()
-needle='                            sourceComponent: Component {'
-assert s.count(needle)==1
-replacement="                            onActiveChanged: if (!active) root.queueEstimateRestore(slot.entry.key)\n"
-slot_needle="                        onSelectedChanged: if (selected) root.updateSelectionHover()"
-assert s.count(slot_needle)==1
-slot_restore='''                        function restoreEstimateIfUnloaded() {
-                            if (faceLoader.active) return;
-                            const cached = root.measuredRows[entry.key];
-                            const at = root.indexOfKey(entry.key);
-                            if (at === -1 || cached === undefined) return;
-                            console.log("notification-estimate-restore:" + JSON.stringify({ key: entry.key, old: cached.height, estimate: cached.estimate }));
-                            cached.height = cached.estimate;
-                            panelModel.setProperty(at, "extent", cached.estimate);
-                        }
-'''
-s=s.replace(slot_needle,slot_restore+slot_needle)
-root_needle="    function reconcileRows(next) {"
-assert s.count(root_needle)==1
-root_timer='''    property var pendingEstimateRestores: ({})
-    function queueEstimateRestore(key) {
-        pendingEstimateRestores[key] = true;
-        estimateRestoreTimer.start();
-    }
-    Timer {
-        id: estimateRestoreTimer
-        interval: 0
-        repeat: false
-        onTriggered: {
-            const keys = Object.keys(root.pendingEstimateRestores);
-            root.pendingEstimateRestores = ({});
-            for (const key of keys) {
-                const slot = rowRepeater.itemAt(root.indexOfKey(key));
-                if (slot !== null) slot.restoreEstimateIfUnloaded();
-            }
-        }
-    }
-'''
-s=s.replace(root_needle,root_timer+root_needle)
-p.write_text(s.replace(needle,replacement+needle))
-PY_ESTIMATE_RESTORE
-rescan "a rescan reads estimate restoration"
-expect "enabling estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-expect_poll "the estimate-restoration service is built" True record_exists vgs.notifications
-expect_poll "the estimate-restoration inbox binding is installed" 1 note_shortcuts
-nk_require_estimate_distinct=true
-geometry expect "control: restoring estimates changes the established content height" height-changed long_inbox_ends nk_press
-nk_require_estimate_distinct=false
-expect "the estimate control observed a real height distinct from its estimate" True nk_estimate_fixture_distinct
-cp -- "$sandbox/Panel.qml.keys-traced" "$nk_panel"
-rescan "a rescan restores retained actual heights"
-expect_poll "the actual-height service is restored" True record_exists vgs.notifications
-expect "clearing the estimate fixture is allowed" ok notes clear-history
-expect "the original long inbox's toasts leave the screen" 0 long_inbox_rows
-expect_poll "the restored long inbox holds forty cards alone" 40 note_status history
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
 # Control: a real list with a reserved bottom gap fails both scroll ends.
 expect "disabling notifications before the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false

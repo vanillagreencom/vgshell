@@ -9,7 +9,8 @@
 # monitor capture looks the name up among DRM connectors (6.1.6
 # src/recorder/capture_setup.c validate_monitor_get_valid), which a nested
 # output is not, so it ends with `display "NAME" not found`, the job with
-# its Recording failed to start notice, and no file is left. Controls: a
+# its Recording failed to start notice, and only its private recorder log
+# is left, linked from that notice. Controls: a
 # tree whose ShareSession answers the picker as before records the
 # portal's stream sideways and fails the hand-off reading; its last frame
 # is kept as $smoke_log_dir/picked-screen/control.png. A share another
@@ -17,7 +18,7 @@
 # and hands nothing off; the job's own picker is cancelled before reading
 # the app's frame. A tree that hands off any request's screen fails that.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py bin/lib/qml-library.js scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
 set -euo pipefail
 for ps_required in /usr/lib/xdg-desktop-portal /usr/lib/xdg-desktop-portal-hyprland /usr/lib/xdg-permission-store /usr/bin/gpu-screen-recorder; do
   if [[ ! -x $ps_required ]]; then not_measured picked-screen missing="$ps_required"; return 0; fi
@@ -169,8 +170,34 @@ ps_failures() {
   if [[ $raw == absent ]]; then echo '[]'; return; fi
   py_reply 'import json,sys; print(json.dumps([r[2].split("\n")[0].split(" (exit")[0] for r in json.load(sys.stdin) if r[0]=="Capture" and r[1]=="Capture failed" and r[3]==""]))' <<<"$raw"
 }
-ps_recorder_log() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text(errors="replace"))' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "display \"$ps_output\" not found"; }
-ps_empty() { python3 -c 'import os,sys; d=sys.argv[1]; print(os.path.isdir(d) and os.listdir(d)==[])' "$1"; }
+ps_failure_artifact() {
+  local rows
+  rows="$(ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving)" || return 1
+  node -e '
+const fs = require("fs"), path = require("path");
+const [repo, raw, folder, cause] = process.argv.slice(1);
+const { load } = require(path.join(repo, "bin", "lib", "qml-library.js"));
+const reference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
+const rows = raw === "absent" ? [] : JSON.parse(raw);
+const notices = Array.isArray(rows) ? rows.filter(r => r[0] === "Capture" && r[1] === "Capture failed" && r[3] === "") : [];
+const link = reference.parse(notices.length === 1 ? notices[0][2] : "");
+const file = reference.file(link.page);
+const result = { cause: false, onlyLog: false, private: false };
+if (link.words === "Recorder log" && file !== "") {
+    try {
+        const fd = fs.openSync(file, "r");
+        try {
+            const stat = fs.fstatSync(fd);
+            result.cause = stat.isFile() && fs.readFileSync(fd, "utf8").includes(cause);
+            result.private = stat.isFile() && (stat.mode & 0o777) === 0o600;
+        } finally { fs.closeSync(fd); }
+        const entries = fs.readdirSync(folder);
+        result.onlyLog = path.dirname(file) === folder && path.extname(file) === ".log"
+            && entries.length === 1 && entries[0] === path.basename(file);
+    } catch (error) { result.error = error.code || error.message; }
+}
+console.log(JSON.stringify(result));' "$repo" "$rows" "$ps_world/videos-handoff" "display \"$ps_output\" not found"
+}
 # ps_handoff: what the hand-off decided. recorders: each call's -w; argv:
 # whether the second call is record-output's argv for the picked output
 # with the manifest's default options and audio none, into the first
@@ -281,8 +308,7 @@ ps_handoff_round() {
   printf 'picked-screen: handoff handoff=%s\n' "$(ps_handoff)"
   expect_poll "handoff: the share request is released" none ps_share
   expect_poll "handoff: the job ends in its start failure" '["Recording failed to start"]' ps_failures
-  expect "handoff: the recorder could not find the nested output" True ps_recorder_log
-  expect "handoff: no file is left" True ps_empty "$ps_world/videos-handoff"
+  expect "handoff: only the private recorder log keeps the nested-output failure" '{"cause":true,"onlyLog":true,"private":true}' ps_failure_artifact
   expect "handoff: capture disables" ok ipc shell setPluginEnabled vgs.capture false
   ps_portal_stop handoff
 }

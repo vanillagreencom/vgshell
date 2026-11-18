@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Layouts
 import QtTest
 import qs.Unit
@@ -53,6 +54,7 @@ Item {
         summary: "Notification " + index, body: "An overflowing shipped panel"
     }))
     property var limitsEntry: null
+    property var choices: []
 
     Notifications.Panel {
         id: panel
@@ -63,7 +65,7 @@ Item {
         // interface. The service owns data; this unit test owns its input.
         shell: ({ status: { revision: 0 }, settings: {}, ipc: { call: (name, arg) =>
             name === "panel-state" ? JSON.stringify({ mode: "inbox", rows: scene.notificationRows.map((row, index) =>
-                index === 1 && scene.limitsEntry !== null ? Object.assign({}, row, scene.limitsEntry) : row) }) : "ok" } })
+                index === 1 && scene.limitsEntry !== null ? Object.assign({}, row, scene.limitsEntry) : row) }) : name === "choose" ? (scene.choices.push(JSON.parse(arg)), "kept") : "ok" } })
     }
 
     Component {
@@ -272,23 +274,44 @@ Item {
             ];
         }
 
-        function test_cut_card_opens_from_pointer_or_keyboard_data() {
+        // Activate the stand-in popup's native window and ask UnitCase
+        // for its first frame before sending input.
+        function readyMenu(menu) {
+            const scope = menu.surface.scope;
+            scope.Window.window.requestActivate();
+            scope.forceActiveFocus();
+            tryCompare(scope.Window, "active", true);
+            tryCompare(scope, "activeFocus", true);
+            verify(renderedFrame(menu.surface.contentItem));
+        }
+
+        function cardGeometry(card) {
+            const values = [card.width, card.height];
+            for (const name of ["notificationTitleText", "notificationBodyText"]) {
+                const item = findChild(card, name);
+                const at = item.mapToItem(card, 0, 0);
+                values.push(at.x, at.y, item.width, item.height, item.lineCount);
+            }
+            return values;
+        }
+
+        function test_cards_stay_bounded_from_pointer_or_keyboard_data() {
             return [
-                { tag: "pointer", pointer: true, title: "A long title that wraps across several lines when the list card opens to show all its words" },
-                { tag: "keyboard", pointer: false, title: "A long title that wraps across several lines when the list card opens to show all its words" },
+                { tag: "pointer", pointer: true, title: "A sender title that is longer than the one line a notification can show" },
+                { tag: "keyboard", pointer: false, title: "A sender title that is longer than the one line a notification can show" },
                 { tag: "message without title", pointer: false, title: "" }
             ];
         }
 
-        function test_cut_card_opens_from_pointer_or_keyboard(row) {
-            scene.limitsEntry = { summary: row.title, body: Array(6).fill("A message line").join("\n") };
+        function test_cards_stay_bounded_from_pointer_or_keyboard(row) {
+            scene.limitsEntry = { summary: row.title, body: Array(6).fill("A message line").join("\n"), hintIcon: "bell",
+                actions: ["Set up two-way sync", "Open recording", "Show in folder", "Copy link", "Dismiss"].map((label, index) => ({ id: "action" + index, label: label })) };
             const parts = showPanel(600);
             const face = parts.faceAt(1);
             verify(face !== undefined);
             const card = face.card;
             const title = findChild(card, "notificationTitleText");
             const body = findChild(card, "notificationBodyText");
-            compare(card.open, false);
             compare(title.visible, row.title !== "");
             verify(body.visible);
             if (row.title !== "") {
@@ -298,6 +321,7 @@ Item {
             compare(body.lineCount, 2, "a closed message stops after two lines");
             verify(body.truncated);
             const closedHeight = card.height;
+            const restingGeometry = cardGeometry(card);
             if (row.pointer) {
                 mouseMove(parts.slots[1], parts.slots[1].width / 2, parts.slots[1].height / 2);
                 tryCompare(face, "hovered", true);
@@ -306,16 +330,45 @@ Item {
                 keyClick(Qt.Key_Down);
                 compare(panel.currentIndex, 1);
             }
-            tryCompare(card, "open", true);
-            tryVerify(() => !body.truncated && (row.title === "" || !title.truncated));
-            compare(body.lineCount, 6, "the open card shows the full message");
-            if (row.title !== "") verify(title.lineCount > 1, "the open card shows the full title");
-            tryVerify(() => card.height > closedHeight && Math.abs(parts.slots[1].height - card.height - panel.look.card.gap) < 0.5);
+            tryCompare(card, "showActions", true);
+            const tray = findChild(card, "notificationCaption").parent;
+            tryCompare(tray, "opacity", 1);
+            card.settleHeight();
+            compare(body.lineCount, 2);
+            verify(body.truncated);
+            if (row.title !== "") { compare(title.lineCount, 1); verify(title.truncated); }
+            const pills = descendants(tray).filter(child => child.emphasized !== undefined);
+            compare(pills.length, 3);
+            compare(pills[2].text, "…");
+            compare(pills.map(pill => pill.contentItem.text), scene.limitsEntry.actions.slice(0, 2).map(action => action.label).concat(["…"]));
+            compare(cardGeometry(card), restingGeometry, "hover and selection keep resting title/body geometry");
+            for (const pill of pills) {
+                const label = pill.contentItem;
+                const at = label.mapToItem(card, 0, 0);
+                verify(!label.truncated && label.width >= label.implicitWidth, "the painted label reads in full");
+                verify(at.x >= 0 && at.x + label.width <= card.width, "the full label stays inside the card");
+            }
+            fuzzyCompare(tray.y + tray.height / 2, card.height / 2, 0.5);
+            const media = findChild(card, "notificationMediaSlot");
+            fuzzyCompare(media.mapToItem(card, 0, media.height / 2).y, card.height / 2, 0.5);
+            const menu = findChild(card, "notificationOverflowMenu");
+            if (row.pointer) mouseClick(pills[2]);
+            else { keyClick(Qt.Key_Right); keyClick(Qt.Key_Right); keyClick(Qt.Key_Right); keyClick(Qt.Key_Return); }
+            tryCompare(menu, "opened", true);
+            compare(menu.anchorItem, pills[2], "the menu follows its overflow pill");
+            compare(menu.items().length, 3);
+            readyMenu(menu);
+            const before = scene.choices.length;
+            if (row.pointer) mouseClick(menu.items()[1]);
+            else { keyClick(Qt.Key_Down); keyClick(Qt.Key_Return); }
+            tryCompare(menu, "opened", false);
+            compare(scene.choices.length, before + 1);
+            compare(scene.choices[before].choice, "action3");
             verify(renderedFrame(card));
             if (row.pointer) mouseMove(scene, scene.width - 1, scene.height - 1);
             else keyClick(Qt.Key_Up);
-            tryCompare(card, "open", false);
             tryCompare(card, "height", closedHeight);
+            compare(cardGeometry(card), restingGeometry, "leaving actions changes no text geometry");
         }
 
         function test_hidden_decoder(row) {
