@@ -106,7 +106,7 @@ Item {
         function test_unfocused_path_draws_ellipsis_and_keeps_folder(data) {
             UnitTheme.reset();
             if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
-            const value = "/usr/share/a-long-parent-directory-for-the-layout-check/a-long-folder-name-for-the-layout-check";
+            const value = "/usr/share/a-long-parent-directory-for-the-layout-check/last-folder";
             const editor = path.children.find(child => child.placeholderText !== undefined);
             const display = path.children.find(child => child.role === "item");
             verify(editor !== undefined && display !== undefined);
@@ -122,7 +122,7 @@ Item {
             metrics.text = value;
             metrics.elideWidth = display.width;
             verify(metrics.elidedText.startsWith("…"));
-            verify(metrics.elidedText.endsWith("/a-long-folder-name-for-the-layout-check"));
+            verify(metrics.elidedText.endsWith("/last-folder"));
             expected.font = display.font;
             expected.width = display.width;
             expected.text = metrics.elidedText;

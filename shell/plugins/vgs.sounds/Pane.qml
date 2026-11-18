@@ -113,7 +113,6 @@ FocusScope {
                         // row's line gives the reason.
                         Select {
                             id: picker
-                            width: parent.width
                             model: eventRow.modelData.offers
                             textRole: "label"
                             currentIndex: eventRow.chosen

@@ -78,7 +78,6 @@ Column {
             Select {
                 id: outputSelect
                 readonly property int chosen: root.audio.outputs.findIndex(r => r.name === root.audio.sinkName)
-                width: parent.width
                 model: root.audio.outputs
                 textRole: "label"
                 currentIndex: chosen
@@ -92,7 +91,6 @@ Column {
             width: parent.width
             label: "Volume"
             LevelSlider {
-                width: parent.width
                 iconName: Logic.levelIcon(true, root.audio.volume, root.audio.muted)
                 buttonLabel: (root.audio.muted ? "Unmute" : "Mute") + " output"
                 value: root.audio.volume
@@ -116,7 +114,6 @@ Column {
             Select {
                 objectName: "soundInputSelect"
                 readonly property int chosen: root.audio.inputs.findIndex(r => r.name === root.audio.sourceName)
-                width: parent.width
                 model: root.audio.inputs
                 textRole: "label"
                 currentIndex: chosen
@@ -167,7 +164,6 @@ Column {
             width: parent.width
             label: "Volume"
             LevelSlider {
-                width: parent.width
                 iconName: Logic.inputIcon(true, root.audio.inputMuted)
                 buttonLabel: (root.audio.inputMuted ? "Unmute" : "Mute") + " microphone"
                 value: root.audio.inputVolume
@@ -202,7 +198,6 @@ Column {
                 LevelSlider {
                     readonly property real volume: app.level === null ? 0 : app.level.volume
                     readonly property bool muted: app.level !== null && app.level.muted
-                    width: parent.width
                     iconName: Logic.levelIcon(true, volume, muted)
                     buttonLabel: (muted ? "Unmute " : "Mute ") + app.modelData.label
                     value: volume

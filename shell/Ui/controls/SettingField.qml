@@ -274,17 +274,16 @@ Column {
             id: input
             function save() { root.commit(input); }
             field: root
-            width: parent.width
             focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus
         }
     }
 
     Component {
         id: customText
-        Item {
+        Column {
             id: custom
             width: parent.width
-            implicitHeight: Math.max(input.implicitHeight, preview.implicitHeight)
+            spacing: Theme.field.gap
             readonly property string problemCode: root.spec.format === "datetime" ? SettingValues.datetimeFormatProblem(input.text) : ""
             readonly property string problemText: problemCode === "" ? "" : SettingValues.PROBLEM_TEXT[problemCode]
             readonly property bool edited: input.edited
@@ -302,9 +301,6 @@ Column {
                 id: input
                 field: root
                 error: custom.problemText !== ""
-                width: preview.visible ? Math.max(Theme.size.panel.sm / 3, parent.width - preview.width - Theme.stack.inline) : parent.width
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
             }
 
             Label {
@@ -312,11 +308,8 @@ Column {
                 role: "hint"
                 visible: root.spec.format === "datetime"
                 text: custom.problemText === "" && input.text !== "" ? Qt.formatDateTime(Time.now, input.text) : ""
-                width: Math.min(implicitWidth, Theme.size.panel.sm / 2)
-                elide: Text.ElideRight
-                anchors.left: input.right
-                anchors.leftMargin: Theme.stack.inline
-                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                wrapMode: Text.Wrap
             }
         }
     }
@@ -338,7 +331,6 @@ Column {
     Component {
         id: choice
         Select {
-            width: parent.width
             readonly property bool dynamic: root.statusFed
             // It reads no value, so the Custom… row adds no rebuild on a
             // write.
@@ -423,7 +415,6 @@ Column {
     Component {
         id: presetChoice
         Select {
-            width: parent.width
             model: root.presetModel
             textRole: "label"
             currentIndex: root.selectedOfferIndex >= 0 ? root.selectedOfferIndex : root.allowCustom ? root.presetModel.length - 1 : -1

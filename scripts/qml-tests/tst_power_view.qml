@@ -60,7 +60,10 @@ Item {
             const start = awake.children.find(item => item instanceof Button);
             compare(select.height, Theme.textField.height);
             compare(start.height, select.height);
-            compare(start.mapToItem(awake, 0, 0).y, select.y);
+            if (awake.buttonBelow) {
+                verify(start.y >= select.y + select.height);
+                verify(start.x + start.width <= awake.availableWidth);
+            } else compare(start.mapToItem(awake, 0, 0).y, select.y);
         }
         function test_battery_state_icon_data() {
             return [

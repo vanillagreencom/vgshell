@@ -246,6 +246,9 @@ Column {
         id: slider
         Item {
             id: sliderRow
+            // This composite owns the rail and reading inside the row's allocation.
+            readonly property real minimumWidth: Theme.field.minWidth
+            readonly property real maximumWidth: Theme.control.maxWidth
             width: parent.width
             implicitHeight: Math.max(bar.implicitHeight, shown.implicitHeight)
 

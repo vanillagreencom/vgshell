@@ -297,7 +297,6 @@ FocusScope {
                 warningTone: "danger"
 
                 Select {
-                    width: parent.width
                     model: root.primaryChoices
                     textRole: "label"
                     currentIndex: root.primaryIndex
@@ -318,7 +317,6 @@ FocusScope {
                 label: "Display"
 
                 Select {
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: root.displayChoices
                     textRole: "label"
@@ -368,7 +366,6 @@ FocusScope {
                 label: "Mirror"
 
                 Select {
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: root.mirrorChoices
                     textRole: "label"
@@ -390,7 +387,6 @@ FocusScope {
                 Select {
                     id: modeSelect
                     readonly property var choices: root.selected === null ? [] : Logic.modeChoices(root.selected)
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: choices
                     textRole: "label"
@@ -413,7 +409,6 @@ FocusScope {
                 Select {
                     id: refreshSelect
                     readonly property var choices: root.selectedRule === null ? [] : Logic.refreshChoices(root.selected, root.selectedRule.mode)
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: choices
                     textRole: "label"
@@ -435,7 +430,6 @@ FocusScope {
                 warningTone: root.vrrProblem === "" ? "muted" : "warning"
 
                 Select {
-                    width: parent.width
                     model: root.vrrChoices
                     textRole: "label"
                     currentIndex: Logic.indexByValue(root.vrrChoices, root.vrr)
@@ -455,7 +449,6 @@ FocusScope {
                 Select {
                     id: scaleSelect
                     readonly property var choices: root.selectedRule === null ? [] : Logic.scaleChoices(root.selectedRule.mode, root.selectedRule.scale)
-                    width: parent.width
                     model: choices
                     textRole: "label"
                     currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.scale)
@@ -473,7 +466,6 @@ FocusScope {
                 label: "Orientation"
 
                 Select {
-                    width: parent.width
                     model: Logic.TRANSFORMS
                     textRole: "label"
                     currentIndex: root.selectedRule === null ? 0 : Logic.indexByValue(model, root.selectedRule.transform)
@@ -492,7 +484,6 @@ FocusScope {
 
                 Select {
                     readonly property var choices: root.selectedColour === null ? [] : Logic.colourModeChoices(root.selectedPanel, root.selectedColour.cm)
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: choices
                     textRole: "label"
@@ -519,7 +510,6 @@ FocusScope {
                     // that moved the level less than the float error of a
                     // snapped step saves no draft.
                     SavedSlider {
-                        width: parent.width
                         enabled: !root.trialHolding
                         from: Logic.SDR_FROM
                         to: Logic.SDR_TO
@@ -539,7 +529,6 @@ FocusScope {
                 label: "Colour depth"
 
                 Select {
-                    width: parent.width
                     enabled: !root.trialHolding
                     model: Logic.DEPTH_CHOICES
                     textRole: "label"
@@ -607,19 +596,19 @@ FocusScope {
                         }
 
                         FormRow {
+                            id: screenField
                             width: entry.width
                             visible: entry.placeable
                             label: "Screen"
                             warning: entry.modelData.outputs.length === 0 ? "Not placed" : ""
 
-                            Row {
-                                width: parent.width
+                            Flow {
+                                width: screenField.valueRoom
                                 spacing: Theme.stack.inline
 
                                 Select {
                                     id: screenSelect
                                     readonly property string chosen: root.chosenOutput(entry.modelData.device)
-                                    width: parent.width - identifyButton.width - parent.spacing
                                     model: root.screenChoices
                                     textRole: "label"
                                     currentIndex: root.choiceIndex(chosen)
@@ -633,11 +622,15 @@ FocusScope {
                                         currentIndex = Qt.binding(() => root.choiceIndex(screenSelect.chosen));
                                     }
                                 }
-                                RowAction {
-                                    id: identifyButton
-                                    text: "Identify"
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    onClicked: root.identify(entry.modelData.id)
+                                Item {
+                                    width: identifyButton.implicitWidth
+                                    height: screenSelect.height
+                                    RowAction {
+                                        id: identifyButton
+                                        text: "Identify"
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        onClicked: root.identify(entry.modelData.id)
+                                    }
                                 }
                             }
                         }
@@ -700,7 +693,6 @@ FocusScope {
                 label: dimColumn.schema.dimAfterSeconds === undefined ? "" : dimColumn.schema.dimAfterSeconds.label
 
                 Select {
-                    width: parent.width
                     model: dimColumn.afterChoices
                     textRole: "label"
                     currentIndex: dimColumn.indexOf(dimColumn.afterChoices, dimColumn.after)
@@ -720,7 +712,6 @@ FocusScope {
                 label: dimColumn.schema.dimPercent === undefined ? "" : dimColumn.schema.dimPercent.label
 
                 Select {
-                    width: parent.width
                     enabled: dimColumn.after > 0
                     model: dimColumn.percentChoices
                     textRole: "label"

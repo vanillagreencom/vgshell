@@ -338,7 +338,6 @@ FocusScope {
                         Select {
                             visible: field.entry.type === "enum" || field.entry.type === "number" || field.entry.type === "string"
                             height: visible ? implicitHeight : 0
-                            width: parent.width
                             model: field.choices
                             textRole: "label"
                             currentIndex: field.current

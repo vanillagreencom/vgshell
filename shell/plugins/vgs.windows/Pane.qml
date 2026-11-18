@@ -103,7 +103,6 @@ FocusScope {
                 info: "Windows use this radius. Flyouts and cards use three quarters of it. Grouped window tabs use half of it."
                 SavedSlider {
                     id: radius
-                    width: parent.width
                     from: root.boundOf("windowRadius", "min")
                     to: root.boundOf("windowRadius", "max")
                     formatValue: value => Math.round(value) + " px"
@@ -129,7 +128,6 @@ FocusScope {
                 info: "Use my Hyprland value also keeps the border colours from " + PageReference.fileReference("your Hyprland config", "hypr/hyprland.lua") + "."
                 onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 SavedSlider {
-                    width: parent.width
                     from: root.boundOf("borderWidth", "min")
                     to: root.boundOf("borderWidth", "max")
                     formatValue: value => Math.round(value) + " px"
@@ -154,7 +152,6 @@ FocusScope {
                 label: "VGlass"
                 info: "The glass surfaces are the launcher, notifications and your windows. Each surface decides: each one uses its own VGlass setting, and the launcher and notifications use glass by default. On or Off for every glass surface sets all of them."
                 Select {
-                    width: parent.width
                     Accessible.name: "VGlass"
                     model: root.glassChoices
                     textRole: "label"

@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Commons
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.automations" as Automations
@@ -45,6 +46,44 @@ Item {
         }
 
         function cleanup() { UnitTheme.reset(); }
+
+        function test_compound_settings_inputs_share_the_row_edges_data() {
+            const cases = [
+                { tag: "weekly", frequency: "weekly", endType: "date" },
+                { tag: "monthly-date", frequency: "monthly", monthlyMode: "date", endType: "count" },
+                { tag: "monthly-weekday", frequency: "monthly", monthlyMode: "weekday", endType: "never" },
+                { tag: "yearly", frequency: "yearly", endType: "date" },
+                { tag: "stepped", frequency: "secondly", endType: "never" }
+            ];
+            const rows = [];
+            for (const width of [500, 900])
+                for (const row of cases) rows.push(Object.assign({}, row, { tag: row.tag + "/" + width, width: width }));
+            return rows;
+        }
+
+        function test_compound_settings_inputs_share_the_row_edges(data) {
+            const window = opened();
+            window.width = data.width;
+            const draft = Object.assign({}, window.draft, data);
+            window.loadDraft(draft);
+            verify(renderedFrame(window));
+            const inputs = [];
+            for (const input of descendants(window)) {
+                if (!input.visible || !(input.minimumWidth >= Theme.field.minWidth) || !Number.isFinite(input.maximumWidth)) continue;
+                let row = null;
+                for (let at = input.parent; at !== null; at = at.parent) {
+                    if (at.objectName === "fieldRow") { row = at; break; }
+                    if (typeof at.minimumWidth === "number" && typeof at.maximumWidth === "number") break;
+                }
+                if (row === null) continue;
+                inputs.push(input);
+                const width = Math.min(row.valueRoom, Theme.control.maxWidth);
+                tryCompare(input, "width", width);
+                compare(input.mapToItem(row, 0, 0).x, row.valueX);
+                verify(input.width <= row.valueRoom);
+            }
+            verify(inputs.length >= 6, "the real editor builds its name, command, schedule and timeout inputs");
+        }
 
         function test_a_detached_list_delegate_keeps_its_owning_column_width() {
             failOnWarning(/.*/);

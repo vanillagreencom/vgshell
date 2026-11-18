@@ -853,7 +853,7 @@ scene_ships() {
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages|info-dialog) [[ $manager_scene == settings ]] ;;
     setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] ;;
-    wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
+    wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound vgs.settings vgs.agent-warden ;;
     gallery|gallery-callouts) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
@@ -986,7 +986,9 @@ shell_hidden_commands=(voxtype voxtype-audio-bridge)
 # jarvis-causes run the settings setup too (need_setup), which ships the
 # chromium target: a later theme apply would run its reload hook were the
 # writer found.
-if [[ " ${scenes[*]} " =~ " "(settings|focus|jarvis-causes)" " && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
+# Wide Settings keeps Warden's summary command absent while its fields draw.
+if [[ " ${scenes[*]} " == *" wide-settings "* ]] ||
+   [[ " ${scenes[*]} " =~ " "(settings|focus|jarvis-causes)" " && -f $tree/shell/plugins/vgs.settings/Steps.js ]]; then
   shell_hidden_commands+=(vsys mise vgshell-browser-policy)
 fi
 if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
@@ -8106,10 +8108,11 @@ scene_wide-settings() { # MODE
   if ((status != 0)); then fail "the wide Settings device fakes failed: $devices_state"; return; fi
   devices_system_tree >/dev/null || { fail "the wide Settings system tree failed"; return; }
   devices_audio_play
-  for id in vgs.system vgs.displays vgs.mouse vgs.sound; do
+  for id in vgs.system vgs.displays vgs.mouse vgs.sound vgs.settings vgs.agent-warden; do
     expect "enabling $id for wide Settings is allowed" ok ipc shell setPluginEnabled "$id" true
     expect_poll "$id is built for wide Settings" True record_exists "$id"
   done
+  close_notices
   expect_poll "the wide Settings displays are listed" 3 displays_listed
   first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || return
   expect "wide Settings assigns the XDR" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
@@ -8140,6 +8143,15 @@ PY
     expect "wide Settings closes $id" ok ipc shell hide window vgs.system
     expect_poll "wide Settings is gone after $id" hidden system_shown
   done
+  expect "the Settings window opens for wide Agent Warden" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for wide Agent Warden" 1 settings_count
+  plugin_page_shots "$1" vgs.agent-warden "wide-settings-$1-vgs.agent-warden" settings
+  if geometry="$(ipc smoke instanceGeometry "$settings_kind" vgs.settings)" && [[ $geometry == "["* ]]; then
+    printf 'sandbox-shots: wide-settings mode=%s plugin=vgs.agent-warden phase=after-page-walk geometry=%s\n' "$1" "$geometry"
+  else
+    fail "the wide Agent Warden Settings geometry is unreadable"
+  fi
+  settings_close
   kill -- "-$devices_player_pid" 2>/dev/null || true
   set_mode "$1"
 }

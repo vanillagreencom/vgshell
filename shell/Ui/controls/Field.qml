@@ -26,7 +26,7 @@ import qs.Ui
 // ends: the row's, its lines' or its hint's. Width comes from the parent;
 // the label, the control and the hint sit `field.paddingX` in from each
 // side. The default is zero, so a field's unboxed label sits on the
-// container's content edge and its control ends on that edge. `valueX` is
+// container's content edge; FormRow caps the control's allocation. `valueX` is
 // where the value column starts, for content that belongs under it.
 // `subText` holds while the lines, the hint or the error line show; the
 // field then takes room under them so the next item of its column that is

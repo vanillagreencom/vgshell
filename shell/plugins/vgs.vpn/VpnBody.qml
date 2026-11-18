@@ -464,7 +464,6 @@ FocusScope {
                 inline: true
                 Select {
                     objectName: "vpn-poll"
-                    width: parent.width
                     model: root.pollChoices.map(seconds => seconds + " s")
                     currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
                     onActivated: index => {

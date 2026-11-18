@@ -79,7 +79,7 @@ FocusScope {
     Layout.minimumWidth: minimumWidth
     Layout.maximumWidth: maximumWidth
     width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
-    InputWidth { target: root }
+    InputWidth { id: allocation; target: root }
 
     property var keys: []
     property var capture: null
@@ -140,9 +140,12 @@ FocusScope {
     // border as their top, on one line or several.
     readonly property real inset: (Theme.textField.height - Theme.kbd.height) / 2
     readonly property real sidePadding: Theme.controlPadding(inset, Theme.textField.radius, Math.max(Theme.textField.height, box.height), box.implicitContentHeight)
-    // The box's share of the line beside the buttons, which a prompt
-    // elides to; the box takes more when an alternative's caps need it.
-    readonly property real room: Math.max(0, line.width - tools.width - line.spacing)
+    // Width belongs to the visible input. The tools keep their places
+    // outside its trailing edge, as on every other settings input.
+    readonly property real room: width
+    readonly property bool toolsBelow: width + tools.width + line.spacing > allocation.availableWidth
+    readonly property real firstLineHeight: toolsBelow ? Theme.textField.height : 0
+    readonly property real inkEnd: Math.max(width, tools.x + tools.width)
     readonly property var caps: capturing ? held : key === "" ? [] : key.split("+")
     // What the box draws, one group per alternative: the combo its caps
     // spell and the text that stands in while it has none. A new
@@ -164,7 +167,7 @@ FocusScope {
     signal hintLinkActivated()
     signal pageActivated(string page, string tab)
 
-    implicitWidth: box.implicitWidth + line.spacing + tools.implicitWidth
+    implicitWidth: Theme.control.maxWidth
     implicitHeight: column.implicitHeight
 
     function start() {
@@ -389,21 +392,19 @@ FocusScope {
         width: parent.width
         spacing: Theme.field.gap
 
-        Row {
+        Item {
             id: line
             width: parent.width
-            spacing: Theme.textField.gap
+            readonly property real spacing: Theme.textField.gap
+            implicitHeight: root.toolsBelow ? (root.typing ? entry.height : box.height) + Theme.field.gap + tools.height
+                : Math.max(root.typing ? entry.height : box.height, tools.height)
 
             T.AbstractButton {
                 id: box
                 readonly property bool focusPreview: root.focusPreview
                 visible: !root.typing
                 focus: true
-                // The room beside the buttons, never less than the widest
-                // alternative: a combo's caps do not wrap, and a narrower
-                // box would leave them outside its border and ring, under
-                // the buttons. Unsized, the box is a text field's width.
-                width: Math.max(implicitContentWidth + leftPadding + rightPadding, root.room)
+                width: root.room
                 implicitWidth: Math.max(Theme.size.panel.sm / 2, implicitContentWidth + leftPadding + rightPadding)
                 implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * root.inset)
                 leftPadding: root.sidePadding
@@ -485,14 +486,22 @@ FocusScope {
                             id: groupRepeater
                             model: root.groups
 
-                            Row {
+                            Item {
                                 id: group
                                 required property var modelData
                                 required property int index
                                 readonly property alias chips: chips
-                                spacing: Theme.space.sm
+                                implicitWidth: chips.implicitWidth + (separator.visible ? separator.implicitWidth + spacing : 0)
+                                implicitHeight: Math.max(separator.visible ? separator.implicitHeight : 0, chips.implicitHeight)
+                                // Repeater puts delegates in the Flow; Item.parent
+                                // wraps a deleted QObject as null during removal.
+                                // https://doc.qt.io/qt-6/qml-qtquick-repeater.html
+                                // https://github.com/qt/qtdeclarative/blob/v6.11.2/src/qml/jsruntime/qv4qobjectwrapper_p.h#L242
+                                width: parent === null ? 0 : Math.min(implicitWidth, parent.width)
+                                readonly property real spacing: Theme.space.sm
 
                                 Label {
+                                    id: separator
                                     objectName: "alternativeSeparator"
                                     role: "item"
                                     anchors.verticalCenter: parent.verticalCenter
@@ -503,8 +512,10 @@ FocusScope {
 
                                 Item {
                                     id: chips
+                                    x: separator.visible ? separator.width + group.spacing : 0
                                     anchors.verticalCenter: parent.verticalCenter
-                                    implicitWidth: chipRow.implicitWidth
+                                    width: Math.max(0, group.width - (group.index > 0 ? separator.width + group.spacing : 0))
+                                    implicitWidth: comboCaps.naturalWidth + (prompt.visible ? prompt.implicitWidth : 0)
                                     implicitHeight: chipRow.implicitHeight
 
                                     Rectangle {
@@ -516,8 +527,9 @@ FocusScope {
                                         visible: root.groups.length > 1 && group.index === root.editing && (box.activeFocus || root.capturing)
                                     }
 
-                                    Row {
+                                    Flow {
                                         id: chipRow
+                                        width: parent.width
                                         spacing: comboCaps.visible && prompt.visible ? Theme.space.sm : 0
                                         // The caps are the field's value. They
                                         // stand on the box's own fill, which no
@@ -526,7 +538,7 @@ FocusScope {
                                         // fill, so both are handed.
                                         KeyCaps {
                                             id: comboCaps
-                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: Math.min(naturalWidth, chipRow.width)
                                             shortcut: group.modelData.combo
                                             value: true
                                             onPageActivated: (page, tab) => root.pageActivated(page, tab)
@@ -536,7 +548,6 @@ FocusScope {
                                             id: prompt
                                             role: root.capturing ? "item" : "kbd"
                                             width: Math.min(implicitWidth, Math.max(0, root.room - box.leftPadding - box.rightPadding))
-                                            anchors.verticalCenter: parent.verticalCenter
                                             elide: Text.ElideRight
                                             color: Theme.textField.placeholder
                                             text: group.modelData.text
@@ -564,7 +575,8 @@ FocusScope {
             Row {
                 id: tools
                 spacing: Theme.textField.gap
-                anchors.verticalCenter: parent.verticalCenter
+                x: root.toolsBelow ? 0 : root.width + line.spacing
+                y: root.toolsBelow ? (root.typing ? entry.height : box.height) + Theme.field.gap : Math.round((line.height - height) / 2)
                 HoverHandler { id: toolsHover }
                 ToolSlot {
                     iconName: "keyboard"

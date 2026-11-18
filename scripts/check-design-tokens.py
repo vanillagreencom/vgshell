@@ -101,6 +101,14 @@ them composes, transitively:
                      needs the host and, in the repository, one pane, or it
                      is unreadable; a third-party plugin directory's pane
                      is judged as a notice
+  settings-input-width
+                     a boxed input inside FormRow, Field or a subclass
+                     binds its own width, implicitWidth, Layout width or
+                     horizontal anchors. FormRow owns the allocation;
+                     local subclasses and wrappers are followed through
+                     the same settings surface closure. A bounded input's
+                     inner controls belong to its layout, and standalone
+                     search outside a row keeps its own width
 Appearance rules, on a plugin whose manifest declares `appearance` (each
 directory under shell/plugins, or each directory given): a file of it that
 binds `Theme.appearance(`, or reads a `look.<path>` its owner hands it, draws
@@ -258,6 +266,12 @@ QT_ANCHOR = re.compile(r"<a\s[^>]*href|(?<![\w.])onLink(?:Activated|Hovered)\s*:
 IS_LITERAL = re.compile(r"^(?:" + LITERAL + r")$")
 # The plugin Settings page host, under the plugins tree.
 SETTINGS_PAGE_HOST = os.path.join("vgs.settings", "PluginPage.qml")
+# These shared row and boxed-input APIs are the composition contract;
+# plugin-owned subclasses are resolved from the discovered source files.
+SETTINGS_ROW_TYPES = frozenset(("FormRow", "Field", "BindField"))
+SETTINGS_INPUT_TYPES = frozenset(("TextField", "TextArea", "Select", "ResultsFilter", "ShortcutField", "Slider", "SavedSlider", "LevelSlider", "PathField", "DateField", "TimeField", "TimeChipList", "WeekdayChipGroup", "TileGroup", "SegmentedControl"))
+INPUT_WIDTH_BINDING = re.compile(r"(?:^|[;\n])\s*(width|implicitWidth|Layout\.(?:minimumWidth|maximumWidth|preferredWidth|fillWidth)|anchors\.(?:fill|left|right|horizontalCenter))\s*:")
+INPUT_WIDTH_GROUP = re.compile(r"(?:^|[;\n])\s*(minimumWidth|maximumWidth|preferredWidth|fillWidth|fill|left|right|horizontalCenter)\s*:")
 # A gap binding at the start of a statement, a property declaration's
 # included, so the colon of a `? :` choice is never read as one.
 GAP_BINDING = re.compile(r"(?:^|[;{])\s*(?:(?:readonly|required|default)\s+)*(?:property\s+[\w<>.]+\s+)?((?:[A-Za-z_]\w*\.)*(?:spacing|rowSpacing|columnSpacing|\w*[pP]adding|\w*[mM]argins?))\s*:\s*([^;{}]*)")
@@ -344,7 +358,7 @@ def settings_surfaces(root, looks, host):
         if not todo:
             raise Unreadable(root, "no plugin names a pane; the settings surface scan is broken")
         todo.append(host)
-    surfaces = set()
+    surfaces = {}
     while todo:
         path = todo.pop()
         if path in surfaces:
@@ -354,13 +368,71 @@ def settings_surfaces(root, looks, host):
                 text = fh.read()
         except OSError as exc:
             raise Unreadable(path, exc.strerror) from exc
-        surfaces.add(path)
-        for block in blocks(blank_comments(text, literals=False)):
+        code = blank_comments(text, literals=False)
+        parsed = blocks(code)
+        surfaces[path] = (parsed, code)
+        for block in parsed:
             if block.type is not None and "." not in block.type:
                 own = os.path.join(os.path.dirname(path), block.type + ".qml")
                 if os.path.isfile(own):
                     todo.append(own)
     return surfaces
+
+
+def settings_input_widths(surfaces):
+    """Page-owned sizing of row-contained boxed inputs, including local
+    subclasses and inputs a local wrapper composes. Inner controls of a
+    boxed composite are its own layout, not another settings allocation."""
+    roots = {path: next((block for block in parsed if block.type is not None), None)
+             for path, (parsed, _code) in surfaces.items()}
+    anchor_groups = {path: {code.count("\n", 0, match.end()) + 1
+                            for match in re.finditer(r"\banchors\s*\{", code)}
+                     for path, (_parsed, code) in surfaces.items()}
+
+    def own_type(path, name):
+        if name is None or "." in name:
+            return None
+        own = os.path.join(os.path.dirname(path), name + ".qml")
+        return own if own in roots else None
+
+    def kind(path, name, seen=frozenset()):
+        own = own_type(path, name)
+        if own is not None and own not in seen and roots[own] is not None:
+            return kind(own, roots[own].type, seen | {own})
+        return base_type(name, None)
+
+    found = set()
+    visited = set()
+
+    def visit_file(path, in_row):
+        state = (path, in_row)
+        if state in visited or roots[path] is None:
+            return
+        visited.add(state)
+        visit(path, roots[path], in_row)
+
+    def visit(path, block, in_row):
+        control = kind(path, block.type)
+        boxed = control in SETTINGS_INPUT_TYPES
+        if in_row and boxed:
+            for match in INPUT_WIDTH_BINDING.finditer(block.own_text()):
+                found.add((path, block.own_lines[match.start(1)], match.group(1)))
+            for group in block.children:
+                # Grouped attached properties use the shared block parser,
+                # whose object types deliberately omit lowercase groups.
+                if group.type == "Layout" or (group.type is None and group.line in anchor_groups[path]):
+                    for match in INPUT_WIDTH_GROUP.finditer(group.own_text()):
+                        found.add((path, group.own_lines[match.start(1)], match.group(1)))
+        own = own_type(path, block.type)
+        if own is not None:
+            visit_file(own, in_row)
+        child_row = control in SETTINGS_ROW_TYPES or (in_row and not boxed)
+        for child in block.children:
+            visit(path, child, child_row)
+
+    for path in surfaces:
+        visit_file(path, False)
+    return sorted(found)
 
 
 def standard_groups(repo):
@@ -617,6 +689,9 @@ def main(argv):
         for root, literal, plugins in trees:
             looks = plugin_looks(repo, root, plugins)
             settings = set() if plugins is None else settings_surfaces(root, looks, os.path.join(root, SETTINGS_PAGE_HOST) if plugins == "children" else None)
+            if plugins is not None:
+                for path, number, property_name in settings_input_widths(settings):
+                    (findings if literal == "finding" else notices).append(f"settings-input-width {path}:{number} {property_name}")
             files += check_tree(root, table, literal, looks, surfaces, settings, findings, notices, os.path.join(shell, "Ui", "controls", ICON_BUTTON + ".qml"))
     except Unreadable as exc:
         print(f"check-design-tokens: unreadable: {exc.path}: {exc.strerror}")

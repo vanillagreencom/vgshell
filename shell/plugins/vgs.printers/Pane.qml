@@ -298,7 +298,6 @@ FocusScope {
                 TextField {
                     id: address
                     objectName: "printers-address"
-                    width: parent.width
                     placeholderText: "printer.local"
                     error: root.addressProblem !== ""
                     enabled: !root.busy

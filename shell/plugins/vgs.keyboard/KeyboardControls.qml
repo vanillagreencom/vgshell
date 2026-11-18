@@ -203,7 +203,6 @@ Column {
                 formatValue: value => value + " " + modelData.unit
                 SavedSlider {
                     id: repeatSaved
-                    width: parent.width
                     from: 0
                     to: repeatRow.modelData.maximum
                     stepSize: 1
@@ -220,7 +219,7 @@ Column {
         FormRow {
             width: parent.width
             label: "Try repeat"
-            TextField { objectName: "repeatTest"; width: parent.width; placeholderText: "Hold a key here to try repeat"; Accessible.name: "Test key repeat" }
+            TextField { objectName: "repeatTest"; placeholderText: "Hold a key here to try repeat"; Accessible.name: "Test key repeat" }
         }
     }
 

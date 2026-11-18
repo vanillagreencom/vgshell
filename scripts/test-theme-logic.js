@@ -24,7 +24,7 @@ const TERMINAL_SLOTS = Object.fromEntries(Array.from({ length: 16 }, (_, index) 
 // Resolved defaults, by token: the expression and the arithmetic.
 const DEFAULTS = [
     ["control.minWidth", 16],
-    ["control.maxWidth", 480],
+    ["control.maxWidth", 320],
     ["field.minWidth", 128],
     ["scheme.mode", "dark"],
     ["inputMeter.track", "#202020ff"],

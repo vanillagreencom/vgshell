@@ -19,8 +19,8 @@ import qs.Unit
 // combo instead and closes the entry again, in the place it keeps, the
 // clear button unbinds and hides while the entry is open, a read-only
 // field asks nothing, and the field is one Tab stop. A shortcut's alternative keys draw as one
-// group each with a separator between them, in one box that grows to hold
-// them at any width, with no button over a cap; a click on one, or Left and Right, picks the one edited, a combo
+// group each with a separator between them, in one box that grows in height
+// within its allocation, with no button over a cap; a click on one, or Left and Right, picks the one edited, a combo
 // and Delete name it, and add() edits a new one after the last. The
 // capture here records what the field asks and names keys with the core's
 // own judge. A field naming a plugin bind draws the hint its capture's
@@ -733,21 +733,28 @@ Item {
             compare(caps(narrow).length, 5);
         }
 
-        // At the gallery's width the box, which the border and the ring draw
-        // on, grows to hold its widest alternative, the buttons follow it,
-        // and the field asks for the width it draws.
+        // Caps wrap inside the allocated box. Tools extend past its end.
         function test_every_cap_lies_inside_the_box_at_a_narrow_width() {
             narrowPair();
             const b = box(narrow);
             const tools = buttonLabelled(narrow, "Type the keys").parent;
             const geometry = () => JSON.stringify({ field: { width: narrow.width, preferred: narrow.implicitWidth }, box: { width: b.width, preferred: b.implicitWidth }, tools: { width: tools.width, preferred: tools.implicitWidth, right: rect(tools, narrow).right } });
-            verify(narrow.width <= narrow.implicitWidth, "the constrained fixture exceeds its preferred width: " + geometry());
+            compare(b.width, narrow.width, "the visible box takes the allocation");
             tryVerify(() => caps(narrow).every(cap => inside(rect(cap, b), b)), 1000, "a cap lies outside the box " + b.width + " wide");
             for (const label of ["Type the keys", "Remove Super+Space"]) {
                 const tool = rect(buttonLabelled(narrow, label), b);
                 verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box: " + geometry());
-                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "tool edge " + rect(buttonLabelled(narrow, label), narrow).right + " exceeds the preferred width: " + geometry());
+                verify(narrow.inkEnd >= rect(buttonLabelled(narrow, label), narrow).right, "the drawn end includes every external tool: " + geometry());
             }
+        }
+
+        function test_one_long_chord_wraps_between_caps_inside_its_allocation() {
+            narrow.keys = ["SUPER+CTRL+ALT+SHIFT+PAGEDOWN"];
+            narrow.width = Theme.field.minWidth;
+            const b = box(narrow);
+            tryCompare(b, "width", Theme.field.minWidth);
+            tryVerify(() => b.height > Theme.textField.height);
+            tryVerify(() => caps(narrow).length >= 5 && caps(narrow).every(cap => inside(rect(cap, b), b)));
         }
 
         // The Space cap and a plain letter's cap each draw their name with

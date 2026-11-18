@@ -75,7 +75,6 @@ Section {
         hint: root.schema.nordProfile === undefined ? "" : root.schema.nordProfile.description
         Select {
             objectName: "vpn-nord-profile"
-            width: parent.width
             model: root.choices
             textRole: "label"
             currentIndex: root.profileIndex
@@ -151,7 +150,6 @@ Section {
             Select {
                 id: countriesField
                 objectName: "vpn-nord-country"
-                width: parent.width
                 model: root.countries
                 textRole: "name"
                 currentIndex: model.findIndex(row => row.id === root.countryId)
@@ -169,7 +167,6 @@ Section {
             Select {
                 id: regionsField
                 objectName: "vpn-nord-region"
-                width: parent.width
                 model: root.regions
                 textRole: "name"
                 currentIndex: model.findIndex(row => row.id === root.regionId)
@@ -186,7 +183,6 @@ Section {
             Select {
                 id: citiesField
                 objectName: "vpn-nord-city"
-                width: parent.width
                 model: root.cities
                 textRole: "name"
                 currentIndex: model.findIndex(row => row.id === root.cityId)

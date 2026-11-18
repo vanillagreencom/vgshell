@@ -324,11 +324,11 @@ Item {
             compare(String(hint.color), String(Qt.color(Theme.color.danger)));
             const pad = Theme.field.paddingX;
             tryVerify(() => inner.mapToItem(field, 0, 0).x === pad);
-            compare(inner.width, field.width - 2 * pad);
+            compare(inner.width, Math.min(field.width - 2 * pad, Theme.control.maxWidth));
             field.inline = true;
             const inset = pad + Theme.field.labelWidth + Theme.field.labelGap;
             tryVerify(() => inner.mapToItem(field, 0, 0).x === inset);
-            compare(inner.width, field.width - inset - pad);
+            compare(inner.width, Math.min(field.width - inset - pad, Theme.control.maxWidth));
             tryVerify(() => hint.mapToItem(field, 0, 0).x === inset);
             compare(hint.width, field.width - inset - pad);
         }

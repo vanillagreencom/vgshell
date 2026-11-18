@@ -95,7 +95,6 @@ FocusScope {
                 onUseThemeValue: root.answer(root.shell.appearance.unset("motionStyle"))
                 formatValue: value => root.styleNames[value] || String(value)
                 Select {
-                    width: parent.width
                     model: root.styles.map(style => root.styleNames[style] || style)
                     currentIndex: root.styles.indexOf(styleRow.shownValue)
                     onActivated: index => {
@@ -116,7 +115,6 @@ FocusScope {
                 onUseThemeValue: root.answer(root.shell.appearance.unset("motionSpeed"))
                 formatValue: value => root.speedText(value)
                 SavedSlider {
-                    width: parent.width
                     from: root.appearance === null ? 1 : root.appearance.keys.motionSpeed.min
                     to: root.appearance === null ? 1 : root.appearance.keys.motionSpeed.max
                     stepSize: 0.25

@@ -137,7 +137,6 @@ FocusScope {
                 Select {
                     id: beforeInstalling
                     objectName: "packageReviewChoice"
-                    width: parent.width
                     model: ["Review with an agent", "Install without review", "Automatic (review when an agent is available)"]
                     currentIndex: root.review.enabled === true ? 0 : root.review.enabled === false ? 1 : 2
                     onActivated: index => {
@@ -154,7 +153,6 @@ FocusScope {
                 hint: "Automatic uses the first supported agent available on this computer"
                 Select {
                     id: agent
-                    width: parent.width
                     model: root.agentChoices
                     textRole: "label"
                     currentIndex: root.agentChoices.findIndex(choice => choice.value === (root.review.agent || ""))

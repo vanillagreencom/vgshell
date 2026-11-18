@@ -145,7 +145,6 @@ FocusScope {
                 StayAwake {
                     id: stayAwake
                     width: stayAwakeField.width
-                    fill: true
                     shell: root.shell
                 }
             }

@@ -71,36 +71,36 @@ FocusScope {
         Field {
             width: parent.width
             label: "Network name"
-            TextField { id: ssid; objectName: "network-join-ssid"; width: parent.width; text: root.target === null ? "" : root.target.name; enabled: !root.pending && root.target === null; placeholderText: "Network name" }
+            TextField { id: ssid; objectName: "network-join-ssid"; text: root.target === null ? "" : root.target.name; enabled: !root.pending && root.target === null; placeholderText: "Network name" }
         }
         Field {
             width: parent.width
             label: "Security"
-            Select { id: security; objectName: "network-join-security"; width: parent.width; model: ["WPA/WPA2 Personal", "WPA Enterprise"]; currentIndex: root.target === null ? 0 : 1; enabled: !root.pending && root.target === null; onActivated: password.text = "" }
+            Select { id: security; objectName: "network-join-security"; model: ["WPA/WPA2 Personal", "WPA Enterprise"]; currentIndex: root.target === null ? 0 : 1; enabled: !root.pending && root.target === null; onActivated: password.text = "" }
         }
         Field {
             width: parent.width
             visible: root.enterprise
             label: "Method"
-            Select { id: method; objectName: "network-join-method"; width: parent.width; model: ["PEAP / MSCHAPv2", "TTLS / PAP"]; enabled: !root.pending }
+            Select { id: method; objectName: "network-join-method"; model: ["PEAP / MSCHAPv2", "TTLS / PAP"]; enabled: !root.pending }
         }
         Field {
             width: parent.width
             visible: root.enterprise
             label: "User name"
-            TextField { id: identity; objectName: "network-join-identity"; width: parent.width; enabled: !root.pending; placeholderText: "Network user name" }
+            TextField { id: identity; objectName: "network-join-identity"; enabled: !root.pending; placeholderText: "Network user name" }
         }
         Field {
             width: parent.width
             visible: root.enterprise
             label: "Server domain"
             hint: "Use the authentication server domain supplied by your network administrator."
-            TextField { id: domain; objectName: "network-join-domain"; width: parent.width; enabled: !root.pending; placeholderText: "auth.example.com" }
+            TextField { id: domain; objectName: "network-join-domain"; enabled: !root.pending; placeholderText: "auth.example.com" }
         }
         Field {
             width: parent.width
             label: "Password"
-            TextField { id: password; objectName: "network-join-password"; width: parent.width; password: true; enabled: !root.pending; placeholderText: "Network password"; onAccepted: root.submit() }
+            TextField { id: password; objectName: "network-join-password"; password: true; enabled: !root.pending; placeholderText: "Network password"; onAccepted: root.submit() }
         }
         Row {
             spacing: Theme.control.gap

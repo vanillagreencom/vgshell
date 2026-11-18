@@ -92,7 +92,6 @@ FocusScope {
                         error: page.validation.errors.name || ""
                         TextField {
                             id: syncName
-                            width: parent.width
                             text: page.draft.name
                             onTextEdited: page.change("name", text)
                         }
@@ -102,7 +101,6 @@ FocusScope {
                         width: parent.width
                         error: page.validation.errors.from || ""
                         PathField {
-                            width: parent.width
                             placeholderText: "Folder to copy from"
                             path: page.draft.sync === undefined ? "" : page.draft.sync.from
                             error: page.validation.errors.from !== undefined
@@ -115,7 +113,6 @@ FocusScope {
                         width: parent.width
                         error: page.validation.errors.to || ""
                         PathField {
-                            width: parent.width
                             placeholderText: "Folder to copy to"
                             path: page.draft.sync === undefined ? "" : page.draft.sync.to
                             error: page.validation.errors.to !== undefined
@@ -169,7 +166,6 @@ FocusScope {
                         error: page.validation.errors.name || ""
                         TextField {
                             id: nameField
-                            width: parent.width
                             text: page.draft.name
                             onTextEdited: page.change("name", text)
                         }
@@ -182,7 +178,6 @@ FocusScope {
                         width: parent.width
                         TextArea {
                             id: commandEditor
-                            width: parent.width
                             text: page.draft.command
                             placeholderText: "printf '%s\\n' hello"
                             error: page.validation.errors.command !== undefined
@@ -267,9 +262,9 @@ FocusScope {
                         info: "Choose from 1 second to 24 hours. The time limit stops a command that does not finish, so it cannot keep using your computer without a bound. A full day allows long tasks while keeping that bound."
                         inline: true
                         error: page.validation.errors.timeout || ""
-                        Row {
+                        Column {
                             width: parent.width
-                            spacing: Theme.space.xs
+                            spacing: Theme.field.gap
                             // ASCII digits alone, which Number() reads exactly. IntValidator
                             // takes the locale's digits and group separators, which Number()
                             // misreads: "1,000" as NaN, German "1.000" as 1
@@ -277,14 +272,12 @@ FocusScope {
                             // the whole text (https://doc.qt.io/qt-6/qregularexpressionvalidator.html),
                             // and the judge holds the range.
                             TextField {
-                                width: Theme.size.panel.sm
                                 text: String(View.timeoutAmount(page.draft.timeoutSeconds).amount)
                                 validator: RegularExpressionValidator { regularExpression: /[0-9]{0,4}/ }
                                 onTextEdited: page.change("timeoutSeconds", View.timeoutSeconds(Number(text), unit.currentText))
                             }
                             Select {
                                 id: unit
-                                width: parent.width - x
                                 model: ["minutes", "hours"]
                                 currentIndex: page.timeoutUnitIndex
                                 onActivated: index => {
@@ -299,7 +292,6 @@ FocusScope {
                         label: "Working directory"
                         error: page.validation.errors.workingDirectory || ""
                         PathField {
-                            width: parent.width
                             placeholderText: "Working directory, blank for home"
                             path: page.draft.workingDirectory
                             error: page.validation.errors.workingDirectory !== undefined

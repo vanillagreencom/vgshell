@@ -68,7 +68,6 @@ Field {
 
     ShortcutField {
         id: input
-        width: parent.width
         keys: root.keys
         capture: root.capture
         editable: root.editable

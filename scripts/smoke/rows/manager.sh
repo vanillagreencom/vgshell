@@ -380,24 +380,25 @@ expect "the two bounded numbers draw sliders" 2 sliders
 # setting fields and KEYS key rows and every inline field it shows, the
 # switches included, leaves equal insets around the content box, starts a
 # field label on the content edge and its control `field.labelWidth` plus
-# `field.labelGap` past that, ends the control on the content edge, puts
-# section headers on the same edge and leaves the scroll bar inside the
-# right inset. Unit mutations in tst_pane, tst_scroll and tst_spacing are
-# the controls for these geometry rules. `[]` is the pass.
+# `field.labelGap` past that, caps its width at `control.maxWidth`, puts
+# section headers on the content edge and leaves the scroll bar inside
+# the whole column's right inset. Unit mutations in tst_pane, tst_scroll
+# and tst_spacing are the controls for these geometry rules. `[]` is the pass.
 page_alignment() {
-  local rows label_w label_gap inset ring_width ring_offset
+  local rows label_w label_gap inset ring_width ring_offset max_width
   rows="$(settings_geometry)" || return
   label_w="$(ipc smoke themeValue field.labelWidth)" || return
   label_gap="$(ipc smoke themeValue field.labelGap)" || return
   inset="$(ipc smoke themeValue inset.window)" || return
   ring_width="$(ipc smoke themeValue focusRing.width)" || return
   ring_offset="$(ipc smoke themeValue focusRing.offset)" || return
+  max_width="$(ipc smoke themeValue control.maxWidth)" || return
   ring=$((ring_width + ring_offset))
-  python3 - "$rows" "$label_w" "$label_gap" "$inset" "$1" "$2" "$ring" "${3:-}" <<'PY'
+  python3 - "$rows" "$label_w" "$label_gap" "$inset" "$1" "$2" "$ring" "$max_width" "${3:-}" <<'PY'
 import json, sys
 sys.argv[1] = open(sys.argv[1]).read()
-rows, label_w, label_gap, inset, want_settings, want_keys, ring = (json.loads(a) for a in sys.argv[1:8])
-plant = sys.argv[8] == "plant"
+rows, label_w, label_gap, inset, want_settings, want_keys, ring, max_width = (json.loads(a) for a in sys.argv[1:9])
+plant = sys.argv[9] == "plant"
 out = []
 def inside(j, i):
     while j != -1:
@@ -441,6 +442,7 @@ area = rows[areas[0]]
 column_right = right(area) - inset
 # Pane's viewport starts a focus ring's room left of the content edge.
 content_left = area["box"][0] + ring
+box_right = min(column_right, content_left + label_w + label_gap + max_width)
 check("content.leftInset", content_left - rows[page[0]]["box"][0], inset)
 check("content.rightInset", right(rows[page[0]]) - column_right, inset)
 headers = [i for i, r in enumerate(rows) if r["type"] == "SectionHeader" and inside(i, page[0])]
@@ -472,12 +474,12 @@ for n, i in enumerate(fields):
     check(name + ".left", left, content_left)
     check(name + ".label.x", label["box"][0], content_left)
     check(name + ".control.x", slot["box"][0], content_left + label_w + label_gap)
-    check(name + ".control.right", right(slot), column_right)
+    check(name + ".control.right", right(slot), box_right)
     check(name + ".label.y", mid_y(label), mid_y(values[0]))
     # A value drawn with leading below its glyphs is centred as a box and
     # not as text.
     for j, r in enumerate(rows):
-        if r["type"] in ("TextField", "DraftField", "Select") and inside(j, i) and visible(j): check(name + "." + r["type"] + ".right", right(r), column_right)
+        if r["type"] in ("TextField", "DraftField", "Select") and inside(j, i) and visible(j): check(name + "." + r["type"] + ".right", right(r), box_right)
         if r["type"] == "Slider" and inside(j, i):
             labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, i)]
             if labels_after: check(name + ".slider.gap", rows[labels_after[0]]["box"][0] - right(r), label_gap)

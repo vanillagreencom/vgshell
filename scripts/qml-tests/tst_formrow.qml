@@ -6,7 +6,7 @@ import qs.Ui
 import qs.Unit
 
 // FormRow: the label column is `field.labelWidth` wide and the control
-// starts `field.labelGap` after it and ends on the row's end edge; the row
+// starts `field.labelGap` after it and ends at the bounded allocation; the row
 // box is `row.height` tall unless its control is taller; the label sits by
 // capital height and the control by its box; beside a control that wraps
 // into lines, a RowActions, a one-line label and its info button sit on
@@ -817,7 +817,7 @@ Item {
             verify(!labelOf(bare).visible, "the label draws without its column");
             compare(bare.valueX, 0);
             compare(xIn(thin, bare), 0);
-            compare(thin.width, bare.width);
+            compare(thin.width, Math.min(bare.width, Theme.control.maxWidth));
             compare(bare.height, thin.height);
             const message = messageOf(bareWarned);
             compare(thinWarned.mapToItem(bareWarned, 0, 0).y, 0);
@@ -829,7 +829,7 @@ Item {
         function test_a_theme_moves_the_columns() {
             compare(UnitTheme.override({ field: { labelWidth: 80, labelGap: 5, gap: 9 }, row: { height: 44 } }), "ok");
             compare(xIn(choice, filled), 85);
-            compare(choice.width, filled.width - 85);
+            compare(choice.width, Math.min(filled.width - 85, Theme.control.maxWidth));
             compare(plain.height, 44);
             compare(xIn(messageOf(warned), warned), 85);
             compare(messageOf(warned).y, inkEnd(speed, warned) + 9);

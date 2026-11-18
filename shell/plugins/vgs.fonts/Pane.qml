@@ -109,7 +109,6 @@ FocusScope {
 
                 Select {
                     id: interfaceSelect
-                    width: parent.width
                     Accessible.name: "Interface font"
                     model: Fonts.offers(root.interfaceFamilies, interfaceRow.shownValue)
                     currentIndex: model.indexOf(interfaceRow.shownValue)
@@ -134,7 +133,6 @@ FocusScope {
                 onUseThemeValue: root.answer(root.shell.appearance.unset("terminalFont"))
 
                 Select {
-                    width: parent.width
                     Accessible.name: "Terminal font"
                     model: Fonts.offers(root.terminalFamilies, terminalRow.shownValue)
                     placeholderText: "Your terminal's font"

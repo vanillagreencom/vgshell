@@ -212,7 +212,6 @@ Item {
                         width: parent.width
                         label: root.fieldLabel("processing")
                         Select {
-                            width: parent.width
                             model: root.processingChoices
                             textRole: "label"
                             currentIndex: root.choiceIndex(root.processingChoices, root.setting("processing", "save-copy"))
@@ -226,7 +225,6 @@ Item {
                         width: parent.width
                         label: "Delay"
                         Select {
-                            width: parent.width
                             model: root.delayChoices
                             textRole: "label"
                             currentIndex: root.choiceIndex(root.delayChoices, root.setting("delay", 0))
@@ -254,7 +252,6 @@ Item {
                         width: parent.width
                         label: root.fieldLabel("audio")
                         Select {
-                            width: parent.width
                             model: root.audioChoices
                             textRole: "label"
                             currentIndex: root.choiceIndex(root.audioChoices, root.setting("audio", "desktop"))
@@ -268,7 +265,6 @@ Item {
                         width: parent.width
                         label: root.fieldLabel("quality")
                         Select {
-                            width: parent.width
                             model: root.qualityChoices
                             textRole: "label"
                             currentIndex: root.choiceIndex(root.qualityChoices, root.setting("quality", "very_high"))
@@ -304,7 +300,6 @@ Item {
                         width: parent.width
                         label: root.fieldLabel("ocrLanguages")
                         Select {
-                            width: parent.width
                             model: root.languageChoices
                             textRole: "label"
                             currentIndex: root.choiceIndex(root.languageChoices, root.setting("ocrLanguages", ""))

@@ -3,12 +3,18 @@ import qs.Commons
 import qs.Ui
 import "../foundation/HintGround.js" as HintGround
 
-Row {
+// A Flow wraps only between children, keeping each key cap whole:
+// https://doc.qt.io/qt-6/qml-qtquick-flow.html
+Flow {
     id: root
 
     property string shortcut: ""
     // The caps show a field's value, not a key hint (Kbd.value).
     property bool value: false
+    // A shortcut editor can wrap a chord between complete key caps.
+    readonly property real naturalWidth: children.reduce((sum, child) => sum + (child.visible ? child.implicitWidth : 0), 0)
+        + (linked ? 0 : Math.max(0, caps.length - 1) * spacing)
+    width: naturalWidth
     // What lies under the caps that their surface does not draw, as
     // KeyHints.backgroundContext.
     property var backgroundContext: null
@@ -28,7 +34,10 @@ Row {
     }
     Loader {
         active: root.linked
+        width: Math.min(implicitWidth, root.width)
         sourceComponent: LinkText {
+            width: parent.width
+            wrapMode: Text.Wrap
             text: root.caps.join("+")
             role: root.value ? "item" : "keyHint"
             color: root.ink

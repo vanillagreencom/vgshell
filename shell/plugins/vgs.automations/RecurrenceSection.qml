@@ -60,7 +60,6 @@ Section {
         label: "Preset"
         inline: true
         Select {
-            width: parent.width
             model: root.presets
             textRole: "label"
             currentIndex: root.chosenPresetIndex
@@ -76,7 +75,7 @@ Section {
         inline: true
         width: parent.width
         error: root.validation.errors.start || ""
-        DateField { width: parent.width; date: root.draft.start; error: root.validation.errors.start !== undefined; onEdited: (date, valid) => root.change("start", date); onPicked: date => root.change("start", date) }
+        DateField { date: root.draft.start; error: root.validation.errors.start !== undefined; onEdited: (date, valid) => root.change("start", date); onPicked: date => root.change("start", date) }
     }
 
     Field {
@@ -84,26 +83,22 @@ Section {
         width: parent.width
         visible: !root.customSteps
         error: root.validation.errors.times || ""
-        // Controls side by side in one group stand the shared inline gap
-        // apart, so Add time never touches the Time zone select.
-        Row {
+        // The time list and its zone stay in one group at the input edge.
+        Column {
             width: parent.width
-            spacing: Theme.stack.inline
+            spacing: Theme.field.gap
 
             TimeChipList {
-                width: parent.width - zoneControl.width - parent.spacing
                 times: root.draft.times
                 onChanged: times => root.change("times", times)
             }
 
             Column {
                 id: zoneControl
-                anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.space.xs
 
                 Label { role: "itemHint"; text: "Time zone" }
                 Select {
-                    width: Theme.field.minWidth
                     model: root.zoneChoices
                     textRole: "label"
                     currentIndex: root.chosenZoneIndex
@@ -123,7 +118,6 @@ Section {
         visible: root.customSteps
 
         Select {
-            width: parent.width
             model: root.zoneChoices
             textRole: "label"
             currentIndex: root.chosenZoneIndex
@@ -143,9 +137,9 @@ Section {
             label: "Every"
             inline: true
             width: parent.width
-            Row {
+            Column {
                 width: parent.width
-                spacing: Theme.space.xs
+                spacing: Theme.field.gap
                 // ASCII digits alone, which Number() reads exactly. IntValidator
                 // takes the locale's digits and group separators, which Number()
                 // misreads: "1,000" as NaN, German "1.000" as 1
@@ -153,14 +147,12 @@ Section {
                 // the whole text (https://doc.qt.io/qt-6/qregularexpressionvalidator.html),
                 // and the judge holds the range. Every number field here does the same.
                 TextField {
-                    width: Theme.size.control.lg
                     visible: !root.stepped
                     text: String(root.draft.interval)
                     validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("interval", Number(text))
                 }
                 Select {
-                    width: Theme.size.control.lg
                     visible: root.stepped
                     model: root.stepChoices
                     textRole: "label"
@@ -171,7 +163,6 @@ Section {
                     }
                 }
                 Select {
-                    width: parent.width - x
                     model: root.frequencyChoices
                     textRole: "label"
                     currentIndex: root.chosenFrequencyIndex
@@ -193,17 +184,16 @@ Section {
             visible: root.stepped
             info: "Choose from 0 to " + Engine.REST_MAX + " seconds (" + Engine.secondsText(Engine.REST_MAX) + "). After a run ends, Automations skips each scheduled time until the rest is over, so the next run cannot start just after a slow run. With 0, the automation runs at every scheduled time. Run now does not wait for the rest."
             error: root.validation.errors.rest || ""
-            Row {
+            Column {
                 width: parent.width
-                spacing: Theme.space.xs
+                spacing: Theme.field.gap
                 TextField {
-                    width: Theme.size.control.lg
                     text: String(root.draft.rest)
                     error: root.validation.errors.rest !== undefined
                     validator: RegularExpressionValidator { regularExpression: /[0-9]{0,5}/ }
                     onTextEdited: root.change("rest", Number(text))
                 }
-                Label { role: "item"; text: "seconds after each run"; anchors.verticalCenter: parent.verticalCenter }
+                Label { role: "item"; text: "seconds after each run" }
             }
         }
 
@@ -224,19 +214,17 @@ Section {
                 spacing: Theme.stack.row
                 Radio { text: "On day " + root.draft.monthlyDay; checked: root.draft.monthlyMode === "date"; onClicked: root.change("monthlyMode", "date") }
                 TextField {
-                    width: parent.width
                     visible: root.draft.monthlyMode === "date"
                     text: String(root.draft.monthlyDay)
                     validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("monthlyDay", Number(text))
                 }
                 Radio { text: "On the " + View.ordinal(root.draft.monthlyWeek) + " " + Engine.WEEKDAY_NAMES[Engine.WEEKDAYS.indexOf(root.draft.monthlyWeekday)]; checked: root.draft.monthlyMode === "weekday"; onClicked: root.change("monthlyMode", "weekday") }
-                Row {
+                Column {
                     width: parent.width
-                    spacing: Theme.space.xs
+                    spacing: Theme.field.gap
                     visible: root.draft.monthlyMode === "weekday"
                     Select {
-                        width: Theme.size.panel.sm
                         model: root.weekChoices
                         textRole: "label"
                         currentIndex: root.chosenMonthlyWeekIndex
@@ -258,11 +246,10 @@ Section {
             label: "Yearly"
             width: parent.width
             visible: root.draft.frequency === "yearly"
-            Row {
+            Column {
                 width: parent.width
-                spacing: Theme.space.xs
+                spacing: Theme.field.gap
                 Select {
-                    width: Theme.size.panel.sm
                     model: root.monthChoices
                     textRole: "label"
                     currentIndex: root.chosenYearlyMonthIndex
@@ -272,7 +259,6 @@ Section {
                     }
                 }
                 TextField {
-                    width: parent.width - x
                     text: String(root.draft.yearlyDay)
                     validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("yearlyDay", Number(text))
@@ -288,25 +274,24 @@ Section {
                 width: parent.width
                 spacing: Theme.stack.row
                 Radio { text: "Never"; checked: root.draft.endType === "never"; onClicked: root.change("endType", "never") }
-                Row {
+                Column {
                     width: parent.width
-                    spacing: Theme.space.xs
+                    spacing: Theme.field.gap
                     Radio { text: "On"; checked: root.draft.endType === "date"; onClicked: root.change("endType", "date") }
-                    DateField { width: parent.width - x; visible: root.draft.endType === "date"; date: root.draft.endDate; error: root.validation.errors.end !== undefined; onEdited: (date, valid) => root.change("endDate", date); onPicked: date => root.change("endDate", date) }
+                    DateField { visible: root.draft.endType === "date"; date: root.draft.endDate; error: root.validation.errors.end !== undefined; onEdited: (date, valid) => root.change("endDate", date); onPicked: date => root.change("endDate", date) }
                 }
-                Row {
+                Column {
                     width: parent.width
-                    spacing: Theme.space.xs
+                    spacing: Theme.field.gap
                     visible: !root.stepped
                     Radio { text: "After"; checked: root.draft.endType === "count"; onClicked: root.change("endType", "count") }
                     TextField {
-                        width: Theme.size.panel.sm
                         visible: root.draft.endType === "count"
                         text: String(root.draft.endCount)
                         validator: RegularExpressionValidator { regularExpression: /[0-9]{0,3}/ }
                         onTextEdited: root.change("endCount", Number(text))
                     }
-                    Label { role: "item"; text: "occurrences"; visible: root.draft.endType === "count"; anchors.verticalCenter: parent.verticalCenter }
+                    Label { role: "item"; text: "occurrences"; visible: root.draft.endType === "count" }
                 }
             }
         }

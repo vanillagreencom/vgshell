@@ -198,6 +198,21 @@ PAIR_ROWS = [
 # keys. The pane and the host are surfaces, and so is a type of the pane's
 # plugin the pane composes; a type it does not compose is not.
 SETTINGS_ROWS = [
+    ("a pane Select reintroduces a caller width", {PANE: "Item { FormRow { Select { width: parent.width } } }\n"}, {"settings-input-width"}),
+    ("a host input takes the shared allocation", {HOST: "Item { Field { TextField {} } }\n"}, set()),
+    ("a host input owns a preferred layout width", {HOST: "Item { Field { Select { Layout.preferredWidth: parent.width } } }\n"}, {"settings-input-width"}),
+    ("a pane input owns a grouped layout width", {PANE: "Item { Field { TextField { Layout { fillWidth: true } } } }\n"}, {"settings-input-width"}),
+    ("a pane input owns horizontal anchors", {PANE: "Item { Field { TextField { anchors.fill: parent } } }\n"}, {"settings-input-width"}),
+    ("a pane input owns grouped horizontal anchors", {PANE: "Item { Field { TextField { anchors { left: parent.left; right: parent.right } } } }\n"}, {"settings-input-width"}),
+    ("a boxed local subclass owns its allocation", {PANE: "Item { FormRow { Picker {} } }\n", "shell/plugins/acme.pane/Picker.qml": "Select { width: parent.width }\n"}, {"settings-input-width"}),
+    ("a local input use owns its allocation", {PANE: "Item { FormRow { Picker { width: parent.width } } }\n", "shell/plugins/acme.pane/Picker.qml": "Select {}\n"}, {"settings-input-width"}),
+    ("a local row subclass retains row containment", {PANE: "Item { Entry { Select { implicitWidth: parent.width } } }\n", "shell/plugins/acme.pane/Entry.qml": "Field {}\n"}, {"settings-input-width"}),
+    ("a local wrapper carries row containment transitively", {PANE: "Item { Field { Holder {} } }\n", "shell/plugins/acme.pane/Holder.qml": "Item { Picker {} }\n", "shell/plugins/acme.pane/Picker.qml": "Select { width: parent.width }\n"}, {"settings-input-width"}),
+    ("a composite's inner input owns its layout", {PANE: "Item { Field { Select { contentItem: TextField { width: parent.width } } } }\n"}, set()),
+    ("standalone search outside rows retains its width", {PANE: "Item { TextField { variant: \"search\"; width: parent.width } Field { Select {} } }\n"}, set()),
+    ("compact switches retain their shape", {PANE: "Item { Field { Switch { width: implicitWidth } } }\n"}, set()),
+    ("an unrelated window's row is outside settings discovery", {"shell/plugins/acme.pane/Other.qml": "Item { Field { Select { width: parent.width } } }\n"}, set()),
+    ("a width named only in a comment is not a finding", {PANE: "Item { FormRow { Select { /* width: parent.width */ } } }\n"}, set()),
     ("a pane's own type that reads a space step", {PANE: "Item { Rows {} }\n", "shell/plugins/acme.pane/Rows.qml": "Column { spacing: Theme.space.lg }\n"}, {"settings-gap"}),
     ("a pane gap from token arithmetic", {PANE: "Column { topPadding: Theme.stack.group + Theme.row.lineGap }\n"}, {"settings-gap"}),
     ("a pane gap from a literal in arithmetic", {PANE: "Column { bottomPadding: 2 * gap }\n"}, {"settings-gap"}),

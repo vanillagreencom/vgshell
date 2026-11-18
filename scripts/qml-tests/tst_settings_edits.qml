@@ -301,7 +301,11 @@ Item {
 
         function test_settings_key_boxes_keep_width_across_bound_unbound_and_reset_states() {
             const original = { shortcut: "spare", key: "SUPER+M", default: "SUPER+M", description: "Spare" };
-            const field = disposableKey.createObject(root, { width: 600, capture: pageCapture, bind: original });
+            // Beside the box, inkEnd measures the tools' reserved slots.
+            const field = disposableKey.createObject(root, {
+                width: Theme.field.labelWidth + Theme.field.labelGap + 2 * Theme.control.maxWidth,
+                capture: pageCapture, bind: original
+            });
             const box = () => descendants(field).find(item => String(item).indexOf("QQuickAbstractButton") === 0);
             // Rows update once per frame. Finish the nested action/tool
             // layouts before reading the box, including hidden actions.
@@ -311,13 +315,17 @@ Item {
                     if (typeof item.forceLayout === "function") item.forceLayout();
             };
             layout();
+            tryCompare(field.shortcutField, "toolsBelow", false);
             const expected = box().width;
+            const expectedInkEnd = field.shortcutField.inkEnd;
             for (const key of [null, "SUPER+N", "SUPER+M"]) {
                 field.bind = Object.assign({}, original, { key: key });
                 const reset = field.actions.find(item => item.label.indexOf("Reset to ") === 0);
                 compare(reset.visible, key !== original.default);
                 layout();
+                tryCompare(field.shortcutField, "toolsBelow", false);
                 tryCompare(box(), "width", expected);
+                tryCompare(field.shortcutField, "inkEnd", expectedInkEnd);
             }
             field.destroy();
         }

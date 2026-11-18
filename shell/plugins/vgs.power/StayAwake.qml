@@ -7,20 +7,22 @@ import "PowerLogic.js" as Logic
 // draw inside a Field that shows `hint` and `problem`: while off, the
 // durations and Start; while on, the time left and End. A press asks the
 // service through IPC, which owns the hold (Service.qml stayAwakeRequest);
-// the control reads the status value alone. With `fill`, the reading or
-// the list takes the row's width less the button's.
-Row {
+// the control reads the status value alone. The action stays outside the
+// input and moves below it when the value column has no trailing room.
+Item {
     id: root
 
     property var shell: null
-    property bool fill: false
     property string problem: ""
     readonly property var awake: Logic.stayAwakeView(shell === null ? null : shell.status.values.power)
     readonly property var durations: Logic.STAY_AWAKE_DURATIONS
     readonly property string hint: awake.active ? "" : "Prevents the computer from sleeping"
-    readonly property real slotWidth: width - button.width - spacing
-
-    spacing: Theme.stack.inline
+    readonly property real availableWidth: parent !== null ? (parent.availableWidth ?? parent.width) : Infinity
+    readonly property bool buttonBelow: !awake.active && list.width + Theme.stack.inline + button.width > availableWidth
+    readonly property real firstLineHeight: buttonBelow ? Theme.textField.height : 0
+    implicitWidth: awake.active ? reading.implicitWidth + Theme.stack.inline + button.width
+        : list.width + (buttonBelow ? 0 : Theme.stack.inline + button.width)
+    implicitHeight: buttonBelow ? list.height + Theme.field.gap + button.height : Math.max(awake.active ? reading.height : list.height, button.height)
 
     function request() {
         const arg = awake.active ? "end" : String(durations[list.currentIndex].minutes);
@@ -33,8 +35,8 @@ Row {
     }
 
     Label {
+        id: reading
         visible: root.awake.active
-        width: root.fill ? root.slotWidth : implicitWidth
         anchors.verticalCenter: parent.verticalCenter
         role: "value"
         // Read at each change of the hold and at each minute Time.now
@@ -45,7 +47,6 @@ Row {
     Select {
         id: list
         visible: !root.awake.active
-        width: root.fill ? root.slotWidth : implicitWidth
         model: root.durations
         textRole: "label"
         currentIndex: root.durations.findIndex(d => d.minutes === root.awake.minutes)
@@ -53,7 +54,8 @@ Row {
     }
     Button {
         id: button
-        anchors.verticalCenter: parent.verticalCenter
+        x: root.buttonBelow ? 0 : (root.awake.active ? reading.width : list.width) + Theme.stack.inline
+        y: root.buttonBelow ? list.height + Theme.field.gap : Math.round((root.height - height) / 2)
         variant: "secondary"
         size: "md"
         text: root.awake.active ? "End" : "Start"

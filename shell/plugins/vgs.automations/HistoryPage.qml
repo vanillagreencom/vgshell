@@ -132,7 +132,6 @@ FocusScope {
             label: "Automation"
             inline: true
             Select {
-                width: parent.width
                 model: page.filterOptions
                 textRole: "label"
                 currentIndex: page.filterIndex()

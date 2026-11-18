@@ -72,7 +72,7 @@ import qs.Ui
 // (Theme.subTextRoom); a key/value row stands by ink.
 // A hidden action takes no room. While
 // `labelColumn` is false the row draws no label and keeps
-// no row height: the control takes the full width at its own height, as a
+// no row height: the control takes the bounded allocation at its own height, as a
 // Field whose label stands above its control does. `valueX` is where the
 // value column starts, for content that belongs under it, and
 // `valueBottom` where the value's box ends in the row, for content under
@@ -420,6 +420,10 @@ Item {
 
     Item {
         id: slot
+        // InputWidth reads the allocation through layout wrappers. A bounded
+        // composite owns its inner inputs, so they keep its rail/readout split.
+        readonly property real inputWidth: width
+        readonly property real availableWidth: root.valueRoom
         x: root.valueX
         width: Math.min(root.valueRoom, Theme.control.maxWidth)
         height: childrenRect.height

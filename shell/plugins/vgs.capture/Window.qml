@@ -283,7 +283,6 @@ FocusScope {
                         width: (areaControls.width - (areaControls.columns - 1) * areaControls.columnSpacing) / areaControls.columns
                         label: modelData.label + " · " + root.region[modelData.key]
                         Slider {
-                            width: Math.min(areaField.valueRoom, Theme.control.maxWidth)
                             from: modelData.key === "width" || modelData.key === "height" ? 1 : 0
                             to: root.current === null ? 1 : modelData.key === "x" ? root.current.width - 1 : modelData.key === "y" ? root.current.height - 1 : modelData.key === "width" ? root.current.width - root.region.x : root.current.height - root.region.y
                             stepSize: 1

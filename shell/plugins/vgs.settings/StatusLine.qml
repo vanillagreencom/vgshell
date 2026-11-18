@@ -308,12 +308,11 @@ Column {
                 // unit test reads item === null synchronously before the writer.
                 // https://doc.qt.io/qt-6/qml-qtquick-loader.html#active-prop
                 sourceComponent: Item {
-                    readonly property bool below: secret.minimumWidth + Theme.stack.inline + editorActions.implicitWidth > width
+                    readonly property bool below: secret.width + Theme.stack.inline + editorActions.implicitWidth > width
                     implicitHeight: below ? secret.height + Theme.stack.row + editorActions.height : secret.height
                     Component.onCompleted: secret.forceActiveFocus()
                     TextField {
                         id: secret
-                        width: parent.below ? form.width : form.width - editorActions.implicitWidth - Theme.stack.inline
                         password: true
                         leadingIcon: "key-round"
                         placeholderText: line.secretLabel

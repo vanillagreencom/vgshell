@@ -44,12 +44,66 @@
 # output draws through each change with slowed window animations; the same
 # change sent as two requests, the control, draws a frame with the top
 # moved.
-# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js bin/lib/dbus_wire.py shell/Ui/layout/NavigationRow.qml
+# Boxed inputs on every listed plugin's Settings page and the safely
+# mounted Sounds pane use FormRow's allocation. Shortcut tools extend
+# beyond its right edge or wrap below when the value column has no room;
+# caps stay inside the actual box. Controls plant defects in those real
+# geometry readings to prove the judge refuses them.
+# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.sounds/manifest.json scripts/smoke/fixtures/plugins/acme.sounds/Service.qml shell/Core/Sounds.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js bin/lib/dbus_wire.py shell/Ui/layout/NavigationRow.qml
 set -euo pipefail
 leak_plugin_setup acme.status false acme.probe true acme.bare true vgs.themes true || { fail "settings: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
+
+# Read actual boxes in their nearest FormRow coordinates; composite input
+# internals are measured only through their outer owner by Probe.qml.
+settings_inputs_judge() {
+  py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+minimum=int(sys.argv[1]); defect=sys.argv[2]
+if not isinstance(rows,list) or len(rows) < minimum:
+    print("coverage-missing")
+    sys.exit(0)
+if defect:
+    candidates=[r for r in rows if not defect.startswith("tool") or r["tools"]]
+    if not candidates:
+        print("control-unreached")
+        sys.exit(0)
+    row=candidates[0]
+    if defect == "box": row["box"][2] += 1
+    elif defect == "tool":
+        row["tools"][0][0]=row["box"][0]
+        row["tools"][0][1]=row["box"][1]
+    elif defect == "cap":
+        candidates=[r for r in rows if r["caps"]]
+        if not candidates:
+            print("control-unreached")
+            sys.exit(0)
+        candidates[0]["caps"][0][0]=candidates[0]["box"][0]-1
+close=lambda a,b: abs(a-b) <= 0.5
+for row in rows:
+    x,y,w,h=row["box"]
+    if not close(x,row["start"]) or not close(w,row["allocation"]) or w <= 0 or h <= 0:
+        print("box-misaligned")
+        break
+    if any((tx < x-0.5 or ty < y+h-0.5) if row["toolsBelow"] else tx < x+w-0.5 for tx,ty,tw,th in row["tools"]):
+        print("tool-overlap")
+        break
+    if any(cx < x-0.5 or cy < y-0.5 or cx+cw > x+w+0.5 or cy+ch > y+h+0.5 for cx,cy,cw,ch in row["caps"]):
+        print("cap-overflow")
+        break
+else:
+    print("aligned")' "${1:-0}" "${2:-}"
+}
+settings_inputs_read() {
+  local reading
+  reading="$(ipc smoke settingsInputGeometry "$1" "$2")" || return
+  [[ $reading == \[* ]] || { printf 'unread=%s\n' "$reading"; return; }
+  printf '%s\n' "$reading" >"$smoke_log_dir/settings-inputs-${4:-$2}.json" || return
+  printf '%s\n' "$reading" | settings_inputs_judge "${3:-0}"
+}
 
 # The window opens on the plugin list, the tallest page, which the window
 # host maps at the cap, `size.window.tallHeightShare` of the monitor's
@@ -306,6 +360,25 @@ else:
   [[ $failures -eq $failed_before ]] || return 1
   click "$x" "$y"
 }
+# Sounds lists enabled event producers. This passive fixture declares the
+# input measured here; no play or test action is invoked.
+settings_info_sounds_fixture="$home/.config/vgshell/plugins/acme.sounds"
+settings_info_sounds_config="$sandbox/rows/settings-info-sounds-config.json"
+settings_info_sounds_installed=false
+settings_info_sounds_was="$(plugin_enabled acme.sounds)" || { fail "the info link sound fixture's enablement is unreadable"; return 1; }
+[[ $settings_info_sounds_was == True || $settings_info_sounds_was == False || $settings_info_sounds_was == absent ]] || { fail "the info link sound fixture's enablement is invalid"; return 1; }
+cp -- "$home/.config/vgshell/shell.json" "$settings_info_sounds_config" || { fail "the info link sound fixture's configuration could not be retained"; return 1; }
+if [[ $settings_info_sounds_was == absent ]]; then
+  [[ ! -e $settings_info_sounds_fixture && ! -L $settings_info_sounds_fixture ]] || { fail "the unlisted info link sound fixture already has a directory"; return 1; }
+  install_plugin_copy acme.sounds acme.sounds "Acme sounds" || { fail "the info link sound fixture could not be installed"; return 1; }
+  settings_info_sounds_installed=true
+  rescan "a rescan discovers the passive info link sound fixture"
+  expect_poll "the passive info link sound fixture is listed" True plugin_known acme.sounds
+fi
+leak_plugin_setup acme.sounds true || { fail "the passive info link sound fixture could not be enabled"; return 1; }
+expect_poll "the passive info link sound fixture builds" True record_exists acme.sounds
+settings_info_sound_event() { ipc smoke readInstance service acme.sounds events | py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and any(row["id"] == "acme.sounds" and row["event"] == "ping" for row in rows))'; }
+expect_poll "the passive fixture contributes its declared Ping event" True settings_info_sound_event
 settings_info_system_was="$(plugin_enabled vgs.system)" || { fail "the info link fixture's System enabled state is unreadable"; return 1; }
 [[ $settings_info_system_was == True || $settings_info_system_was == False ]] || { fail "the info link fixture's System enabled state is not boolean"; return 1; }
 expect "enabling the System window for the info link is allowed" ok ipc shell setPluginEnabled vgs.system true
@@ -318,6 +391,7 @@ expect_poll "no pane is mounted before the info dialog's Sounds link click" '[]'
 info_link_click "$page_info_text" || fail "the click on the info dialog's page reference failed"
 expect_poll "a page reference in an info dialog closes the dialog" absent info_link_shown "$page_info_text"
 expect_poll "a page reference in an info dialog opens the Sounds pane" '["vgs.sounds"]' window_panes
+expect_poll "Sounds boxed inputs share their row allocation" aligned settings_inputs_read window vgs.system 1 sounds-info-link
 expect "opening the Sounds pane keeps the fixture's Settings page" '"acme.page-link/Settings"' settings_shown
 expect "the System window hides after the info dialog's Sounds link" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after the info dialog's Sounds link" 0 window_count 'System Settings'
@@ -325,6 +399,17 @@ expect_poll "no pane remains after hiding the info dialog's Sounds destination" 
 if [[ $settings_info_system_was == True ]]; then settings_info_system_want=true; else settings_info_system_want=false; fi
 expect "the info link restores the System window's enablement" ok ipc shell setPluginEnabled vgs.system "$settings_info_system_want"
 expect_poll "the System window's enablement is as the info link found it" "$settings_info_system_was" plugin_enabled vgs.system
+if [[ $settings_info_sounds_was == True ]]; then settings_info_sounds_want=true; else settings_info_sounds_want=false; fi
+leak_plugin_setup acme.sounds "$settings_info_sounds_want" || { fail "the info link sound fixture's enablement could not be restored"; return 1; }
+user_config_restore "$settings_info_sounds_config" || { fail "the info link sound fixture's configuration could not be restored"; return 1; }
+expect "the configuration before the passive sound fixture is restored" ok ipc shell reloadConfig
+if [[ $settings_info_sounds_installed == true ]]; then
+  rm -rf -- "${settings_info_sounds_fixture:?}"
+  rescan "a rescan removes the temporary info link sound fixture"
+  expect_poll "the temporary info link sound fixture is absent again" False plugin_known acme.sounds
+else
+  expect_poll "the sound fixture's enablement is as the info link found it" "$settings_info_sounds_was" plugin_enabled acme.sounds
+fi
 
 # A summon that names a tab opens the page on that tab, and on Settings
 # when the page has no such tab; a summon of the page shown switches its
@@ -569,11 +654,18 @@ vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; p
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
 done
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
-[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.bare "* && " $fit_ids " == *" acme.settings-scroll "* ]] || fail "the manager lists Windows, the bare fixture and the deliberate scroll fixture for the Details judge: got $fit_ids"
+[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.bare "* && " $fit_ids " == *" acme.settings-scroll "* && " $fit_ids " == *" acme.probe "* && " $fit_ids " == *" vgs.settings "* ]] || { fail "the manager's geometry inventory lacks a required plugin: got $fit_ids"; return 1; }
 overflow_details=unread
 bare_details=unread
 for fit_id in $fit_ids; do
   expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
+  expect_poll "$fit_id opens on Settings before its inputs are measured" "\"$fit_id/Settings\"" settings_shown
+  settings_inputs_minimum=0
+  [[ $fit_id != acme.probe && $fit_id != vgs.settings ]] || settings_inputs_minimum=1
+  expect_poll "$fit_id boxed inputs share their row allocation" aligned settings_inputs_read window vgs.settings "$settings_inputs_minimum" "$fit_id"
+  if [[ $fit_id == acme.probe || $fit_id == vgs.settings ]]; then
+    cp -- "$smoke_log_dir/settings-inputs-$fit_id.json" "$smoke_log_dir/settings-inputs-control-$fit_id.json" || { fail "the settings input control reading could not be retained"; return 1; }
+  fi
   settings_details
   expect_poll "the window takes $fit_id's Details height" settled fit_settled
   fit_reading="$(fit_state)" || fit_reading=unread
@@ -585,6 +677,9 @@ for fit_id in $fit_ids; do
     *) fail "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict reading=$fit_reading" ;;
   esac
 done
+expect "control: a caller width leaves the shared box allocation" box-misaligned settings_inputs_judge 1 box <"$smoke_log_dir/settings-inputs-control-acme.probe.json"
+expect "control: shortcut tools inside the box are refused" tool-overlap settings_inputs_judge 1 tool <"$smoke_log_dir/settings-inputs-control-vgs.settings.json"
+expect "control: a shortcut cap outside the box is refused" cap-overflow settings_inputs_judge 1 cap <"$smoke_log_dir/settings-inputs-control-vgs.settings.json"
 expect "the deliberate scroll fixture's Details exceed the window and show the bottom cue" cued fit_judge "$overflow_details"
 # overflow_height READING: the client's height in READING against the cap
 # pinned_box reads, as [height, cap].

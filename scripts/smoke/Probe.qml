@@ -3596,6 +3596,41 @@ Scope {
             const item = root.instance(hostKey, id);
             return item === null ? "absent" : root.json(root.pageEntryRows(item, false));
         }
+        // Rendered settings editors, including rows below the scroll viewport.
+        // Read geometry alone: a password field's text never leaves its owner.
+        // Nested bounded controls belong to their composite (for example a
+        // SavedSlider's rail), so its outer allocation is the measured input.
+        function settingsInputGeometry(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const inputs = [];
+            for (const input of root.descendants(item)) {
+                // SettingField's multi-choice menu is a Button, with compact
+                // bounds but the same full-width boxed allocation as Select.
+                const menuInput = input.minimumWidth === Theme.control.minWidth && input.listOpen !== undefined;
+                if (!root.visibleInTree(input) || !(input.minimumWidth >= Theme.field.minWidth || menuInput) || !Number.isFinite(input.maximumWidth)) continue;
+                let row = null;
+                for (let at = input.parent; at !== null; at = at.parent) {
+                    if (at.objectName === "fieldRow") { row = at; break; }
+                    if (typeof at.minimumWidth === "number" && typeof at.maximumWidth === "number") break;
+                }
+                if (row === null) continue;
+                const box = target => {
+                    const at = target.mapToItem(row, 0, 0);
+                    return [at.x, at.y, target.width, target.height];
+                };
+                const shortcut = root.matchesType(input, "ShortcutField");
+                const actual = shortcut ? root.descendants(input).find(child => input.typing
+                    ? child.escapeReverts === true : String(child).indexOf("QQuickAbstractButton") === 0) : input;
+                if (actual === undefined) return "input-box-absent";
+                inputs.push({ type: root.typeName(input), label: row.label, box: box(actual),
+                    allocation: Math.min(row.valueRoom, Theme.control.maxWidth), start: row.valueX,
+                    shortcut: shortcut, editable: shortcut && input.editable, toolsBelow: shortcut && input.toolsBelow === true,
+                    tools: !shortcut ? [] : root.descendants(input).filter(child => child.inUse !== undefined && child.iconName !== undefined && root.visibleInTree(child)).map(box),
+                    caps: !shortcut ? [] : root.descendants(input).filter(child => root.matchesType(child, "Kbd") && root.visibleInTree(child)).map(box) });
+            }
+            return root.json(inputs);
+        }
         // The rendered key list's real ChoiceField ancestor, not its
         // declared destination. A list moved to Details has no such field.
         function settingKeyRows(hostKey: string, id: string): string {

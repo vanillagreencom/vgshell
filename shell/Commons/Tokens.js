@@ -395,7 +395,8 @@ var TOKENS = {
     // button sizes 1, 2 and 3 on the 4 px unit.
     control: {
         minWidth: step(4),
-        maxWidth: step(120),
+        // A settings input fits the default page and stays compact in a wide window.
+        maxWidth: step(80),
         paddingX: step(3),
         gap: step(2),
         sm: { paddingX: step(2), gap: step(1) },

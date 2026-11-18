@@ -54,7 +54,6 @@ FocusScope {
 
                 SavedSlider {
                     id: radius
-                    width: parent.width
                     from: root.appearance === null ? 0 : root.appearance.keys.controlRadius.min
                     to: root.appearance === null ? 0 : root.appearance.keys.controlRadius.max
                     formatValue: value => Math.round(value) + " px"

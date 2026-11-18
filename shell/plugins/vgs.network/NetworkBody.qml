@@ -535,7 +535,6 @@ FocusScope {
                 info: "Choose who looks up internet addresses for your saved Wi-Fi and wired networks. VGS opens a terminal to review each change and enter your own servers. Network default restores the servers VGS replaced."
                 Select {
                     objectName: "network-dns-provider"
-                    width: parent.width
                     model: root.dnsChoices
                     textRole: "label"
                     currentIndex: root.dnsChoices.findIndex(choice => choice.value === root.dns.provider)

@@ -68,7 +68,6 @@ Column {
             label: "Pointer speed"
             SavedSlider {
                 id: pointerSpeed
-                width: parent.width
                 from: -1
                 to: 1
                 stepSize: 0.05
@@ -83,7 +82,6 @@ Column {
             setting: "accelProfile"
             label: "Acceleration"
             Select {
-                width: parent.width
                 model: ["Adaptive", "Flat"]
                 currentIndex: root.shell === null ? 0 : Logic.profileIndex(accelProfileSource.shownValue)
                 onActivated: index => {
@@ -132,7 +130,6 @@ Column {
             setting: "scrollFactor"
             label: "Scroll speed"
             SavedSlider {
-                width: parent.width
                 from: 0
                 to: 2
                 stepSize: 0.05
@@ -261,7 +258,6 @@ Column {
             setting: "touchpadScrollFactor"
             label: "Touchpad scroll speed"
             SavedSlider {
-                width: parent.width
                 from: 0
                 to: 2
                 stepSize: 0.05

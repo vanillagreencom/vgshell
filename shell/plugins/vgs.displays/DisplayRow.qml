@@ -24,7 +24,7 @@ FormRow {
         return row === undefined || row.action === null || !row.action.offered ? null : { key: key, label: row.action.label };
     }
     readonly property bool ready: display !== null && display.state === "ready"
-    readonly property alias slider: slider
+    readonly property alias slider: saved.slider
     // The refusal the last step was answered with, "" for none.
     property string problem: ""
 
@@ -50,34 +50,29 @@ FormRow {
         width: parent.width
         spacing: Theme.row.lineGap
 
-        Row {
-            width: parent.width
-            spacing: Theme.stack.inline
+        SavedSlider {
+            id: saved
             visible: root.ready
-
-            Slider {
-                id: slider
-                width: parent.width - level.width - parent.spacing
-                from: Logic.MIN_PERCENT
-                to: Logic.MAX_PERCENT
-                stepSize: 1
-                value: root.ready ? root.display.percent : Logic.MIN_PERCENT
-                Accessible.name: root.label
-                // A key's move assigns `value`, which drops the binding:
-                // restore it so the handle follows every later change.
-                onMoved: {
-                    root.setPercent(Math.round(value));
-                    value = Qt.binding(() => root.ready ? root.display.percent : Logic.MIN_PERCENT);
+            from: Logic.MIN_PERCENT
+            to: Logic.MAX_PERCENT
+            stepSize: 1
+            shown: root.ready ? root.display.percent : Logic.MIN_PERCENT
+            readingRole: "value"
+            readingWidth: widest.implicitWidth
+            formatValue: value => Math.round(value) + "%"
+            accessibleName: root.label
+            onSaved: value => root.setPercent(Math.round(value))
+            Label { id: widest; visible: false; role: "value"; text: "100%" }
+            // Displays follows a drag continuously. The shared composite
+            // owns only the geometry; the existing slider signal writes it.
+            Connections {
+                target: saved.slider
+                function onMoved() {
+                    const slider = saved.slider;
+                    if (!slider.pressed) return;
+                    root.setPercent(Math.round(slider.value));
+                    slider.value = Qt.binding(() => root.ready ? root.display.percent : Logic.MIN_PERCENT);
                 }
-            }
-            Label {
-                id: level
-                anchors.verticalCenter: parent.verticalCenter
-                width: widest.implicitWidth
-                role: "value"
-                horizontalAlignment: Text.AlignRight
-                text: root.ready ? root.display.percent + "%" : ""
-                Label { id: widest; visible: false; role: "value"; text: "100%" }
             }
         }
 

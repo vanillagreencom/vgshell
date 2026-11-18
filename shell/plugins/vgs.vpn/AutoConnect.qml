@@ -57,7 +57,6 @@ Column {
 
             Select {
                 objectName: "vpn-auto-connect"
-                width: parent.width
                 Accessible.name: "Connect automatically: " + currentText
                 model: root.choices
                 textRole: "label"

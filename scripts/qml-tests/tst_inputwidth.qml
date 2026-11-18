@@ -130,6 +130,84 @@ Item {
             compare(values.width, Theme.control.maxWidth);
         }
 
+        function test_row_allocates_inputs_without_caller_widths_data() {
+            return test_layout_bounds_data().filter(row => row.minimum === Theme.field.minWidth);
+        }
+
+        function test_row_allocates_inputs_without_caller_widths(data) {
+            const row = createTemporaryQmlObject("import QtQuick; import qs.Ui; FormRow { width: 2000; label: 'Value'; " + data.type + " { objectName: 'input' } }", parent);
+            verify(row !== null);
+            const input = findChild(row, "input");
+            verify(input !== null);
+            compareWidth(input, Theme.control.maxWidth);
+            compare(input.mapToItem(row, 0, 0).x, row.valueX);
+            row.width = row.valueX + Theme.field.minWidth / 2;
+            compareWidth(input, Theme.field.minWidth / 2);
+            row.width = 2000;
+            compareWidth(input, Theme.control.maxWidth);
+        }
+
+        function test_row_keeps_compact_switch_and_external_shortcut_tools() {
+            const row = createTemporaryQmlObject("import QtQuick; import qs.Ui; FormRow { width: 2000; label: 'Keys'; ShortcutField { objectName: 'input'; keys: ['SUPER+CTRL+ALT+SHIFT+PAGEDOWN'] } }", parent);
+            const input = findChild(row, "input");
+            verify(input !== null);
+            compareWidth(input, Theme.control.maxWidth);
+            const pending = [input];
+            let box = null;
+            const tools = [];
+            while (pending.length > 0) {
+                const at = pending.pop();
+                if (String(at).indexOf("QQuickAbstractButton") === 0) box = at;
+                if (at.inUse !== undefined && at.iconName !== undefined) tools.push(at);
+                for (const child of at.children) pending.push(child);
+            }
+            verify(box !== null && tools.length >= 2);
+            compareWidth(box, Theme.control.maxWidth);
+            tryVerify(() => tools.every(tool => tool.mapToItem(input, 0, 0).x >= box.width));
+            row.width = row.valueX + Theme.field.minWidth;
+            compareWidth(box, Theme.field.minWidth);
+            tryCompare(input, "toolsBelow", true);
+            tryVerify(() => tools.every(tool => {
+                const at = tool.mapToItem(input, 0, 0);
+                return at.x >= 0 && at.x + tool.width <= input.width && at.y >= box.height
+                    && at.y + tool.height <= input.height;
+            }));
+            tryVerify(() => row.height >= input.height);
+            const toggled = createTemporaryQmlObject("import QtQuick; import qs.Ui; FormRow { width: 2000; label: 'On'; Switch { objectName: 'input'; size: 'sm' } }", parent);
+            const toggle = findChild(toggled, "input");
+            tryVerify(() => toggle.width === toggle.implicitWidth && toggle.width < Theme.field.minWidth);
+        }
+
+        function test_row_allocation_stays_fixed_during_slider_readout_changes_data() {
+            // Mouse's signed speed and Windows' pixel radius grow their
+            // readouts while a pointer press is still on the track.
+            return [
+                {tag: "mouse-speed", from: -1, to: 1, step: 0.05, expected: 0.55, tolerance: 0.000001,
+                    format: "value => (value > 0 ? '+' : '') + value.toFixed(2) + '×'"},
+                {tag: "window-radius", from: 0, to: 32, step: 1, expected: 24, tolerance: 2,
+                    format: "value => Math.round(value) + ' px'"}
+            ];
+        }
+
+        function test_row_allocation_stays_fixed_during_slider_readout_changes(data) {
+            const row = createTemporaryQmlObject("import QtQuick; import qs.Ui; FormRow { width: 2000; label: 'Value'; SavedSlider { objectName: 'input'; from: " + data.from
+                + "; to: " + data.to + "; stepSize: " + data.step + "; shown: 0; formatValue: " + data.format
+                + "; property bool observeWidth: false; property real narrowest: width; property real savedValue: NaN; onWidthChanged: if (observeWidth) narrowest = Math.min(narrowest, width); onSaved: value => { savedValue = value; shown = value; } } }", parent);
+            verify(row !== null);
+            const input = findChild(row, "input");
+            verify(input !== null);
+            compareWidth(input, Theme.control.maxWidth);
+            input.narrowest = input.width;
+            input.observeWidth = true;
+            const bar = input.slider;
+            const x = bar.width * 3 / 4;
+            const y = bar.height / 2;
+            mousePress(bar, x, y);
+            mouseRelease(bar, x, y);
+            compare(input.narrowest, Theme.control.maxWidth, "a growing readout never shrinks the row's box during the press");
+            fuzzyCompare(input.savedValue, data.expected, data.tolerance, "the original pointer position saves the requested value");
+        }
+
         function test_parent_width_bindings_stay_bounded_data() {
             return test_layout_bounds_data();
         }
@@ -146,6 +224,14 @@ Item {
             compareWidth(input, minimumAllocation);
             row.width = 2000;
             compareWidth(input, Theme.control.maxWidth);
+
+            if (data.minimum === Theme.field.minWidth) {
+                const outside = createTemporaryQmlObject("import QtQuick; Item { width: 240; height: 100 }", parent);
+                input.parent = outside;
+                compareWidth(input, 240);
+                outside.width = 2000;
+                compareWidth(input, Theme.control.maxWidth);
+            }
         }
     }
 }
