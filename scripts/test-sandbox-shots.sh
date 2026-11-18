@@ -2230,8 +2230,9 @@ git_quiet init -q
 git_quiet add shell bin config themes VERSION LICENSE README.md
 git_quiet commit -q -m manager
 old_rev="$(git -C "$shots_repo" rev-parse HEAD)"
-mkdir -p "$shots_repo/shell/plugins/vgs.settings" "$shots_repo/shell/plugins/vgs.themes" "$shots_repo/shell/plugins/vgs.polkit" "$shots_repo/shell/plugins/vgs.capture"
+mkdir -p "$shots_repo/shell/plugins/vgs.settings" "$shots_repo/shell/plugins/vgs.themes" "$shots_repo/shell/plugins/vgs.polkit" "$shots_repo/shell/plugins/vgs.capture" "$shots_repo/shell/plugins/vgs.launcher"
 : >"$shots_repo/shell/plugins/vgs.settings/manifest.json"
+: >"$shots_repo/shell/plugins/vgs.launcher/manifest.json"
 # The checkout ships the theme browsers, so their scene reaches the theme
 # card check; it ships no Dev Tools, whose scene is refused. It ships the
 # polkit prompt, which the earlier revision does not.

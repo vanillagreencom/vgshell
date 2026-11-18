@@ -150,6 +150,7 @@ FIELDS = (
 # identifier, a path or a value no one reads as prose.
 EXEMPT = (
     ("status", "*", "folderProperty"),  # A row property identifier, never prose.
+    ("glassMaterial",),  # A boolean compositor layer flag, not prose.
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("unplacedSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",), ("idleSettingRows",),
     ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "addChoice", "tui"), ("schema", "*", "preview"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),

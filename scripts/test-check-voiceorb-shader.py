@@ -43,7 +43,7 @@ EDITS = {
                  ("float ring =", "for (int i = 0; i < 5; ++i) { radius += pixel; }\n    float ring ="), "loop"),
     "radial-backdrop": (("vec3 rgb = ink * a;", "vec3 rgb = ink;"),
                         ("float m = min(", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float m = min("), "loop"),
-    "glass-lens": (("vec3(light);", "vec3(light) * 0.9;"),
+    "glass-lens": (("fragColor = colour * cover * qt_Opacity;", "fragColor = colour * cover * qt_Opacity * 0.9;"),
                    ("float depth =", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float depth ="), "loop"),
     "plasma": (("clamp(a, 0.0, 1.0)) * qt_Opacity;", "clamp(a, 0.0, 0.9)) * qt_Opacity;"),
                ("for (int i = 0; i < 16; i++)", "for (int i = 0; i < int(uAmp * 8.0); i++)"), "loop-bound"),

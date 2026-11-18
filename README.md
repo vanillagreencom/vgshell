@@ -99,6 +99,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |
 | [VGS Components](shell/plugins/vgs.gallery/README.md) | Preview VGS controls in the current theme. |
+| [Glass](shell/plugins/vgs.glass/README.md) | Choose where glass appears and how it looks. |
 | [Google Drive](shell/plugins/vgs.google-drive/README.md) | Keep folders in step with Google Drive. |
 | [Login screen](shell/plugins/vgs.greeter/README.md) | Log in on a screen in your VGS theme. |
 | [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. |
@@ -133,7 +134,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field. |
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect your saved VPN and WireGuard profiles. |
 | [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
-| [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts, and VGlass. |
+| [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts. |
 
 ## Setup
 

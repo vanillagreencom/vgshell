@@ -130,15 +130,15 @@ Item {
             fail("no package review compare reader");
         }
 
-        // expected-log: newer: version=7 supported=6 -- an installed build refuses a newer build's file
+        // expected-log: newer: version=8 supported=7 -- an installed build refuses a newer build's file
         function test_newer_file_is_exposed_and_never_written() {
             Config.user = null;
             Config.userText = null;
             Config.publish();
-            const bytes = "{\"version\":7,\"plugins\":\"unknown format\"}\n";
+            const bytes = "{\"version\":8,\"plugins\":\"unknown format\"}\n";
             finishNextRead(Config.userPath, bytes);
             compare(Config.userState, "newer");
-            compare(Config.newerVersion, 7);
+            compare(Config.newerVersion, 8);
             compare(Config.user, null);
             compare(Config.effective, { version: 7 });
             verify(Config.writeUser({ version: 7, lost: true }) !== "ok");
@@ -157,7 +157,7 @@ Item {
             first[first.indexOf(120)] = 255;
             finishNextRead(Config.userPath, ' \r\n{ "version":3, "note":"\ufffd"}\r\n', new Uint8Array(first).buffer);
             compare(Config.userState, "loaded");
-            compare(Config.user.version, 6);
+            compare(Config.user.version, 7);
             compare(Array.from(new Uint8Array(copy.diskData)), first);
             verify(Config.preConversionPresent);
             finishNextRead(Config.userPath, Config.userText);

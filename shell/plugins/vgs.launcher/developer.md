@@ -36,4 +36,3 @@ The overlay's key handlers and `navigate` implement list navigation. The [Hyprla
 ## Appearance
 
 [Appearance.js](Appearance.js) owns the plugin's appearance values. The [appearance contract](../../../docs/architecture/design-system.md#appearance) defines the theme inputs. The card is the shared `GlassSurface`, which draws the glass and the edge light; the plugin hands it rounding and padding. The manifest's `glassMaterial` maps the overlay under the material namespace and declares blur for it.
-
