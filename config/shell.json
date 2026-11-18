@@ -1,6 +1,10 @@
 {
-  "version": 6,
+  "version": 7,
   "packageReviewSettingsSource": "vgs.updates",
+  "glassSettingsMigration": {
+    "field": "glass",
+    "rows": { "vgs.launcher": "launcher", "vgs.notifications": "notifications" }
+  },
   "conversationSettingsMigration": {
     "id": "vgs.jarvis",
     "mode": "mode",

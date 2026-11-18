@@ -69,7 +69,14 @@ Scope {
                     // The host's item, not the plugin's root, which may bind
                     // its own `visible`.
                     contentItem.visible: !hiding
-                    WlrLayershell.namespace: "vgs:layer"
+                    // A plugin whose manifest sets `glassMaterial` holds only
+                    // glass cards here, so its layer maps under the material
+                    // namespace (HyprlandLayer.MATERIAL_NAMESPACES) and its
+                    // GlassSurfaces may draw Clear. The entry is read before
+                    // the surface maps: `visible` waits for the content.
+                    readonly property bool glassMaterial: entry !== null && Registry.manifests[entry.pluginId] !== undefined
+                        && Registry.manifests[entry.pluginId].glassMaterial === true
+                    WlrLayershell.namespace: glassMaterial ? "vgs:layer-glass" : "vgs:layer"
                     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
                     Component.onCompleted: build()

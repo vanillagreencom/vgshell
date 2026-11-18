@@ -39,12 +39,13 @@
   ],
   "defaultSection": "left",
   "appearance": "Appearance.js",
+  "glassMaterial": true,
   "hyprland": {
     "binds": [
       { "shortcut": "toggle", "key": "SUPER+SPACE", "info": "Opens the launcher to start an app or a command, or closes it." }
     ],
     "layerRules": [
-      { "namespace": "^vgs:overlay$", "blur": true, "ignoreAlpha": 0.6 }
+      { "namespace": "^vgs:overlay-glass$", "blur": true, "ignoreAlpha": 0.6 }
     ]
   }
 }

@@ -48,7 +48,8 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // retired shortcut defaults. Retained converters run in saved-version order.
 // Version 5 also records retirement of a saved shortcut with null.
 // Version 6 retires a conversation mode and its private microphone key.
-var CONFIG_VERSION = 6;
+// Version 7 moves the glass choices to the Glass page's keys.
+var CONFIG_VERSION = 7;
 
 // A newer build produces whole-number versions this build cannot read.
 // Classify them before inspecting any fields of that unknown format.
@@ -108,6 +109,14 @@ function configError(config) {
         }
         if (!isPlainObject(migration.modeValues) || Object.keys(migration.modeValues).length === 0 || Object.keys(migration.modeValues).some(function (key) { return typeof migration.modeValues[key] !== "boolean"; }))
             return "conversationSettingsMigration.modeValues must map modes to booleans";
+    }
+    if (config.glassSettingsMigration !== undefined) {
+        var glass = config.glassSettingsMigration;
+        if (!isPlainObject(glass) || typeof glass.field !== "string" || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(glass.field))
+            return "glassSettingsMigration.field must name a field";
+        if (!isPlainObject(glass.rows) || Object.keys(glass.rows).length === 0
+                || Object.keys(glass.rows).some(function (id) { return id === "" || GLASS_ROW_SURFACES.indexOf(glass.rows[id]) === -1; }))
+            return "glassSettingsMigration.rows must map plugin ids to " + GLASS_ROW_SURFACES.join(" or ");
     }
     var rows = function (list, at) {
         if (!Array.isArray(list))
@@ -362,7 +371,7 @@ function migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyM
 // Select the retained chain by the saved version, since its converters
 // stamp CONFIG_VERSION. Only shipped data grants authority over a row.
 // Resolve automatic voice selection before removing the mode it used.
-function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
+function migrateConversationV6(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
     var same = { config: config, migrated: false };
     if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5].indexOf(config.version) === -1)) return same;
     var previous = migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations);
@@ -399,6 +408,94 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
         }
     }
     if (config.version === undefined && !moved) return same;
+    out.version = CONFIG_VERSION;
+    return { config: out, migrated: true };
+}
+
+// The Glass page surfaces a plugin row's own glass choice moves to, as
+// shipped `glassSettingsMigration.rows` names them.
+var GLASS_ROW_SURFACES = ["launcher", "notifications"];
+// The surfaces the old `appearance.glass` "on" drew glass on, every
+// GlassSurface caller and Hyprland's windows, which the conversion keeps on
+// (ThemeLogic.GLASS_SURFACES). Jarvis drew glass whatever the switch said.
+var GLASS_FORMER_REACH = ["windows", "tooltips", "flyouts", "menus", "launcher", "notifications", "dialogs", "indicators", "clipboard"];
+
+// Version 7: the old glass switch, the windows' choice and the shipped
+// plugin rows' own choices move to the Glass page's keys, and the old keys
+// go. `appearance.glass` "off" turns the main switch off and keeps each
+// surface's choice for when it turns on again. "on" keeps glass on every
+// surface it reached, and keeps each saved surface choice it overrode, an
+// off one, in `glassRememberedChoices`, which the page offers to restore.
+// Absent, each saved choice moves as it stands. An absent choice stays
+// absent, so a surface keeps its default; a destination already present
+// wins. A source of the wrong type refuses the conversion.
+function migrateGlassV7(config, glassSettingsMigration, out) {
+    var moved = false;
+    if (out.appearance !== undefined && !isPlainObject(out.appearance))
+        return { error: "glass-source-type field=appearance" };
+    var appearance = isPlainObject(out.appearance) ? out.appearance : {};
+    var global = appearance.glass, windows = appearance.windowGlass;
+    if (global !== undefined && global !== "on" && global !== "off")
+        return { error: "glass-source-type field=appearance.glass" };
+    if (windows !== undefined && typeof windows !== "boolean")
+        return { error: "glass-source-type field=appearance.windowGlass" };
+    var surfaces = {};
+    if (windows !== undefined) surfaces.windows = windows ? "on" : "off";
+    var migration = glassSettingsMigration;
+    if (migration !== undefined && Array.isArray(out.plugins)) {
+        for (var i = 0; i < out.plugins.length; i++) {
+            var row = out.plugins[i];
+            if (!isPlainObject(row) || !hasOwn(migration.rows, row.id) || !hasOwn(row, migration.field)) continue;
+            if (typeof row[migration.field] !== "boolean")
+                return { error: "glass-source-type field=" + row.id + "." + migration.field };
+            if (!hasOwn(surfaces, migration.rows[row.id])) surfaces[migration.rows[row.id]] = row[migration.field] ? "on" : "off";
+            delete row[migration.field];
+            moved = true;
+        }
+    }
+    var destination = function (key) {
+        if (appearance[key] !== undefined && !isPlainObject(appearance[key])) return null;
+        return isPlainObject(appearance[key]) ? appearance[key] : {};
+    };
+    var saved = destination("glassSurfaces"), remembered = destination("glassRememberedChoices");
+    if (saved === null) return { error: "glass-destination-type field=appearance.glassSurfaces" };
+    if (remembered === null) return { error: "glass-destination-type field=appearance.glassRememberedChoices" };
+    var chosen = {};
+    if (global === "on") {
+        GLASS_FORMER_REACH.forEach(function (surface) { chosen[surface] = "on"; });
+        Object.keys(surfaces).forEach(function (surface) {
+            if (surfaces[surface] === "off" && !hasOwn(remembered, surface)) remembered[surface] = "off";
+        });
+    } else {
+        chosen = surfaces;
+        if (global === "off" && !hasOwn(appearance, "glassEnabled")) appearance.glassEnabled = false;
+    }
+    Object.keys(chosen).forEach(function (surface) {
+        if (!hasOwn(saved, surface)) saved[surface] = chosen[surface];
+    });
+    if (Object.keys(saved).length > 0) appearance.glassSurfaces = saved;
+    if (Object.keys(remembered).length > 0) appearance.glassRememberedChoices = remembered;
+    if (global !== undefined || windows !== undefined) {
+        delete appearance.glass;
+        delete appearance.windowGlass;
+        moved = true;
+    }
+    if (Object.keys(appearance).length > 0) out.appearance = appearance;
+    else delete out.appearance;
+    return { moved: moved };
+}
+
+// Select the retained chain by the saved version, since its converters
+// stamp CONFIG_VERSION. Only shipped data grants authority over a row.
+function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration, glassSettingsMigration) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5, 6].indexOf(config.version) === -1)) return same;
+    var previous = migrateConversationV6(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);
+    if (previous.error !== undefined) return previous;
+    var out = clone(previous.config);
+    var glass = migrateGlassV7(config, glassSettingsMigration, out);
+    if (glass.error !== undefined) return { config: config, migrated: false, error: glass.error };
+    if (config.version === undefined && !previous.migrated && !glass.moved) return same;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };
 }

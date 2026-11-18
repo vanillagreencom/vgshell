@@ -42,8 +42,10 @@ Singleton {
     // already hold the resolved values.
     readonly property var appearanceState: source.appearance
     // Whether the compositor's layer glass is loaded and ready, which Clear
-    // needs (ThemeLogic.glassFor). The core's Hyprland state alone binds it.
-    property bool layerGlassReady: false
+    // needs (ThemeLogic.glassFor). The core's Hyprland state alone binds the
+    // input.
+    property bool layerGlassInput: false
+    readonly property bool layerGlassReady: layerGlassInput
     // The style glass draws in: Light, Dark or Clear, Auto being the
     // theme's mode (ThemeLogic.glassStyle).
     readonly property string glassStyle: ThemeLogic.glassStyle(appearanceState.values, scheme.mode)

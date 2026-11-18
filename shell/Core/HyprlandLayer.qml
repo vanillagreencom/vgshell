@@ -148,6 +148,10 @@ Scope {
         layerGlassLoad: Capabilities.hyprland.layerGlassRequest.load !== false,
         layerGlassPermit: root.layerGlassPermit,
         layerGlassUser: Capabilities.hyprland.layerGlassUser,
+        // The Glass page's main switch and the style glass draws in, which
+        // the layer glass preset follows.
+        glassEnabled: Theme.appearanceState.values.glassEnabled !== false,
+        glassStyle: Theme.glassStyle,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
         tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) },

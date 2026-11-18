@@ -124,9 +124,10 @@ docs/decisions/D119-plugin-look-binds-per-surface.md), so
                      refuses (absent, no pragma) is unreadable
   look-unknown       a `look.<path>` in a file that binds the look names no
                      path of that table
-  theme-read         a `Theme.<path>` other than `Theme.appearance` in a file
-                     that binds the look, since every other member carries
-                     the global look
+  theme-read         a `Theme.<path>` other than `Theme.appearance` or
+                     `Theme.glassFor`, which says whether the surface takes
+                     glass, in a file that binds the look, since every other
+                     member carries the global look
   type-floor         a `length` under the table's `text` group, a font size,
                      resolves in either mode below the smallest size of the
                      shell's own text roles but `keyName`, which only the
@@ -233,8 +234,8 @@ BACKGROUND_BINDING = re.compile(r"(?:^|[;\n])\s*background\s*:")
 ICON_BUTTON = "IconButton"
 THEME_REFERENCE = re.compile(r"(?<![\w.$])Theme\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
 LOOK_REFERENCE = re.compile(r"(?<![\w$])look\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
-# The one member of Theme a plugin with its own appearance reads.
-APPEARANCE_MEMBER = "appearance"
+# The members of Theme a file that binds a plugin's own look reads.
+APPEARANCE_MEMBERS = ("appearance", "glassFor")
 THEME_MEMBER = re.compile(r"^\s*readonly property \w+ (\w+)\s*:", re.MULTILINE)
 THEME_FUNCTION = re.compile(r"^\s*function (\w+)\s*\(", re.MULTILINE)
 THEME_FIRST_MEMBER = re.compile(r"^\s*readonly property ", re.MULTILINE)
@@ -638,7 +639,7 @@ def check_tree(root, table, literal, looks, surfaces, settings, findings, notice
             unknown = table.unknown(m.group(1))
             if unknown is not None:
                 findings.append(f"{unknown[0]} {path}:{number} Theme.{unknown[1]}")
-            elif look is not None and m.group(1).split(".")[0] != APPEARANCE_MEMBER:
+            elif look is not None and m.group(1).split(".")[0] not in APPEARANCE_MEMBERS:
                 findings.append(f"theme-read {path}:{number} Theme.{m.group(1)}")
         if look is not None and not look.refusals:
             for m in LOOK_REFERENCE.finditer(line):

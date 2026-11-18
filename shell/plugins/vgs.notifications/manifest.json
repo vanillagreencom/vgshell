@@ -72,6 +72,7 @@
     "notification": { "label": "New notification", "description": "Plays when a notification shows on screen. Sound off and Do Not Disturb also mute an app's own notification sound. Calls and media the app starts while either is on can be silent for up to 15 seconds.", "default": "" }
   },
   "appearance": "Appearance.js",
+  "glassMaterial": true,
   "hyprland": {
     "binds": [
       { "shortcut": "inbox", "key": "SUPER+N", "info": "Opens the list of notifications you have not cleared, or closes it." },
@@ -79,8 +80,8 @@
       { "shortcut": "mark-read", "key": "SUPER+CTRL+N", "info": "Marks every notification as read, closes their popups and the panel, and keeps them in History." }
     ],
     "layerRules": [
-      { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },
-      { "namespace": "^vgs:panel$", "blur": true, "ignoreAlpha": 0.6 }
+      { "namespace": "^vgs:layer-glass$", "blur": true, "ignoreAlpha": 0.6 },
+      { "namespace": "^vgs:panel-glass$", "blur": true, "ignoreAlpha": 0.6 }
     ]
   }
 }

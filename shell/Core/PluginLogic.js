@@ -127,7 +127,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "idleSettingRows", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection", "handoffs"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "idleSettingRows", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection", "handoffs", "glassMaterial"];
 
 // The stages of the idle path in the order they are meant to fire
 // (docs/architecture/power.md). A manifest's `idleStages` names each one the
@@ -5283,6 +5283,12 @@ function validateManifest(raw, sourceDir) {
         if (raw.alwaysOn && enablementRule(raw) !== "first-party")
             return { ok: false, error: "alwaysOn needs the first-party rule: a vgs. id, no kind bar, and a kind beside bar-widget" };
     }
+    // `glassMaterial` says the plugin's layers and summoned layers hold only
+    // glass cards, so its hosts map them under a material namespace the
+    // compositor's layer glass reaches at Clear's faint body
+    // (HyprlandLayer.MATERIAL_NAMESPACES): nothing else may draw there.
+    if (raw.glassMaterial !== undefined && typeof raw.glassMaterial !== "boolean")
+        return { ok: false, error: "glassMaterial must be a boolean when present" };
     if (raw.pane !== undefined) {
         var badPane = paneError(raw.pane, raw.kinds);
         if (badPane !== "")

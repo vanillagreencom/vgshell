@@ -30,7 +30,12 @@ PanelWindow {
     exclusionMode: place.exclusion === "ignore" ? ExclusionMode.Ignore : ExclusionMode.Normal
     exclusiveZone: 0
     color: "transparent"
-    WlrLayershell.namespace: "vgs:" + kind
+    // A plugin whose manifest sets `glassMaterial` holds only glass cards
+    // here, so its layer maps under the material namespace
+    // (HyprlandLayer.MATERIAL_NAMESPACES) and its GlassSurfaces may draw
+    // Clear.
+    readonly property bool glassMaterial: Registry.manifests[pluginId] !== undefined && Registry.manifests[pluginId].glassMaterial === true
+    WlrLayershell.namespace: "vgs:" + kind + (glassMaterial ? "-glass" : "")
     readonly property int shellLayer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.layer: shellLayer
     readonly property bool exclusiveKeyboard: PluginLogic.layerKeyboardFocus(kind, false) === "exclusive"

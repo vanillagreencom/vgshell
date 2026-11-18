@@ -479,9 +479,11 @@ var MOTION = {
 
 // Full-screen overlay keyboard capture. The generated layer loads first in
 // hyprland.lua, so it can learn focus dispatchers the user builds after it.
+// An overlay of a plugin whose surfaces are glass material maps under its
+// material namespace (MATERIAL_NAMESPACES) and captures alike.
 var OVERLAY_CAPTURE = {
     submap: "vgs:capture",
-    namespace: "vgs:overlay",
+    namespaces: ["vgs:overlay", "vgs:overlay-glass"],
     appid: "vgs",
     shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" }
 };
@@ -1177,7 +1179,7 @@ function overlayCapturePluginBindLines(plan) {
 // key does; theme-browser compares the two holds.
 function overlayCaptureLines(plan) {
     var submap = OVERLAY_CAPTURE.submap;
-    var namespace = OVERLAY_CAPTURE.namespace;
+    var namespaces = OVERLAY_CAPTURE.namespaces.map(function (name) { return "[\"" + name + "\"] = true"; }).join(", ");
     var globals = {};
     overlayCaptureDirections().forEach(function (direction) { globals[direction] = overlayCaptureGlobal(direction); });
     return [
@@ -1186,8 +1188,8 @@ function overlayCaptureLines(plan) {
         "    local capture = hl.__vgs_overlay_capture or { directions = setmetatable({}, { __mode = \"k\" }) }",
         "    hl.__vgs_overlay_capture = capture",
         "    capture.submap = \"" + submap + "\"",
-        "    capture.namespace = \"" + namespace + "\"",
-        "    capture.selection = { submap = \"" + SELECTION_CANCEL.submap + "\", namespace = \"" + SELECTION_CANCEL.namespace + "\" }",
+        "    capture.namespaces = { " + namespaces + " }",
+        "    capture.selection = { submap = \"" + SELECTION_CANCEL.submap + "\", namespaces = { [\"" + SELECTION_CANCEL.namespace + "\"] = true } }",
         "    capture.globals = { left = \"" + globals.left + "\", right = \"" + globals.right + "\", up = \"" + globals.up + "\", down = \"" + globals.down + "\", l = \"" + globals.left + "\", r = \"" + globals.right + "\", u = \"" + globals.up + "\", d = \"" + globals.down + "\" }",
         "    hl.define_submap(capture.submap, function()"
     ].concat(overlayCapturePluginBindLines(plan), [
@@ -1197,17 +1199,17 @@ function overlayCaptureLines(plan) {
         return "        hl.bind(\"" + button + "\", hl.dsp.send_key_state({ mods = \"\", key = \"" + SELECTION_CANCEL.key + "\", state = \"down\" }), { description = \"" + SELECTION_CANCEL.description + "\", ignore_mods = true })";
     }), [
         "    end)",
-        "    local function vgs_overlay_capture_open(namespace, closing)",
+        "    local function vgs_overlay_capture_open(namespaces, closing)",
         "        for _, layer in ipairs(hl.get_layers()) do",
-        "            if layer ~= closing and layer.namespace == namespace and layer.mapped then return true end",
+        "            if layer ~= closing and namespaces[layer.namespace] and layer.mapped then return true end",
         "        end",
         "        return false",
         "    end",
         "    local function vgs_overlay_capture_update(closing)",
         "        local current = hl.get_current_submap()",
-        "        if vgs_overlay_capture_open(capture.selection.namespace, closing) then",
+        "        if vgs_overlay_capture_open(capture.selection.namespaces, closing) then",
         "            hl.dispatch(hl.dsp.submap(capture.selection.submap))",
-        "        elseif vgs_overlay_capture_open(capture.namespace, closing) then",
+        "        elseif vgs_overlay_capture_open(capture.namespaces, closing) then",
         "            hl.dispatch(hl.dsp.submap(capture.submap))",
         "        elseif current == capture.submap or current == capture.selection.submap then",
         "            hl.dispatch(hl.dsp.submap(\"reset\"))",
@@ -1782,11 +1784,16 @@ function appliedLines(values, paths) {
 // function so an unload leaves no captured native function table.
 // layers.manage_blur (default true) replaces Hyprland's blur and voids the
 // layer rule's ignore_alpha. Carry SURFACE_BLUR's cutoff in mask_threshold
-// so glass lies only where Hyprland blurred before, not behind Jarvis's
-// plateless orb (VGS-2433) or other passive content under the cutoff.
+// on the shared passive layer, so glass lies only where Hyprland blurred
+// before, not behind other passive content under the cutoff. The material
+// layers (MATERIAL_NAMESPACES) hold glass cards alone, so its cutoff lies
+// under Clear's faint body. Once a namespace is listed, only listed layers
+// get glass (README "Layer surfaces"); with the Glass page's main switch off
+// the one listed namespace is one no surface uses, so no layer gets glass
+// while the plugin, its layers feature and its state stay as they are.
 // The built-in glass preset supplies edge bend and colour fringe:
 // BuiltInPresets.hpp makeGlass sets refraction 8, chromatic aberration 0.5
-// and clear tint.
+// and clear tint. Clear inherits it with the approved tone (CLEAR_PRESET).
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
 // https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#configuration
 // https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#layer-surfaces
@@ -1794,6 +1801,23 @@ function appliedLines(values, paths) {
 // https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/src/BuiltInPresets.hpp
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/config/lua/ConfigManager.cpp
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/plugins/PluginSystem.cpp
+// The layer namespaces of the surfaces of a plugin whose manifest sets
+// `glassMaterial`, which hold only glass cards: the host's own namespace
+// with "-glass" (LayerHost.qml, SummonLayer.qml), whose window marks itself
+// `glassMaterial`. Their cutoff lies between the transparent rest of the
+// layer and Clear's 20/255 body (Glass.js CLEAR), as the approved third
+// Clear candidate's 0.04 does (VGS-2594 comment 015d8e66).
+var MATERIAL_NAMESPACES = ["vgs:layer-glass", "vgs:overlay-glass", "vgs:panel-glass"];
+var MATERIAL_CUTOFF = 0.04;
+// The namespace listed while the Glass page's main switch is off.
+var GLASS_OFF_NAMESPACE = "vgs:glass-off";
+// Clear's tone (VGS-2594 comment 015d8e66): the glass preset with neutral
+// brightness and contrast, 20% less colour, the compositor's adaptive
+// dimming of bright backdrops at 0.53, and no boost of dark ones, vibrancy,
+// grain or tint, the same in both of hyprglass's themes. hyprglass resolves
+// a preset's own values before those it inherits (README "Configuration").
+var CLEAR_PRESET = { name: "vgs-clear", values: "inherits = \"glass\", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, tint_color = 0xffffff00" };
+
 function layerGlassPath(username) {
     return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
         ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
@@ -1811,13 +1835,26 @@ function layerGlassLines(theme) {
         "    local function configure()",
         "        local hg = hl.plugin.hyprglass",
         "        if not hg then return end",
-        "        hg.config({ enabled = false, layers = { enabled = true } })",
-        '        hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = ' + luaNumber(SURFACE_BLUR.ignoreAlpha) + ', preset = "glass" })',
+        "        hg.config({ enabled = false, layers = { enabled = true } })"
+    ].concat(layerGlassNamespaceLines(theme), [
         "    end",
         "    configure()",
         '    hl.on("config.reloaded", configure)',
         "end"
-    ]);
+    ]));
+}
+
+// The namespaces layer glass reaches, inside configure(), for THEME's main
+// switch and style.
+function layerGlassNamespaceLines(theme) {
+    if (theme.glassEnabled === false)
+        return ['        hg.layer("' + GLASS_OFF_NAMESPACE + '")'];
+    var clear = theme.glassStyle === "clear";
+    return (clear ? ['        hg.preset("' + CLEAR_PRESET.name + '", { ' + CLEAR_PRESET.values + ' })'] : []).concat([
+        '        hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = ' + luaNumber(SURFACE_BLUR.ignoreAlpha) + ', preset = "glass" })'
+    ], MATERIAL_NAMESPACES.map(function (namespace) {
+        return '        hg.layer("' + namespace + '", { mask_mode = "contour", mask_threshold = ' + luaNumber(MATERIAL_CUTOFF) + ', preset = "' + (clear ? CLEAR_PRESET.name : "glass") + '" })';
+    }));
 }
 
 // The layer's text and the binds, options or appearance owner declarations
