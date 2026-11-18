@@ -112,6 +112,10 @@ printf '%s\\n' "$n"
     busctl: `#!/usr/bin/env bash
 nm="org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager"
 case "$*" in
+  "--system --json=short get-property $nm State")
+    echo state >>"$STUB/nm-state-reads"
+    [[ -s $STUB/nm-state ]] || { echo "Failed to get property State" >&2; exit 1; }
+    printf '{"type":"u","data":%s}\\n' "$(<"$STUB/nm-state")"; exit 0 ;;
   "--system --json=short get-property $nm Connectivity")
     printf read\\n >>"$STUB/nm-reads"
     v=$(<"$STUB/nm")
@@ -121,12 +125,12 @@ case "$*" in
     [[ -n $v ]] || { echo "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" >&2; exit 1; }
     printf '{"type":"u","data":%s}\\n' "$v"; exit 0 ;;
   "--system --json=short wait --timeout="*" org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Properties PropertiesChanged")
-    was=$(<"$STUB/nm")
+    was=$(<"$STUB/nm"):$(<"$STUB/nm-state")
     printf '%s\\n' "$4" >>"$STUB/nm-waits"
     if [[ -f $STUB/nm-wait-failure ]]; then cat "$STUB/nm-wait-failure" >&2; exit 23; fi
     for ((i = 0; i < \${4#--timeout=} * 20; i++)); do
-      v=$(<"$STUB/nm")
-      [[ $v == "$was" ]] || { printf '{"type":"u","data":[%s]}\\n' "$v"; exit 0; }
+      v=$(<"$STUB/nm"):$(<"$STUB/nm-state")
+      [[ $v == "$was" ]] || { printf '{}\\n'; exit 0; }
       sleep 0.05
     done
     exit 0 ;;
@@ -186,6 +190,7 @@ function world(options) {
     write(path.join(stub, "bus"), BUS + "\n");
     write(path.join(stub, "owner"), ":1.7\n");
     write(path.join(stub, "nm"), "");
+    write(path.join(stub, "nm-state"), "70");
     const env = { HOME: path.join(root, "home"), PATH: bin + ":" + tools, XDG_RUNTIME_DIR: path.join(root, "run"), STUB: stub, LANG: "C.UTF-8", TZ: opts.timezone };
     if (opts.nowMs !== undefined) {
         const clock = path.join(root, "fixed-date.js");
@@ -693,6 +698,42 @@ const CASES = {
         } finally { stopRunner(runner); }
     },
 
+    "a wake timer waits through pre-lease FULL until NM is globally connected"(engine) {
+        for (const version of [1, 2]) {
+            const { w, id, due } = networkWorld(engine, { value: "4", catchUp: true });
+            if (version === 1) {
+                const store = JSON.parse(fs.readFileSync(w.store, "utf8"));
+                store.version = 1;
+                delete store.automations[0].requiresNetwork;
+                write(w.store, JSON.stringify(store));
+            }
+            clockAt(w, due + 46 * 60000, 0);
+            write(path.join(w.stub, "nm-state"), "10");
+            const runner = startRunner(w, engine, id, "scheduled");
+            try {
+                // The timer fires while Connectivity still says FULL from
+                // before sleep. State and its signal model lease progress.
+                const states = [["10", 0, "grace"], ["20", 1, "grace"], ["30", 59999, "grace"], ["40", 60000, "offline"],
+                    ["50", 60001, "offline"], ["60", 900000, "offline"], ["", 900001, "unavailable"], ['"bad"', 900002, "unavailable"]];
+                for (const [index, [state, elapsed, diagnostic]] of states.entries()) {
+                    clockAt(w, due + 46 * 60000, elapsed);
+                    if (index > 0) write(path.join(w.stub, "nm-state"), state);
+                    waitFor(() => {
+                        same(runFiles(w).filter(n => n.endsWith(".started.json")), [], "pre-lease FULL never starts a command");
+                        return waits(w) >= index + 1;
+                    }, "State " + state + " holds the wake run, store v" + version);
+                    const row = listed(w, engine, id);
+                    same([row.state, row.pending.diagnostic, calls(w, "notify-send")], ["waiting", diagnostic, []], "State " + state + " retains its admission diagnostic");
+                }
+                same(JSON.parse(fs.readFileSync(w.store, "utf8")).automations[0].requiresNetwork, true);
+                write(path.join(w.stub, "nm-state"), "70");
+                waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the lease and GLOBAL admit the waiting run");
+                same([ended(w, id).outcome, ended(w, id).slot, runFiles(w).filter(n => n.endsWith(".started.json")).length], ["succeeded", due, 1]);
+                same(calls(w, "notify-send"), [], "the successful wake needs no failure notice");
+            } finally { stopRunner(runner); }
+        }
+    },
+
     "network wait failure transitions retain causes and suppress identical retries"(engine) {
         const { w, id } = networkWorld(engine);
         // A refused busctl wait is a supported older/unavailable bus path.
@@ -1014,7 +1055,7 @@ const CASES = {
                 assert.doesNotMatch(fs.readFileSync(file, "utf8"), /automations: refused:/);
             }
             const current = JSON.parse(fs.readFileSync(w.store, "utf8"));
-            same([current.version, current.automations[0].requiresNetwork, current.automations[0].command], [2, false, "echo concurrent"]);
+            same([current.version, current.automations[0].requiresNetwork, current.automations[0].command], [2, true, "echo concurrent"]);
         } finally {
             if (held) release();
             for (const { child } of children) stopRunner(child);
@@ -1024,7 +1065,8 @@ const CASES = {
     "v1 store conversion precedes list and engine-copy reads"(engine) {
         for (const verb of ["list", "run"]) {
             const w = world();
-            const id = add(w, engine, { command: "echo converted", catchUp: true });
+            const id = add(w, engine, { command: "echo converted", catchUp: true, requiresNetwork: true });
+            write(path.join(w.stub, "nm"), "4");
             const service = fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".service"), "utf8");
             const copy = /"([^"\n]*\/engine\/[0-9a-f]{16}\/bin\/automations)"/.exec(service)[1];
             const current = JSON.parse(fs.readFileSync(w.store, "utf8"));
@@ -1034,7 +1076,7 @@ const CASES = {
             write(w.store, JSON.stringify(old));
             const out = cli(w, verb === "run" ? copy : engine, verb === "run" ? ["run", "--manual", id] : ["list", "--json"]);
             assert.equal(out.status, 0, out.stderr);
-            same(JSON.parse(fs.readFileSync(w.store, "utf8")), current, "conversion preserves every old value and adds the false default");
+            same(JSON.parse(fs.readFileSync(w.store, "utf8")), current, "conversion preserves every old value and adds the network requirement");
             const stamp = fs.statSync(w.store).mtimeMs;
             assert.equal(cli(w, engine, ["list", "--json"]).status, 0);
             same(fs.statSync(w.store).mtimeMs, stamp, "the current store is not converted again");
@@ -1488,6 +1530,9 @@ function waits(w) {
 
 // [label, the case, text in bin/automations, its replacement].
 const CONTROLS = [
+    ["readable State retains the wait diagnostic", "a wake timer waits through pre-lease FULL until NM is globally connected", "return outcome.category === \"state\" ? \"not-ready\" : \"unreadable\";", "return \"unreadable\";"],
+    ["wake admission waits for GLOBAL", "a wake timer waits through pre-lease FULL until NM is globally connected", "connectivity === 4 ? networkGlobal(env, reportNetwork)", "connectivity === 4 ? \"ready\""],
+    ["old stores acquire the network requirement", "a wake timer waits through pre-lease FULL until NM is globally connected", "converted.push(withKeys(old, { requiresNetwork: true }));", "converted.push(withKeys(old, { requiresNetwork: false }));", "AutomationsLogic.js"],
     ["admission refreshes cached FULL", "network admission refreshes a stale FULL before starting", "const connectivity = recheckConnectivity(id, env, reportNetwork);", "const connectivity = Connectivity.readConnectivity(env).connectivity;"],
     ["FULL admission cannot be bypassed", "network requirements admit FULL alone and local commands bypass NM", "if (!admission.admit) {", "if (false && !admission.admit) {"],
     ["sync starts nothing with nothing to schedule", "sync with nothing runs nothing", "if (store.automations.length === 0 && ownedUnits().length === 0 && !fs.existsSync(engineRoot)) {", "if (false) {"],
@@ -1557,19 +1602,21 @@ try {
         check(engine);
         passed += 1;
     }
-    const source = fs.readFileSync(engine, "utf8");
     let controls = 0;
-    CONTROLS.forEach(([label, name, needle, replacement], i) => {
+    CONTROLS.forEach(([label, name, needle, replacement, relative = "bin/automations"], i) => {
         if (selected.length && !selected.includes(name)) return;
+        const source = fs.readFileSync(path.join(pluginDir, relative), "utf8");
         assert.ok(Object.prototype.hasOwnProperty.call(CASES, name), `control "${label}": no case "${name}"`);
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const copy = path.join(scratch, "control-" + i, "vgs.automations");
         fs.cpSync(pluginDir, copy, { recursive: true });
-        fs.writeFileSync(path.join(copy, "bin", "automations"), source.replace(needle, () => replacement), { mode: 0o755 });
+        fs.writeFileSync(path.join(copy, relative), source.replace(needle, () => replacement), { mode: 0o755 });
         let failed = false;
         try {
             CASES[name](path.join(copy, "bin", "automations"));
         } catch (e) {
+            if (label === "readable State retains the wait diagnostic" && (!(e instanceof assert.AssertionError) || !e.message.startsWith("State 10 retains its admission diagnostic"))) throw e;
+            if (["wake admission waits for GLOBAL", "old stores acquire the network requirement"].includes(label) && (!(e instanceof assert.AssertionError) || !e.message.startsWith("pre-lease FULL never starts a command"))) throw e;
             if (label === "admission refreshes cached FULL" && (!(e instanceof assert.AssertionError) || !e.message.startsWith("stale FULL never starts a command"))) throw e;
             if (label === "FULL admission cannot be bypassed" && !(e instanceof assert.AssertionError)) throw e;
             if (label === "cron admission precedes store mutation") {
@@ -1582,6 +1629,8 @@ try {
         }
         assert.ok(failed, `control "${label}": case "${name}" passed on an engine without that rule`);
         controls += 1;
+        if (label === "readable State retains the wait diagnostic") console.log("control: readable State collapsed to unreadable rejected by pending-diagnostic assertion");
+        if (["wake admission waits for GLOBAL", "old stores acquire the network requirement"].includes(label)) console.log("control: " + label + " rejected by pre-lease command-start assertion");
         if (label === "admission refreshes cached FULL") console.log("control: cached FULL admission starts the command before the fresh LIMITED check");
         if (label === "FULL admission cannot be bypassed") console.log("control: FULL admission bypass rejected by non-FULL command-start assertion");
         if (label === "cron admission precedes store mutation") console.log("control: late cron admission rejected by unchanged-store assertion after scheduler refusal");

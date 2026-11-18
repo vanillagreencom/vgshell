@@ -668,20 +668,21 @@ function verify(logic) {
     // result cannot establish connectivity. Grace expiry never admits.
     for (const value of [0, 1, 2, 3, 4]) {
         for (const elapsed of [0, 59999, 60000, 900000]) {
-            const result = logic.networkAdmission(true, value, elapsed);
+            const readiness = value === 4 ? "ready" : value === 0 ? "unreadable" : "not-ready";
+            const result = logic.networkAdmission(true, readiness, elapsed);
             same(result.admit, value === 4);
             same(result.diagnostic, value === 4 ? null : value === 0 ? "unavailable" : elapsed < 60000 ? "grace" : "offline");
-            same(logic.networkAdmission(false, value, elapsed), { admit: true, diagnostic: null });
+            same(logic.networkAdmission(false, readiness, elapsed), { admit: true, diagnostic: null });
         }
     }
-    same(logic.networkAdmission(true, null, 900000), { admit: false, diagnostic: "unavailable" });
+    same(logic.networkAdmission(true, "unreadable", 900000), { admit: false, diagnostic: "unavailable" });
     for (const [elapsed, seconds] of [[0, 5], [57000, 3], [59500, 1], [60000, 5], [900000, 5]])
         same(logic.networkWaitSeconds(elapsed), seconds);
     const oldAutomation = automation({ catchUp: true, command: "printf preserve", workingDirectory: "/tmp", notifyEveryRun: true });
     delete oldAutomation.requiresNetwork;
     const oldStore = { version: 1, automations: [oldAutomation] };
     const converted = logic.convertStoreV1(JSON.stringify(oldStore));
-    same(converted, { ok: true, store: { version: 2, automations: [Object.assign({}, oldAutomation, { requiresNetwork: false })] } });
+    same(converted, { ok: true, store: { version: 2, automations: [Object.assign({}, oldAutomation, { requiresNetwork: true })] } });
     same(logic.parseStore(JSON.stringify(oldStore)).ok, false, "current reader never accepts v1");
     for (const rejected of [converted.store, { version: 3, automations: [] }, { version: 1, automations: [automation({})] }, { version: 1, automations: [{ name: "Broken" }] }])
         same(logic.convertStoreV1(JSON.stringify(rejected)).ok, false, "conversion is not an old-form reader");
@@ -1098,7 +1099,7 @@ const CONTROLS = [
     ["a success clears its own operation's failure alone", "if (failure === \"\") delete next[operation];", "if (failure === \"\") next = {};"],
     ["a failure is kept until its operation succeeds", "else next[operation] = String(failure).slice(0, 200);", "else next = { list: String(failure) };"],
     ["the Engine status names a failure", "if (hasOwn(failures, ENGINE_OPERATIONS[i])) return { tone: \"danger\", text: failureText(failures[ENGINE_OPERATIONS[i]]) };", "if (false) return null;"],
-    ["v1 migration preserves local-only defaults", "converted.push(withKeys(old, { requiresNetwork: false }));", "converted.push(withKeys(old, { requiresNetwork: true }));"],
+    ["v1 migration adds the network requirement", "converted.push(withKeys(old, { requiresNetwork: true }));", "converted.push(withKeys(old, { requiresNetwork: false }));"],
     ["waiting rows retain their due time", "pending: pending,", "pending: null,"],
     ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""],
     ["a DNS skip needs the network requirement", "context.requiresNetwork === true && ", ""],

@@ -1039,7 +1039,7 @@ function storeTransaction(request) {
         return { kind: "wait", marker: marker };
     }
     if (request.kind !== "advance") throw new Error("invalid transaction kind=" + request.kind);
-    const admission = Logic.networkAdmission(automation.requiresNetwork, request.connectivity, request.waitedMs);
+    const admission = Logic.networkAdmission(automation.requiresNetwork, request.readiness, request.waitedMs);
     if (!admission.admit) {
         marker.diagnostic = admission.diagnostic;
         savePending(marker);
@@ -1075,15 +1075,18 @@ function runVerb(words) {
     const reportNetwork = outcome => {
         if (outcome === null) return;
         const line = JSON.stringify(Object.assign({ id: id }, outcome));
-        if (previousNetwork[outcome.operation] === line) return;
-        previousNetwork[outcome.operation] = line;
+        const key = outcome.operation + (outcome.property || "");
+        if (previousNetwork[key] === line) return;
+        previousNetwork[key] = line;
         log("network=" + line);
     };
     while (answer.kind === "wait") {
         ownedPending = { id: id, owner: owner, token: token };
         // Resume can leave the cached property FULL before the link works.
         const connectivity = recheckConnectivity(id, env, reportNetwork);
-        answer = transaction(Object.assign({}, request, { kind: "advance", connectivity: connectivity, waitedMs: Math.max(0, monotonicMs() - began) }));
+        const readiness = connectivity === 4 ? networkGlobal(env, reportNetwork)
+            : connectivity === null || connectivity === 0 ? "unreadable" : "not-ready";
+        answer = transaction(Object.assign({}, request, { kind: "advance", readiness: readiness, waitedMs: Math.max(0, monotonicMs() - began) }));
         if (answer.kind === "wait") reportNetwork(waitForNetwork(env, connectivity, Math.max(0, monotonicMs() - began)));
     }
     if (answer.kind === "run") return execute(answer.automation, trigger, answer.slot, Date.now(), "", answer.network);
@@ -1096,6 +1099,25 @@ function runVerb(words) {
 // grace only; the schedule guard continues to use current wall time.
 function monotonicMs() {
     return Number(process.hrtime.bigint() / 1000000n);
+}
+
+// FULL can survive suspend while NM is still reconnecting. Only its global
+// State admits that reading; PropertiesChanged wakes the existing wait.
+// https://networkmanager.dev/docs/api/latest/nm-dbus-types.html#NMState
+function networkGlobal(env, report) {
+    const result = Connectivity.networkCall(env, "get-property", ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "State"], 5000);
+    const outcome = Object.assign(result.outcome, { property: "State" });
+    if (outcome.category === "completed") {
+        let value;
+        try { value = JSON.parse(result.stdout); } catch (_e) { value = null; }
+        const state = value !== null && value.type === "u" && [0, 10, 20, 30, 40, 50, 60, 70].includes(value.data) ? value.data : null;
+        if (state === 70) return "ready";
+        outcome.category = state === null ? "invalid-reply" : "state";
+        if (state === null) outcome.detail = firstLine(result.stdout).slice(0, 512);
+        else outcome.state = state;
+    }
+    report(outcome);
+    return outcome.category === "state" ? "not-ready" : "unreadable";
 }
 
 function waitForNetwork(env, connectivity, waitedMs) {

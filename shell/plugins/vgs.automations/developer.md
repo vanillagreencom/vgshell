@@ -6,11 +6,11 @@ Read when changing definitions, scheduling or run admission. The [manifest](mani
 
 The engine owns the definition store, scheduler units, run locks, transcripts and failure streaks. Scheduler units run a durable copy of the engine and judge rather than a path in the shell's temporary plugin snapshot. A scheduled or manual run can outlive VGS.
 
-Store mutations hold the store lock. The first read converts version 1 definitions under that lock, preserving their fields and setting `requiresNetwork` to false; the current parser accepts only version 2. New definitions take their defaults from `AutomationsLogic`.
+Store mutations hold the store lock. The first read converts version 1 definitions under that lock, preserving their fields and adding the network requirement; the current parser accepts only version 2. Existing version 2 choices remain unchanged. New definitions take their defaults from `AutomationsLogic`.
 
 ## Network admission
 
-`requiresNetwork` is explicit. The engine does not infer it from a command. `networkAdmission` admits such a command only with NetworkManager FULL connectivity. An unavailable reading or elapsed grace does not admit it. A definition that needs no network makes no connectivity call.
+`requiresNetwork` is explicit. The engine does not infer it from a command. The runner requires fresh FULL connectivity and NetworkManager's CONNECTED_GLOBAL state before reporting ready to `networkAdmission`. That judge distinguishes a readable network that is not ready from an unreadable check when it chooses the wait diagnostic. An unavailable reading or elapsed grace does not admit it. A definition that needs no network makes no connectivity call.
 
 The pending marker retains the original due time and the runner's process-start and boot identity. Cancel, Edit, Disable and Remove cancel a waiting attempt before changing its definition; they do not stop an admitted command. Scheduled waits retain the latest-unhandled-occurrence rule. Manual waits end on connectivity or cancellation.
 

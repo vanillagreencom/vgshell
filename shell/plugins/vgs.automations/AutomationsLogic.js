@@ -874,7 +874,7 @@ function convertStoreV1(text) {
         var old = doc.automations[i];
         if (!isPlainObject(old) || hasOwn(old, "requiresNetwork"))
             return { ok: false, error: "store.migration: invalid-version-1-automation" };
-        converted.push(withKeys(old, { requiresNetwork: false }));
+        converted.push(withKeys(old, { requiresNetwork: true }));
     }
     return parseStore(serializeStore({ version: STORE_VERSION, automations: converted }));
 }
@@ -1547,19 +1547,17 @@ function notifySendArgs(n, replaceId) {
 
 // ------------------------------------------------------------- network
 
-// Only NetworkManager's latest Connectivity result FULL admits a command.
-// UNKNOWN may mean connectivity checks are disabled; it proves no outage.
-// https://networkmanager.dev/docs/api/latest/nm-dbus-types.html
-var NM_CONNECTIVITY_FULL = 4;
+// The runner combines actual Connectivity and State into ready, not-ready
+// or unreadable. This judge owns the wait's grace and its diagnostic.
 // Preserve the previous network wait's active-time grace. Expiry classifies
 // the wait; it never grants permission or extends the schedule's late bound.
 var NETWORK_GRACE_MS = 60000;
 var NETWORK_POLL_SECONDS = 5;
 
-function networkAdmission(requiresNetwork, connectivity, waitedMs) {
-    if (!requiresNetwork || connectivity === NM_CONNECTIVITY_FULL)
+function networkAdmission(requiresNetwork, readiness, waitedMs) {
+    if (!requiresNetwork || readiness === "ready")
         return { admit: true, diagnostic: null };
-    return { admit: false, diagnostic: connectivity === null || connectivity === 0 ? "unavailable"
+    return { admit: false, diagnostic: readiness === "unreadable" ? "unavailable"
         : waitedMs < NETWORK_GRACE_MS ? "grace" : "offline" };
 }
 
