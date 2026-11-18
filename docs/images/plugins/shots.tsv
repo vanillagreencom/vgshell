@@ -47,6 +47,7 @@ vgs.sysmon-panel.webp	sysmon	sysmon-dark-flyout-see-all	content
 vgs.sudo-page.webp	settings	settings-dark-sudo	content
 vgs.motion-pane.webp	appearance	appearance-dark-motion	content
 vgs.windows-pane.webp	appearance	appearance-dark-windows	content
+vgs.glass-pane.webp	appearance	appearance-dark-glass	content
 vgs.ui-pane.webp	appearance	appearance-dark-ui	content
 vgs.fonts-pane.webp	appearance	appearance-dark-fonts	content
 vgs.sounds-pane.webp	sounds	sounds-dark-list	content

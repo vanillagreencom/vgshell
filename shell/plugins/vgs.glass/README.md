@@ -2,6 +2,8 @@
 
 Glass lets you choose where glass appears and how it looks: on the launcher, notifications, Jarvis's cards, windows, menus, flyouts and more.
 
+![The Glass page in System Settings, with Style set to Auto](../../../docs/images/plugins/vgs.glass-pane.webp)
+
 ## Features
 
 - A Glass section under Appearance in the System Settings window.
