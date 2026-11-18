@@ -245,6 +245,20 @@ Item {
             plateWindow.visible = false;
         }
 
+        // The plates' window maps only while a plate shows, and Quickshell
+        // hides the content item of a hidden window, so whether a plate
+        // shows cannot read the plates' own drawn visibility: a held request
+        // still asks for the window while the plates sit under a hidden item.
+        function test_hidden_plates_still_ask_for_their_window() {
+            const hiddenHost = createTemporaryQmlObject("import QtQuick; Item { visible: false }", root);
+            const layer = createTemporaryObject(sizedBubble, root, { width: plateWindow.width, height: plateWindow.height, screen: { name: "unit" }, service: service });
+            verify(layer !== null, "the sized overlay builds");
+            layer.plateLayer.parent = hiddenHost;
+            service.sessionState = root.held;
+            verify(layer.platesShown, "a held request asks for the plates' window while it is hidden");
+            layer.plateLayer.parent = layer;
+        }
+
         function test_a_narrow_layer_shows_the_whole_prompt_before_acknowledging() {
             const text = "Delete the quarterly planning notes for the design review?\n/home/fixture/projects/planning/2026/quarterly/design-review-notes.txt";
             const layer = presentedOn(360, root.height, root.session({ approval: { kind: "held", id: "n", gen: 1, digest: "d", purpose: "action",

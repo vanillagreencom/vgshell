@@ -268,9 +268,17 @@ Item {
         // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
     // The plates' layer the host maps under the material namespace, and
-    // whether a plate shows, which keeps that layer mapped.
+    // whether a plate shows, which keeps that layer mapped. It reads each
+    // plate's own condition, not its `visible`: an Item's `visible` reads its
+    // effective visibility (QQuickItem::isVisible), which follows the plate
+    // window's content item, and Quickshell hides that while the window is
+    // hidden (VGS-2594's sandbox run logged platesShown false from the moment
+    // the plate window went), so `visible` would keep the window from ever
+    // showing again.
     readonly property Item plateLayer: plateRoot
-    readonly property bool platesShown: wordsCard.visible || iconPill.visible || textCard.visible
+    readonly property bool stateShown: hold === null && (!hidden || fault !== null)
+        && (stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
+    readonly property bool platesShown: words.count > 0 || iconsShown || hold !== null || stateShown
     // Whether ITEM and every item over it up to the overlay or the plates'
     // box show.
     function drawn(item) {
@@ -819,8 +827,7 @@ Item {
                 x: overlay.centre - width / 2
                 y: overlay.below
                 width: Math.min(root.look.layout.line, Math.max(0, overlay.width - 2 * overlay.stateInset))
-                visible: root.hold === null && (!root.hidden || root.fault !== null)
-                    && (root.stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
+                visible: root.stateShown
                 spacing: root.look.layout.gap
                 Label {
                     id: stateLine
