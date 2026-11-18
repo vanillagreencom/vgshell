@@ -19,8 +19,8 @@ import qs.Ui
 // feedback is this plain sentence-case line; a chip, a fill or capitals
 // mark only a state the user must act on now. An
 // inline hint starts under the value column, `field.gap` under the value
-// however far the label column reaches, a label of two lines or an info
-// mark beside it, and the field ends with the lower of the hint and the row
+// however far the label column reaches, including a wrapped help label,
+// and the field ends with the lower of the hint and the row
 // box, so a label taller than the value and the hint still ends the row.
 // `inkBelow` is how far above its bottom edge the lowest drawn part
 // ends: the row's, its lines' or its hint's. Width comes from the parent;

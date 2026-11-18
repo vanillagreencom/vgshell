@@ -9,12 +9,12 @@ import qs.Ui
 // one-line label is placed by capital height, a label of more lines is
 // centred, and the control is centred by its box. A control taller than the
 // row is one of two cases. One that is a single box, such as a text area,
-// grows the row box, and a one-line label and its info button centre on
+// grows the row box, and a one-line label centres on
 // that box. One that wraps into lines, such as a RowActions or a Select
 // holding a long choice, declares `firstLineHeight`, the height of its
 // first line while it wraps, read through a Loader that holds it as a
 // Settings field holds its editor, and a
-// one-line label and its info button centre on that line, as they do
+// one-line label centres on that line, as they do
 // beside a one-line control; such a control grows the row, so its first
 // line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row

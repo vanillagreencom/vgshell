@@ -15,11 +15,8 @@ import qs.Unit
 // keys that is the list with the one alternative set or removed, one key
 // once one is left and a key twice once; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
-// no room while none shows. The explanation of a bind with no hint is
-// in its info icon's dialog: the label opens no tooltip, which would lie
-// on the bind under it. A bind with a hint opens its explanation in a band
-// of one line over that hint, and one too long for that line is in the info
-// icon's dialog too. The capture here answers every conflict question with
+// no room while none shows. The explanation belongs to its dotted label,
+// which opens a modal and no hover tooltip. The capture answers each question with
 // one hint and records each question as "KEY ID SHORTCUT". The listed
 // bind's key goes through the manager's judge and write as Plugins.setKey
 // takes it from the signal.
@@ -146,18 +143,19 @@ Item {
         function input(f) { return descendant(f, item => String(item).indexOf("ShortcutField") === 0); }
 
         function test_the_label_is_the_description_else_the_shortcut() {
-            compare(row.children[0].label, "Lock");
-            const label = descendant(row, item => item instanceof InfoButton);
+            compare(row.label, row.bind.description);
+            compare(unbound.label, unbound.bind.shortcut);
+            const label = descendant(row, item => item instanceof InfoButton && item.visible);
             compare(label.info, row.bind.info);
             verify(label.activeFocusOnTab);
-            const plain = descendant(later, item => item instanceof InfoButton);
+            const plain = descendant(later, item => item instanceof InfoButton && item.visible);
             compare(plain.info, "");
             verify(!plain.activeFocusOnTab);
         }
 
         function test_short_and_long_key_help_use_the_label() {
             for (const field of [shortKey, longKey]) {
-                const label = descendant(field, item => item instanceof InfoButton);
+                const label = descendant(field, item => item instanceof InfoButton && item.visible);
                 verify(label !== null);
                 compare(label.info, field.bind.info);
                 verify(label.linked);
