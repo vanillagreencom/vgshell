@@ -8,7 +8,7 @@ import qs.Commons
 // place answers whether glass is on for it and in which style
 // (Theme.glassFor); no surface reads a glass setting of its own. While glass
 // is on, one pass (shaders/glasslens.frag) draws the body's tint in the
-// style's values (`look`), the rim, one thin line at the edge, and
+// style's values (`look`), the neutral rim, one thin line at the edge, and
 // the edge light, two lights that orbit the surface and catch on the rim.
 // Every layer takes the surface's whole geometry and `radius`, so all of
 // them round to the same corner: `clip` cuts only to the bounding box, and
@@ -81,8 +81,8 @@ Item {
     property real radius: standard === raised ? Theme.radius.glass : standard.radius
     property Item follow: null
     property real padding: 0
-    // The edge light's state, which the surface owns: `lit` blends it to
-    // the theme's accent, as a critical notification is; `edgeBoost`
+    // `lit` blends only the edge lights to the theme's accent, leaving
+    // the static rim neutral even on a critical notification; `edgeBoost`
     // multiplies both lights and `edgeSpin` adds orbits a second;
     // `edgeShown` false hides it. A surface that can stay up all day sets
     // `paced`, and the light moves at most its material's `edge.frameRate`

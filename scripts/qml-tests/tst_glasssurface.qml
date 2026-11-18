@@ -279,9 +279,25 @@ Item {
             styled.paced = true;
             tryVerify(() => styled.phase !== before, 1000, "a paced light still moves");
             styled.paced = false;
-            styled.lit = true;
-            tryCompare(styled, "litShare", 1, 2000);
-            styled.lit = false;
+
+            UnitTheme.override({ motion: { scale: 0 } });
+            try {
+                styled.edgeShown = false;
+                tryCompare(styled, "litShare", 0, 2000);
+                const resting = grabImage(styled);
+                styled.lit = true;
+                tryCompare(styled, "litShare", 1, 2000);
+                verify(grabImage(styled).equals(resting), "a lit card at rest keeps the same rim");
+                styled.edgeShown = true;
+                const lit = grabImage(styled);
+                verify(!lit.equals(resting), "the edge lights paint when shown");
+                styled.lit = false;
+                tryCompare(styled, "litShare", 0, 2000);
+                verify(!grabImage(styled).equals(lit), "the shown edge lights take the accent");
+            } finally {
+                styled.lit = false;
+                styled.edgeShown = true;
+            }
         }
 
         function test_follow_takes_the_items_geometry() {

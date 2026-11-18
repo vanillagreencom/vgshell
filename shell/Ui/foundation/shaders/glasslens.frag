@@ -11,8 +11,8 @@
 // - the edge light, two point lights that orbit outside the surface: the
 //   rim catches each where its normal faces it, and a faint glow reaches a
 //   few pixels into the body. Only the lights move.
-// The rim and the edge light take one colour, the neutral light blended
-// to the accent by `uLit`.
+// The static rim stays neutral. Only the moving lights blend to the
+// accent by `uLit`, so a critical card at rest keeps its neutral rim.
 //
 // Output is valid premultiplied colour, rgb never above alpha: light is
 // its colour at an alpha, since a compositor may un-premultiply a surface.
@@ -33,9 +33,9 @@ layout(std140, binding = 0) uniform buf {
     vec2 uLightA;   // the edge lights, in pixels from the surface's centre
     vec2 uLightB;
     vec4 uEdge;     // the two lights' strengths, their reach in pixels, and 1 while they show
-    vec4 uNeutral;  // the light at rest, straight alpha
-    vec4 uAccent;   // the light while lit, straight alpha
-    float uLit;     // 0 at rest, 1 lit
+    vec4 uNeutral;  // the static rim and the unlit edge light, premultiplied by Qt
+    vec4 uAccent;   // the lit edge light, premultiplied by Qt
+    float uLit;     // the accent share of the edge lights
 };
 
 // Toward the light, y down: the upper left.
@@ -66,17 +66,18 @@ void main() {
     // 1 on the two walls of the light's diagonal, 0 on the walls beside.
     float diagonal = min(toward * toward + uRimLight.z * away * away, 1.0);
     float rim = 1.0 - smoothstep(uRim - 0.5, uRim + 0.5, depth);
-    float light = uRimLight.x * (uRimLight.y + (1.0 - uRimLight.y) * diagonal) * rim;
+    float glint = uRimLight.x * (uRimLight.y + (1.0 - uRimLight.y) * diagonal) * rim;
+    vec4 light = uNeutral * glint;
 
     // The edge lights reach only a band at the edge; the body skips them.
     if (uEdge.w > 0.0 && depth < 14.0) {
         float lights = shine(p, outward, uLightA, uEdge.x) + shine(p, outward, uLightB, uEdge.y);
-        light += lights * (rim + uRimLight.w * exp(-depth / 5.0));
+        float edge = lights * (rim + uRimLight.w * exp(-depth / 5.0));
+        // Keep the combined light within one layer's coverage even when
+        // both points hit the same pixel.
+        light = (light + mix(uNeutral, uAccent, uLit) * edge) / max(glint + edge, 1.0);
     }
 
-    vec4 shade = mix(uNeutral, uAccent, uLit);
-    float strength = clamp(light, 0.0, 1.0) * shade.a;
-    vec4 body = uTint;
-    vec4 colour = vec4(body.rgb * (1.0 - strength) + shade.rgb * strength, body.a + (1.0 - body.a) * strength);
+    vec4 colour = light + uTint * (1.0 - light.a);
     fragColor = colour * cover * qt_Opacity;
 }

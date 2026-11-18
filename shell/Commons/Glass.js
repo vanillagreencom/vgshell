@@ -70,9 +70,9 @@ var TOKENS = {
     // The edge light on the rim: two point lights orbit `lift` outside the
     // surface at `speed` px a second and the rim catches each where it
     // faces it, within `reach`, at `strengthA` and `strengthB`, a faint
-    // glow, `glow` of the light, reaching into the body. `neutral` is the
-    // light's colour, the rim's too; a surface that marks itself lit blends
-    // it to the accent. `frameRate` is the most frames a second the light
+    // glow, `glow` of the light, reaching into the body. The rim stays
+    // `neutral`; a lit surface blends only the moving lights to the
+    // accent. `frameRate` is the most frames a second the light
     // moves at on a surface that can stay up all day.
     edge: {
         neutral: color("#fbfbfb"),
