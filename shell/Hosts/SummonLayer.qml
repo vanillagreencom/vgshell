@@ -33,12 +33,20 @@ PanelWindow {
     // A plugin whose manifest sets `glassMaterial` holds only glass cards
     // here, so while the Glass page's style is Clear its layer maps under
     // the material namespace (HyprlandLayer.MATERIAL_NAMESPACES) and its
-    // GlassSurfaces may draw Clear. A layer's namespace is fixed once it
-    // maps, so the binding is cut when the surface is built: a later
-    // change of style reaches the next summon.
-    property bool glassMaterial: Registry.manifests[pluginId] !== undefined && Registry.manifests[pluginId].glassMaterial === true
+    // GlassSurfaces may draw Clear. Quickshell reads a layer's namespace
+    // only when it makes the surface (WlrLayershell `namespace`: "Cannot be
+    // set after windowConnected"; LayerSurface passes it to
+    // get_layer_surface) and makes a new surface on every show
+    // (WlrLayershell::deleteOnInvisible), so a style change while the
+    // surface shows remaps it: hidden, renamed, shown again on the next
+    // turn, its keyboard record renamed with it.
+    readonly property bool wantsMaterial: Registry.manifests[pluginId] !== undefined && Registry.manifests[pluginId].glassMaterial === true
         && Theme.glassStyle === "clear"
+    property bool glassMaterial: wantsMaterial
+    // Set by unmap(): the surface is leaving and is never shown again.
+    property bool leaving: false
     WlrLayershell.namespace: "vgs:" + kind + (glassMaterial ? "-glass" : "")
+    onWantsMaterialChanged: remap()
     readonly property int shellLayer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.layer: shellLayer
     readonly property bool exclusiveKeyboard: PluginLogic.layerKeyboardFocus(kind, false) === "exclusive"
@@ -64,7 +72,22 @@ PanelWindow {
     // surface left to its destruction stays mapped through scene graph
     // teardown, delaying the visible close.
     function unmap() {
+        leaving = true;
         visible = false;
+    }
+
+    function remap() {
+        if (glassMaterial === wantsMaterial || leaving) return;
+        const shown = visible;
+        visible = false;
+        glassMaterial = wantsMaterial;
+        if (keyboardRelease !== null) {
+            keyboardRelease();
+            keyboardRelease = Compositor.keyboardLayer(WlrLayershell.namespace);
+        }
+        if (shown) Qt.callLater(() => {
+            if (!win.leaving) win.visible = true;
+        });
     }
 
     function focusInitial() {

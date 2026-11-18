@@ -12,7 +12,7 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js shell/Ui/foundation/shaders/glasslens.frag.qsb
+# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js shell/Ui/foundation/shaders/glasslens.frag.qsb shell/Hosts/SummonLayer.qml
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -107,6 +107,28 @@ expect "the launcher opens as a bare search field" '[]' launcher_rows
 expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
 shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,sys; d=json.loads(sys.stdin.read()); print(d["url"].endswith("/Ui/foundation/shaders/glasslens.frag.qsb") and d["compiled"])'; }
 render expect_poll "the card's glass shader, with its edge light, compiled" True shader_ok
+
+# A glass style chosen while the launcher is open reaches it at once: under
+# Clear its surface remaps to the material namespace and back, without a
+# reopen, and keeps the keyboard.
+launcher_glass_style() { # STYLE
+  user_config_write python3 - "$launcher_shell_config" "$1" <<'PYSTYLE'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc.setdefault("appearance", {})["glassStyle"] = sys.argv[2]
+print(json.dumps(doc))
+PYSTYLE
+}
+launcher_layers() { printf '%s %s\n' "$(layer_count vgs:overlay-glass)" "$(layer_count vgs:overlay)"; }
+launcher_save_shell_config glass-style
+launcher_glass_style clear
+expect_poll "Clear chosen while the launcher is open remaps it to the material layer" '1 0' launcher_layers
+expect "the remapped launcher stays open" true read_launcher opened
+focused "the remapped launcher holds the keyboard"
+launcher_glass_style dark
+expect_poll "Dark chosen while the launcher is open remaps it back" '0 1' launcher_layers
+focused "the launcher remapped back holds the keyboard"
+launcher_restore_shell_config glass-style "after the open launcher's glass styles"
 
 # The private Categories icon follows the shared icon toggle's rule: no
 # fill or border in any state, its glyph brighter on hover and the accent

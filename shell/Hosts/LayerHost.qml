@@ -66,7 +66,7 @@ Scope {
                     screen: targetScreen
                     // `shown` is independent of Item.visible, which inherits
                     // the hidden host and cannot request that host's map.
-                    visible: targetScreen !== null && content !== null && (shown || held)
+                    visible: targetScreen !== null && content !== null && (shown || held) && !remapping
                     // The host's item, not the plugin's root, which may bind
                     // its own `visible`.
                     contentItem.visible: !hiding
@@ -74,14 +74,20 @@ Scope {
                     // glass cards here, so while the Glass page's style is
                     // Clear its layer maps under the material namespace
                     // (HyprlandLayer.MATERIAL_NAMESPACES) and its
-                    // GlassSurfaces may draw Clear. A layer's namespace is
-                    // fixed once it maps, so the choice is read once, in
-                    // build(), before the surface maps (`visible` waits for
-                    // the content); a layer mapped before Clear was chosen
-                    // keeps its namespace and draws Clear's opaque ground
-                    // until it maps again.
+                    // GlassSurfaces may draw Clear. Quickshell reads a
+                    // layer's namespace only when it makes the surface
+                    // (WlrLayershell `namespace`: "Cannot be set after
+                    // windowConnected"; LayerSurface passes it to
+                    // get_layer_surface) and makes a new surface on every
+                    // show (WlrLayershell::deleteOnInvisible), so a style
+                    // change while the layer shows remaps it: hidden,
+                    // renamed, shown again on the next turn.
+                    readonly property bool wantsMaterial: entry !== null && Registry.manifests[entry.pluginId] !== undefined
+                        && Registry.manifests[entry.pluginId].glassMaterial === true && Theme.glassStyle === "clear"
                     property bool glassMaterial: false
+                    property bool remapping: false
                     WlrLayershell.namespace: glassMaterial ? "vgs:layer-glass" : "vgs:layer"
+                    onWantsMaterialChanged: remap()
                     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
                     Component.onCompleted: build()
@@ -125,6 +131,17 @@ Scope {
 
                     function release() {
                         if (OverlayState.grabs === 0) held = false;
+                    }
+
+                    function remap() {
+                        if (glassMaterial === wantsMaterial) return;
+                        if (!visible) {
+                            glassMaterial = wantsMaterial;
+                            return;
+                        }
+                        remapping = true;
+                        glassMaterial = wantsMaterial;
+                        Qt.callLater(() => win.remapping = false);
                     }
 
                     // The content's glass plates, when it lends them
@@ -174,8 +191,6 @@ Scope {
                             return;
                         }
                         const name = screen ? screen.name : "";
-                        glassMaterial = Registry.manifests[entry.pluginId] !== undefined && Registry.manifests[entry.pluginId].glassMaterial === true
-                            && Theme.glassStyle === "clear";
                         const item = entry.component.createObject(win.contentItem);
                         if (item === null) {
                             console.error("layers: " + entry.pluginId + " content not built on " + name + ": createObject answered null");
