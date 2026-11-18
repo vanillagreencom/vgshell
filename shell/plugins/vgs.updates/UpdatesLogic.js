@@ -798,11 +798,11 @@ function windowSummaryText(values, now, timeText) {
     if (v.admission !== "offline" && v.admission !== "unavailable" && widgetState(values) === "attention") {
         var check = v.checkState;
         var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
-        summary = check.tone === "warning" && failing > 0 ? countText(failing, "update source") + " could not be checked"
+        summary = check.tone === "warning" && failing > 0 ? countText(failing, "check") + " failed"
             : check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);
     }
     return summary + (v.checking !== true && typeof v.lastCheck === "number" && typeof timeText === "function"
-        ? " - " + checkedText(v.lastCheck, now, timeText) : "");
+        ? " · " + timeText(v.lastCheck, now) : "");
 }
 
 // `Checked <time>` for `lastCheck` at NOW, or `Never checked`. `timeText`

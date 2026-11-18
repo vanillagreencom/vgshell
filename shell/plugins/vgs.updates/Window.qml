@@ -151,7 +151,7 @@ FocusScope {
                             visible: !root.view.spinning && typeof root.values.lastCheck === "number"
                             width: visible ? implicitWidth : 0
                             role: "hint"
-                            text: visible ? " - " + Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text) : ""
+                            text: visible ? " · " + Timestamp.text(root.values.lastCheck, Time.now.getTime()) : ""
                             color: Theme.color.textMuted
                         }
                     }

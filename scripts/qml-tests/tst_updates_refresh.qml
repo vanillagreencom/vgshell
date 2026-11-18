@@ -82,6 +82,28 @@ Item {
         function sourceRows() {
             return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
         }
+        // VGS-2622's product result: a short failed-check count beside an
+        // upright time in the shared muted ink.
+        function test_failed_check_summary_data() {
+            return [{ tag: "one", count: 1, summary: "1 check failed" },
+                { tag: "several", count: 2, summary: "2 checks failed" }];
+        }
+        function test_failed_check_summary(data) {
+            const now = Time.now.getTime();
+            root.values = { lastCheck: now, checking: false, admission: "online",
+                checkState: { tone: "warning", text: "Check failed" },
+                sources: Array.from({ length: data.count }, (unused, index) =>
+                    ({ source: "source-" + index, count: null, error: "exit=1", packages: [] })) };
+            const labels = descendants(view).filter(item => item.role === "hint");
+            const time = labels.find(item => item.text.startsWith(" · "));
+            verify(time !== undefined, "the summary keeps its time beside it");
+            compare(time.text, " · just now");
+            verify(Qt.colorEqual(time.color, Theme.color.textMuted));
+            compare(time.font.italic, false);
+            const summary = time.parent.children.find(item => item !== time && item.role === "hint");
+            compare(summary.text, data.summary);
+            compare(summary.lineCount, 1);
+        }
         // The production footer stays one keyboard path; checking replaces
         // a source badge with a bare spinner, not a spinner inside a badge.
         function test_flyout_footer_and_checking_row() {

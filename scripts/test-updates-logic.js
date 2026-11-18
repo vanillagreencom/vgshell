@@ -404,9 +404,9 @@ function verifyView(logic) {
   // The flyout's heading is the product result requested by VGS-2587.
   for (const [pending, summary] of [[7, "7 updates"], [0, "Up to date"]]) {
     const values = { pending, lastCheck: today, checkState: ok };
-    assert.equal(logic.windowSummaryText(values, now, when), summary + " - Checked 28m ago");
+    assert.equal(logic.windowSummaryText(values, now, when), summary + " · 28m ago");
     assert.equal(logic.windowSummaryText(Object.assign({}, values, { checking: true }), now, when), "Checking for updates");
-    assert.equal(logic.windowSummaryText(Object.assign({}, values, { admission: "offline" }), now, when), pending + " updates - No internet connection - Checked 28m ago");
+    assert.equal(logic.windowSummaryText(Object.assign({}, values, { admission: "offline" }), now, when), pending + " updates - No internet connection · 28m ago");
     assert.equal(logic.widgetTooltip(values, now, when).title, summary);
   }
 
