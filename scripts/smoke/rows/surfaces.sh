@@ -1465,6 +1465,26 @@ else:
         print("centred" if abs(dx)<=1 and abs(dy)<=1 else "offset")' "$layer" "$outputs"
 }
 surf_help_centre_check() { expect "help is centred on its caller's screen" centred surf_help_centred; }
+surf_help_modal_check() { expect_poll "help stays mapped and focused on its caller's screen" true surf_help_ready; }
+surf_help_key() { surf_help_evidence | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
+# popupCallWith transports strings: empty opens by pointer, nonempty by
+# key, matching Help.openMenu's boolean branch. Only the real MenuItem's
+# pointer or key activation opens help; this never calls openInfo.
+surf_help_menu_activate() {
+  local mode=$1 opener=""
+  [[ $mode != key ]] || opener=key
+  expect "$mode opens the real help menu" ok ipc smoke popupCallWith surface-help openMenu "$opener"
+  expect_poll "$mode help menu is open before activation" true ipc smoke popupRead surface-help menuOpened
+  expect_poll "$mode help menu draws its real entry" '"Surface help"' ipc smoke popupItemRead window acme.surfaces "" "" MenuItem "Surface help" text
+  if [[ $mode == key ]]; then
+    expect_poll "the key opening highlights the real help entry" true ipc smoke popupItemRead window acme.surfaces "" "" MenuItem "Surface help" highlighted
+    type_keys -k Return || fail "Return on the actual help MenuItem failed"
+  else
+    click_item popup:window acme.surfaces "" "" MenuItem "Surface help" || fail "the actual help MenuItem pointer activation failed"
+  fi
+  expect_poll "$mode activation closes the real menu" false ipc smoke popupRead surface-help menuOpened
+  expect_poll "$mode activation opens the entry's help" true ipc smoke popupRead surface-help opened
+}
 for surf_help_case in flyout settings plugin; do
   case "$surf_help_case" in
     flyout)
@@ -1499,6 +1519,27 @@ for surf_help_case in flyout settings plugin; do
   expect_poll "$surf_help_case caller destruction releases its modal" 0 layer_count vgs:dialog
   expect "$surf_help_case host closes after its help" ok ipc shell hide "$surf_help_host" "$surf_help_id"
 done
+
+# A Menu detaches its visual contents when it closes. Its retained entry
+# still owns the help, whose output and return focus belong to More.
+expect "the menu-help window opens" ok ipc shell summon window acme.surfaces '{}'
+expect_poll "the menu-help window maps" 1 window_count Surfaces
+expect "the real menu-help fixture loads" ok ipc smoke popupLoad surface-help "$surf/Help.qml" window acme.surfaces '{"menuMode":true}'
+for surf_help_mode in pointer key; do
+  surf_help_menu_activate "$surf_help_mode"
+  surf_help_modal_check
+  surf_help_centre_check
+  type_keys -k Escape || fail "Escape in $surf_help_mode menu help failed"
+  expect_poll "$surf_help_mode menu help closes with Escape" false ipc smoke popupRead surface-help opened
+  expect_poll "$surf_help_mode Escape releases the menu-help modal" 0 layer_count vgs:dialog
+  expect_poll "$surf_help_mode Escape returns focus to More" true surf_help_key openerFocused
+  surf_help_visual=false
+  [[ $surf_help_mode != key ]] || surf_help_visual=true
+  expect_poll "$surf_help_mode Escape restores More's focus indication" "$surf_help_visual" surf_help_key openerVisual
+done
+expect "the real menu-help fixture is destroyed" ok ipc smoke popupDrop surface-help
+expect_poll "menu-help destruction leaves no modal surface" 0 layer_count vgs:dialog
+expect "the menu-help window closes" ok ipc shell hide window acme.surfaces
 
 # A page reference in the panel's FormRow message opens the Settings window
 # on the page it names through shell.surfaces.openPage, by a click on its
@@ -1601,6 +1642,9 @@ edit_tree focus-keyboard-open shell/Ui/layout/Pane.qml \
 edit_tree focus-keyboard-open shell/Ui/overlay/ModalDialog.qml \
   'anchors.centerIn: parent' \
   'anchors.top: parent.top; anchors.left: parent.left'
+edit_tree focus-keyboard-open shell/Ui/controls/InfoButton.qml \
+  'screenOwner: root.returnFocus' \
+  'screenOwner: dialog'
 stop_shell
 start_shell "$sandbox/tree-focus-keyboard-open" "$sandbox/focus-keyboard-open.log" || fail "the initial keyboard reason control starts"
 expect "the focus control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
@@ -1627,6 +1671,18 @@ expect "control: a displaced help card fails the same screen-centre assertion" 1
 sed 's/^/  CONTROL  /' "$sandbox/help-centre-control.log"
 expect "the displaced-help control destroys its caller" ok ipc smoke popupDrop surface-help
 expect_poll "the displaced-help control releases its modal" 0 layer_count vgs:dialog
+expect "the detached-menu control builds the real help fixture" ok ipc smoke popupLoad surface-help "$surf/Help.qml" window acme.surfaces '{"menuMode":true}'
+surf_help_menu_activate pointer
+# Prove the activation succeeded and the popup detached before applying
+# the same mapped/focus assertion. Missing readers or failed operations
+# remain ordinary failures, rather than qualifying this control.
+expect_poll "the detached-menu control loses its help surface" false surf_help_key loaded
+expect_poll "the detached-menu control leaves no mapped modal" 0 layer_count vgs:dialog
+surf_help_screen_control() { (failures=0 behaviour_failures=0; surf_help_modal_check >"$sandbox/help-screen-owner-control.log"; echo "$failures"); }
+expect "control: a detached popup screen fails the same modal assertion" 1 surf_help_screen_control
+sed 's/^/  CONTROL  /' "$sandbox/help-screen-owner-control.log"
+expect "the detached-menu control destroys its caller" ok ipc smoke popupDrop surface-help
+expect_poll "the detached-menu control releases its modal" 0 layer_count vgs:dialog
 expect "the focus control window closes" ok ipc shell hide window acme.surfaces
 expect "the focus control restores its disabled fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell
