@@ -228,9 +228,9 @@ costly = {
                         "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + p.y * 0.01) + atan(cost, 0.71)",
                         "fragColor = vec4(rgb, a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
     "glass-lens": ("shell/Ui/foundation/shaders/glasslens.frag",
-                   "fragColor = (vec4(colour, alpha) * cover + vec4(0.0, 0.0, 0.0, outer)) * qt_Opacity;", "p.x * 0.01 + uRadius",
+                   "fragColor = colour * cover * qt_Opacity;", "p.x * 0.01 + uRadius",
                    "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + p.y * 0.01) + atan(cost, 0.71)",
-                   "fragColor = (vec4(colour, alpha) * cover + vec4(0.0, 0.0, 0.0, outer)) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
+                   "fragColor = colour * cover * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
 }
 if orb_style:
     # Each style's shader ends main with its one output line, with uv, r,
