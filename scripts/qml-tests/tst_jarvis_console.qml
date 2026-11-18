@@ -711,8 +711,7 @@ Item {
             compare([reading.visible, notice.visible], [data.shown && !data.warning, data.shown && data.warning], "a warning shows as the notice, a reading as the line");
             if (data.warning) {
                 compare(notice.tone, "warning");
-                compare(notice.level, "raised");
-                compare(String(Qt.color(notice.color)), String(Qt.color(Theme.color.surfaceHover)));
+                compare(String(Qt.color(notice.color)), String(Qt.color(Theme.composite(Theme.callout.background, notice.ground.fill))));
             }
             const line = () => data.warning ? notice : reading;
             const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));

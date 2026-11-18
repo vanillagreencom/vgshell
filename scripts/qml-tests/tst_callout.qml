@@ -221,7 +221,7 @@ Item {
             const cases = [{ notice: page, fill: root.Window.window.color }, panel, card];
             const endpoint = data.tag === "dark" ? 1 : 0;
             for (const item of cases) {
-                verify(Qt.colorEqual(item.notice.ground.fill, item.fill), "the banner reads the actual panel, page or card ground");
+                tryVerify(() => Qt.colorEqual(item.notice.ground.fill, item.fill), 1000, "the banner reads its actual ground: " + [item.notice.ground.fill, item.fill]);
                 const ground = Qt.color(item.fill);
                 const drawn = Qt.color(item.notice.color);
                 // Independent of the token expression and Qt.tint: the

@@ -1007,7 +1007,7 @@ mutations=(
   "wrapped row actions sit on their line's top|controls/RowActions.qml|+ Math.round((Theme.row.height - spot.item.height) / 2) : 0|+ 0 : 0|tst_rowaction.qml"
   "one line of row actions takes the row height|controls/RowActions.qml|implicitHeight: placed.lines > 1 ?|implicitHeight: placed.lines > 0 ?|tst_rowaction.qml"
   "a hidden row action keeps its room|controls/RowActions.qml|child => child.visible && child.width > 0|child => child.width > 0|tst_rowaction.qml"
-  "a notice draws the old Bluetooth fill|feedback/Callout.qml|Qt.tint(ground.fill, Theme.callout.background)|Theme.color.surfaceRaised|tst_callout.qml|test_the_ground_follows_the_container"
+  "a notice draws the old Bluetooth fill|feedback/Callout.qml|Theme.composite(Theme.callout.background, ground.fill)|Theme.color.surfaceRaised|tst_callout.qml|test_the_ground_follows_the_container"
   "a notice ignores its sibling panel ground|feedback/Callout.qml|HintGround.groundUnder(root, Window.window, true)|HintGround.groundUnder(root, Window.window)|tst_callout.qml|test_the_ground_follows_the_container"
   "a change link stays in its cause sentence|../Commons/Reply.js|cause + \".\\n[Change shortcut]|cause + \". [Change shortcut]|tst_callout.qml|test_the_change_link_starts_its_own_line"
   "a notice's icon ignores its state's ink|feedback/Callout.qml|size: Theme.icon.size.md"$'\n'"            color: root.tokens.foreground|size: Theme.icon.size.md"$'\n'"            color: Theme.color.text|tst_callout.qml"

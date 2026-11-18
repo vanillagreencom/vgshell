@@ -83,9 +83,7 @@ Rectangle {
     implicitHeight: content.height + inset.topPadding + inset.bottomPadding
     radius: Theme.callout.radius
     border.width: 0
-    // Qt.tint composites its second colour over its first:
-    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#tint-method
-    color: ground === null ? Theme.callout.background : Qt.tint(ground.fill, Theme.callout.background)
+    color: ground === null ? Theme.callout.background : Theme.composite(Theme.callout.background, ground.fill)
 
     ClearingInset {
         id: inset

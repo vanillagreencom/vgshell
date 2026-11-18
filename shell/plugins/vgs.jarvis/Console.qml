@@ -522,7 +522,7 @@ FocusScope {
         if (reach === undefined || reach === null) return "";
         if (reach.kind === "main") return "This computer runs your main Jarvis.";
         if (reach.kind === "unavailable" && reach.cause === "no-home")
-            return "Jarvis cannot forward requests until you choose a [Home folder](page:vgs.jarvis/Settings/home).";
+            return "Jarvis cannot forward requests without a Home folder.\n[Choose home folder](page:vgs.jarvis/Settings/home)";
         const blocked = reach.host === "" ? "Jarvis cannot forward requests: " : "Jarvis cannot forward to " + reach.host + ": ";
         if (reach.cause === "package-old")
             return blocked + "the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary.";
@@ -530,8 +530,9 @@ FocusScope {
             return blocked + "the Jarvis package in your home folder did not answer as expected.";
         if (reach.cause === "setting-unhanded")
             return blocked + (shell.settings.mainHost === ""
-                ? "set [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) to " + reach.host + "."
-                : "choose This computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost), then choose " + reach.host + ".");
+                ? "set Main Jarvis host to " + reach.host + "."
+                : "choose This computer, then " + reach.host + ".")
+                + "\n[Change main host](page:vgs.jarvis/Settings/mainHost)";
         if (reach.cause === "package")
             return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
         if (reach.cause === "not-set-up")
