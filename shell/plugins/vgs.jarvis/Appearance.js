@@ -400,12 +400,14 @@ var LIGHT = {
 
 // Clear: white inks over the faint glass, judged on its ground, the
 // compositor's shading over a white window, where only full white holds
-// 4.5:1: every settled line of the words draws whole, and a link is told
-// by its underline alone.
+// 4.5:1, and over a saturated magenta one, where no accent does: every
+// settled line of the words draws whole, a link is told by its underline
+// alone and a toggle that is on by its glyph.
 var CLEAR = {
     icon: {
         rest: "#ffffff",
         active: "#ffffff",
+        on: "#ffffff",
         ring: "#ffffff"
     },
     ink: {

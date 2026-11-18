@@ -50,11 +50,13 @@ Singleton {
     // theme's mode (ThemeLogic.glassStyle).
     readonly property string glassStyle: ThemeLogic.glassStyle(appearanceState.values, scheme.mode)
     // Glass, the one shared glass material (Glass.js), in glassStyle,
-    // resolved as a plugin's own look is. GlassSurface of qs.Ui draws it.
+    // resolved as a plugin's own look is. GlassSurface of qs.Ui draws it on
+    // a styled surface, and `themeGlass` on any other.
     readonly property var glass: converted(Glass.TOKENS, glassValues(glassStyle))
-    // Glass in the theme's own mode, which windows draw: an application's
-    // text follows the theme, never the Glass page's style.
-    readonly property var windowGlass: converted(Glass.TOKENS, glassValues(scheme.mode === "light" ? "light" : "dark"))
+    // Glass in the theme's own mode, which windows and every surface that
+    // draws the theme's own text draw: their text follows the theme, never
+    // the Glass page's style (ThemeLogic.GLASS_SURFACES `styled`).
+    readonly property var themeGlass: converted(Glass.TOKENS, glassValues(scheme.mode === "light" ? "light" : "dark"))
 
     // Glass.js resolved in STYLE, unconverted: what a look on glass takes
     // its glass inputs from (ThemeLogic.GLASS_INPUTS).
@@ -75,10 +77,11 @@ Singleton {
     }
 
     // What a glass surface whose fill is the colour `fill` draws while
-    // solid: that fill made opaque and lifted toward white by
-    // `glass.solidLift` (ThemeLogic.liftedOpaque).
-    function glassSolid(fill) {
-        return toColor(ThemeLogic.formatColor(ThemeLogic.liftedOpaque(fill, glass.glass.solidLift)));
+    // solid: that fill made opaque and lifted toward white by the
+    // `glass.solidLift` of MATERIAL, a converted Glass.js table, the theme
+    // mode's unless named (ThemeLogic.liftedOpaque).
+    function glassSolid(fill, material) {
+        return toColor(ThemeLogic.formatColor(ThemeLogic.liftedOpaque(fill, (material === undefined ? themeGlass : material).glass.solidLift)));
     }
 
     // COLOR, a colour or a colour string, at the disabled opacity: what a

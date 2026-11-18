@@ -1204,6 +1204,36 @@ function verify(judge) {
         assert.equal(result.token, token, label);
     }
     assert.equal(judge.acceptAppearance(LOOK, { card: { radius: "#fff" } }, DARK_THEME).ok, true, "a light value applies only in light mode");
+    // A look on glass: the style, not the theme's mode, picks its overrides,
+    // both trees are judged whichever applies, neither may set an input, and
+    // the drawn glass hands each glass input the table holds.
+    const GLASS_LOOK = Object.assign({}, LOOK, { glass: { ground: { type: "color", value: "#404040" } },
+        card: Object.assign({}, LOOK.card, { near: { type: "color", value: "{glass.ground}" } }) });
+    const GLASS_LOOK_CLEAR = { card: { text: "#ffffff" } };
+    const drawnGlass = { glass: { ground: "#6e6e6eff", base: "#000000ff" } };
+    for (const [label, theme, glass, fill, text, near] of [
+        ["light style in a dark theme", DARK_THEME, { style: "light", clear: GLASS_LOOK_CLEAR }, "#efefefcc", "#2a2a2aff", "#404040ff"],
+        ["dark style in a light theme", LIGHT_THEME, { style: "dark", clear: GLASS_LOOK_CLEAR }, "#151515c7", "#e8e8e8ff", "#404040ff"],
+        ["clear style", LIGHT_THEME, { style: "clear", clear: GLASS_LOOK_CLEAR }, "#151515c7", "#ffffffff", "#404040ff"],
+        ["clear style with the drawn glass", DARK_THEME, { style: "clear", clear: GLASS_LOOK_CLEAR, values: drawnGlass }, "#151515c7", "#ffffffff", "#6e6e6eff"]
+    ]) {
+        const result = judge.acceptAppearance(GLASS_LOOK, LOOK_LIGHT, theme, glass);
+        assert.equal(result.ok, true, label + ": " + (result.ok ? "" : judge.refusalLine(result)));
+        assert.deepEqual([at(result.values, "card.fill"), at(result.values, "card.text"), at(result.values, "card.near")].map(c => judge.formatColor(judge.parseColor(c))), [fill, text, near], label);
+    }
+    for (const [label, light, glass, reason, token] of [
+        ["an unknown style", LOOK_LIGHT, { style: "frosted", clear: {} }, "appearance-glass", ""],
+        ["no clear tree", LOOK_LIGHT, { style: "dark" }, "appearance-clear", ""],
+        ["a clear tree judged under another style", LOOK_LIGHT, { style: "dark", clear: { card: { rim: "#fff" } } }, "unknown-token", "card.rim"],
+        ["a clear tree that sets an input", LOOK_LIGHT, { style: "clear", clear: { palette: { accent: "#ffffff" } } }, "appearance-input", "palette.accent"],
+        ["a clear tree that sets a glass input", LOOK_LIGHT, { style: "clear", clear: { glass: { ground: "#ffffff" } }, values: drawnGlass }, "appearance-input", "glass.ground"],
+        ["a light tree that sets a glass input", { glass: { ground: "#ffffff" } }, { style: "light", clear: {}, values: drawnGlass }, "appearance-input", "glass.ground"],
+        ["drawn glass without the input", LOOK_LIGHT, { style: "dark", clear: {}, values: { glass: {} } }, "appearance-glass", "glass.ground"]
+    ]) {
+        const result = judge.acceptAppearance(GLASS_LOOK, light, DARK_THEME, glass);
+        assert.equal(result.ok, false, label);
+        assert.deepEqual([result.reason, result.token], [reason, token], label);
+    }
 
     assert.equal(judge.refusalLine(judge.accept(TOKENS, document({ palette: { acent: "#fff" } }))), "theme: refused: token=palette.acent reason=unknown-token");
     assert.equal(judge.refusalLine(judge.accept(TOKENS, JSON.stringify({ foreground: "#123456" }))), "theme: refused: document reason=unknown-key key=foreground");
@@ -1211,20 +1241,21 @@ function verify(judge) {
     verifyGlass(judge);
 }
 
-// VGlass, shell/Commons/Glass.js, judged as a plugin's own look is, in
-// both modes against the shipped defaults: the window values Hyprland
-// takes, whose shadow is the tight shadow's colour, alpha 0.45 in dark,
-// round(0.45 * 255) = 115 = 0x73, and 0.16 in light, round(40.8) = 41 =
-// 0x29. The surface values are pinned in scripts/test-notifications-logic.js
-// beside the looks that hand them, but the fill, which takes the theme's
-// raised surface. Each fill row: [mode, raised surface, fill, its solid
-// form]. Dark, the shipped #101010 at 0.8, 204 = 0xcc, lifted by 0.05: 16 +
-// 239 * 0.05 = 27.95, #1c1c1c; another dark surface, #283038, gives 50.75,
-// 58.35 and 65.95, #333a42. Light, #f2f2f2 at 0.85, round(216.75) = 217 =
-// 0xd9, lifted by 0.1: 242 + 13 * 0.1 = 243.3, #f3f3f3; a cream #e8e4d8
-// gives 234.3, 230.7 and 219.9, #eae7dc.
+// Glass, shell/Commons/Glass.js, judged as a plugin's own look is, in each
+// style against the shipped defaults in both modes: the window values
+// Hyprland takes, whose shadow is alpha 0.45 in dark, round(0.45 * 255) =
+// 115 = 0x73, and 0.16 in light, round(40.8) = 41 = 0x29, follow the mode.
+// The material follows the style alone. Each style row: [style, fill, its
+// solid form, ground]. Dark, #101010 at 0.8, 204 = 0xcc, lifted by 0.05:
+// 16 + 239 * 0.05 = 27.95, #1c1c1c, over white 255 * 0.2 + 16 * 0.8 =
+// 63.8, #404040. Light, #f2f2f2 at 0.85, round(216.75) = 217 = 0xd9,
+// lifted by 0.1: 242 + 13 * 0.1 = 243.3, #f3f3f3, over black 242 * 0.85
+// = 205.7, #cecece. Clear, black at 0.0784, round(19.99) = 20 = 0x14,
+// lifted by 0.05: 12.75, #0d0d0d; its ground is the body over white as the
+// compositor tones it, 255 * (1 - 0.53) * (1 - 0.0784) = 110.45, #6e6e6e.
 const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
-// The readability judge on VALUES with the VGlass look they resolve.
+const LAYER = load(path.join(repo, "shell", "Core", "HyprlandLayer.js"));
+// The readability judge on VALUES with the glass of their mode.
 function readability(judge, values) {
     return judge.readabilityShortfalls(values, judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values).values);
 }
@@ -1237,12 +1268,23 @@ function verifyGlass(judge, glass = GLASS) {
         assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
         assert.deepEqual(plain(result.values.window), { opacity: 0.92, inactiveOpacity: 0.86, blurSize: 8, blurPasses: 2, shadowRange: 30, shadowPower: 3, shadowColor: shadow }, "the window glass in " + mode + " mode");
     }
-    for (const [mode, raised, fill, solid] of [["dark", null, "#101010cc", "#1c1c1cff"], ["dark", "#283038ff", "#283038cc", "#333a42ff"], ["light", "#f2f2f2ff", "#f2f2f2d9", "#f3f3f3ff"], ["light", "#e8e4d8ff", "#e8e4d8d9", "#eae7dcff"]]) {
-        const theme = Object.assign({}, shipped, { scheme: { mode } }, raised === null ? {} : { color: Object.assign({}, shipped.color, { surfaceRaised: raised }) });
-        const drawn = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, theme).values.glass;
-        assert.equal(drawn.fill, fill, "the glass fill in " + mode + " mode over " + raised);
-        assert.equal(judge.formatColor(judge.liftedOpaque(judge.parseColor(drawn.fill), drawn.solidLift)), solid, "its solid form");
+    for (const [style, fill, solid, ground] of [["dark", "#101010cc", "#1c1c1cff", "#404040ff"], ["light", "#f2f2f2d9", "#f3f3f3ff", "#cecece"], ["clear", "#00000014", "#0d0d0dff", "#6e6e6e"]]) {
+        for (const mode of ["dark", "light"]) {
+            const theme = Object.assign({}, shipped, { scheme: { mode } });
+            const result = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, theme, { style, clear: glass.CLEAR });
+            assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
+            const drawn = result.values.glass;
+            assert.equal(drawn.fill, fill, "the " + style + " fill in " + mode + " mode");
+            assert.equal(judge.formatColor(judge.liftedOpaque(judge.parseColor(drawn.fill), drawn.solidLift)), solid, "its solid form");
+            assert.equal(judge.formatColor(judge.parseColor(drawn.ground)), judge.formatColor(judge.parseColor(ground)), "its ground");
+        }
     }
+    // Clear's ground is its body over white as the compositor's layer glass
+    // tones it (HyprlandLayer.clearTone), rounded as drawn.
+    const clear = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, shipped, { style: "clear", clear: glass.CLEAR }).values.glass;
+    assert.equal(judge.formatColor(judge.parseColor(clear.ground)),
+        judge.formatColor(judge.parseColor(judge.formatColor(judge.overlay(judge.parseColor(clear.fill), LAYER.clearTone(judge.parseColor("#ffffff")))))),
+        "Clear's ground is its body over a white window as the compositor tones it");
     // A blur size Hyprland would not take is refused.
     const wide = JSON.parse(JSON.stringify(glass.TOKENS));
     wide.window.blurSize.value = 65;
@@ -1375,85 +1417,118 @@ function verifyAppearance(judge) {
     // Where each value comes from, what the theme shows, and which layer
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
-    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland", windowGlow: "hyprland", layerGlass: "theme" }, "every value from the theme, animations, window glass and glow from Hyprland, glass from each surface");
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glassEnabled: "theme", glassStyle: "theme", glassSurfaces: "theme", glassRememberedChoices: "theme", windowGlow: "hyprland", layerGlass: "theme" }, "every value from the theme, animations and glow from Hyprland");
     assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false, glow: false, surfaceBlur: false }, "the layer writes borders and radius and leaves animations, window glass and glow");
     assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
     const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
     assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
     assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false, glow: false, surfaceBlur: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
-    // VGlass: the effective window glass is the windows' own choice under
-    // the user's `glass`, which turns it on or off for every surface; the
-    // shell's own layers and popups take the blur only while every surface
-    // draws glass. Each row: [glass, windowGlass, the layer writes window
-    // glass, the layer blurs the shell's surfaces].
-    for (const [glass, windowGlass, want, surfaces] of [[undefined, undefined, false, false], [undefined, true, true, false], ["on", undefined, true, true], ["on", true, true, true], ["off", undefined, false, false], ["off", true, false, false]]) {
-        const user = {};
-        if (glass !== undefined) user.glass = glass;
-        if (windowGlass !== undefined) user.windowGlass = windowGlass;
+    // Glass: the main switch and each surface's saved choice, else its
+    // default. The layer writes window glass while the windows row takes
+    // glass, and blurs the shell's shared layers while a surface they host
+    // does. Each row: [label, user, the layer writes window glass, the
+    // layer blurs the shell's surfaces].
+    for (const [label, user, want, surfaces] of [
+        ["nothing saved", {}, false, false],
+        ["windows on", { glassSurfaces: { windows: "on" } }, true, false],
+        ["windows on, the main switch off", { glassEnabled: false, glassSurfaces: { windows: "on" } }, false, false],
+        ["menus on", { glassSurfaces: { menus: "on" } }, false, true],
+        ["tooltips on", { glassSurfaces: { tooltips: "on" } }, false, true],
+        ["the launcher off", { glassSurfaces: { launcher: "off" } }, false, false],
+        ["every shared surface on, the main switch off", { glassEnabled: false, glassSurfaces: { flyouts: "on", menus: "on", dialogs: "on", indicators: "on", clipboard: "on" } }, false, false]
+    ]) {
         const result = over(shipped, user).appearance;
-        assert.equal(result.hyprland.glass, want, "window glass under glass=" + glass + " windowGlass=" + windowGlass);
-        assert.equal(result.hyprland.surfaceBlur, surfaces, "surface blur under glass=" + glass + " windowGlass=" + windowGlass);
-        assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
+        assert.equal(result.hyprland.glass, want, "window glass: " + label);
+        assert.equal(result.hyprland.surfaceBlur, surfaces, "surface blur: " + label);
     }
-    assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
-    for (const glass of [undefined, "on", "off"]) {
-        const layerOnly = over(shipped, { glass: glass, layerGlass: true });
-        assert.equal(layerOnly.appearance.values.layerGlass, true, "layer glass stays independent of global VGlass " + glass);
-        assert.deepEqual(plain(layerOnly.values), plain(over(shipped, { glass: glass }).values), "layer glass changes no theme token");
+    assert.deepEqual(plain(over(shipped, { glassStyle: "light", glassSurfaces: { windows: "on" } }).values), plain(shipped.values), "glass draws no token of the shell's table");
+    for (const enabled of [undefined, true, false]) {
+        const user = enabled === undefined ? {} : { glassEnabled: enabled };
+        const layerOnly = over(shipped, Object.assign({ layerGlass: true }, user));
+        assert.equal(layerOnly.appearance.values.layerGlass, true, "the saved layer glass request stays under the main switch " + enabled);
+        assert.deepEqual(plain(layerOnly.values), plain(over(shipped, user).values), "layer glass changes no theme token");
     }
-    // The glass corner: while the user's glass is on, a menu, a dialog, a
+    // The glass corner: while its surface takes glass, a menu, a dialog, a
     // popover and an OSD whose corner would be 0 take radius.glass, 16, a
     // menu entry following its menu; a corner above 0 stands, the theme's
     // or the user's 24 * 0.75 = 18, as with glass off; a panel and a
     // tooltip are never set. Each row: [label, theme, user, the four
     // corners and the menu entry's, the panel's, the tooltip's].
+    const every = { menus: "on", dialogs: "on", flyouts: "on", indicators: "on" };
     const squareCorners = [0, 0, 0, 0, 0], glassCorners = [16, 16, 16, 16, 16];
     for (const [label, theme, user, corners, panel, tooltip] of [
-        ["a square theme, glass on", shipped, { glass: "on" }, glassCorners, 0, 0],
-        ["a square theme, glass off", shipped, { glass: "off" }, squareCorners, 0, 0],
-        ["a square theme, glass unset", shipped, {}, squareCorners, 0, 0],
-        ["a square theme, the windows' own glass", shipped, { windowGlass: true }, squareCorners, 0, 0],
-        ["a user's corner radius of 24, glass on", shipped, { glass: "on", windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
-        ["a user's corner radius of 24, glass off", shipped, { glass: "off", windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
-        ["a user's corner radius of 0, glass on", shipped, { glass: "on", windowRadius: 0 }, glassCorners, 0, 0],
-        ["the user's own Hyprland radius, glass on", shipped, { glass: "on", windowRadius: "hyprland" }, glassCorners, 0, 0],
-        ["a rounded theme, glass on", accepted({ radius: { sm: 4, md: 8 } }), { glass: "on" }, [8, 8, 8, 8, 8], 8, 4],
-        ["a theme that rounds its menu alone, glass on", accepted({ menu: { radius: 6 } }), { glass: "on" }, [6, 16, 16, 16, 6], 0, 0],
-        ["a theme's own glass corner", accepted({ radius: { glass: 10 } }), { glass: "on" }, [10, 10, 10, 10, 10], 0, 0]
+        ["a square theme, glass on", shipped, { glassSurfaces: every }, glassCorners, 0, 0],
+        ["a square theme, tooltips on too", shipped, { glassSurfaces: Object.assign({ tooltips: "on" }, every) }, glassCorners, 0, 0],
+        ["a square theme, the main switch off", shipped, { glassEnabled: false, glassSurfaces: every }, squareCorners, 0, 0],
+        ["a square theme, nothing saved", shipped, {}, squareCorners, 0, 0],
+        ["a square theme, the windows' glass alone", shipped, { glassSurfaces: { windows: "on" } }, squareCorners, 0, 0],
+        ["a square theme, menus alone", shipped, { glassSurfaces: { menus: "on" } }, [16, 0, 0, 0, 16], 0, 0],
+        ["a square theme, on-screen indicators alone", shipped, { glassSurfaces: { indicators: "on" } }, [0, 0, 0, 16, 0], 0, 0],
+        ["a user's corner radius of 24, glass on", shipped, { glassSurfaces: every, windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
+        ["a user's corner radius of 24, glass off", shipped, { glassEnabled: false, windowRadius: 24 }, [18, 18, 18, 18, 18], 18, 0],
+        ["a user's corner radius of 0, glass on", shipped, { glassSurfaces: every, windowRadius: 0 }, glassCorners, 0, 0],
+        ["the user's own Hyprland radius, glass on", shipped, { glassSurfaces: every, windowRadius: "hyprland" }, glassCorners, 0, 0],
+        ["a rounded theme, glass on", accepted({ radius: { sm: 4, md: 8 } }), { glassSurfaces: every }, [8, 8, 8, 8, 8], 8, 4],
+        ["a theme that rounds its menu alone, glass on", accepted({ menu: { radius: 6 } }), { glassSurfaces: every }, [6, 16, 16, 16, 6], 0, 0],
+        ["a theme's own glass corner", accepted({ radius: { glass: 10 } }), { glassSurfaces: every }, [10, 10, 10, 10, 10], 0, 0]
     ]) {
         const values = over(theme, user).values;
         assert.deepEqual(["menu.radius", "dialog.radius", "popover.radius", "osd.radius", "menu.item.radius"].map(token => at(values, token)), corners, label);
         assert.deepEqual([at(values, "surface.radius"), at(values, "tooltip.radius")], [panel, tooltip], label + ": the panel and the tooltip");
     }
     // Window glow: the windows' own choice, written only while window glass
-    // is. Each row: [glass, windowGlass, windowGlow, the layer writes glow].
-    for (const [glass, windowGlass, windowGlow, want] of [[undefined, undefined, undefined, false], [undefined, true, undefined, false], [undefined, true, true, true], [undefined, undefined, true, false],
-        ["on", undefined, true, true], ["on", undefined, undefined, false], ["off", true, true, false], ["off", undefined, true, false]]) {
-        const user = {};
-        if (glass !== undefined) user.glass = glass;
-        if (windowGlass !== undefined) user.windowGlass = windowGlass;
-        if (windowGlow !== undefined) user.windowGlow = windowGlow;
+    // is. Each row: [user, the layer writes glow].
+    for (const [user, want] of [[{}, false], [{ glassSurfaces: { windows: "on" } }, false], [{ glassSurfaces: { windows: "on" }, windowGlow: true }, true],
+        [{ windowGlow: true }, false], [{ glassEnabled: false, glassSurfaces: { windows: "on" }, windowGlow: true }, false]]) {
         const result = over(shipped, user).appearance;
         assert.equal(result.hyprland.glow, want, "window glow under " + JSON.stringify(user));
-        assert.equal(result.sources.windowGlow, windowGlow === undefined ? "hyprland" : "user", "glow source under " + JSON.stringify(user));
+        assert.equal(result.sources.windowGlow, user.windowGlow === undefined ? "hyprland" : "user", "glow source under " + JSON.stringify(user));
     }
-    // glassOn: a surface's own choice, which `glass` overrides either way.
-    // Each row: [values, optIn, want].
-    for (const [values, optIn, want] of [[{}, false, false], [{}, true, true], [{ glass: "on" }, false, true], [{ glass: "on" }, true, true], [{ glass: "off" }, false, false], [{ glass: "off" }, true, false], [{}, "yes", false]])
-        assert.equal(judge.glassOn(values, optIn), want, "glassOn(" + JSON.stringify(values) + ", " + JSON.stringify(optIn) + ")");
+    // glassFor, the one deciding place. Each row: [values, surface, context,
+    // want { on, style, drawable }]. A styled surface takes the page's
+    // style, Auto the theme's mode and never Clear; any other surface the
+    // theme's mode. Clear is drawable only on a material window while layer
+    // glass is ready; a tooltip is never drawable; controls never take glass.
+    const dark = { mode: "dark", layerGlass: false, material: false };
+    const ready = { mode: "dark", layerGlass: true, material: true };
+    for (const [values, surface, context, want] of [
+        [{}, "launcher", dark, { on: true, style: "dark", drawable: true }],
+        [{}, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true }],
+        [{}, "jarvis", dark, { on: true, style: "dark", drawable: true }],
+        [{}, "menus", dark, { on: false, style: "dark", drawable: false }],
+        [{}, "windows", dark, { on: false, style: "dark", drawable: false }],
+        [{ glassEnabled: false }, "launcher", dark, { on: false, style: "dark", drawable: false }],
+        [{ glassEnabled: true }, "launcher", dark, { on: true, style: "dark", drawable: true }],
+        [{ glassSurfaces: { launcher: "off" } }, "launcher", dark, { on: false, style: "dark", drawable: false }],
+        [{ glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true }],
+        [{ glassStyle: "light" }, "launcher", dark, { on: true, style: "light", drawable: true }],
+        [{ glassStyle: "light" }, "menus", { mode: "dark", layerGlass: true, material: true }, { on: false, style: "dark", drawable: false }],
+        [{ glassStyle: "dark" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "dark", drawable: true }],
+        [{ glassStyle: "auto" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true }],
+        [{ glassStyle: "clear" }, "launcher", dark, { on: true, style: "clear", drawable: false }],
+        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: true, material: false }, { on: true, style: "clear", drawable: false }],
+        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: false, material: true }, { on: true, style: "clear", drawable: false }],
+        [{ glassStyle: "clear" }, "launcher", ready, { on: true, style: "clear", drawable: true }],
+        [{ glassStyle: "clear", glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true }],
+        [{ glassSurfaces: { tooltips: "on" } }, "tooltips", ready, { on: true, style: "dark", drawable: false }],
+        [{ glassSurfaces: { tooltips: "on" } }, "controls", ready, { on: false, style: "dark", drawable: false }]
+    ]) assert.deepEqual(plain(judge.glassFor(values, surface, context)), want, "glassFor(" + JSON.stringify(values) + ", " + surface + ", " + JSON.stringify(context) + ")");
+    assert.throws(() => judge.glassFor({}, "dock", dark), /glass surface "dock" unknown/, "an unknown surface is a programming error");
     assert.deepEqual(plain(over(shipped, { windowRadius: "hyprland" }).values), plain(shipped.values), "Use my Hyprland value leaves the shell's surfaces on the theme");
     // A member the judge refuses is left out, listed by key, and shows as
     // Set by theme.
-    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1, glass: "auto", windowGlass: false, windowGlow: "on" });
-    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth", "glass", "windowGlass", "windowGlow"], "each bad member is refused by key");
+    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1, glassStyle: "frosted", glassSurfaces: { dock: "on" }, windowGlow: "on" });
+    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth", "glassStyle", "glassSurfaces", "windowGlow"], "each bad member is refused by key");
     assert.ok(refused.refusals.every(row => row.line.startsWith("refused: ")), "each refusal is a keyed line");
     assert.deepEqual(plain(refused.values), plain(shipped.values), "refused members draw the theme");
     assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
-    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true], ["glass", "on"], ["glass", "off"], ["windowGlass", true], ["windowGlow", true],
+    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true], ["glassEnabled", true], ["glassEnabled", false], ["glassStyle", "auto"], ["glassStyle", "clear"],
+        ["glassSurfaces", {}], ["glassSurfaces", { windows: "on", tooltips: "off", jarvis: "off" }], ["glassRememberedChoices", { launcher: "off" }], ["windowGlow", true],
         ["interfaceFont", "Inter Variable"], ["terminalFont", "JetBrainsMono Nerd Font"], ["terminalFont", "Noto Sans Mono CJK JP"], ["terminalFont", "M+ 1mn"], ["interfaceFont", "x".repeat(100)]])
         assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
-    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined], ["glass", true], ["glass", "auto"], ["glass", "hyprland"], ["windowGlass", false], ["windowGlass", "on"], ["windowGlow", false], ["windowGlow", "on"],
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined], ["glass", "on"], ["windowGlass", true], ["glassEnabled", "off"], ["glassStyle", "frosted"], ["glassStyle", "hyprland"], ["glassSurfaces", "on"], ["glassSurfaces", { windows: true }],
+        ["glassSurfaces", { dock: "on" }], ["glassSurfaces", ["windows"]], ["glassSurfaces", { controls: "on" }], ["glassRememberedChoices", { launcher: false }], ["windowGlow", false], ["windowGlow", "on"],
         // A family: text, with nothing that ends or changes the terminal's
         // configuration line and nothing the resolver reads as a reference.
         ["terminalFont", ""], ["terminalFont", 12], ["terminalFont", ["Fira Code"]], ["terminalFont", " Fira Code"], ["terminalFont", "Fira Code "], ["terminalFont", "x".repeat(101)],
@@ -1975,14 +2050,15 @@ try {
 // on that copy.
 const glassSource = fs.readFileSync(path.join(repo, "shell/Commons/Glass.js"), "utf8");
 const GLASS_CONTROLS = [
-    ["window shadow is the tight shadow", 'shadowColor: color("{shadow.tight.color}")', 'shadowColor: color("{shadow.wide.color}")'],
-    ["light shadow", 'tight: { color: "alpha(#000000, 0.16)" }', 'tight: { color: "alpha(#000000, 0.2)" }'],
+    ["light window shadow", 'shadowColor: "alpha(#000000, 0.16)"', 'shadowColor: "alpha(#000000, 0.2)"'],
     ["blur size bound", "blurSize: whole(8, 1, 64)", "blurSize: whole(8, 1, 4096)"],
-    ["the fill takes the theme's raised surface", 'fill: color("alpha({color.surfaceRaised}, 0.8)")', 'fill: color("alpha(#101010, 0.8)")'],
-    ["the light fill takes the theme's raised surface", 'fill: "alpha({color.surfaceRaised}, 0.85)"', 'fill: "alpha(#f2f2f2, 0.85)"'],
-    ["the dark fill's alpha", 'fill: color("alpha({color.surfaceRaised}, 0.8)")', 'fill: color("alpha({color.surfaceRaised}, 0.85)")'],
+    ["the dark body's alpha", "opacity: share(0.8),", "opacity: share(0.85),"],
+    ["the light body", 'base: "#f2f2f2",', 'base: "#efefef",'],
+    ["the light ground lies over black", 'ground: "mix(#000000, {glass.base}, {glass.opacity})"', 'ground: "mix(#ffffff, {glass.base}, {glass.opacity})"'],
+    ["Clear's body", "opacity: 0.0784,", "opacity: 0.2,"],
+    ["Clear's ground", 'ground: "#6e6e6e"', 'ground: "#808080"'],
     ["the dark lift", "solidLift: share(0.05)", "solidLift: share(0.25)"],
-    ["the light lift", "solidLift: 0.1", "solidLift: 0.05"]
+    ["the light lift", "solidLift: 0.1", "solidLift: 0.5"]
 ];
 const glassControlDir = fs.mkdtempSync(path.join(os.tmpdir(), "glass-control-"));
 try {
@@ -1995,40 +2071,53 @@ try {
 } finally {
     fs.rmSync(glassControlDir, { recursive: true, force: true });
 }
-// Each launcher text reads on its own fill. GlassSurface makes the menu
-// opaque and lifted over the card; with glass off it draws the theme's
-// raised surface. The title/detail step compares both drawn inks on the
-// same fill, by dividing their contrast ratios against that fill.
-function launcherMenuFills(judge, look, values) {
-    const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values);
+// Each launcher text reads on its own fill, in each glass style, the look
+// resolved for that style with the style's glass inputs. GlassSurface makes
+// the menu opaque and lifted over the card; with glass off it draws the
+// theme's raised surface. The card lies over black and white, Clear's as
+// the compositor tones them (HyprlandLayer.clearTone). The title/detail
+// step compares both drawn inks on the same fill, by dividing their
+// contrast ratios against that fill. Each row: [theme, role, state, ratio,
+// style].
+const STYLES = ["light", "dark", "clear"];
+function glassIn(judge, values, style) {
+    const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values, { style, clear: GLASS.CLEAR });
     assert.equal(glass.ok, true, glass.ok ? "" : judge.refusalLine(glass));
-    return [judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(look.card.fill), glass.values.glass.solidLift))),
-        judge.parseColor(values.surface.level.raised.background)];
+    return glass.values;
+}
+// The menu's solid glass, and the theme's raised surface it draws with
+// glass off, where the look follows the theme's mode, so only in that
+// mode's style.
+function launcherMenuFills(judge, look, values, glass, style) {
+    const lifted = judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(glass.glass.fill), glass.glass.solidLift)));
+    return style === (values.scheme.mode === "light" ? "light" : "dark") ? [lifted, judge.parseColor(values.surface.level.raised.background)] : [lifted];
 }
 function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hintInk = (values, context, part) => judge.keyHintInk(values, context, part)) {
     const out = [];
-    for (const { name, values } of JUDGED_THEMES) {
-        const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
+    for (const { name, values } of JUDGED_THEMES) for (const style of STYLES) {
+        const glass = glassIn(judge, values, style);
+        const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values, { style, clear: launcher.CLEAR, values: glass });
         assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
         const look = result.values;
+        const fillColour = judge.parseColor(glass.glass.fill);
         const plate = fill => judge.overlay(judge.parseColor(look.highlight.plate), fill);
         const ratio = (ink, fill, weight) => judge.drawnTextRatio(judge.overlay(judge.parseColor(ink), fill), fill, weight);
-        const grounds = ["#000000", "#ffffff"].map(w => judge.overlay(judge.parseColor(look.card.fill), judge.parseColor(w)));
-        const solid = launcherMenuFills(judge, look, values);
+        const grounds = ["#000000", "#ffffff"].map(w => judge.parseColor(w)).map(w => judge.overlay(fillColour, style === "clear" ? LAYER.clearTone(w) : w));
+        const solid = launcherMenuFills(judge, look, values, glass, style);
         for (const [state, fill] of [...grounds, ...solid].entries()) {
             const title = judge.formatColor({ ...judge.parseColor(look.text.foreground), a: look.text.label.rest });
-            out.push([name, "step", state, ratio(title, fill, look.text.label.weight) / ratio(look.text.detail.color, fill, 400)]);
-            out.push([name, "empty", state, ratio(look.text.detail.color, fill, 400)]);
+            out.push([name, "step", state, ratio(title, fill, look.text.label.weight) / ratio(look.text.detail.color, fill, 400), style]);
+            out.push([name, "empty", state, ratio(look.text.detail.color, fill, 400), style]);
         }
         for (const [state, fill] of [...grounds, ...solid].map(plate).entries())
             for (const [role, ink] of [["link", look.text.link], ["detail", look.text.detail.color]])
-                out.push([name, role, state, ratio(ink, fill, 400)]);
-        for (const [state, fill] of menuFills(judge, look, values).flatMap(fill => [fill, plate(fill)]).entries())
-            out.push([name, "menu", state, ratio(look.text.detail.color, fill, 400)]);
+                out.push([name, role, state, ratio(ink, fill, 400), style]);
+        for (const [state, fill] of menuFills(judge, look, values, glass, style).flatMap(fill => [fill, plate(fill)]).entries())
+            out.push([name, "menu", state, ratio(look.text.detail.color, fill, 400), style]);
         // Match GlassSurface's drawn, solid and glass-off branches. Build
         // expected fills from this test's wallpaper/solid grounds and the
         // selected plate's direct sheen, independently of the ink judge.
-        for (const [branch, fill] of [judge.parseColor(look.card.fill), ...solid].entries()) {
+        for (const [branch, fill] of [fillColour, ...solid].entries()) {
             const context = { fill, plate: judge.parseColor(look.highlight.plate), sheen: judge.parseColor(look.highlight.sheen) };
             const word = hintInk(values, context, "word");
             const key = hintInk(values, context, "key");
@@ -2038,8 +2127,8 @@ function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hi
             });
             for (const [state, ground] of expectedGrounds.entries()) {
                 const capFill = judge.overlay(judge.parseColor(values.kbd.background), ground);
-                out.push([name, "keyHint", `${branch}/${state}`, judge.drawnTextRatio(word, ground, values.text.keyHint.weight)]);
-                out.push([name, "key", `${branch}/${state}`, judge.drawnTextRatio(key, capFill, values.text.kbd.weight)]);
+                out.push([name, "keyHint", `${branch}/${state}`, judge.drawnTextRatio(word, ground, values.text.keyHint.weight), style]);
+                out.push([name, "key", `${branch}/${state}`, judge.drawnTextRatio(key, capFill, values.text.kbd.weight), style]);
             }
         }
     }
@@ -2130,24 +2219,27 @@ function launcherDetailShortfalls(judge, launcher) {
     const oldKeyInk = plateHintReadings(judge, values => judge.parseColor(values.kbd.foreground));
     for (const name of ["vgs", "catalog/flexoki-light"])
         assert.ok(oldKeyInk.some(([theme, , ratio]) => theme === name && ratio < 4.5), `control: the default key ink fails the list plate in ${name}`);
-    const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio]) => role === "step" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
+    // Clear's white detail matches the title's ink: size and weight carry
+    // that step (design-system.md § Appearance).
+    const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio, style]) => role === "step" && style !== "clear" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
     checkStep(readings);
-    // Independent menu reading: vgs's lifted #212121 under its plate,
-    // detail alpha 0.84 and regular stroke coverage, rounded as drawn.
-    const checkMenuFill = rows => assert.ok(rows.some(([name, role, state, ratio]) => name === "vgs" && role === "menu" && state === 1 && ratio > 7.31 && ratio < 7.33), "launcher menu detail is judged on its own lifted fill");
+    // Independent menu reading: Dark's lifted #1c1c1c under its plate,
+    // alpha(#e8e8e8, 0.095) = #e8e8e818, which gives #2f2f2f, detail alpha
+    // 0.84 = 0xd6 and regular stroke coverage, rounded as drawn.
+    const checkMenuFill = rows => assert.ok(rows.some(([name, role, state, ratio, style]) => name === "vgs" && style === "dark" && role === "menu" && state === 1 && ratio > 7.73 && ratio < 7.74), "launcher menu detail is judged on its own lifted fill");
     checkMenuFill(readings);
-    assert.throws(() => checkMenuFill(launcherTextReadings(judge, LAUNCHER, (j, look) => [j.overlay(j.parseColor(look.card.fill), j.parseColor("#ffffff"))])), { code: "ERR_ASSERTION" }, "control: the menu judged on the launcher card's fill fails");
+    assert.throws(() => checkMenuFill(launcherTextReadings(judge, LAUNCHER, (j, look, values, glass) => [j.overlay(j.parseColor(glass.glass.fill), j.parseColor("#ffffff"))])), { code: "ERR_ASSERTION" }, "control: the menu judged on the launcher card's fill fails");
     // Controls: the link in the theme's accent alone, as LinkText draws it
     // by default, the detail text at a 0.5 fade, and the link picked on
     // the card itself, which reads there by the colours' ratio and falls
-    // short as drawn in catppuccin-latte and ayu.
+    // short as drawn in coppernight and tokyo-night.
     const launcherSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.launcher/Appearance.js"), "utf8");
     const launcherControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "launcher-control-"));
     try {
         for (const [role, needle, replacement, themes] of [
             ["link", /link: color\("readable\(.*\)"\),/g, 'link: color("{palette.accent}"),', ["vgs", "catalog/flexoki-light"]],
             ["detail", /color: color\("alpha\(\{text\.foreground\}, [0-9.]+\)"\) \},/g, 'color: color("alpha({text.foreground}, 0.5)") },', ["vgs", "catalog/flexoki-light"]],
-            ["link", /linkGround: color\("mix\(.*\)"\),/g, 'linkGround: color("{card.nearInk}"),', ["catalog/catppuccin-latte", "catalog/ayu"]]
+            ["link", /linkGround: color\("mix\(.*\)"\),/g, 'linkGround: color("{card.nearInk}"),', ["catalog/coppernight", "catalog/tokyo-night"]]
         ]) {
             assert.equal((launcherSource.match(needle) || []).length, 1, `launcher control "${role}": the text to replace must occur once`);
             const mutant = path.join(launcherControlDir, "Appearance.js");
@@ -2162,7 +2254,7 @@ function launcherDetailShortfalls(judge, launcher) {
         fs.writeFileSync(mutant, launcherSource.replace(equalDetail, 'color: color("alpha({text.foreground}, {text.label.rest})") },'));
         const equalReadings = launcherTextReadings(judge, load(mutant));
         assert.throws(() => checkStep(equalReadings), { code: "ERR_ASSERTION" }, "control: detail equal to title fails the measured step");
-        assert.ok(JUDGED_THEMES.every(({ name }) => equalReadings.some(([theme, role, , ratio]) => theme === name && role === "step" && ratio === 1)), "equal-title control reaches every theme");
+        assert.ok(JUDGED_THEMES.every(({ name }) => equalReadings.some(([theme, role, , ratio, style]) => theme === name && role === "step" && style !== "clear" && ratio === 1)), "equal-title control reaches every theme");
     } finally {
         fs.rmSync(launcherControlDir, { recursive: true, force: true });
     }
@@ -2310,11 +2402,17 @@ const CONTROLS = [
     ["appearance table", "if (defect !== \"\")\n        return refusal(\"appearance-table\"", "if (false)\n        return refusal(\"appearance-table\""],
     ["appearance palette", 'if (!isLeaf(accent) || accent.type !== "color" || Object.keys(palette).length !== 1)', "if (!isLeaf(accent))"],
     ["appearance light tree", "if (!isPlainObject(light))", "if (false)"],
-    ["appearance light judged", "if (!stated.ok)\n        return stated;\n    for", "if (false)\n        return stated;\n    for"],
+    ["appearance light judged", "if (!stated.ok)\n        return stated;\n    if (setsInput", "if (false)\n        return stated;\n    if (setsInput"],
+    ["appearance style picks light", "overrides = glass.style === \"light\" ? stated.overrides : glass.style", "overrides = mode === \"light\" ? stated.overrides : glass.style"],
+    ["appearance style picks clear", ": glass.style === \"clear\" ? clear.overrides : {};", ": {};"],
+    ["appearance clear judged", "if (!clear.ok)\n            return clear;", "if (false)\n            return clear;"],
+    ["appearance clear sets no input", "return refusal(\"appearance-input\", setsInput(clear.overrides), \"clear sets an input\");", "{}"],
+    ["appearance glass inputs applied", "overrides[GLASS_INPUTS[g]] = drawn;", ""],
+    ["appearance glass inputs are inputs to a look", "? APPEARANCE_INPUTS.concat(GLASS_INPUTS) : APPEARANCE_INPUTS;", "? APPEARANCE_INPUTS : APPEARANCE_INPUTS;"],
     ["appearance font type", 'if (family !== undefined && family.type !== "family")', "if (false)"],
     ["appearance interface family input", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, INTERFACE_FAMILY, RAISED_SURFACE];", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, RAISED_SURFACE];"],
     ["appearance raised surface input", "MOTION_SCALE, INTERFACE_FAMILY, RAISED_SURFACE];", "MOTION_SCALE, INTERFACE_FAMILY];"],
-    ["appearance input", "if (hasOwn(stated.overrides, APPEARANCE_INPUTS[i]))", "if (false)"],
+    ["appearance input", "if (hasOwn(overrides, inputs[i])) return inputs[i];", ""],
     ["appearance mode", 'var overrides = mode === "light" ? stated.overrides : {};', "var overrides = stated.overrides;"],
     ["appearance theme mode", 'if (typeof mode !== "string")', "if (false)"],
     ["appearance theme input", "if (value === undefined)\n            return refusal(\"appearance-theme\"", "if (false)\n            return refusal(\"appearance-theme\""],
@@ -2378,25 +2476,32 @@ const CONTROLS = [
     ["appearance hyprland source", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
     ["appearance hyprland source on a group member alone", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";"],
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
-    ["glass off overrides a surface's choice", "(values.glass !== \"off\" && optIn === true)", "(optIn === true)"],
-    ["glass on overrides a surface's choice", "return values.glass === \"on\" || (", "return ("],
-    ["the shell's surfaces take the blur only while every surface draws glass", "hyprland.surfaceBlur = glassOn(values, false);", "hyprland.surfaceBlur = hyprland.glass;"],
-    ["glass takes a surface's choice only when true", "values.glass !== \"off\" && optIn === true", "values.glass !== \"off\" && !!optIn"],
-    ["glass rounds a square corner", "if (glassOn(values, false))\n        GLASS_CORNERS.forEach", "if (false)\n        GLASS_CORNERS.forEach"],
-    ["glass rounds only while the user's glass is on", "if (glassOn(values, false))\n        GLASS_CORNERS.forEach", "if (glassOn(values, values.windowGlass === true))\n        GLASS_CORNERS.forEach"],
-    ["glass keeps a corner above 0", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (true)"],
-    ["glass reads the user's corner before the theme's", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (valueAt(theme.values, path) === 0)"],
-    ["glass reads the theme's corner where the user sets none", "if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "if (hasOwn(stated, path) && stated[path] === 0)"],
+    ["the main switch turns every surface off", "var on = values.glassEnabled !== false && (", "var on = ("],
+    ["a surface's saved choice wins over its default", "(saved === undefined ? entry.on : saved === \"on\")", "entry.on"],
+    ["a surface without a saved choice takes its default", "(saved === undefined ? entry.on : saved === \"on\")", "(saved === \"on\")"],
+    ["a styled surface takes the page's style", "var style = entry.styled === true ? glassStyle(values, context.mode) : themed;", "var style = themed;"],
+    ["any other surface takes the theme's mode", "var style = entry.styled === true ? glassStyle(values, context.mode) : themed;", "var style = glassStyle(values, context.mode);"],
+    ["Auto never picks Clear", "return mode === \"light\" ? \"light\" : \"dark\";", "return \"clear\";"],
+    ["Clear draws only over ready layer glass", "(context.layerGlass === true && context.material === true)", "(context.material === true)"],
+    ["Clear draws only on a material window", "(context.layerGlass === true && context.material === true)", "(context.layerGlass === true)"],
+    ["a tooltip is never drawable", "on && entry.opaque !== true && (", "on && ("],
+    ["controls take no glass", "if (surface === GLASS_CONTROLS) return { on: false,", "if (surface === GLASS_CONTROLS) return { on: true,"],
+    ["the shell's surfaces take the blur while a shared surface draws glass", "hyprland.surfaceBlur = GLASS_SHARED_BLUR.some(", "hyprland.surfaceBlur = [].some("],
+    ["glass rounds a square corner", "if (glassFor(values, GLASS_CORNERS[path], glassContext).on\n", "if (false\n"],
+    ["glass rounds by the corner's own surface", "if (glassFor(values, GLASS_CORNERS[path], glassContext).on\n", "if (glassFor(values, \"menus\", glassContext).on\n"],
+    ["glass keeps a corner above 0", "&& (hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "&& true)"],
+    ["glass reads the user's corner before the theme's", "&& (hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "&& valueAt(theme.values, path) === 0)"],
+    ["glass reads the theme's corner where the user sets none", "&& (hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)", "&& hasOwn(stated, path) && stated[path] === 0)"],
     ["glass rounds to the theme's glass corner", "stated[path] = valueAt(theme.values, GLASS_RADIUS);", "stated[path] = 16;"],
-    ["glass rounds an OSD", "\"popover.radius\", \"osd.radius\"];", "\"popover.radius\"];"],
-    ["glass leaves a panel square", "var GLASS_CORNERS = [\"menu.radius\",", "var GLASS_CORNERS = [\"surface.radius\", \"menu.radius\","],
-    ["glass leaves a tooltip's corner", "var GLASS_CORNERS = [\"menu.radius\",", "var GLASS_CORNERS = [\"tooltip.radius\", \"menu.radius\","],
+    ["glass rounds an OSD", "\"popover.radius\": \"flyouts\", \"osd.radius\": \"indicators\" };", "\"popover.radius\": \"flyouts\" };"],
+    ["glass leaves a panel square", "var GLASS_CORNERS = { \"menu.radius\": \"menus\",", "var GLASS_CORNERS = { \"surface.radius\": \"flyouts\", \"menu.radius\": \"menus\","],
+    ["glass leaves a tooltip's corner", "var GLASS_CORNERS = { \"menu.radius\": \"menus\",", "var GLASS_CORNERS = { \"tooltip.radius\": \"tooltips\", \"menu.radius\": \"menus\","],
+    ["a saved surface map names known surfaces", "return hasOwn(GLASS_SURFACES, id) && GLASS_CHOICES.indexOf(value[id]) !== -1;", "return GLASS_CHOICES.indexOf(value[id]) !== -1;"],
     ["a solid fill is opaque", "b: channel(color.b), a: 1 };", "b: channel(color.b), a: color.a };"],
     ["a solid fill is lifted toward white", "return value + (1 - value) * lift;", "return value;"],
-    ["window glass follows glassOn", "hyprland.glass = glassOn(values, values.windowGlass === true);", ""],
+    ["window glass follows the windows row", "hyprland.glass = glassFor(values, \"windows\", glassContext).on;", ""],
     ["window glow follows window glass", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = values.windowGlow === true;"],
     ["glow needs windowGlow", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = hyprland.glass && true;"],
-    ["glass members unset to the surface", "glass: { type: \"choice\", options: [\"on\", \"off\"], unset: \"surface\" }", "glass: { type: \"choice\", options: [\"on\", \"off\"] }"],
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],
     ["appearance published fallback", "result = withAppearance(tokens, accepted, {});\n    }", "}"],

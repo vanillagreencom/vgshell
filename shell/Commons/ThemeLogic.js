@@ -1566,11 +1566,11 @@ var APPEARANCE = {
     // default; and the choices the version 7 conversion kept from under the
     // old switch that turned glass on everywhere (ConfigLogic.migrateGlassV7),
     // which the page offers to restore. Window glass, the layer's `glass`
-    // group, is written while the windows row draws glass and is otherwise
-    // left to the user's Hyprland config (withAppearance).
+    // group the windows row decides, is written while that row draws glass
+    // and is otherwise left to the user's Hyprland config (withAppearance).
     glassEnabled: { type: "flag" },
     glassStyle: { type: "choice", options: ["auto", "light", "dark", "clear"] },
-    glassSurfaces: { type: "surfaces" },
+    glassSurfaces: { type: "surfaces", hyprland: "glass" },
     glassRememberedChoices: { type: "surfaces" },
     // A glow inside the focused window while window glass is on; unset
     // leaves the glow to the user's Hyprland config.
@@ -1583,19 +1583,22 @@ var APPEARANCE = {
 // The surfaces the Glass page names, as a user knows them, by the id their
 // GlassSurface hands (`surface`) and shell.json `appearance.glassSurfaces`
 // saves: `on`, whether glass is the default, which keeps the reach glass had
-// before the page (the launcher, notifications and Jarvis); `opaque`, a
-// surface whose text must read over any backdrop, which draws its glass
-// finish solid wherever it lies (a tooltip). Controls are no row: a button,
-// a field or a chip draws its standard look and follows the card it lies
-// on. Windows is Hyprland's own windows (`hyprland.glass`).
+// before the page (the launcher, notifications and Jarvis); `styled`, a
+// surface whose inks follow the Glass page's style (a look on glass,
+// Theme.appearance), where every other surface draws the theme's own text
+// and so draws glass in the theme's mode; `opaque`, a surface whose text
+// must read over any backdrop, which draws its glass finish solid wherever
+// it lies (a tooltip). Controls are no row: a button, a field or a chip
+// draws its standard look and follows the card it lies on. Windows is
+// Hyprland's own windows (`hyprland.glass`).
 var GLASS_SURFACES = {
     windows: { on: false },
     tooltips: { on: false, opaque: true },
     flyouts: { on: false },
     menus: { on: false },
-    launcher: { on: true },
-    notifications: { on: true },
-    jarvis: { on: true },
+    launcher: { on: true, styled: true },
+    notifications: { on: true, styled: true },
+    jarvis: { on: true, styled: true },
     dialogs: { on: false },
     indicators: { on: false },
     clipboard: { on: false }
@@ -1630,8 +1633,9 @@ function glassStyle(values, mode) {
 // { mode, the theme's scheme.mode; layerGlass, whether the compositor's
 // layer glass is loaded and ready; material, whether the surface's window
 // is one the compositor's layer glass reaches at the Clear body's alpha }.
-// Answers { on, the surface takes the glass finish; style, glassStyle's;
-// drawable, its window may show the backdrop through it }. Glass is on where
+// Answers { on, the surface takes the glass finish; style, glassStyle's for
+// a styled surface and the theme's mode for any other; drawable, its window
+// may show the backdrop through it }. Glass is on where
 // the main switch is on and the surface's saved choice, else its default,
 // is on. Clear's faint body reads only over the compositor's adaptive
 // shading, so Clear is drawable only on a material window while layer glass
@@ -1639,11 +1643,12 @@ function glassStyle(values, mode) {
 // is never drawable. An unknown surface throws: a caller that names none is
 // a programming error, not a choice.
 function glassFor(values, surface, context) {
-    var style = glassStyle(values, context.mode);
-    if (surface === GLASS_CONTROLS) return { on: false, style: style, drawable: false };
+    var themed = context.mode === "light" ? "light" : "dark";
+    if (surface === GLASS_CONTROLS) return { on: false, style: themed, drawable: false };
     if (!hasOwn(GLASS_SURFACES, surface))
         throw new Error("theme: glass surface " + JSON.stringify(surface) + " unknown");
     var entry = GLASS_SURFACES[surface];
+    var style = entry.styled === true ? glassStyle(values, context.mode) : themed;
     var saved = isPlainObject(values.glassSurfaces) && hasOwn(values.glassSurfaces, surface) ? values.glassSurfaces[surface] : undefined;
     var on = values.glassEnabled !== false && (saved === undefined ? entry.on : saved === "on");
     var drawable = on && entry.opaque !== true && (style !== "clear" || (context.layerGlass === true && context.material === true));

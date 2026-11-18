@@ -413,7 +413,7 @@ var APPEARANCE_PATHS = {
     borders: { path: "general.border_size", type: "int", member: "borderWidth" },
     radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
     motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" },
-    glass: { path: "decoration.active_opacity", type: "float", member: "windowGlass" },
+    glass: { path: "decoration.active_opacity", type: "float", member: "glassSurfaces" },
     glow: { path: "decoration.glow.enabled", type: "bool", member: "windowGlow" }
 };
 
@@ -1816,7 +1816,29 @@ var GLASS_OFF_NAMESPACE = "vgs:glass-off";
 // dimming of bright backdrops at 0.53, and no boost of dark ones, vibrancy,
 // grain or tint, the same in both of hyprglass's themes. hyprglass resolves
 // a preset's own values before those it inherits (README "Configuration").
-var CLEAR_PRESET = { name: "vgs-clear", values: "inherits = \"glass\", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, tint_color = 0xffffff00" };
+var CLEAR_TONE = { brightness: 1, contrast: 1, saturation: 0.8, vibrancy: 0, adaptive_dim: 0.53, adaptive_boost: 0, noise_strength: 0 };
+var CLEAR_PRESET = { name: "vgs-clear", values: "inherits = \"glass\", " + Object.keys(CLEAR_TONE).map(function (key) {
+    return key + " = " + luaNumber(CLEAR_TONE[key]);
+}).join(", ") + ", tint_color = 0xffffff00" };
+
+// What Clear's tone makes of BACKDROP, the blurred backdrop as an sRGB
+// colour { r, g, b, a } with channels from 0 to 1, as hyprglass's layer
+// shader tones it before the surface draws over it: its frosted tint block
+// (src/Shaders.hpp at c65931aa, the revision VGS-2594 built) with
+// CLEAR_TONE, whose boost, vibrancy and tint are 0. The Glass.js CLEAR
+// ground is this over white under Clear's body, and
+// scripts/check-theme-contrast.js judges Clear's inks over it.
+function clearTone(backdrop) {
+    var luminance = 0.2126 * backdrop.r + 0.7152 * backdrop.g + 0.0722 * backdrop.b;
+    var t = Math.min(1, Math.max(0, (luminance - 0.25) / 0.3));
+    var curve = t * t * (3 - 2 * t);
+    var dim = CLEAR_TONE.brightness * (1 - CLEAR_TONE.adaptive_dim * curve);
+    function channel(c) {
+        var toned = (luminance + (c - luminance) * CLEAR_TONE.saturation) * dim;
+        return Math.min(1, Math.max(0, 0.5 + (toned - 0.5) * CLEAR_TONE.contrast));
+    }
+    return { r: channel(backdrop.r), g: channel(backdrop.g), b: channel(backdrop.b), a: 1 };
+}
 
 function layerGlassPath(username) {
     return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."

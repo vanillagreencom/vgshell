@@ -322,12 +322,14 @@ var LIGHT = {
 
 // Clear: white ink over the faint glass, judged on its ground, the
 // compositor's shading over a white window, where only full white holds
-// 4.5:1, so the message draws whole and size carries the hierarchy; each
-// tone lightened along its own hue to hold 3:1 there.
+// 4.5:1, and over a saturated magenta one, where no accent does, so the
+// message draws whole, size carries the hierarchy and a page link is told
+// by its underline; each tone lightened along its own hue to hold 3:1.
 var CLEAR = {
     text: {
         foreground: "#ffffff",
-        body: { color: "{text.foreground}" }
+        body: { color: "{text.foreground}" },
+        link: "{text.foreground}"
     },
     tone: {
         success: "#e2f2b0",

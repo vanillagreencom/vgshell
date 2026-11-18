@@ -142,7 +142,7 @@ Scope {
             text: Theme.color.text
         },
         hyprland: Theme.hyprland,
-        glass: Theme.windowGlass.window,
+        glass: Theme.themeGlass.window,
         groups: Theme.appearanceState.hyprland,
         layerGlass: !Capabilities.hyprland.layerGlassUserFailed && (Capabilities.hyprland.layerGlassRequest.enabled === null ? Theme.appearanceState.values.layerGlass === true : Capabilities.hyprland.layerGlassRequest.enabled),
         layerGlassLoad: Capabilities.hyprland.layerGlassRequest.load !== false,

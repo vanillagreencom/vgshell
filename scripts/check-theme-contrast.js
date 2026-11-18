@@ -11,11 +11,12 @@
 //   ok       <name>
 //   ok       catalog/<name>
 //   short    catalog/<name>: <text> on <surface> ratio=<r> floor=4.5
-//   short    <name>: notifications.text.link on notifications.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: <style> notifications.text.link on glass.fill over <wallpaper> ratio=<r> floor=4.5
 //   short    <name>: tooltip.detail on glass.fill solid ratio=<r> floor=4.5
-//   short    <name>: jarvis.icon.on on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
-//   short    <name>: jarvis.answer.tinted.ink on jarvis.answer.tinted.hoverFill over jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
-//   short    <name>: jarvis.ink.words at jarvis.words.oldest on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: <style> jarvis.icon.on on glass.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: <style> jarvis.answer.tinted.ink on jarvis.answer.tinted.hoverFill over glass.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: <style> jarvis.ink.words at jarvis.words.oldest on glass.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: <style> launcher.text.detail.color on launcher.highlight.plate over glass.fill over <wallpaper> ratio=<r> floor=4.5
 //   order    catalog/<name>: <stronger> ratio=<r> below <weaker> ratio=<r>
 //   refused  catalog/<name>: <refusal>
 // The text hierarchy, each against color.background: color.textHeading is
@@ -25,20 +26,23 @@
 // The terminal's six colours and their bright forms are text, each against
 // palette.background, the terminal's background; color0, color7, color8 and
 // color15 also fill and dim, so they keep their source values.
-// A notice's page link is text on the notifications' glass card, whose look
-// the theme's accent and mode reach: judged over black and white, the
-// darkest and lightest wallpaper pixels the card can lie over.
-// A tooltip's text is judged on the fill its glass draws solid, VGlass's
-// fill made opaque and lifted, which the theme's raised surface reaches.
-// Jarvis's overlay draws every line and icon on a glass plate of its own
-// look, which the theme's accent reaches: each ink is judged on the
-// card's fill over black, white and coloured busy-ground swatches, a caption
-// line at its line's opacity and an answer's label on each of the answer's own fills, at rest, under
-// the pointer and pressed, over the card. The confirming answer stands on
+// The launcher, notifications and Jarvis draw on the shared glass in each
+// of the Glass page's styles, Light, Dark and Clear (shell/Commons/Glass.js),
+// with their own looks' inks for that style, which the theme's accent
+// reaches. Each ink is judged on the style's body over black, white and
+// coloured busy-ground swatches, Clear's over each swatch as the
+// compositor's layer glass tones it first (HyprlandLayer.clearTone, the
+// named measure of VGS-2594): a notification's text and page link, a
+// launcher row's text and detail on the card and on the cursor's plate,
+// and Jarvis's every line and icon, a caption line at its line's opacity
+// and an answer's label on each of the answer's own fills, at rest, under
+// the pointer and pressed, over the plate. The confirming answer stands on
 // the theme's accent. An icon button draws no fill of its own, so its
-// glyph stands on the capsule, which is the card's fill. The lens draws
-// the fill alone inside a plate's band, where every line stands
+// glyph stands on the capsule, the plate's body. The pass draws the body
+// alone inside the rim, where every line stands
 // (scripts/qml-tests/tst_jarvis_plates.qml).
+// A tooltip's text is judged on the fill its glass draws solid, the theme
+// mode's glass made opaque and lifted.
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -51,8 +55,10 @@ const repo = path.join(__dirname, "..");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const notifications = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
+const launcher = load(path.join(repo, "shell", "plugins", "vgs.launcher", "Appearance.js"));
 const glass = load(path.join(repo, "shell", "Commons", "Glass.js"));
 const jarvis = load(path.join(repo, "shell", "plugins", "vgs.jarvis", "Appearance.js"));
+const layer = load(path.join(repo, "shell", "Core", "HyprlandLayer.js"));
 
 function unreadable(file, cause) {
     console.error(`check-theme-contrast: unreadable: path=${file} error=${cause}`);
@@ -119,54 +125,65 @@ function terminalShortfalls(values, slots) {
     return out;
 }
 
-const NOTICE_WALLPAPERS = ["#000000", "#ffffff"];
-
 // Black and white bound the luminance of an unknown backdrop. These cloud,
-// blue and split-ground swatches also exercise coloured blur behind Jarvis.
-const JARVIS_WALLPAPERS = ["#000000", "#ffffff", "#dbe3ed", "#2d7fc1", "#f236ce", "#38234f"];
+// blue, split-ground and saturated magenta swatches also exercise coloured
+// blur behind the glass, the last Clear's darkest toned ground.
+const WALLPAPERS = ["#000000", "#ffffff", "#dbe3ed", "#2d7fc1", "#f236ce", "#38234f", "#ff00ff"];
+const STYLES = ["light", "dark", "clear"];
 
-// The notice link's shortfalls on its card in the notifications look
-// LOOK resolves to.
-function noticeLinkShortfalls(look) {
-    const out = [];
-    for (const wallpaper of NOTICE_WALLPAPERS) {
-        const card = logic.overlay(logic.parseColor(look.card.fill), logic.parseColor(wallpaper));
-        const ratio = logic.contrastRatio(logic.overlay(logic.parseColor(look.text.link), card), card);
-        if (ratio < logic.READABILITY_FLOOR)
-            out.push({ text: "notifications.text.link", surface: `notifications.card.fill over ${wallpaper}`, ratio, floor: logic.READABILITY_FLOOR });
-    }
-    return out;
+// The style's body over WALLPAPER as drawn: over the backdrop itself, or,
+// for Clear, over the backdrop the compositor's layer glass toned.
+function groundOver(style, glassValues, wallpaper) {
+    const backdrop = logic.parseColor(wallpaper);
+    return logic.overlay(logic.parseColor(glassValues.glass.fill), style === "clear" ? layer.clearTone(backdrop) : backdrop);
 }
 
-// Each ink Jarvis's overlay draws on a plate, as its path in the look,
-// with the path of the opacity its line draws at and of the fill that
-// lies between it and the card, where it has one. The line leaving the
-// caption fades out from `words.oldest` and is not a line to read.
-const JARVIS_INKS = [
-    ["ink.state"], ["ink.title"], ["ink.action"], ["ink.link"], ["ink.question"], ["ink.path"], ["ink.payload"],
-    ["ink.words", "words.newest"], ["ink.words", "words.middle"], ["ink.words", "words.oldest"],
-    ["icon.rest"], ["icon.active"], ["icon.on"],
-    ["answer.quiet.ink", null, "answer.quiet.fill"], ["answer.quiet.ink", null, "answer.quiet.hoverFill"], ["answer.quiet.ink", null, "answer.quiet.pressedFill"],
-    ["answer.tinted.ink", null, "answer.tinted.fill"], ["answer.tinted.ink", null, "answer.tinted.hoverFill"], ["answer.tinted.ink", null, "answer.tinted.pressedFill"]
-];
+// INK, a path of LOOK, drawn at the opacity at OPACITY and over the fill at
+// FILL, both paths of LOOK or null, on GROUND: its ratio.
+function inkRatio(look, ground, ink, opacity, fill) {
+    const under = fill ? logic.overlay(logic.parseColor(logic.valueAt(look, fill)), ground) : ground;
+    const drawn = logic.parseColor(logic.valueAt(look, ink));
+    if (opacity) drawn.a *= logic.valueAt(look, opacity);
+    return { ratio: logic.contrastRatio(logic.overlay(drawn, under), under), under: fill ? `${fill} over ` : "" };
+}
 
-// The shortfalls of Jarvis's inks on their plates in the look LOOK
-// resolves to.
-function jarvisShortfalls(look) {
+// Each ink a look draws on its glass, as its path in the look, with the
+// path of the opacity its line draws at and of the fill that lies between
+// it and the glass, where it has one. Jarvis's line leaving the caption
+// fades out from `words.oldest` and is not a line to read.
+const INKS = {
+    notifications: [["text.foreground"], ["text.body.color"], ["text.link"]],
+    launcher: [["text.foreground"], ["text.detail.color"], ["text.link"],
+        ["text.foreground", null, "highlight.plate"], ["text.detail.color", null, "highlight.plate"]],
+    jarvis: [
+        ["ink.state"], ["ink.title"], ["ink.action"], ["ink.link"], ["ink.question"], ["ink.path"], ["ink.payload"],
+        ["ink.words", "words.newest"], ["ink.words", "words.middle"], ["ink.words", "words.oldest"],
+        ["icon.rest"], ["icon.active"], ["icon.on"],
+        ["answer.quiet.ink", null, "answer.quiet.fill"], ["answer.quiet.ink", null, "answer.quiet.hoverFill"], ["answer.quiet.ink", null, "answer.quiet.pressedFill"],
+        ["answer.tinted.ink", null, "answer.tinted.fill"], ["answer.tinted.ink", null, "answer.tinted.hoverFill"], ["answer.tinted.ink", null, "answer.tinted.pressedFill"]
+    ]
+};
+
+// The shortfalls of each look's inks on the shared glass in STYLE, the
+// looks and the glass resolved for the theme VALUES, or a refusal line.
+function glassShortfalls(values, style) {
+    const material = logic.acceptAppearance(glass.TOKENS, glass.LIGHT, values, { style, clear: glass.CLEAR });
+    if (!material.ok) return { refused: `glass ${style} ${logic.refusalLine(material)}` };
     const out = [];
-    for (const wallpaper of JARVIS_WALLPAPERS) {
-        const card = logic.overlay(logic.parseColor(look.plate.card.fill), logic.parseColor(wallpaper));
-        for (const [ink, opacity, fill] of JARVIS_INKS) {
-            const ground = fill ? logic.overlay(logic.parseColor(logic.valueAt(look, fill)), card) : card;
-            const drawn = logic.parseColor(logic.valueAt(look, ink));
-            if (opacity) drawn.a *= logic.valueAt(look, opacity);
-            const ratio = logic.contrastRatio(logic.overlay(drawn, ground), ground);
-            if (ratio < logic.READABILITY_FLOOR)
-                out.push({ text: `jarvis.${ink}` + (opacity ? ` at jarvis.${opacity}` : ""),
-                    surface: (fill ? `jarvis.${fill} over ` : "") + `jarvis.plate.card.fill over ${wallpaper}`, ratio, floor: logic.READABILITY_FLOOR });
+    for (const [name, table] of [["notifications", notifications], ["launcher", launcher], ["jarvis", jarvis]]) {
+        const look = logic.acceptAppearance(table.TOKENS, table.LIGHT, values, { style, clear: table.CLEAR, values: material.values });
+        if (!look.ok) return { refused: `${name} ${style} ${logic.refusalLine(look)}` };
+        for (const wallpaper of WALLPAPERS) {
+            const ground = groundOver(style, material.values, wallpaper);
+            for (const [ink, opacity, fill] of INKS[name]) {
+                const read = inkRatio(look.values, ground, ink, opacity, fill);
+                if (read.ratio < logic.READABILITY_FLOOR)
+                    out.push({ text: `${style} ${name}.${ink}` + (opacity ? ` at ${name}.${opacity}` : ""),
+                        surface: (fill ? `${name}.${fill} over ` : "") + `glass.fill over ${wallpaper}`, ratio: read.ratio, floor: logic.READABILITY_FLOOR });
+            }
         }
     }
-    return out;
+    return { shortfalls: out };
 }
 
 function hierarchyBreaks(values) {
@@ -193,16 +210,6 @@ function checkPackage(label, dir) {
         console.log(`refused  ${label}: ${logic.refusalLine(terminal)}`);
         return 1;
     }
-    const look = logic.acceptAppearance(notifications.TOKENS, notifications.LIGHT, accepted.values);
-    if (!look.ok) {
-        console.log(`refused  ${label}: notifications ${logic.refusalLine(look)}`);
-        return 1;
-    }
-    const overlay = logic.acceptAppearance(jarvis.TOKENS, jarvis.LIGHT, accepted.values);
-    if (!overlay.ok) {
-        console.log(`refused  ${label}: jarvis ${logic.refusalLine(overlay)}`);
-        return 1;
-    }
     const vglass = logic.acceptAppearance(glass.TOKENS, glass.LIGHT, accepted.values);
     if (!vglass.ok) {
         console.log(`refused  ${label}: glass ${logic.refusalLine(vglass)}`);
@@ -211,8 +218,14 @@ function checkPackage(label, dir) {
     const shortfalls = logic.readabilityShortfalls(accepted.values, vglass.values);
     if (terminal.slots !== null)
         shortfalls.push(...terminalShortfalls(accepted.values, terminal.slots));
-    shortfalls.push(...noticeLinkShortfalls(look.values));
-    shortfalls.push(...jarvisShortfalls(overlay.values));
+    for (const style of STYLES) {
+        const judged = glassShortfalls(accepted.values, style);
+        if (judged.refused !== undefined) {
+            console.log(`refused  ${label}: ${judged.refused}`);
+            return 1;
+        }
+        shortfalls.push(...judged.shortfalls);
+    }
     const breaks = hierarchyBreaks(accepted.values);
     if (shortfalls.length === 0 && breaks.length === 0) {
         console.log(`ok       ${label}`);

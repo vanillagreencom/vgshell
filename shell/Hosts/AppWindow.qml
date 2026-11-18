@@ -37,7 +37,7 @@ FloatingWindow {
     // the window is created, and an opaque surface format cannot change
     // later (Quickshell 0.3.1 QsWindow `color` and `surfaceFormat`,
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/).
-    color: Theme.appearanceState.hyprland.glass ? Qt.alpha(Theme.color.surfaceRaised, Theme.windowGlass.glass.opacity) : Theme.surface.level.raised.background
+    color: Theme.appearanceState.hyprland.glass ? Qt.alpha(Theme.color.surfaceRaised, Theme.themeGlass.glass.opacity) : Theme.surface.level.raised.background
     surfaceFormat.opaque: false
     onClosed: dismissed()
     // QsWindow's backingWindowVisible means the native window is shown.

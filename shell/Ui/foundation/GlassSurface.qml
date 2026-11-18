@@ -8,7 +8,7 @@ import qs.Commons
 // place answers whether glass is on for it and in which style
 // (Theme.glassFor); no surface reads a glass setting of its own. While glass
 // is on, one pass (shaders/glasslens.frag) draws the body's tint in the
-// style's values (`Theme.glass`), the rim, one thin line at the edge, and
+// style's values (`look`), the rim, one thin line at the edge, and
 // the edge light, two lights that orbit the surface and catch on the rim.
 // Every layer takes the surface's whole geometry and `radius`, so all of
 // them round to the same corner: `clip` cuts only to the bounding box, and
@@ -39,6 +39,9 @@ Item {
     readonly property bool material: QsWindow.window !== null && QsWindow.window.glassMaterial === true
     readonly property var decision: Theme.glassFor(surface, material)
     readonly property bool on: decision.on
+    // The material in the surface's style: the Glass page's on a styled
+    // surface, the theme's mode on any other (ThemeLogic.glassFor).
+    readonly property var look: decision.style === Theme.glassStyle ? Theme.glass : Theme.themeGlass
     // A surface whose text must read over any backdrop, such as a floating
     // card, hands true: it never draws translucent glass, and draws solid
     // while glass is on wherever it lies.
@@ -59,14 +62,14 @@ Item {
     // under another, and Scrim.qml has its own `scrim`.
     readonly property bool glassSurface: true
     default property alias content: body.data
-    readonly property color fill: Theme.glass.glass.fill
+    readonly property color fill: glass.look.glass.fill
     // The body fill before a translucent window meets its backdrop.
-    readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill) : standard.background
+    readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill, look) : standard.background
     // The ground a shared key hint inside this surface reads on, published
     // to its descendants (HintGround.js): drawn glass made opaque, as the
     // theme judge reads list text on glass (Theme.hintContext), else the
     // body fill.
-    readonly property color hintGround: drawn ? Theme.glassSolid(fill) : effectiveFill
+    readonly property color hintGround: drawn ? Theme.glassSolid(fill, look) : effectiveFill
     // The look without glass of a surface that hands none.
     readonly property var raised: ({ background: Theme.surface.level.raised.background, border: Theme.surface.level.raised.border, radius: Theme.surface.radius })
     property var standard: raised
@@ -82,7 +85,7 @@ Item {
     // the theme's accent, as a critical notification is; `edgeBoost`
     // multiplies both lights and `edgeSpin` adds orbits a second;
     // `edgeShown` false hides it. A surface that can stay up all day sets
-    // `paced`, and the light moves at most `Theme.glass.edge.frameRate`
+    // `paced`, and the light moves at most its material's `edge.frameRate`
     // frames a second.
     property bool lit: false
     property real edgeBoost: 1
@@ -91,7 +94,7 @@ Item {
     property bool paced: false
     // The rim's drawn width while glass is on, held to a quarter of the
     // surface's short side.
-    readonly property real rim: on ? Math.min(Theme.glass.rim.width, Math.min(width, height) / 4) : 0
+    readonly property real rim: on ? Math.min(glass.look.rim.width, Math.min(width, height) / 4) : 0
     // Where content starts: inside the rim, where the pass draws the fill
     // alone, so an ink's ground is that fill.
     readonly property real contentInset: Math.max(padding, rim)
@@ -102,7 +105,7 @@ Item {
     // Whether the edge light moves: on drawn glass that shows, while the
     // theme's motion scale is above 0.
     readonly property bool lightsShown: drawn && edgeShown
-    readonly property bool lightsRunning: lightsShown && visible && opacity > 0 && Theme.glass.motion.scale > 0 && orbitLength > 0
+    readonly property bool lightsRunning: lightsShown && visible && opacity > 0 && glass.look.motion.scale > 0 && orbitLength > 0
 
     // Whether this window draws something glass would show unblurred under
     // this surface. Walking from the surface up through its ancestors: an
@@ -142,7 +145,7 @@ Item {
     // a random place, so two surfaces never shine in step.
     property real phase: Math.random()
     property real clock: Math.random() * 100
-    readonly property real orbitRadius: corner + Theme.glass.edge.lift
+    readonly property real orbitRadius: corner + glass.look.edge.lift
     readonly property real orbitW: Math.max(0, width - 2 * corner)
     readonly property real orbitH: Math.max(0, height - 2 * corner)
     readonly property real orbitLength: 2 * (orbitW + orbitH) + 2 * Math.PI * orbitRadius
@@ -180,7 +183,7 @@ Item {
         const step = Math.min(dt, 0.05);
         clock += step;
         const pace = 1 + 0.3 * Math.sin(clock * 0.83) + 0.12 * Math.sin(clock * 2.1 + 1.3);
-        phase = (phase + step * (Theme.glass.edge.speed * pace / orbitLength + edgeSpin)) % 1;
+        phase = (phase + step * (glass.look.edge.speed * pace / orbitLength + edgeSpin)) % 1;
     }
 
     Binding on x { when: glass.follow !== null; value: glass.follow ? glass.follow.x : 0 }
@@ -229,13 +232,13 @@ Item {
             property real uMargin: pass.reach
             property real uRim: glass.rim
             property color uTint: glass.effectiveFill
-            property vector4d uRimLight: Qt.vector4d(Theme.glass.rim.glint, Theme.glass.rim.ambient, Theme.glass.rim.far, Theme.glass.edge.glow)
+            property vector4d uRimLight: Qt.vector4d(glass.look.rim.glint, glass.look.rim.ambient, glass.look.rim.far, glass.look.edge.glow)
             property vector2d uLightA: glass.lightA
             property vector2d uLightB: glass.lightB
-            property vector4d uEdge: Qt.vector4d(Theme.glass.edge.strengthA * glass.edgeBoost, Theme.glass.edge.strengthB * glass.edgeBoost,
-                Theme.glass.edge.reach, glass.lightsShown ? 1 : 0)
-            property color uNeutral: Theme.glass.edge.neutral
-            property color uAccent: Theme.glass.palette.accent
+            property vector4d uEdge: Qt.vector4d(glass.look.edge.strengthA * glass.edgeBoost, glass.look.edge.strengthB * glass.edgeBoost,
+                glass.look.edge.reach, glass.lightsShown ? 1 : 0)
+            property color uNeutral: glass.look.edge.neutral
+            property color uAccent: glass.look.palette.accent
             property real uLit: glass.litShare
             fragmentShader: Qt.resolvedUrl("shaders/glasslens.frag.qsb")
         }
@@ -256,7 +259,7 @@ Item {
         property real last: 0
         running: glass.lightsRunning && glass.paced
         repeat: true
-        interval: Math.round(1000 / Theme.glass.edge.frameRate)
+        interval: Math.round(1000 / glass.look.edge.frameRate)
         onRunningChanged: last = Date.now()
         onTriggered: {
             const now = Date.now();
