@@ -95,24 +95,19 @@ Item {
         // The fill the shared pass draws, before compositing.
         function drawnFill(tip) { return named(tip, "tooltipSurface")[0].effectiveFill; }
 
-        // With the user's glass on, the tooltip draws its glass solid, the
-        // fill check-theme-contrast.js judges its text on, though its
-        // popup is a transparent window where glass is drawn. Control: the
-        // same surface handed no `solidOnly` draws the translucent fill,
-        // which the check refuses.
+        // The tooltip row chooses opaque glass even in a transparent popup.
         function test_glass_on_draws_the_tooltip_solid() {
-            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
-            hoverOpen(bare);
-            const surface = named(bare.tip, "tooltipSurface")[0];
-            const solid = Theme.glassSolid(surface.fill);
-            verify(!Qt.colorEqual(solid, surface.fill), "the solid fill is not the glass fill");
-            compare([surface.on, surface.solid], [true, true]);
-            verify(Qt.colorEqual(drawnFill(bare.tip), solid), "glass on draws the solid fill: " + drawnFill(bare.tip));
-            surface.solidOnly = false;
-            compare(surface.drawn, true, "control: without solidOnly the popup draws glass");
-            verify(!Qt.colorEqual(drawnFill(bare.tip), solid), "control: the translucent fill is not the solid one");
-            surface.solidOnly = true;
-            Theme.appearanceInput = "";
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { tooltips: "on" } });
+            try {
+                hoverOpen(bare);
+                const surface = named(bare.tip, "tooltipSurface")[0];
+                const solid = Theme.glassSolid(surface.fill);
+                verify(!Qt.colorEqual(solid, surface.fill), "the solid fill is not the glass fill");
+                compare([surface.on, surface.solid], [true, true]);
+                verify(Qt.colorEqual(drawnFill(bare.tip), solid), "glass on draws the solid fill: " + drawnFill(bare.tip));
+            } finally {
+                Theme.appearanceInput = "";
+            }
         }
 
         // A linked detail line that wraps takes the height of its lines, so

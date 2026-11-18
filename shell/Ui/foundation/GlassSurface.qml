@@ -94,7 +94,10 @@ Item {
     property bool paced: false
     // The rim's drawn width while glass is on, held to a quarter of the
     // surface's short side.
-    readonly property real rim: on ? Math.min(glass.look.rim.width, Math.min(width, height) / 4) : 0
+    // Layouts that size the plate from its content reserve this width,
+    // not the drawn rim, which depends on the resulting plate size.
+    readonly property real rimWidth: on ? look.rim.width : 0
+    readonly property real rim: on ? Math.min(rimWidth, Math.min(width, height) / 4) : 0
     // Where content starts: inside the rim, where the pass draws the fill
     // alone, so an ink's ground is that fill.
     readonly property real contentInset: Math.max(padding, rim)

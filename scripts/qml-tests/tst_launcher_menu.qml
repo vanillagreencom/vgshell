@@ -264,9 +264,11 @@ Item {
             compare([surface.on, surface.solid], [true, true]);
             // A Column sizes itself on its next polish.
             tryVerify(() => surface.height >= 32, 1000, "the flyout is taller than two glass corners");
-            compare([String(surface.effectiveFill), surface.corner], ["#212121", 16], "dark");
+            // The shared material lifts Dark #101010 by 5% and Light
+            // #f2f2f2 by 10% toward white (Glass.js).
+            compare([String(surface.effectiveFill), surface.corner], ["#1c1c1c", 16], "dark");
             compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
-            compare([String(surface.effectiveFill), surface.corner], ["#f1f1f1", 16], "light");
+            compare([String(surface.effectiveFill), surface.corner], ["#f3f3f3", 16], "light");
             compare(UnitTheme.override({ radius: { md: 8 } }), "ok");
             compare(surface.corner, 16, "a rounded theme leaves the launcher's own look");
             menu.close();
