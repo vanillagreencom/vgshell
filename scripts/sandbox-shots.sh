@@ -9041,8 +9041,8 @@ focus_open_settings_dialog() { ipc smoke dialogCard "$settings_kind" vgs.setting
 
 # Network reads S08's mock and command stand-ins. Its pane is a real
 # System section, so this shot includes the holder's sidebar and inset.
-# The Appearance group of the System window: Motion, Windows, UI and, where
-# the tree ships it, Fonts,
+# The Appearance group of the System window: Motion, Windows and UI, and
+# Glass and Fonts where the tree ships them,
 # appearance-<mode>-<section>, each enabled for its shot and Set by theme,
 # then Windows with a user corner radius of 12 in shell.json,
 # appearance-<mode>-windows-radius, which reaches the window itself and
@@ -9052,7 +9052,7 @@ appearance_radius() { ipc smoke themeValue popover.radius; }
 scene_appearance() { # MODE
   local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-appearance-shot.json" id
   expect "enabling vgs.system for the Appearance shots is allowed" ok ipc shell setPluginEnabled vgs.system true
-  for id in vgs.motion vgs.windows vgs.ui vgs.fonts; do
+  for id in vgs.motion vgs.windows vgs.glass vgs.ui vgs.fonts; do
     ships_plugin "$id" || continue
     expect "enabling $id for its shot is allowed" ok ipc shell setPluginEnabled "$id" true
     expect "System → $id summons" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
@@ -9082,7 +9082,7 @@ PY
   expect "the configuration reloads as the Appearance shots found it" ok ipc shell reloadConfig
   expect "the System window hides after the Appearance shots" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone after the Appearance shots" hidden system_shown
-  for id in vgs.motion vgs.windows vgs.ui vgs.fonts; do
+  for id in vgs.motion vgs.windows vgs.glass vgs.ui vgs.fonts; do
     ships_plugin "$id" || continue
     expect "disabling $id after its shot is allowed" ok ipc shell setPluginEnabled "$id" false
   done
