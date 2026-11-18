@@ -650,7 +650,7 @@ function readabilityShortfalls(values, glass) {
     for (var g = 0; g < GLASS_PLATE_PAIRS.length; g++)
         pairs.push([GLASS_PLATE_PAIRS[g][0], GLASS_PLATE_PAIRS[g][1], READABILITY_FLOOR, GLASS_SOLID]);
     // As Theme.glassSolid draws it: formatted, so rounded to whole channels.
-    var solid = parseColor(formatColor(liftedOpaque(parseColor(glass.glass.fill), glass.glass.solidLift)));
+    var solid = parseColor(formatColor(liftedOpaque(parseColor(glass.glass.themed), glass.glass.solidLift)));
     var out = [];
     for (var q = 0; q < pairs.length; q++) {
         var under = pairs[q][3];
@@ -1635,7 +1635,8 @@ function glassStyle(values, mode) {
 // is one the compositor's layer glass reaches at the Clear body's alpha }.
 // Answers { on, the surface takes the glass finish; style, glassStyle's for
 // a styled surface and the theme's mode for any other; drawable, its window
-// may show the backdrop through it }. Glass is on where
+// may show the backdrop through it; themed, it draws the theme's own text
+// and so the theme's raised surface as its body }. Glass is on where
 // the main switch is on and the surface's saved choice, else its default,
 // is on. Clear's faint body reads only over the compositor's adaptive
 // shading, so Clear is drawable only on a material window while layer glass
@@ -1644,7 +1645,7 @@ function glassStyle(values, mode) {
 // a programming error, not a choice.
 function glassFor(values, surface, context) {
     var themed = context.mode === "light" ? "light" : "dark";
-    if (surface === GLASS_CONTROLS) return { on: false, style: themed, drawable: false };
+    if (surface === GLASS_CONTROLS) return { on: false, style: themed, drawable: false, themed: true };
     if (!hasOwn(GLASS_SURFACES, surface))
         throw new Error("theme: glass surface " + JSON.stringify(surface) + " unknown");
     var entry = GLASS_SURFACES[surface];
@@ -1652,7 +1653,7 @@ function glassFor(values, surface, context) {
     var saved = isPlainObject(values.glassSurfaces) && hasOwn(values.glassSurfaces, surface) ? values.glassSurfaces[surface] : undefined;
     var on = values.glassEnabled !== false && (saved === undefined ? entry.on : saved === "on");
     var drawable = on && entry.opaque !== true && (style !== "clear" || (context.layerGlass === true && context.material === true));
-    return { on: on, style: style, drawable: drawable };
+    return { on: on, style: style, drawable: drawable, themed: entry.styled !== true };
 }
 
 // Why VALUE cannot be the user's KEY of APPEARANCE, as a keyed line, or "".

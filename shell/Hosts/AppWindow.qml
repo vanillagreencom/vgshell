@@ -30,14 +30,13 @@ FloatingWindow {
     implicitWidth: slot.instance ? Math.max(1, slot.instance.implicitWidth) : 1
     implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.windowRoom(screen).height)) : 1
     // The glass fill while window glass is on (ThemeLogic `hyprland.glass`),
-    // so the window takes glass exactly when other windows do: the theme's
-    // raised surface at the alpha of the theme mode's glass body, so the
-    // window keeps the theme's hue under the theme's own text. The surface
+    // so the window takes glass exactly when other windows do, in the
+    // theme's hue under the theme's own text (Glass.js `themed`). The surface
     // is requested non-opaque, since the colour may turn translucent after
     // the window is created, and an opaque surface format cannot change
     // later (Quickshell 0.3.1 QsWindow `color` and `surfaceFormat`,
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/).
-    color: Theme.appearanceState.hyprland.glass ? Qt.alpha(Theme.color.surfaceRaised, Theme.themeGlass.glass.opacity) : Theme.surface.level.raised.background
+    color: Theme.appearanceState.hyprland.glass ? Theme.themeGlass.glass.themed : Theme.surface.level.raised.background
     surfaceFormat.opaque: false
     onClosed: dismissed()
     // QsWindow's backingWindowVisible means the native window is shown.

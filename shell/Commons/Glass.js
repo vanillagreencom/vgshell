@@ -18,10 +18,17 @@ function share(value) { return number(value, 0, 1); }
 function whole(value, min, max) { return { type: "length", value: value, min: min, max: max }; }
 
 var TOKENS = {
-    // The theme's accent, which a lit edge light takes. Each style draws
-    // its own neutral body, whatever the theme's surfaces.
+    // The theme's accent, which a lit edge light takes.
     palette: {
         accent: color("#ff5a36")
+    },
+
+    // The theme's raised surface, the fill its controls stand on, which the
+    // body of a surface that draws the theme's own text takes, so the glass
+    // and the controls on it share one hue. The default is the `vgs`
+    // theme's.
+    color: {
+        surfaceRaised: color("#101010")
     },
 
     motion: {
@@ -29,10 +36,14 @@ var TOKENS = {
     },
 
     glass: {
-        // The body: its colour and alpha over the compositor's blur.
+        // The body: its colour and alpha over the compositor's blur, a
+        // neutral one on a surface whose inks follow the style, and the
+        // theme's raised surface on one that draws the theme's own text
+        // (ThemeLogic.GLASS_SURFACES `styled`).
         base: color("#101010"),
         opacity: share(0.8),
         fill: color("alpha({glass.base}, {glass.opacity})"),
+        themed: color("alpha({color.surfaceRaised}, {glass.opacity})"),
         // The reading ink on the body, and the ground it is judged on: the
         // body over its brightest backdrop, white, for a dark body. An ink
         // that reads at 4.5:1 on it reads so over any backdrop.

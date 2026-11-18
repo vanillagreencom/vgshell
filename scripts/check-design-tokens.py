@@ -166,7 +166,8 @@ from qml_controls import base_type, blocks
 NODE_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 # The table and the judge, loaded the way every offline reader loads a
 # shell library; the judge lists the groups, the tokens and the leaves.
-# The shared glass look is judged as a plugin's own look is, in both modes.
+# The shared glass look is judged as a plugin's own look is, in both modes
+# and in Clear.
 TOKEN_PATHS = (
     "const { load } = require(process.argv[1]);"
     "const table = load(process.argv[2]).TOKENS;"
@@ -179,6 +180,8 @@ TOKEN_PATHS = (
     "    const result = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, Object.assign({}, shell, { scheme: { mode: mode } }));"
     "    if (!result.ok) out.glass.refusals.push('mode=' + mode + ' ' + judge.refusalLine(result).replace(/^theme: refused: /, ''));"
     "  }"
+    "  const clear = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, shell, { style: 'clear', clear: glass.CLEAR });"
+    "  if (!clear.ok) out.glass.refusals.push('style=clear ' + judge.refusalLine(clear).replace(/^theme: refused: /, ''));"
     "  if (out.glass.refusals.length === 0) { out.glass.paths = judge.paths(glass.TOKENS); out.glass.leaves = judge.leaves(glass.TOKENS).map(l => l.path); }"
     "}"
     "process.stdout.write(JSON.stringify(out));"
@@ -188,8 +191,9 @@ TOKEN_PATHS = (
 GLASS_MEMBER = "glass"
 
 # A plugin's appearance: its manifest judged by the one manifest judge and,
-# when it declares `appearance`, the table in that file judged in both modes
-# against the shell's defaults, with every path the table holds.
+# when it declares `appearance`, the table in that file judged in both modes,
+# and in Clear when it holds Clear overrides, against the shell's defaults,
+# with every path the table holds.
 APPEARANCE = (
     "const fs = require('fs'); const path = require('path');"
     "const { load } = require(process.argv[1]);"
@@ -210,9 +214,10 @@ APPEARANCE = (
     "  out.appearance = judged.manifest.appearance;"
     "  let look = null; try { look = load(path.join(dir, out.appearance)); } catch (e) { out.refusals.push('unloadable: ' + e.message); }"
     "  if (look !== null) {"
-    "    for (const mode of ['dark', 'light']) {"
-    "      const theme = Object.assign({}, shell, { scheme: { mode: mode } });"
-    "      const result = judge.acceptAppearance(look.TOKENS, look.LIGHT, theme);"
+    "    const variants = [['dark', undefined], ['light', undefined]].concat(look.CLEAR === undefined ? [] : [['clear', { style: 'clear', clear: look.CLEAR }]]);"
+    "    for (const [mode, glass] of variants) {"
+    "      const theme = Object.assign({}, shell, { scheme: { mode: glass === undefined ? mode : 'dark' } });"
+    "      const result = judge.acceptAppearance(look.TOKENS, look.LIGHT, theme, glass);"
     "      if (!result.ok) { out.refusals.push('mode=' + mode + ' ' + judge.refusalLine(result).replace(/^theme: refused: /, '')); continue; }"
     "      for (const l of judge.leaves(look.TOKENS).filter(l => l.path.startsWith('text.') && l.leaf.type === 'length')) {"
     "        const size = l.path.split('.').reduce((node, key) => node[key], result.values);"

@@ -1279,6 +1279,12 @@ function verifyGlass(judge, glass = GLASS) {
             assert.equal(judge.formatColor(judge.parseColor(drawn.ground)), judge.formatColor(judge.parseColor(ground)), "its ground");
         }
     }
+    // A surface that draws the theme's own text takes the theme's raised
+    // surface at the body's alpha: #283038 at 0.8 and 0.85, 0xcc and 0xd9.
+    for (const [mode, raised, themed] of [["dark", "#283038ff", "#283038cc"], ["light", "#e8e4d8ff", "#e8e4d8d9"]]) {
+        const theme = Object.assign({}, shipped, { scheme: { mode } }, { color: Object.assign({}, shipped.color, { surfaceRaised: raised }) });
+        assert.equal(judge.acceptAppearance(glass.TOKENS, glass.LIGHT, theme).values.glass.themed, themed, "the themed body in " + mode + " mode over " + raised);
+    }
     // Clear's ground is its body over white as the compositor's layer glass
     // tones it (HyprlandLayer.clearTone), rounded as drawn.
     const clear = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, shipped, { style: "clear", clear: glass.CLEAR }).values.glass;
@@ -1493,26 +1499,26 @@ function verifyAppearance(judge) {
     const dark = { mode: "dark", layerGlass: false, material: false };
     const ready = { mode: "dark", layerGlass: true, material: true };
     for (const [values, surface, context, want] of [
-        [{}, "launcher", dark, { on: true, style: "dark", drawable: true }],
-        [{}, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true }],
-        [{}, "jarvis", dark, { on: true, style: "dark", drawable: true }],
-        [{}, "menus", dark, { on: false, style: "dark", drawable: false }],
-        [{}, "windows", dark, { on: false, style: "dark", drawable: false }],
-        [{ glassEnabled: false }, "launcher", dark, { on: false, style: "dark", drawable: false }],
-        [{ glassEnabled: true }, "launcher", dark, { on: true, style: "dark", drawable: true }],
-        [{ glassSurfaces: { launcher: "off" } }, "launcher", dark, { on: false, style: "dark", drawable: false }],
-        [{ glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true }],
-        [{ glassStyle: "light" }, "launcher", dark, { on: true, style: "light", drawable: true }],
-        [{ glassStyle: "light" }, "menus", { mode: "dark", layerGlass: true, material: true }, { on: false, style: "dark", drawable: false }],
-        [{ glassStyle: "dark" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "dark", drawable: true }],
-        [{ glassStyle: "auto" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true }],
-        [{ glassStyle: "clear" }, "launcher", dark, { on: true, style: "clear", drawable: false }],
-        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: true, material: false }, { on: true, style: "clear", drawable: false }],
-        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: false, material: true }, { on: true, style: "clear", drawable: false }],
-        [{ glassStyle: "clear" }, "launcher", ready, { on: true, style: "clear", drawable: true }],
-        [{ glassStyle: "clear", glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true }],
-        [{ glassSurfaces: { tooltips: "on" } }, "tooltips", ready, { on: true, style: "dark", drawable: false }],
-        [{ glassSurfaces: { tooltips: "on" } }, "controls", ready, { on: false, style: "dark", drawable: false }]
+        [{}, "launcher", dark, { on: true, style: "dark", drawable: true, themed: false }],
+        [{}, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true, themed: false }],
+        [{}, "jarvis", dark, { on: true, style: "dark", drawable: true, themed: false }],
+        [{}, "menus", dark, { on: false, style: "dark", drawable: false, themed: true }],
+        [{}, "windows", dark, { on: false, style: "dark", drawable: false, themed: true }],
+        [{ glassEnabled: false }, "launcher", dark, { on: false, style: "dark", drawable: false, themed: false }],
+        [{ glassEnabled: true }, "launcher", dark, { on: true, style: "dark", drawable: true, themed: false }],
+        [{ glassSurfaces: { launcher: "off" } }, "launcher", dark, { on: false, style: "dark", drawable: false, themed: false }],
+        [{ glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true, themed: true }],
+        [{ glassStyle: "light" }, "launcher", dark, { on: true, style: "light", drawable: true, themed: false }],
+        [{ glassStyle: "light" }, "menus", { mode: "dark", layerGlass: true, material: true }, { on: false, style: "dark", drawable: false, themed: true }],
+        [{ glassStyle: "dark" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "dark", drawable: true, themed: false }],
+        [{ glassStyle: "auto" }, "notifications", { mode: "light", layerGlass: false, material: false }, { on: true, style: "light", drawable: true, themed: false }],
+        [{ glassStyle: "clear" }, "launcher", dark, { on: true, style: "clear", drawable: false, themed: false }],
+        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: true, material: false }, { on: true, style: "clear", drawable: false, themed: false }],
+        [{ glassStyle: "clear" }, "launcher", { mode: "dark", layerGlass: false, material: true }, { on: true, style: "clear", drawable: false, themed: false }],
+        [{ glassStyle: "clear" }, "launcher", ready, { on: true, style: "clear", drawable: true, themed: false }],
+        [{ glassStyle: "clear", glassSurfaces: { menus: "on" } }, "menus", dark, { on: true, style: "dark", drawable: true, themed: true }],
+        [{ glassSurfaces: { tooltips: "on" } }, "tooltips", ready, { on: true, style: "dark", drawable: false, themed: true }],
+        [{ glassSurfaces: { tooltips: "on" } }, "controls", ready, { on: false, style: "dark", drawable: false, themed: true }]
     ]) assert.deepEqual(plain(judge.glassFor(values, surface, context)), want, "glassFor(" + JSON.stringify(values) + ", " + surface + ", " + JSON.stringify(context) + ")");
     assert.throws(() => judge.glassFor({}, "dock", dark), /glass surface "dock" unknown/, "an unknown surface is a programming error");
     assert.deepEqual(plain(over(shipped, { windowRadius: "hyprland" }).values), plain(shipped.values), "Use my Hyprland value leaves the shell's surfaces on the theme");
@@ -2056,6 +2062,7 @@ const GLASS_CONTROLS = [
     ["the light body", 'base: "#f2f2f2",', 'base: "#efefef",'],
     ["the light ground lies over black", 'ground: "mix(#000000, {glass.base}, {glass.opacity})"', 'ground: "mix(#ffffff, {glass.base}, {glass.opacity})"'],
     ["Clear's body", "opacity: 0.0784,", "opacity: 0.2,"],
+    ["the themed body takes the theme's raised surface", 'themed: color("alpha({color.surfaceRaised}, {glass.opacity})"),', 'themed: color("alpha({glass.base}, {glass.opacity})"),'],
     ["Clear's ground", 'ground: "#6e6e6e"', 'ground: "#808080"'],
     ["the dark lift", "solidLift: share(0.05)", "solidLift: share(0.25)"],
     ["the light lift", "solidLift: 0.1", "solidLift: 0.5"]

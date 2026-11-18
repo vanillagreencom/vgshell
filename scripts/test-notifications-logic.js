@@ -2142,71 +2142,101 @@ const otherManifest = JSON.stringify(Object.assign({}, JSON.parse(manifestText),
 assert.deepEqual([...new Set(serviceMismatches(otherManifest, readSource).map(line => line.split(" ")[0]))], SERVICE_SOURCES.map(([name]) => name), "control: a manifest naming another service fails every script");
 assert.deepEqual(serviceMismatches(manifestText, name => name === "slack-photos.js" ? readSource(name).replace('"service", "vgs-notifications"', '"service", "vgs-other"') : readSource(name)), ["slack-photos.js names vgs-other, the manifest vgs-notifications"], "control: a helper naming another service fails");
 
-// Body and inbox count text on their glass fill, judged over black and
-// white, the darkest and lightest wallpaper pixels. Each role's control
-// restores its old alpha and must fail the normal-size text floor.
+// Body and inbox count text on the shared glass in each style, the look
+// resolved for that style with the glass's inputs, judged over black and
+// white, the darkest and lightest wallpaper pixels, Clear's as the
+// compositor's layer glass tones them. Each role's control restores its old
+// alpha and must fail the normal-size text floor in Dark and Light.
 const TEXT_FLOOR = 4.5;
 const WALLPAPERS = ["#000000", "#ffffff"];
-function lookIn(tokens, light, mode) {
-    const judged = themeLogic.acceptAppearance(tokens, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } }, color: { surfaceRaised: mode === "light" ? "#f2f2f2ff" : "#101010ff" } });
-    assert.equal(judged.ok, true, "the look resolves in " + mode + " mode: " + JSON.stringify(judged));
+const STYLES = ["light", "dark", "clear"];
+const glassAppearance = load(path.join(__dirname, "..", "shell", "Commons", "Glass.js"));
+const hyprlandLayer = load(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js"));
+function themeOf(mode) {
+    return { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } }, color: { surfaceRaised: mode === "light" ? "#f2f2f2" : "#101010" } };
+}
+function glassIn(style) {
+    const judged = themeLogic.acceptAppearance(glassAppearance.TOKENS, glassAppearance.LIGHT, themeOf("dark"), { style: style, clear: glassAppearance.CLEAR });
+    assert.equal(judged.ok, true, "the glass resolves in " + style + ": " + JSON.stringify(judged));
+    return judged.values;
+}
+// TABLE, an appearance module or { TOKENS, LIGHT, CLEAR }, resolved in STYLE.
+function lookIn(table, style) {
+    const judged = themeLogic.acceptAppearance(table.TOKENS, table.LIGHT, themeOf("dark"), { style: style, clear: table.CLEAR || {}, values: glassIn(style) });
+    assert.equal(judged.ok, true, "the look resolves in " + style + ": " + JSON.stringify(judged));
     return judged.values;
 }
 function over(top, under) {
     const channel = name => top[name] * top.a + under[name] * (1 - top.a);
     return { r: channel("r"), g: channel("g"), b: channel("b"), a: 1 };
 }
-function textShortfalls(look, role) {
+// The style's body over WALLPAPER as drawn.
+function cardOver(style, wallpaper) {
+    const backdrop = themeLogic.parseColor(wallpaper);
+    return over(themeLogic.parseColor(glassIn(style).glass.fill), style === "clear" ? hyprlandLayer.clearTone(backdrop) : backdrop);
+}
+function textShortfalls(look, style, role) {
     return WALLPAPERS.filter(wallpaper => {
-        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
+        const card = cardOver(style, wallpaper);
         return themeLogic.contrastRatio(over(themeLogic.parseColor(look.text[role].color), card), card) < TEXT_FLOOR;
     });
 }
-for (const mode of ["dark", "light"]) {
+const copyOf = table => JSON.parse(JSON.stringify({ TOKENS: table.TOKENS, LIGHT: table.LIGHT, CLEAR: table.CLEAR }));
+for (const style of STYLES) {
     for (const role of ["body", "subtitle"]) {
-        same(textShortfalls(lookIn(appearance.TOKENS, appearance.LIGHT, mode), role), [], mode + " " + role + " meets 4.5:1 over both wallpapers");
-        const faintTokens = JSON.parse(JSON.stringify(appearance.TOKENS));
-        faintTokens.text[role].color.value = "alpha({text.foreground}, 0.5)";
-        const faintLight = JSON.parse(JSON.stringify(appearance.LIGHT));
-        faintLight.text[role] = { color: "alpha({text.foreground}, 0.5)" };
-        same(textShortfalls(lookIn(faintTokens, faintLight, mode), role), mode === "dark" ? ["#ffffff"] : WALLPAPERS, "control: " + mode + " " + role + " at 0.5 fails the text floor");
+        same(textShortfalls(lookIn(appearance, style), style, role), [], style + " " + role + " meets 4.5:1 over both wallpapers");
+        if (style === "clear") continue;
+        const faint = copyOf(appearance);
+        faint.TOKENS.text[role].color.value = "alpha({text.foreground}, 0.5)";
+        faint.LIGHT.text[role] = { color: "alpha({text.foreground}, 0.5)" };
+        same(textShortfalls(lookIn(faint, style), style, role), style === "dark" ? ["#ffffff"] : WALLPAPERS, "control: " + style + " " + role + " at 0.5 fails the text floor");
     }
 }
+// Clear's message draws in full white: the dark look's 0.8 alpha there
+// falls short over a white window.
+const dimClear = copyOf(appearance);
+delete dimClear.CLEAR.text.body;
+same(textShortfalls(lookIn(dimClear, "clear"), "clear", "body"), ["#ffffff"], "control: Clear's message at the dark look's alpha fails over white");
 
-// A title's shadow lifts light ink off dark glass alone: the dark look
-// keeps the header's and the summary's, and the light look, dark ink on a
-// light card, resolves both clear. The control plants the fixed black
-// both looks drew, which the light look must refuse.
+// A title's shadow lifts light ink off dark glass alone: Dark and Clear keep
+// the header's and the summary's, and Light, dark ink on a light card,
+// resolves both clear. The control plants the fixed black both looks drew,
+// which Light must refuse.
 function shadowAlphas(look) {
     return [look.text.shadow, look.text.summaryShadow].map(value => Math.round(themeLogic.parseColor(value).a * 100) / 100);
 }
-same(shadowAlphas(lookIn(appearance.TOKENS, appearance.LIGHT, "dark")), [0.45, 0.4], "the dark titles keep their lift");
-same(shadowAlphas(lookIn(appearance.TOKENS, appearance.LIGHT, "light")), [0, 0], "the light titles draw no shadow");
-const fixedShadow = JSON.parse(JSON.stringify(appearance.TOKENS));
-fixedShadow.text.shadow.value = "alpha(#000000, 0.45)";
-fixedShadow.text.summaryShadow.value = "alpha(#000000, 0.4)";
-assert.throws(() => same(shadowAlphas(lookIn(fixedShadow, appearance.LIGHT, "light")), [0, 0]), { code: "ERR_ASSERTION" }, "control: a fixed black shadow under light titles fails");
+same(shadowAlphas(lookIn(appearance, "dark")), [0.45, 0.4], "the dark titles keep their lift");
+same(shadowAlphas(lookIn(appearance, "clear")), [0.45, 0.4], "the clear titles keep their lift");
+same(shadowAlphas(lookIn(appearance, "light")), [0, 0], "the light titles draw no shadow");
+const fixedShadow = copyOf(appearance);
+fixedShadow.TOKENS.text.shadow.value = "alpha(#000000, 0.45)";
+fixedShadow.TOKENS.text.summaryShadow.value = "alpha(#000000, 0.4)";
+assert.throws(() => same(shadowAlphas(lookIn(fixedShadow, "light")), [0, 0]), { code: "ERR_ASSERTION" }, "control: a fixed black shadow under light titles fails");
 
 // A hinted icon's tone colour on the same glass, held to the non-text
 // floor (WCAG 2.2 SC 1.4.11) over both wallpapers. The controls restore the
-// old light darkening and the old dark danger, each of which falls short.
+// old light darkening, the old dark danger and Clear without its own
+// tones, each of which falls short.
 const ICON_FLOOR = 3;
 const TONES = ["success", "warning", "danger", "info"];
-function toneShortfalls(look) {
+function toneShortfalls(look, style) {
     const out = [];
     for (const tone of TONES) for (const wallpaper of WALLPAPERS) {
-        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
+        const card = cardOver(style, wallpaper);
         if (themeLogic.contrastRatio(over(themeLogic.parseColor(look.tone[tone]), card), card) < ICON_FLOOR) out.push([tone, wallpaper]);
     }
     return out;
 }
-for (const mode of ["dark", "light"]) same(toneShortfalls(lookIn(appearance.TOKENS, appearance.LIGHT, mode)), [], mode + " tone icons meet 3:1 over both wallpapers");
-const oldLight = JSON.parse(JSON.stringify(appearance.LIGHT));
-oldLight.tone = { success: "mix(#b4c96f, #2a2a2a, 0.35)", warning: "mix(#ffb000, #2a2a2a, 0.3)", danger: "mix(#f43f5e, #2a2a2a, 0.15)", info: "mix(#74a7f7, #2a2a2a, 0.3)" };
-same(toneShortfalls(lookIn(appearance.TOKENS, oldLight, "light")), [["success", "#000000"], ["warning", "#000000"], ["warning", "#ffffff"], ["danger", "#000000"], ["info", "#000000"]], "control: the old light tones fall short");
-const oldDark = JSON.parse(JSON.stringify(appearance.TOKENS));
-oldDark.tone.danger.value = "#f43f5e";
-same(toneShortfalls(lookIn(oldDark, appearance.LIGHT, "dark")), [["danger", "#ffffff"]], "control: the old dark danger falls short");
+for (const style of STYLES) same(toneShortfalls(lookIn(appearance, style), style), [], style + " tone icons meet 3:1 over both wallpapers");
+const oldLight = copyOf(appearance);
+oldLight.LIGHT.tone = { success: "mix(#b4c96f, #2a2a2a, 0.35)", warning: "mix(#ffb000, #2a2a2a, 0.3)", danger: "mix(#f43f5e, #2a2a2a, 0.15)", info: "mix(#74a7f7, #2a2a2a, 0.3)" };
+same(toneShortfalls(lookIn(oldLight, "light"), "light"), [["success", "#000000"], ["warning", "#000000"], ["warning", "#ffffff"], ["danger", "#000000"], ["info", "#000000"]], "control: the old light tones fall short");
+const oldDark = copyOf(appearance);
+oldDark.TOKENS.tone.danger.value = "#f43f5e";
+same(toneShortfalls(lookIn(oldDark, "dark"), "dark"), [["danger", "#ffffff"]], "control: the old dark danger falls short");
+const plainClear = copyOf(appearance);
+delete plainClear.CLEAR.tone;
+assert.notDeepEqual(toneShortfalls(lookIn(plainClear, "clear"), "clear"), [], "control: Clear with the dark tones falls short");
 
 // A light tone keeps its hue at icon size: an HSV saturation floor, which a
 // tone mixed toward the grey foreground drops under. The control restores
@@ -2219,11 +2249,11 @@ function greyTones(look) {
         return high === 0 || (high - Math.min(c.r, c.g, c.b)) / high < SATURATION_FLOOR;
     });
 }
-same(greyTones(lookIn(appearance.TOKENS, appearance.LIGHT, "light")), [], "light tone icons keep their hue");
-const greySuccess = JSON.parse(JSON.stringify(appearance.LIGHT));
-greySuccess.tone.success = "mix(#b4c96f, #2a2a2a, 0.55)";
-same(toneShortfalls(lookIn(appearance.TOKENS, greySuccess, "light")), [], "the grey-mixed success meets 3:1, so only the saturation floor fails it");
-same(greyTones(lookIn(appearance.TOKENS, greySuccess, "light")), ["success"], "control: the grey-mixed success falls under the saturation floor");
+same(greyTones(lookIn(appearance, "light")), [], "light tone icons keep their hue");
+const greySuccess = copyOf(appearance);
+greySuccess.LIGHT.tone.success = "mix(#b4c96f, #2a2a2a, 0.55)";
+same(toneShortfalls(lookIn(greySuccess, "light"), "light"), [], "the grey-mixed success meets 3:1, so only the saturation floor fails it");
+same(greyTones(lookIn(greySuccess, "light")), ["success"], "control: the grey-mixed success falls under the saturation floor");
 
 // CardSlot.qml plays the plain exit as toastMotion's fade, then its close,
 // one after the other, and the service's timers read toastMotion under the
@@ -2236,7 +2266,7 @@ function plainExitPlays(slotSource) {
     return block === null ? [] : [...block[1].matchAll(/duration: slot\.plain\.(\w+);/g)].map(m => m[1]);
 }
 function serviceTimesFollowGlass(serviceSource) {
-    return /Logic\.toastMotion\(look\.motion\.duration, glassOn\)/.test(serviceSource) && /readonly property bool glassOn: glassState\.on/.test(serviceSource);
+    return /Logic\.toastMotion\(look\.motion\.duration, glassOn\)/.test(serviceSource) && /readonly property bool glassOn: Theme\.glassFor\("notifications"\)\.on/.test(serviceSource);
 }
 const slotSource = fs.readFileSync(path.join(notesDir, "CardSlot.qml"), "utf8");
 const serviceSource = fs.readFileSync(path.join(notesDir, "Service.qml"), "utf8");
@@ -2245,74 +2275,51 @@ assert.ok(/readonly property bool glassOn: service !== null && service\.glassOn/
 assert.equal(serviceTimesFollowGlass(serviceSource), true, "the service's timers follow its glass state");
 assert.equal(slotSource.split("duration: slot.plain.close;").length, 2, "control text occurs once");
 same(plainExitPlays(slotSource.replace("duration: slot.plain.close;", "duration: slot.look.motion.duration.medium3;")), ["fade"], "control: a plain close of its own length is caught");
-assert.equal(serviceTimesFollowGlass(serviceSource.replace("readonly property bool glassOn: glassState.on", "readonly property bool glassOn: glassChoice")), false, "control: service timers on the setting alone are caught");
+assert.equal(serviceTimesFollowGlass(serviceSource.replace("readonly property bool glassOn: Theme.glassFor(\"notifications\").on", "readonly property bool glassOn: true")), false, "control: service timers that ignore the deciding place are caught");
 
-// VGlass at its defaults draws what the launcher's and the notifications'
-// own glass tables drew before the shared style, in both modes: each value
-// below is the resolved literal those tables held, with the look and the
-// shared table each value now comes from. `drawn` reads every value the
-// two glass surfaces, the launcher's dividers and the toast's bead draw.
+// Light and Dark draw today's light and dark notification glass: the
+// shared body is the notifications' own former #101010 at 0.8 and #f2f2f2
+// at 0.85, and the faces mix into the same body, so a face's ring, chip and
+// tint keep their colours. The launcher's former #151515 at 0.78 and
+// #efefef at 0.8 take the same body. `drawn` reads every value the two
+// surfaces draw from a look or the glass.
 const launcherAppearance = load(path.join(__dirname, "..", "shell", "plugins", "vgs.launcher", "Appearance.js"));
-const glassAppearance = load(path.join(__dirname, "..", "shell", "Commons", "Glass.js"));
-const DRAWN_BEFORE = {
-    dark: {
-        launcher: { fill: "#151515c7", sheen: "#e8e8e80b", sheenEnd: "#e8e8e800", sheenHeight: 48, hairline: "#e8e8e817", hairlineWidth: 1, divider: "#e8e8e812", dividerWidth: 1,
-            wide: { color: "#0000008c", blur: 90, offsetY: 28, spread: -4 }, tight: { color: "#00000073", blur: 30, offsetY: 10, spread: -4 } },
-        notifications: { base: "#101010ff", fill: "#101010cc", sheen: "#e8e8e80b", sheenEnd: "#e8e8e800", sheenHeight: 48, hairline: "#e8e8e817", hairlineWidth: 1,
-            shadow: { color: "#00000073", blur: 30, offsetY: 10, spread: -4 },
-            orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 },
-            ring: "#101010ff", chip: "#484848ff", coral: "#924a3cff" }
-    },
-    light: {
-        launcher: { fill: "#efefefcc", sheen: "#2a2a2a59", sheenEnd: "#2a2a2a00", sheenHeight: 48, hairline: "#2a2a2a1a", hairlineWidth: 1, divider: "#2a2a2a14", dividerWidth: 1,
-            wide: { color: "#00000033", blur: 90, offsetY: 28, spread: -4 }, tight: { color: "#00000029", blur: 30, offsetY: 10, spread: -4 } },
-        notifications: { base: "#f2f2f2ff", fill: "#f2f2f2d9", sheen: "#2a2a2a59", sheenEnd: "#2a2a2a00", sheenHeight: 48, hairline: "#2a2a2a1a", hairlineWidth: 1,
-            shadow: { color: "#00000029", blur: 30, offsetY: 10, spread: -4 },
-            orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 },
-            ring: "#f2f2f2ff", chip: "#bebebeff", coral: "#eca597ff" }
-    }
+const DRAWN = {
+    dark: { fill: "#101010cc", divider: "#e8e8e812", ring: "#101010ff", chip: "#484848ff", coral: "#924a3cff",
+        orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 } },
+    light: { fill: "#f2f2f2d9", divider: "#2a2a2a14", ring: "#f2f2f2ff", chip: "#bebebeff", coral: "#eca597ff",
+        orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 } }
 };
-function drawn(launcherTable, notesTable, glassTable, mode) {
-    const launcher = lookIn(launcherTable.TOKENS, launcherTable.LIGHT, mode);
-    const notes = lookIn(notesTable.TOKENS, notesTable.LIGHT, mode);
-    const glass = lookIn(glassTable.TOKENS, glassTable.LIGHT, mode);
-    const shared = { sheen: glass.glass.sheen, sheenEnd: glass.glass.sheenEnd, sheenHeight: glass.glass.sheenHeight, hairline: glass.glass.hairline, hairlineWidth: glass.glass.hairlineWidth };
-    return {
-        // Launcher.qml hands card.fill and the wide elevation, ContextMenu.qml
-        // the tight one; the dividers read row.
-        launcher: Object.assign({ fill: launcher.card.fill }, shared, { divider: launcher.row.divider, dividerWidth: launcher.row.dividerWidth, wide: glass.shadow.wide, tight: glass.shadow.tight }),
-        // CardFace.qml and InboxHeader.qml hand card.fill and the tight
-        // elevation; Orb.qml reads orb; the faces mix card.base.
-        notifications: Object.assign({ base: notes.card.base, fill: notes.card.fill }, shared, { shadow: glass.shadow.tight, orb: notes.orb, ring: notes.face.ring, chip: notes.face.chip, coral: notes.face.tint.coral })
-    };
+function drawn(launcherTable, notesTable, style) {
+    const launcher = lookIn(launcherTable, style);
+    const notes = lookIn(notesTable, style);
+    return { fill: glassIn(style).glass.fill, divider: launcher.row.divider, ring: notes.face.ring, chip: notes.face.chip, coral: notes.face.tint.coral, orb: notes.orb };
 }
-for (const mode of ["dark", "light"])
-    same(drawn(launcherAppearance, appearance, glassAppearance, mode), DRAWN_BEFORE[mode], "VGlass at its defaults draws today's " + mode + " glass");
-// Controls: a shared hairline, a launcher fill and a notifications base
-// each moved by one step must fail the comparison.
-const moved = (table, edit) => { const copy = { TOKENS: JSON.parse(JSON.stringify(table.TOKENS)), LIGHT: JSON.parse(JSON.stringify(table.LIGHT)) }; edit(copy); return copy; };
-for (const [label, launcherTable, notesTable, glassTable] of [
-    ["the shared hairline", launcherAppearance, appearance, moved(glassAppearance, t => { t.TOKENS.glass.hairline.value = "alpha({text.foreground}, 0.1)"; })],
-    ["the launcher fill", moved(launcherAppearance, t => { t.TOKENS.card.fill.value = "alpha(#151515, 0.8)"; }), appearance, glassAppearance],
-    ["the notifications base", launcherAppearance, moved(appearance, t => { t.TOKENS.card.base.value = "#111111"; }), glassAppearance]
+for (const style of ["dark", "light"])
+    same(drawn(launcherAppearance, appearance, style), DRAWN[style], style + " draws today's " + style + " notification glass");
+// Controls: a face that mixes into a fixed colour instead of the drawn
+// body, and a launcher divider moved by one step, each fail the comparison.
+for (const [label, launcherTable, notesTable] of [
+    ["a face ring of its own", launcherAppearance, (t => { t.TOKENS.face.ring.value = "#111111"; return t; })(copyOf(appearance))],
+    ["the launcher divider", (t => { t.TOKENS.row.divider.value = "alpha({text.foreground}, 0.08)"; return t; })(copyOf(launcherAppearance)), appearance]
 ])
-    assert.throws(() => same(drawn(launcherTable, notesTable, glassTable, "dark"), DRAWN_BEFORE.dark), { code: "ERR_ASSERTION" }, "control: " + label + " moved fails today's glass");
+    assert.throws(() => same(drawn(launcherTable, notesTable, "dark"), DRAWN.dark), { code: "ERR_ASSERTION" }, "control: " + label + " fails today's glass");
 
-// ContextMenu.qml's flyout lies over the card's rows and hands the card's
-// fill, so with glass on GlassSurface.qml draws that fill solid: opaque and
-// lifted by Glass.js glass.solidLift (ThemeLogic.liftedOpaque). A key hint
-// at the full foreground under it shows through by no visible step, over
-// black and white wallpapers. The control lays card.fill there as it is.
-function hintShowsThrough(table, mode, fillOf) {
-    const look = lookIn(table.TOKENS, table.LIGHT, mode), fill = fillOf(themeLogic.parseColor(look.card.fill), lookIn(glassAppearance.TOKENS, glassAppearance.LIGHT, mode));
+// ContextMenu.qml's flyout lies over the card's rows, so with glass on
+// GlassSurface.qml draws its body solid: opaque and lifted by Glass.js
+// glass.solidLift (ThemeLogic.liftedOpaque). A key hint at the full
+// foreground under it shows through by no visible step, over black and
+// white wallpapers. The control lays the body there as it is.
+function hintShowsThrough(table, style, fillOf) {
+    const look = lookIn(table, style), glass = glassIn(style), fill = fillOf(themeLogic.parseColor(glass.glass.fill), glass);
     return WALLPAPERS.filter(wallpaper => {
-        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
+        const card = cardOver(style, wallpaper);
         return themeLogic.contrastRatio(over(fill, over(themeLogic.parseColor(look.text.foreground), card)), over(fill, card)) >= 1.01;
     });
 }
-for (const mode of ["dark", "light"]) {
-    same(hintShowsThrough(launcherAppearance, mode, (fill, glass) => themeLogic.liftedOpaque(fill, glass.glass.solidLift)), [], mode + ": no key hint shows through the flyout");
-    same(hintShowsThrough(launcherAppearance, mode, fill => fill), WALLPAPERS, "control: " + mode + " card.fill on the flyout shows the hint");
+for (const style of STYLES) {
+    same(hintShowsThrough(launcherAppearance, style, (fill, glass) => themeLogic.liftedOpaque(fill, glass.glass.solidLift)), [], style + ": no key hint shows through the flyout");
+    same(hintShowsThrough(launcherAppearance, style, fill => fill), WALLPAPERS, "control: " + style + " the body on the flyout shows the hint");
 }
 
 console.log(`test-notifications-logic: ok bodies=${BODIES.length} states=${STATE_REFUSED.length} hints=${HINT_ROWS.length} enriched=${ENRICHED.length} controls=${CONTROLS.length}`);

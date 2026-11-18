@@ -62,7 +62,7 @@ Item {
     // under another, and Scrim.qml has its own `scrim`.
     readonly property bool glassSurface: true
     default property alias content: body.data
-    readonly property color fill: glass.look.glass.fill
+    readonly property color fill: decision.themed ? look.glass.themed : look.glass.fill
     // The body fill before a translucent window meets its backdrop.
     readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill, look) : standard.background
     // The ground a shared key hint inside this surface reads on, published

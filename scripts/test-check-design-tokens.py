@@ -85,9 +85,9 @@ ROWS = [
     ("a member Theme.qml declares is not a finding", UI, "Item { property string n: Theme.name + Theme.revision }\n", None),
     ("a function Theme.qml declares is not a finding", "shell/Core/Thing.qml", "Item { property string c: Theme.toColor(\"#12ab34ff\") }\n", None),
     ("another object named Theme is not judged", UI, "Item { property var x: acme.Theme.nope }\n", None),
-    ("a glass token is not a finding", UI, "Item { color: Theme.glass.glass.fill; property real b: Theme.glass.shadow.tight.blur }\n", None),
+    ("a glass token is not a finding", UI, "Item { color: Theme.glass.glass.fill; property real b: Theme.glass.rim.width }\n", None),
     ("a glass path that names nothing", UI, "Item { color: Theme.glass.glass.glow }\n", "glass-unknown"),
-    ("a glass group where a token was named", UI, "Item { property var t: Theme.glass.shadow.wide.colors }\n", "glass-unknown"),
+    ("a glass group where a token was named", UI, "Item { property var t: Theme.glass.rim.colours }\n", "glass-unknown"),
     ("a token of the shell's table under glass", UI, "Item { color: Theme.glass.color.accent }\n", "glass-unknown"),
     ("an unknown token in core JS is a finding", "shell/Core/Thing.js", ".pragma library\nfunction f(Theme) { return Theme.nope; }\n", "token-unknown"),
     ("an unknown token in a smoke fixture is a finding", "scripts/smoke/fixtures/plugins/acme.probe/Bad.qml", "Item { color: Theme.palette.acent }\n", "token-unknown"),
@@ -371,9 +371,12 @@ def main():
     # The glass table is judged in both modes: a light value of the wrong
     # type is refused in light mode alone, and a table that does not load
     # is refused.
-    glass_light = '        fill: "alpha({color.surfaceRaised}, 0.85)",\n'
-    assert glass.count(glass_light) == 1, "the Glass.js light fill to replace must occur once"
-    for name, text, mode in (("a glass light value of the wrong type is refused", glass.replace(glass_light, "        fill: 18,\n"), "mode=light "),
+    glass_light = '        base: "#f2f2f2",\n'
+    assert glass.count(glass_light) == 1, "the Glass.js light body to replace must occur once"
+    glass_clear = '        ground: "#6e6e6e"\n'
+    assert glass.count(glass_clear) == 1, "the Glass.js Clear ground to replace must occur once"
+    for name, text, mode in (("a glass light value of the wrong type is refused", glass.replace(glass_light, "        base: 18,\n"), "mode=light "),
+                             ("a glass Clear value of the wrong type is refused", glass.replace(glass_clear, "        ground: 18\n"), "style=clear "),
                              ("a glass table that does not load is refused", ".pragma library\nvar TOKENS = {\n", "unloadable: ")):
         with tempfile.TemporaryDirectory() as tmp:
             proc = run_check(build_repo(tmp, glass=text))

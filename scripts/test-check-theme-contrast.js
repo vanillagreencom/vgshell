@@ -90,7 +90,7 @@ const TERMINAL_SLOT_ROWS = [
 function copyCheck(copy) {
     for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
         "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js",
-        "shell/plugins/vgs.jarvis/Appearance.js"]) {
+        "shell/plugins/vgs.jarvis/Appearance.js", "shell/plugins/vgs.launcher/Appearance.js", "shell/Core/HyprlandLayer.js", "shell/Core/MonitorLogic.js"]) {
         fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
         fs.copyFileSync(path.join(repo, file), path.join(copy, file));
     }
@@ -147,8 +147,8 @@ try {
         const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
             { encoding: "utf8", env: env(path.join(dir, "env")) });
         assertStatus(proc, 1);
-        assert.match(proc.stdout, /^short    vgs: notifications\.text\.link on notifications\.card\.fill over #ffffff ratio=3\.35 floor=4\.5$/m);
-        assert.match(proc.stdout, /^short    catalog\/flexoki-light: notifications\.text\.link on notifications\.card\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    vgs: dark notifications\.text\.link on glass\.fill over #ffffff ratio=3\.35 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/flexoki-light: light notifications\.text\.link on glass\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
     });
 
     // The failure line on the scrim alone, as VGS-1611 judged it, in a
@@ -224,8 +224,8 @@ try {
 
     // Defects of Jarvis's overlay inks, each planted alone in a disposable
     // copy judged on the shipped tree. A toggle that is on in the accent
-    // alone falls short as the notice link did, on the same card's fill over
-    // white in both modes. The caption's top line at a
+    // alone falls short as the notice link did, on Dark's body over white
+    // and Light's over black. The caption's top line at a
     // lower opacity falls short, which holds the line's opacity in the
     // reading. The confirming answer's label in the accent's own colour
     // reads 1.00 on the accent, not the accent's ratio on the bare card,
@@ -234,14 +234,14 @@ try {
     // holds the pressed state in the reading.
     for (const [name, needle, replacement, lines] of [
         ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
-            [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
-                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
+            [/^short    vgs: dark jarvis\.icon\.on on glass\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
+                /^short    catalog\/flexoki-light: light jarvis\.icon\.on on glass\.fill over #000000 ratio=[0-9.]+ floor=4\.5$/m]],
         ["Jarvis's top caption line at a lower opacity", /oldest: share\(0\.82\)/, "oldest: share(0.22)",
-            [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
+            [/^short    vgs: dark jarvis\.ink\.words at jarvis\.words\.oldest on glass\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
         ["the confirming answer's label in the accent's own colour", /ink: color\("contrast\(\{palette\.accent\}\)"\)/, 'ink: color("{palette.accent}")',
-            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.fill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]],
+            [/^short    vgs: dark jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.fill over glass\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]],
         ["the confirming answer's pressed fill in its label's colour", /pressedFill: color\("mix\(\{palette\.accent\}, contrast\(\{answer\.tinted\.ink\}\), 0\.05\)"\)/, 'pressedFill: color("#000000")',
-            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.pressedFill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]]
+            [/^short    vgs: dark jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.pressedFill over glass\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]]
     ]) {
         row(`control: ${name} is a shortfall`, dir => {
             const copy = path.join(dir, "copy");
