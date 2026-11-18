@@ -2873,6 +2873,112 @@ core_observation_case() { # CASE
 }
 parallel_cases core_observation_case core-observation alias unobserved observed callback computed direct top-level seam removed refinement-failed
 
+# The bar scene reads AI Usage's widget and service, not its panel. Keep
+# the real entry sources and declaration; unrelated inputs are neutral.
+# The backend's Node loads are explicit inputs because QML reach cannot
+# trace require(tree + path). No product process runs in this fixture.
+d="$tmp/bar-ai-template"; smoke_fixture "$d"
+python3 - "$repo" "$d" <<'PYBARAI'
+import fnmatch, pathlib, re, subprocess, sys
+repo, target = map(pathlib.Path, sys.argv[1:])
+tracked = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z']).decode().split('\0')
+for row in ('bar', 'bar-controls'):
+    source = (repo / f'scripts/smoke/rows/{row}.sh').read_text()
+    lines = re.findall(r'^# inputs: (.+)$', source, re.M)
+    assert len(lines) == 1
+    for pattern in lines[0].split():
+        matches = [p for p in tracked if p and fnmatch.fnmatchcase(p, pattern)]
+        assert matches, pattern
+        for relative in matches:
+            path = target / relative
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('# neutral input\n' if path.suffix == '.sh' else '')
+    (target / f'scripts/smoke/rows/{row}.sh').write_text(source)
+real = [p for p in tracked if p.startswith('shell/plugins/vgs.ai-usage/')]
+assert 'shell/plugins/vgs.ai-usage/Service.qml' in real
+assert 'shell/plugins/vgs.ai-usage/backend/usage.js' in real
+real += ['shell/Commons/AccountDirectories.js', 'shell/Commons/qmldir',
+         'shell/Ui/qmldir', 'shell/Ui/controls/BarItem.qml', 'shell/Ui/feedback/Badge.qml']
+for relative in real:
+    path = target / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes((repo / relative).read_bytes())
+rows = target / 'scripts/smoke/rows.list'
+source = rows.read_text()
+assert source.count('start-order\n') == 1
+rows.write_text(source.replace('start-order\n', 'bar-controls\nstart-order\n'))
+PYBARAI
+commit "$d" bar-ai-inputs
+bar_ai_plan="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,bar-controls,$smoke_tail"
+# name~path~needle~replacement~selected~control
+bar_ai_cases=(
+  'panel-values~shell/plugins/vgs.ai-usage/UsageView.js~    var d = row.details || {};~    var d = row.details || Object.create(null);~no~'
+  'panel-entry~shell/plugins/vgs.ai-usage/Panel.qml~~~no~'
+  'widget~shell/plugins/vgs.ai-usage/Widget.qml~~~yes~'
+  'service~shell/plugins/vgs.ai-usage/Service.qml~~~yes~'
+  'manifest~shell/plugins/vgs.ai-usage/manifest.json~~~yes~'
+  'backend~shell/plugins/vgs.ai-usage/backend/usage.js~~~yes~'
+  'anchored~bin/lib/anchored.js~~~yes~'
+  'codex-account~bin/lib/codex-account.js~~~yes~'
+  'account-folders~bin/lib/account-folders.js~~~yes~'
+  'library-loader~bin/lib/qml-library.js~~~yes~'
+  'account-rules~shell/Commons/AccountDirectories.js~~~yes~'
+  'widget-function~shell/plugins/vgs.ai-usage/UsageView.js~    var left = given.barShows === "left";~    var left = given.barShows === String("left");~yes~'
+  'service-function~shell/plugins/vgs.ai-usage/UsageView.js~        var last = previousOf(previous, row.id);~        var last = previousOf(previous, String(row.id));~yes~'
+  'transitive~shell/Ui/feedback/Badge.qml~~~yes~'
+  'top-level~shell/plugins/vgs.ai-usage/UsageView.js~var MEDIUM_PERCENT = 50;~var MEDIUM_PERCENT = 51;~yes~'
+  'full~shell/plugins/vgs.ai-usage/Panel.qml~~~all~'
+  'unreadable~shell/plugins/vgs.ai-usage/Widget.qml~~~all~'
+  'folder-control~shell/plugins/vgs.ai-usage/UsageView.js~    var d = row.details || {};~    var d = row.details || Object.create(null);~no~folder'
+  'backend-control~shell/plugins/vgs.ai-usage/backend/usage.js~~~yes~backend'
+)
+bar_ai_case() { # SPEC
+  local name file old new selected control d wanted opposite
+  IFS='~' read -r name file old new selected control <<<"$1"
+  d="$tmp/bar-ai-$name"
+  cp -a -- "$tmp/bar-ai-template" "$d"
+  if [[ $control == folder ]]; then
+    plant "$d/scripts/smoke/rows/bar-controls.sh" 'shell/plugins/vgs.ai-usage/Widget.qml' 'shell/plugins/vgs.ai-usage/*'
+    commit "$d" old-folder
+  elif [[ $control == backend ]]; then
+    plant "$d/scripts/smoke/rows/bar-controls.sh" ' shell/plugins/vgs.ai-usage/backend/usage.js ' ' '
+    commit "$d" missing-backend
+  fi
+  if [[ $name == *values || $name == folder-control ]]; then
+    # This line also occurs in detailRows. Anchor the edit within the
+    # actual panel-only function so its callers, not a whole file, decide.
+    old=$'function accountValueRows(row) {\n'"$old"
+    new=$'function accountValueRows(row) {\n'"$new"
+  fi
+  if [[ -n $old ]]; then plant "$d/$file" "$old" "$new"
+  else printf '\n// changed input\n' >>"$d/$file"; fi
+  test_area=qml test_args=(--changed HEAD --list)
+  if [[ $name == full ]]; then test_args=(--full --list)
+  elif [[ $name == unreadable ]]; then chmod 000 "$d/$file"; fi
+  case "$selected" in
+    yes) wanted="$bar_ai_plan" ;;
+    no) wanted="$smoke_none" ;;
+    all) wanted=scripts/qml-smoke.sh ;;
+  esac
+  if [[ -z $control ]]; then
+    row "bar AI input $name" "$d" 0 "" "$wanted"
+  elif (failures=0; row "bar AI input $name" "$d" 0 "" "$wanted"; ((failures == 0))) >"$tmp/bar-ai-$name.assertion"; then
+    fail "control: $name left its selection assertion green"
+  else
+    opposite="$smoke_none"
+    [[ $control != folder ]] || opposite="$bar_ai_plan"
+    if grep -qF "  FAIL  bar AI input $name: exit=0 want=0 missing=[$wanted] present=" "$tmp/bar-ai-$name.assertion" \
+      && grep -qxF "        $opposite" "$tmp/bar-ai-$name.assertion"; then
+      ok "control: $name fails its required selection assertion"
+    else
+      cat -- "$tmp/bar-ai-$name.assertion"
+      fail "control: $name failed for another cause"
+    fi
+  fi
+}
+parallel_cases bar_ai_case bar-ai "${bar_ai_cases[@]}"
+
 # These are actual incoming commits and a rebase, not an injected path list.
 # Gallery's own file stays unchanged across restack. Its unchanged helper is
 # an input even though the branch never edited that helper's pathname.
