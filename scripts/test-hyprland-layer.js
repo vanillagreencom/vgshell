@@ -2290,7 +2290,7 @@ function verifyGlassNamespaces(layer) {
     const passive = 'hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = 0.7, preset = "glass" })';
     same(lines({ glassEnabled: true, glassStyle: "dark" }), [passive, ...material("glass")], "Dark: the passive layer and the material layers on the glass preset");
     same(lines({ glassEnabled: true, glassStyle: "light" }), [passive, ...material("glass")], "Light: the same namespaces");
-    same(lines({ glassEnabled: true, glassStyle: "clear" }), ['hg.preset("vgs-clear", { inherits = "glass", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, tint_color = 0xffffff00 })',
+    same(lines({ glassEnabled: true, glassStyle: "clear" }), ['hg.preset("vgs-clear", { inherits = "glass", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, refraction_strength = 0.4, tint_color = 0xffffff00 })',
         passive, ...material("vgs-clear")], "Clear: its tone preset, on the material layers alone");
     same(lines({ glassEnabled: false, glassStyle: "clear" }), ['hg.layer("vgs:glass-off")'], "the main switch off lists no surface's namespace");
     // Clear's tone, transcribed from hyprglass's shader: white dims to

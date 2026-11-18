@@ -1793,7 +1793,8 @@ function appliedLines(values, paths) {
 // while the plugin, its layers feature and its state stay as they are.
 // The built-in glass preset supplies edge bend and colour fringe:
 // BuiltInPresets.hpp makeGlass sets refraction 8, chromatic aberration 0.5
-// and clear tint. Clear inherits it with the approved tone (CLEAR_PRESET).
+// and clear tint. Clear inherits it with the approved tone and a shallower
+// bend (CLEAR_PRESET).
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
 // https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#configuration
 // https://github.com/hyprnux/hyprglass/blob/317ed8c1b06be00990ccdca02bf9ade936f47f13/README.md#layer-surfaces
@@ -1817,9 +1818,16 @@ var GLASS_OFF_NAMESPACE = "vgs:glass-off";
 // grain or tint, the same in both of hyprglass's themes. hyprglass resolves
 // a preset's own values before those it inherits (README "Configuration").
 var CLEAR_TONE = { brightness: 1, contrast: 1, saturation: 0.8, vibrancy: 0, adaptive_dim: 0.53, adaptive_boost: 0, noise_strength: 0 };
+// Clear's edge bend. The glass preset's refraction 8 suits its lens edge; on
+// the soft edge, which Clear uses, the pull is the strength times 50 px at
+// the outline (src/Shaders.hpp EDGE REFRACTION at c65931aa), so 8 shows the
+// backdrop from 400 px away along a card's edge: the bar's black under a
+// toast's lower edge and the orb's colours along a Jarvis plate's top
+// (VGS-2594's nested pictures). 0.4 bends 20 px, inside the card.
+var CLEAR_REFRACTION = 0.4;
 var CLEAR_PRESET = { name: "vgs-clear", values: "inherits = \"glass\", " + Object.keys(CLEAR_TONE).map(function (key) {
     return key + " = " + luaNumber(CLEAR_TONE[key]);
-}).join(", ") + ", tint_color = 0xffffff00" };
+}).join(", ") + ", refraction_strength = " + luaNumber(CLEAR_REFRACTION) + ", tint_color = 0xffffff00" };
 
 // What Clear's tone makes of BACKDROP, the blurred backdrop as an sRGB
 // colour { r, g, b, a } with channels from 0 to 1, as hyprglass's layer
