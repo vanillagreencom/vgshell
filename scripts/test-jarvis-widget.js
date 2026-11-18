@@ -702,10 +702,13 @@ function approvalFrames(source) {
     let frameRequested = false;
     const unusedCurrent = () => root.displayedHold === null && root.hold !== null && root.approvalFrames.some(frame =>
         frame !== null && frame.id === root.hold.id && frame.gen === root.hold.gen && frame.digest === root.hold.digest);
-    root.Window = { window: { update: () => {
+    // The plates' own window, which the host lends: frames are asked of it
+    // alone.
+    root.plateWindow = { update: () => {
         assert.ok(unusedCurrent(), "a frame is requested only for an unused snapshot of the unacknowledged hold");
         frameRequested = true;
-    } } };
+    } };
+    root.plateHost = { presented: true };
     root.width = 800;
     root.height = 600;
     root.overlay = { x: 16, y: 16, width: 400, height: 300 };
@@ -718,6 +721,10 @@ function approvalFrames(source) {
     assert.equal(whole.length, 1, "one shipped Bubble binding: approvalWhole");
     const approvalWhole = vm.runInContext("(function() { with(root) { return (" + whole[0][1] + "); } })", ctx);
     Object.defineProperty(root, "approvalWhole", { get: approvalWhole });
+    const plates = [...source.matchAll(/^    readonly property bool platesPresented: (.*)$/gm)];
+    assert.equal(plates.length, 1, "one shipped Bubble binding: platesPresented");
+    const platesPresented = vm.runInContext("(function() { with(root) { return (" + plates[0][1] + "); } })", ctx);
+    Object.defineProperty(root, "platesPresented", { get: platesPresented });
     for (const name of ["approvalPolished", "approvalSynchronized", "approvalSwapped"]) {
         const matches = [...source.matchAll(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(matches.length, 1, "one shipped Bubble callback: " + name);
@@ -764,6 +771,13 @@ function approvalFrames(source) {
     flush();
     assert.equal(state.approval.shownAt, null, "a hidden host cannot acknowledge");
     root.presented = true;
+    root.plateHost = { presented: false };
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.equal(state.approval.shownAt, null, "a plate window that has not presented cannot acknowledge");
+    root.plateHost = { presented: true };
     root.placed = false;
     root.approvalPolished();
     root.approvalSynchronized();
@@ -1113,10 +1127,10 @@ const wholeNeedle = "\n        && approvalText.height >= approvalText.implicitHe
 assert.equal(bubble.split(wholeNeedle).length, 2, "one whole-column control match");
 assert.throws(() => approvalFrames(bubble.replace(wholeNeedle, "")), assert.AssertionError,
     "a frame that clips the request's column must fail the whole-column assertion");
-const requestNeedle = "if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();";
+const requestNeedle = "if (!isCurrent(drawn) && approvalFrames.some(isCurrent) && root.plateWindow !== null) root.plateWindow.update();";
 assert.equal(bubble.split(requestNeedle).length, 2, "one frame request control match");
 assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "")), assert.AssertionError,
     "a swap that asks for no frame must fail the static hidden hold's acknowledgment");
-assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "root.Window.window.update();")), assert.AssertionError,
+assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "root.plateWindow.update();")), assert.AssertionError,
     "a frame asked for on every swap must fail the frame request bound");
 console.log(`test-jarvis-widget: ok frame-controls=5 frame-control=detected`);

@@ -17,7 +17,7 @@ Item {
     width: look.card.width
     height: look.card.maxHeight
 
-    Rectangle { anchors.fill: parent; color: scene.look.card.base }
+    Rectangle { anchors.fill: parent; color: scene.look.glass.base }
 
     Component {
         id: shippedCard

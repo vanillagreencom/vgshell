@@ -995,7 +995,7 @@ Scope {
         const seen = new Set(found);
         for (let i = 0; i < found.length; i++) {
             const plates = found[i].plateLayer;
-            for (const child of (found[i].children || []).concat(plates instanceof Item ? [plates] : [])) {
+            for (const child of (found[i].children || []).concat(plates ? [plates] : [])) {
                 if (seen.has(child)) continue;
                 seen.add(child);
                 found.push(child);

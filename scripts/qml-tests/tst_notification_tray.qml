@@ -15,7 +15,7 @@ Item {
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
     width: look.card.width
     height: look.card.maxHeight
-    Rectangle { id: ground; anchors.fill: parent; color: scene.look.card.base }
+    Rectangle { id: ground; anchors.fill: parent; color: scene.look.glass.base }
     Component { id: shippedCard; Notifications.NotificationCard {} }
     Component { id: shippedFace; Notifications.CardFace {} }
     // Paint the existing text-layer bounds from a non-layout child so
@@ -271,7 +271,7 @@ Item {
                 }, "text-alpha readings " + JSON.stringify({ observed: observed, expected: expected }));
             } finally {
                 card.destroy();
-                ground.color = Qt.binding(() => scene.look.card.base);
+                ground.color = Qt.binding(() => scene.look.glass.base);
                 UnitTheme.reset();
             }
         }
