@@ -402,9 +402,12 @@
 # compositor alone with `hyprctl plugin load`, then reloads it so the
 # shell's own layer glass lines configure it. The shell's load of the
 # managed module (HyprlandLayer.layerGlassPath) finds no file there.
-# The first scene waits for the shell to read layer glass as ready, and
-# every shot keeps the nested compositor's `hyprglass status`, `layers`
-# and `configerrors` replies beside it under hyprglass/ in the output. A
+# hyprglass builds its shaders on the first draw of a layer it glasses,
+# so under Clear the launcher opens and closes once, and the first scene
+# waits for the shell to read layer glass as ready. Every shot keeps the
+# nested compositor's `plugin list`, `hyprglass status`, `layers` and
+# `configerrors` replies and the shell's glass style and readiness beside
+# it under hyprglass/ in the output. A
 # scene argument that is missing
 # or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
 # The screensaver-lock scene runs the screensaver from its idle watch and
@@ -1081,7 +1084,12 @@ glass_readings() {
     esac
     hypr -j "${words[@]}" >"$SHOT_DIR/hyprglass/$1.$name.json" || fail "shot $1: hyprctl ${words[*]} is unreadable"
   done
+  printf '{"glassStyle": %s, "layerGlassReady": %s}\n' "$(ipc smoke themeValue glassStyle)" "$(ipc smoke themeValue layerGlassReady)" \
+    >"$SHOT_DIR/hyprglass/$1.shell.json" || fail "shot $1: the shell's glass reading is unreadable"
 }
+# glass_configured: whether the nested hyprglass draws layer glass alone,
+# as the shell's layer glass lines configure it.
+glass_configured() { hypr -j hyprglass status | py_reply 'import json,sys; f=json.load(sys.stdin)["features"]; print(f["layers"]["enabled"] and f["layers"]["active"] and not f["windows"]["enabled"])'; }
 if [[ -n $hyprglass ]]; then
   # The core reads layer glass again after a compositor reload only while
   # a plugin holds `hyprland` (Capabilities.hyprland.active); Glass does.
@@ -1104,7 +1112,13 @@ PYGLASS
   if [[ -n $hyprglass ]]; then
     expect "the nested compositor loads the hyprglass module" ok hypr plugin load "$hyprglass"
     expect "the nested compositor reloads its configuration" ok hypr reload config-only
-    expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
+    expect_poll "the shell's layer glass lines configure the nested module" True glass_configured
+    if [[ $glass_style == clear && "$(plugin_enabled vgs.launcher)" == True ]]; then
+      expect "the launcher opens for hyprglass's first draw" ok ipc vgs.launcher invoke summon '{}'
+      expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
+      expect "the launcher closes after hyprglass's first draw" ok ipc shell hide overlay vgs.launcher
+      expect_poll "the launcher's surface is gone before the first scene" 0 layer_count vgs:overlay-glass
+    fi
     glass_readings ready
   fi
 fi

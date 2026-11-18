@@ -987,10 +987,20 @@ Scope {
         return false;
     }
 
+    // An item and every item under it. A layer content that lends its
+    // plates to a window of their own (LayerHost.qml `plateLayer`) holds
+    // them there, outside its children, so the walk takes them too.
     function descendants(item) {
         const found = [item];
-        for (let i = 0; i < found.length; i++)
-            for (const child of found[i].children || []) found.push(child);
+        const seen = new Set(found);
+        for (let i = 0; i < found.length; i++) {
+            const plates = found[i].plateLayer;
+            for (const child of (found[i].children || []).concat(plates instanceof Item ? [plates] : [])) {
+                if (seen.has(child)) continue;
+                seen.add(child);
+                found.push(child);
+            }
+        }
         return found;
     }
 
