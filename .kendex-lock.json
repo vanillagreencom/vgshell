@@ -497,7 +497,7 @@
       "installation": "61dcfe858bac104f",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "1362bfec0fd6fb17ba7e8dd338fd5149ee45dd4ae72ff0aa8ecfa9976d1c47a2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -521,7 +521,7 @@
       "installation": "9a591ec5734414c6",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "1362bfec0fd6fb17ba7e8dd338fd5149ee45dd4ae72ff0aa8ecfa9976d1c47a2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -544,13 +544,13 @@
     "agent:auditor:copilot": {
       "installation": "06e57dbe690e3611",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "31b58398680295e562999d8a57a67a9dfbfa962e4283c135d6495473283e8db3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "48b2d457aad71cebfd4b7e6b94adbbb9b7690bdf95eee7ea3cc5c1cfb84a6521",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "ce4d6590844de0e1e9b2c878c624811762c8d65a0804b27e53f7c179b0ce49a5",
+      "renderedHash": "abe482d6445297681b65d676bcfefddb33bedf73903381b30b46873c234dd545",
       "enabled": true,
       "upstreamSkills": [
         "jarvis"
@@ -569,7 +569,7 @@
       "installation": "a056d8bfe0f60aa2",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "1362bfec0fd6fb17ba7e8dd338fd5149ee45dd4ae72ff0aa8ecfa9976d1c47a2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -593,7 +593,7 @@
       "installation": "82ed794e13b34e77",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "6e0de06891e00d45d98af9fb2264b613651eaee985fad371b57711555aa3ab59",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -617,7 +617,7 @@
       "installation": "4801bf5d7d6aa9ee",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "6e0de06891e00d45d98af9fb2264b613651eaee985fad371b57711555aa3ab59",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -640,13 +640,13 @@
     "agent:cpa:copilot": {
       "installation": "0e6e5b72929103f9",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "535e080a4e0c1689b3e1fbe619b457b08d4bab12ca9845db54bb0650a7299ed4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "895a3fe88ccee283c489c1dbca49c379420c3bfab7d8effc73328627bdf248de",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "4dbe39fdbb750f10220122aba7f93ef332bb06d8e9caf21c7b3de7f53447b6fb",
+      "renderedHash": "ef894949d1350ae5e72a25579e7e7b00b77858f3e816bdd0e662f6b1ee5d259d",
       "enabled": true,
       "upstreamSkills": [
         "jarvis"
@@ -665,7 +665,7 @@
       "installation": "ab7b84d31080adca",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "6e0de06891e00d45d98af9fb2264b613651eaee985fad371b57711555aa3ab59",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -689,7 +689,7 @@
       "installation": "00f4adebf8f8fe9d",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "482e42779245e7d3847bca4bcc67eafa1adeda5c0450b6512abf63e027d62670",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -717,7 +717,7 @@
       "installation": "3f77b5e77f7fced4",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "482e42779245e7d3847bca4bcc67eafa1adeda5c0450b6512abf63e027d62670",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -744,13 +744,13 @@
     "agent:frontend:copilot": {
       "installation": "f8b1556350723b0b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "4a309c139de51a21b8b6852a30b6e9a4ca50a237c877b794d793502ea6019971",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "cb4dac588b59a0e6a14276f84a6c0bacd1496bcb1cd305e5d763999531ff316c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "01a87169d1880dd47095c56c5c1e5512be977291637f458cfcd1c3fdfc104ad0",
+      "renderedHash": "ba7c6285cb268902b73921bb9c6548d73b44817693747938a4cc38e7fcb5ce48",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -773,7 +773,7 @@
       "installation": "ed227585d6febcfc",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "482e42779245e7d3847bca4bcc67eafa1adeda5c0450b6512abf63e027d62670",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -801,7 +801,7 @@
       "installation": "b7d4186d263f478a",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "60462aa4e78b4800c00f9f12a307882f48f0e6dd367da31e71815fbb2b4ed340",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -825,7 +825,7 @@
       "installation": "4520326054a9a9e1",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "60462aa4e78b4800c00f9f12a307882f48f0e6dd367da31e71815fbb2b4ed340",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -848,13 +848,13 @@
     "agent:legal:copilot": {
       "installation": "58b19b35aaadbf16",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b28c50f8be63310e4e39098fc58d7cac5ec5159362f92d879f69f778f3acf9f7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0948f6be4c9d550fd7d377065f12dd7000c47ad33c9e082b03e5d45c7a195e57",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "51c7efa5f5f484a177ebd76ec300d4ae7f51b0903c98a9dea679c9339db3d70d",
+      "renderedHash": "43dcda9bf9ca043d07c4745daadffcdc67e159b92bec027c34b7b5bd43340678",
       "enabled": true,
       "upstreamSkills": [
         "jarvis"
@@ -873,7 +873,7 @@
       "installation": "90092b1ee961e85b",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "60462aa4e78b4800c00f9f12a307882f48f0e6dd367da31e71815fbb2b4ed340",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -896,8 +896,8 @@
     "agent:maintainer:claude": {
       "installation": "b6d6136fa805c30b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "c0629ed3410448f8b403a6ec4288f13c88df894cbe9aa8876891c96ea3014d98",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "2667f0e975bc4530238e16cda6487165b7b58b78c77e1a9a4169e373624df3a5",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -927,7 +927,7 @@
       "installation": "1fa95fb731b1b8e2",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "a4a5f58cdb6b6fb4c3012261a0c823c826979070ea628ca331fc2c4fff03dd33",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -956,13 +956,13 @@
     "agent:maintainer:copilot": {
       "installation": "afb68906ef11dc05",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "43b875b2537eb50b9f689d21c44d9cb81d748e981feaa8508aa529972eb27cc9",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "2e1f479aac80b6c13074e16beb21eb7941ebe347fb0dddca0c90ea592a5676bb",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f3fc21712b05b394435dd55c5ab19ddb6aa3064feba1b9d9993cb57edf9ebaee",
+      "renderedHash": "d4b32c388b03c975f7bc3bc95228ff0441d4a0bc02c2f6f6ab1a5ee8d1fa1c93",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -986,8 +986,8 @@
     "agent:maintainer:pi": {
       "installation": "6fddf2cf56c2b39e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b6862ef2349cf5df66f1b12f11d3c7ee4bea16dadda35e02381a81515a781739",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "3fc99d8ed531132bcb16a8c29b46f44fde90bede635461fa57812c13953fe67e",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1017,7 +1017,7 @@
       "installation": "f03304e3eb53e571",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4994e2ef8f05b3690d3d8a255a31b5d0de9930d3ed0af65ba6ad9ca4013fd4b6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1041,7 +1041,7 @@
       "installation": "cef379095bf77dc8",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4994e2ef8f05b3690d3d8a255a31b5d0de9930d3ed0af65ba6ad9ca4013fd4b6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1064,13 +1064,13 @@
     "agent:operator:copilot": {
       "installation": "9ff78141384c98a7",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "041e4ad185715a87012eba2fef7bdbd9b9d15bb9592e1304e2f161804ac81a41",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "11c8109184a2724d3da1a643bdd889f7dfbf5cfe25e56ea8824549bb6e74ec73",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "11c80e8fc4f836fa5d86795fa392cfbdf6df42e70470da2c6553cc2d124989c0",
+      "renderedHash": "6fe2354b90ec88f4978bc4f5d4fa4956a566f326e6a7c4403465c354944bcafb",
       "enabled": true,
       "upstreamSkills": [
         "jarvis"
@@ -1089,7 +1089,7 @@
       "installation": "b2af91aa75ffdfd0",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4994e2ef8f05b3690d3d8a255a31b5d0de9930d3ed0af65ba6ad9ca4013fd4b6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1112,8 +1112,8 @@
     "agent:planner:claude": {
       "installation": "201271fffd892a45",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "522d78b0f34dd1c49cc89db9c938c9ab1f9be47765c35d76d3f6e8fd5b8caa3b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "2e30dbc123a20507b9a08c87206bf0d5ba8a3694403d89f533d88e737b6af44b",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1136,8 +1136,8 @@
     "agent:planner:codex": {
       "installation": "0a8a37a09c1cbf7c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2b7a3676adc086eabcf92d607f7e16d29c9d3b971a911499a49cc8485a78bcc2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "46c8dce52cde10c438017517e23b27bba8f0ef7d7a218dad7b4a81ec54037e74",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1160,13 +1160,13 @@
     "agent:planner:copilot": {
       "installation": "0d2610d57f1e50d3",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "80733fc9733e2a8b3497a577ef0180fcbbcdef882fb1749b064dc5f8a21cd280",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c74e31fa0948536a3f52cda055cb4e584f56e03ba75af98b80774ef4af2ffc9a",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c7b129d8316271874ad7c91384e9bc0fc73ab357a0cf19ff64ca773fa6605a46",
+      "renderedHash": "b811368133e1b4574b37ccc9486ea469a25efe4d575d77d4d2c5e8f9183ff710",
       "enabled": true,
       "upstreamSkills": [
         "github",
@@ -1184,8 +1184,8 @@
     "agent:planner:pi": {
       "installation": "e3dd95f53cfaf724",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "322730e3ebff99ed31a605264dd328b424085c5914ec98b7b2564ecc7c3e3e03",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "da88c46f607bb2c9724c1d12b112921b068c646ba79faa68355830bf870a5060",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1209,7 +1209,7 @@
       "installation": "128f1c23e9660270",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "5fcb48d095d4d2489449f756c000034fc5f8e40e0311de02ed0003565652671a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1235,7 +1235,7 @@
       "installation": "d81a19285e0b80b7",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "5fcb48d095d4d2489449f756c000034fc5f8e40e0311de02ed0003565652671a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1260,13 +1260,13 @@
     "agent:publicist:copilot": {
       "installation": "4cc279ff8d9c2300",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "02a8df5253ac2d8f04140c7dd8fff465200402f96b5c95ba07dc5ed0ad222616",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "29e2cdec9352a8def7ced87271452915b337633fd3804725140a2dedf9bebfa1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d20691dd97c9164498a33ceb0e910f5182e2bed7a7ec95b39ead0a6c9af67a96",
+      "renderedHash": "8e4d65a30552bc98b985fd8ff2cb535c867dc2543b0c6b0bb8df2ac6dbe71e8e",
       "enabled": true,
       "upstreamSkills": [
         "jarvis",
@@ -1287,7 +1287,7 @@
       "installation": "0a5213445d616ab5",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "5fcb48d095d4d2489449f756c000034fc5f8e40e0311de02ed0003565652671a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1312,8 +1312,8 @@
     "agent:researcher:claude": {
       "installation": "7c1363c1b466994f",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "96ffd7b6d788dc69de0de76fb703a4858e8bb84e2e37a20fc0c4de2c9695796a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dc6a2e6e3bfceda830a9a1508c72ed22da33ec8ee0b3dcef70f524654eb2071a",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1339,8 +1339,8 @@
     "agent:researcher:codex": {
       "installation": "ab42fc483ca0e7c6",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2da06057db63d2efb56b3cc1cf959e94c8e21a94045eb6a07aceaabb7262fa4f",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "877f84026155301a07f4e1ba5d00f93cde1e9707fdd055e13e179c3c132770bd",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1366,13 +1366,13 @@
     "agent:researcher:copilot": {
       "installation": "4bdc82f79e050111",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "c0c890aedb28e44f533b0e2ec2cdd6aa4b525318bf786dfb3cc97b626bac67a6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "182ddc20432f50a29a43f6060cfa9e4b224d2849e6d96ed89d59b5c2f758cff9",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c697ce314e066ebd4c36db87d74ca88ee2936dcb331787f14b867e6bac8af870",
+      "renderedHash": "2bf908a79224760164b8a638e452a6d0734e95c5af1a25ac12ef77a9506c7b3a",
       "enabled": true,
       "upstreamSkills": [
         "decider",
@@ -1393,8 +1393,8 @@
     "agent:researcher:pi": {
       "installation": "c2e41fdb2ef083a2",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "e7df1a6dffcf963adb8c201e76dccf3804ffb1ce192c81d4e80c26ed6b538b66",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "63cbe983f0519eafe86dec64ea48f290beca1ffe983535ee5238d8174bd40b26",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1420,13 +1420,13 @@
     "agent:reviewer-arch:claude": {
       "installation": "bfc5e12a68932a73",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "40b0bac38b651484feea4ff02ae6b8c358e5ab4a18851783c5120c0ac6bc70f4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "1b33608ff6e60dd9c50f8a424f45634e6e6037eddc159725b72d37ebe318d397",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "ce3fa761f76ca8bbf7cce54e1b06748033d46dbe13438047793d390b24921caa",
+      "renderedHash": "9de97b25029f3906a412de5c43688e4c4c3d0272c680b39ee82916633b67d1c9",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1445,13 +1445,13 @@
     "agent:reviewer-arch:codex": {
       "installation": "f375e179c7409eca",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "dbc1f02f89510c8a1df989708cbaf7f474c9c392af9d55ab87c35aa5e291f4a9",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "1fb9087185fb4ad61b8c856177f86dcad05a156f80f8f2f1893d5539615faa71",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e209705422d4e08d60a5b5a0b59df053c387fdf06398cc757ee6ce65d3bd0bc4",
+      "renderedHash": "a686633b0a0120bd3af29691a475e8a20227e697b0e1a2e1fea9e3d10edecd32",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1470,13 +1470,13 @@
     "agent:reviewer-arch:copilot": {
       "installation": "6cd7afe0d74eab4d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "23264490b77ecfa501986c0f2135ca6b331d80c12cf365c5b179b062f80fbaa7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c08a79c39fa3ac75d28f0f3fc72acf3d375ace116f1962a99b05287b47491fb2",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "53a274ebaa02b40ed6cc5e2c2ca88862350a8b4b450c8676d568745ca1edb520",
+      "renderedHash": "8690797c103dad29c4783ec040532195e238c9773bf44fa6ece31d6c4f5a08b9",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1495,13 +1495,13 @@
     "agent:reviewer-arch:pi": {
       "installation": "970301c1159aa286",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "830a13fb117499e048beb77a586d730800b31ca693b625d45d9295a02e4a6fd0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dd37af9fa09cb120b70e954ca3a418e637201395ecc83e77f77836faeccedb6d",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "2d7274bc7c8236d2a8182164a0a4cb182471062045414cd0d08ceea8d7a60033",
+      "renderedHash": "f937b92b505b48a40c1c4d6c922da357b3a5166a4b137d116c02f722fadf36f4",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1520,13 +1520,13 @@
     "agent:reviewer-correctness:claude": {
       "installation": "730e0122b392fb8c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a289abd4b4149cd5fd0d29968009b88b82c7403fe7118527698d0a51fa27dc23",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "821364403cdf1b285bb89e0d48a4e8cae17450f6d93cca94f3b0f01c7cfa194b",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "8550073f52233ed37ba967f481557b60b99b8dbffc086dc247620b58c4e931fa",
+      "renderedHash": "7013b28588eafe42ad38b0fda1683ff9f2f0aabd8d6bd5998baf73907528fbed",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1544,13 +1544,13 @@
     "agent:reviewer-correctness:codex": {
       "installation": "00b71eafed0c54d3",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "d77b4eae633ac80d712eecf12dc1d350ffe1bba422040b352eef27cc6dcadcfa",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4331eb66bd97683a844b69ebd3724ea6a78a1408f6b7042e3a4e69b62152f462",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "992653174228880ab8dfa982a57b6df05b5d05af0865296c837c5a823650bcfc",
+      "renderedHash": "67cc2ae7b0af2f30f8f7618dd4ccea1d3e30dcd10edb0ec5bdae00abe8484df5",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1568,13 +1568,13 @@
     "agent:reviewer-correctness:copilot": {
       "installation": "06da83535d4f94a4",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f8f1ec1d7ff7c37dad97cca501cf6d6223398d52a5b8598d56eee461234c45c8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8335b566e0f69aedff4bc99d5dda7054dffd79aba15f49b063da28dbfd480142",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "eb4ff2a8b8bdacf2a8e65606fd6c823498027220c2684b2fa9082d4440316277",
+      "renderedHash": "a1ac94def7573b5f73ca7c9a91577ceeb8318232a78d24b928256694cb1a3113",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1592,13 +1592,13 @@
     "agent:reviewer-correctness:pi": {
       "installation": "fbb37f21a8617df1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "892e75b9f850bf47fdfe2efaed6b5bc243575bf0989cede4d767cb080544b1ac",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b05df3cd60091a3a1366ed81c0cc9910794ee7c4c7da0d2e6735cd2b02f74e5e",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bedf40dfd903d5c70474b065e6bd3f4642a32582faa1383653afa1f806f5e530",
+      "renderedHash": "a3d46cb7d4820e644f3b686d078f45f6b5574a424abcd5a6d3a8b15eac0f3520",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1616,8 +1616,8 @@
     "agent:reviewer-doc:claude": {
       "installation": "ea6b53f6006ca41d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b702ab06958a119100830ccd4ed8e54ea4ab5472b4a27f1bcacb3029d52fe6d4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "2bcaab5d79d8fa1c412c27d11b2fed4c2950ca5f8a3135b2d52422a93260020a",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1639,8 +1639,8 @@
     "agent:reviewer-doc:codex": {
       "installation": "87ddc8d2ec63d354",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "045968851f34a7dcf21e66e2c3e5316a7231e938c787ec3f9ae8454758a600e3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5ca318a4ae1192ba04f3cfb199c81ce31d2f7f1fd986c710431d950a376f7a6d",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1662,13 +1662,13 @@
     "agent:reviewer-doc:copilot": {
       "installation": "20f2f86df9f4738b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "7e37516a35cb65e39d029a67e654f4b6b0cd6e7afc856ba25bf201c0e8e8ce77",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "a8dc6382169d0b4525f57f2112b4758bac602d94681d2f6495c2fe3bc3b84fe1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "84ef5b25e0b0c8a4b671a8b680f3b584faf64d2433a2cbf64dc06eb20682c13a",
+      "renderedHash": "27758ece56ae14cc7c074cb6835a271c9a05cf3032233963db237b40af00dea1",
       "enabled": true,
       "upstreamSkills": [
         "reviewer"
@@ -1685,8 +1685,8 @@
     "agent:reviewer-doc:pi": {
       "installation": "6ae35b7cf1e0ca7c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2cd3456e837e9d7b764ed9f054fee7feabeb0778b24aafa54c562b1065de6601",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "3fef422b7416170005c37645b5be980b0bd2693da76d3981b301ae60762c3864",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1708,13 +1708,13 @@
     "agent:reviewer-error:claude": {
       "installation": "2b5fa5cd108dbc45",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2ae6e45086dc39a022eaf0652c20ce1355f4bc8dffb5f7adda13718c64930eb9",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "848e329f7ac43a3e997331c169311df68a47afb7e0e79960a2d020bc17134ec0",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "97323fdd2a7071e7cc61898f79d750f26fcc05203ce65134c7533623ef434c81",
+      "renderedHash": "4ac6f947b7ebdfc5f2c6e426846bb7a90b394d26eacab6fdb912da47c7427b30",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1732,13 +1732,13 @@
     "agent:reviewer-error:codex": {
       "installation": "cf067b6cb448e57c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "79a865ea71a8320b893fd5c949283086d38edb741fc0bb4fe8d29a02fefdacc7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5b89e64a5532a0e1f0d3549a96120c5aca552d7ff1698c2c5debb2e79ea144a4",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c8c485080929e640b712aeb63279a32fd1511067aa5346d3fdc8b60437c3eaf0",
+      "renderedHash": "9f3cb7668c8e9562b11a2a69b60d469c614934da69ac6fa1c29c9bc12b29d061",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1756,13 +1756,13 @@
     "agent:reviewer-error:copilot": {
       "installation": "45e7164ccfe266d3",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "890d7e961f80982b5dcc8990684bf6d6307390dd639e3a75ec90c53be990fa85",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "aa959a43d16197a07ae1b79903a29d19f52ada59394b8177d0d09a7c65b5fec7",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e73c36aab12811fe6f0a3bdeeb35583454bb4e6a29d83e7238475f3dee80c1a8",
+      "renderedHash": "0dbb40a816d1d865a4bf0fb94383cd4280ce795e6e4a08a1dcbf59a3a57b91b7",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1780,13 +1780,13 @@
     "agent:reviewer-error:pi": {
       "installation": "3f964a54c7476924",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "91d4138f1c7f1799d71b3e4195741d8c773c0838d3edcc2174efac252835d404",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "591a7bbad560d61bc97bf8dbb6b5289bfa5ee93e3f7139b27eb1cb163ed10581",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "733a5a0c8f19bc7d5470c3a8475540ca221acf65866ffcb248da533106279ebd",
+      "renderedHash": "b22623871df4de14ea0ca17a4006132a03352bc42a158f4d946abb7f185e3037",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1804,8 +1804,8 @@
     "agent:reviewer-perf:claude": {
       "installation": "28d6f15a1f1e9a2e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "82469bbe515eff13b7027d81e9c82dd6221b35989d18342dea1abec610df7832",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "6b8917e337dd2712f00064418fc01198177d0bf0c5bc938c560b54176fecdbbd",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1827,8 +1827,8 @@
     "agent:reviewer-perf:codex": {
       "installation": "c8229d2f1e135e35",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "c2d06584b81915ecb3969ec662940a132992b8d5eb32a77017b9f155b7fb9c92",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c61aa8892f34bdb36b2253065c00e4da297c9142ad1c87615038ac99c8e97b1c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1850,13 +1850,13 @@
     "agent:reviewer-perf:copilot": {
       "installation": "f2a44d7fb4bd0882",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "796de00a67bd6aa4c6f53e133bf2a2554edca57a6f9b8d670c464d4445c559af",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "92c0891128c9bbf40ab3cda2d8b402b2cbaa8b7c63711422bb4f3fbde419dee4",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a9b52822ac0dbcad76178be59e07c72f9adbccd24cad4d37a680c53a8b2231c7",
+      "renderedHash": "4f8522c3d4b3ee406d0ebc4dde625ec04f9ed02d3c4bb52ecde93e62b03ce510",
       "enabled": true,
       "upstreamSkills": [
         "reviewer"
@@ -1873,8 +1873,8 @@
     "agent:reviewer-perf:pi": {
       "installation": "1a6b3fa8a01d188f",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f36c496968e47814a9ac6fbcd0b4aa9aa3decf0887593c4be14466c861b2a637",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4af5cab899776d4379b587f18276b428ac2e486a8f5e6bcd341f3ab453770108",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -1896,13 +1896,13 @@
     "agent:reviewer-quality:claude": {
       "installation": "bd6d898f7a76d478",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "da2806880a181afa184e276ce8c8919d6cf20414094a692c791aaaf0ccb064f5",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "9bee7dd9ecb5f5eeb4fe04f6016e7ee64b20d74cbb8f89072ca366087bc68e57",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "82004f0e686dd64ae563663be1ac7df7e5be7995e0d25c438a9189701813d368",
+      "renderedHash": "9d4002d5be56dff47a961dbf7e0b2a20c67d1b8616311e7b4805b01b1f786ccc",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1920,13 +1920,13 @@
     "agent:reviewer-quality:codex": {
       "installation": "8554fbef09d8ddbf",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2f2d663f46e0de578e6f827dcb9d52fd5d2da31b573375950e2b9b63c1c24e7b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8aeeb54d1844b9c6f04c32e418abe1ed32cc07900d219456f9cb14a3716f8014",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "994768b71cb86b4bce56381360866cba865a9f903e80247a120edea52f479a93",
+      "renderedHash": "9aca3c7fd83f8195478fb496865ff37415242bd4e27458b726866693b331a89d",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1944,13 +1944,13 @@
     "agent:reviewer-quality:copilot": {
       "installation": "981c6d772be11268",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ee6d5a3dd0e3421d992cad528de3ec68b5aaad8cdb69e6ce622a318e52b58e5",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "6ef92c46c1ae06ab339a558e90f33ca8525313a5ff7e35a06d650af0fa0e7c39",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "9a920314354c18af54a2968c8d5f9ebb441e13868dba06020d960fc24667139b",
+      "renderedHash": "f1577dc3b681d87592a8cf07fcc8fa86f47357b36ea4f78bf24f1474131bdf67",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1968,13 +1968,13 @@
     "agent:reviewer-quality:pi": {
       "installation": "88d79431f300475d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "2b20e9aa49dfdcd5c4381aa656c901fe42d1db7260442fd482fcf404396dfc26",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "d8787e433bc4c839eba3f05af36e5fa198d092c94ec2fcfe8dff25a04d2546b5",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "7afcf937d31d190b60f9638857b09931ba7842dcc24928a1b79cd4fbece1e681",
+      "renderedHash": "efc3025ddd746cde7578480e472e823bcaa549bce343e6d67329cc49328fd72e",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -1992,8 +1992,8 @@
     "agent:reviewer-safety:claude": {
       "installation": "73fc049f1e1a0fd1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ee6c12461b75fd31adf2225ce8fbcaa743d75a7b1f8417367e2c029f6e549876",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f612a0e82c292b3d51a190d536ee9ff0ff73a557d1dacd25c8095fbad000091e",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2015,8 +2015,8 @@
     "agent:reviewer-safety:codex": {
       "installation": "1933748c72fbbc28",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "e1aa737638ad237a82d75b98cfa1e29a0750131293ddefe1527d2c9803562b01",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8507e449ab5caf520706a38e7367e4eb0a92aca51ea8e6d334de823aafca2339",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2038,13 +2038,13 @@
     "agent:reviewer-safety:copilot": {
       "installation": "0db201c336fcb407",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1b0fe042b016c522a60dc708bc48960b77caf4b283a16a4a7a043a69ecc4eeaf",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b821bb683d37323b81aef4da4013adf3bccdd99739676ec394dfba6708074ae1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "040aadf09cd1d48da23c3bf0e631ae817a6fcee0555039871eeb3851c75867c3",
+      "renderedHash": "025512b13ed6610b2b20b08b7572c7b808e003850129d5394094b5955df22792",
       "enabled": true,
       "upstreamSkills": [
         "reviewer"
@@ -2061,8 +2061,8 @@
     "agent:reviewer-safety:pi": {
       "installation": "aae746a2f9a95730",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "0fd71eec4e2d8a0fadb1f26c4cccb8bb6b28ffb2e86a3664c3fa4107d797cd98",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "2ac1fa8b227814b9137bdd2a435e7bad80633c89b98d3bc5560823f5a40469b4",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2084,8 +2084,8 @@
     "agent:reviewer-security:claude": {
       "installation": "bbbfe1871e926a7d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "984671160eb5a412e071f7e01342dff2e0b5adb9ac597d1e6c771eef9640f1e5",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "be3cd7918099c277631c44990c6bf28b3898e3a262e02838b467797c7b75296c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2107,8 +2107,8 @@
     "agent:reviewer-security:codex": {
       "installation": "161901f6dde097b4",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b7627a25df4e39360a068c7704d5c8d01f705147983dc8b5fa10675b40c820b2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c329e3785a89ec617187041cf92024b981eb8ffd7ec6f996fa8cae191e61396d",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2130,13 +2130,13 @@
     "agent:reviewer-security:copilot": {
       "installation": "e0e6e14ad118a96b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ab117a8e089e68dc14245d8cf272867723ad951b231511856b119326d14cab04",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "82593e3a5c5cb6c0da6f4410cde8d41867f50b21e795e983c0f2ee145ee29448",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f5ee7e8af962fcf18e14de6b59079c4ee93942f516d80055873f332bcc61df1c",
+      "renderedHash": "fd7bd4a7df9d6c9fa7af71040127216fd3e24b3b3eaa72a817849202c76295ac",
       "enabled": true,
       "upstreamSkills": [
         "reviewer"
@@ -2153,8 +2153,8 @@
     "agent:reviewer-security:pi": {
       "installation": "2fb06d51d85a5ddc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "cb20339a3f28b2559f4dc28e11b699541e5be6d9945cd75f360480ac752f9411",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "908b6fedea235cf525be845b6b47b4952f0d16b8feec07d50339681e0f08a9c8",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2176,13 +2176,13 @@
     "agent:reviewer-test:claude": {
       "installation": "9d7b56013e777d8b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "347361b22e935913fccb94002994e5b30f3fb78e0603123d0a6f9a59f7218b6c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4863762a982e3db73397ea6404617788aada6052fbc757292562d25e90edb638",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "0da5e35ddfcde2d5c51c72d5afd25fb168f68b5b67e86917767c72cb4f5f4d4d",
+      "renderedHash": "cc23cebf982fbd889f868754d7a7505f34263835fe2224069b5980f8d3a39b17",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2200,13 +2200,13 @@
     "agent:reviewer-test:codex": {
       "installation": "907bc98162e2d462",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a8b17680b0ddc822251b4c79ac7946bab54279056100e1812f2df758b13587b7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "1d194d7ed22319aad32a7c4b31a779bca0f1dc9b35edbada9c1aed03f2b60f6f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "3d8ef1a497d09e10acd9a4805b7cf09423af245ae5fd3421de55debd20c32cea",
+      "renderedHash": "c877c4662319dfcf60d5bda278fdf4c63a5c7e8cab473c589ed33fd227148509",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2224,13 +2224,13 @@
     "agent:reviewer-test:copilot": {
       "installation": "0c4126699251c385",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "41accbb279d7b6696c93daf951d7f204fbd1d559c77a2458dff34b53e8a14cdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "27cfd4416070a9e07b157347fbf02171a490043df10538589707536fe03fd78b",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "fd8a4af75ff77657b99037f623f285a343fe61c7be7984469227f7a4eeb82f4b",
+      "renderedHash": "931ea065c48127680407fd02d215264639abc4cb79c5b7a0ab6e668f58303cdd",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2248,13 +2248,13 @@
     "agent:reviewer-test:pi": {
       "installation": "eef1c58b13a0061e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "575bd21771b8f2ee317c5620f239987414dac34a7ff4eff056ee6cd46c561661",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "e734c4eca1191a6eb7287cc49ee3e1adeb9f02498d496db159b8f793100e3e33",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "6b0a96b6c9e0e8c77775d58570520b18d3e3afb89967dde0e2b606271d4e7dfd",
+      "renderedHash": "789579a3675314c2901b335566feed665d98178fc2fe987ea269cc11b8cbe8fb",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2272,13 +2272,13 @@
     "agent:runtime:claude": {
       "installation": "649028c6934fbaed",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5dc01d187b19a54b50ac2a093b60fbaaded7c4cb953e8236acc58690d420448b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ceae0b5803bbcbeda7c47a303e7bfe37ce1f01d9161257c67431a0ba1ac2f9c3",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d2d45f0edd56953ccbbda2460fad35d610d54ab13b7417b3e49b2201cad58c31",
+      "renderedHash": "b8e8b1051f952547fdab9821e7321ecc8751cd29641f6fdb749756f13683de49",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2300,13 +2300,13 @@
     "agent:runtime:codex": {
       "installation": "70d44a8aa11d7904",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5dc01d187b19a54b50ac2a093b60fbaaded7c4cb953e8236acc58690d420448b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ceae0b5803bbcbeda7c47a303e7bfe37ce1f01d9161257c67431a0ba1ac2f9c3",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "89718f1ccb9f9f1f250710f0b94d9c87b13689acc23c232ec160a1bd07ec2691",
+      "renderedHash": "0443a94a8a6affd625db442146528f8002ff596f2d993f93b99537c0b48893db",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2328,13 +2328,13 @@
     "agent:runtime:copilot": {
       "installation": "a7af30ec44fc0c9b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "fcdd46e43db44b6f21ab06cb60778d17181810d3b4c85ca796c849eb7b1fec31",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f9ab98056a0ecad2b1619efb967e1a48dcd7361e42bdc1da932b0cb63ef5f578",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "dbbbdb750b98781a9e53670f393f272e692e66336b8d99941c02e4e73a7b63b2",
+      "renderedHash": "afccbdcb14852688f3a993a67b0a000bfa7bbc7b2fc7c41d7d2cc5e314b0d73a",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2356,13 +2356,13 @@
     "agent:runtime:pi": {
       "installation": "da44cb27b821548c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5dc01d187b19a54b50ac2a093b60fbaaded7c4cb953e8236acc58690d420448b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ceae0b5803bbcbeda7c47a303e7bfe37ce1f01d9161257c67431a0ba1ac2f9c3",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a1d2548c5ca277021c0feee46963689da9aa1381bcfc1fd8442c55e937cdb6a1",
+      "renderedHash": "ac57d9c929863509bcb3c66dc20acba2c3183f4bb93ad2941a751565f6422f32",
       "enabled": true,
       "upstreamSkills": [
         "code-quality",
@@ -2384,8 +2384,8 @@
     "agent:scout:claude": {
       "installation": "4e8c6185a69933c3",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "4513a88a3c9513b7937de4c69c0ed09e31c4d9af856842b988a437caa32c0bb4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f14728d26cad71af4fa826ad8ebec5e5d162a23548db6599d17ba1f721111739",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2409,8 +2409,8 @@
     "agent:scout:codex": {
       "installation": "84663cf02149767a",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1a9764fe6d7e73a6a3ca23a919f24458de87d7fbb0d2d3b4f0d73308fb76fcdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4e4283a4cd6ba4f20cc92dfc397b52e8f658285d1345d2475419f10a6c7fd9a8",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2434,13 +2434,13 @@
     "agent:scout:copilot": {
       "installation": "1b2fa79bf09eba9d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "0ca01f35300f8feea2b495110b48c296725a9fff7223b787517465a90d17c4b0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "1f408708aab3d8418dd6858f26dbe681da5691213b4c9d7b4cd8be26da03eaec",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e6e71aefc615252b6a343c431bbdc28e0f351e509e95306b214704790960577b",
+      "renderedHash": "7a75e6b3d88d5933dbcb4c9d8a4c143bd2b1aca01fb0e01c7fe4325fca9bc9f8",
       "enabled": true,
       "upstreamSkills": [
         "github",
@@ -2459,8 +2459,8 @@
     "agent:scout:pi": {
       "installation": "f2107938bb9ac356",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "23ac40692a6da0dd1bdebf20f7b72f5bbee4ce79f73b113bb8603a21c1cb64c5",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "eb2f44f5c53a103aa114676268dab8f9f257a4cd19eeb9c2d454bd80fa2a2e66",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2485,7 +2485,7 @@
       "installation": "4710760e2e95b434",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2d24dad709ba8c4678d716d5b58730d3b30621cece2cc57333a0663d88eddeb1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2512,7 +2512,7 @@
       "installation": "b2800d644c0ac87b",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2d24dad709ba8c4678d716d5b58730d3b30621cece2cc57333a0663d88eddeb1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2538,13 +2538,13 @@
     "agent:tpm:copilot": {
       "installation": "8580143bb1f791ac",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8233c95228e666f88f14487d032fcfb5b429505f3940a4c4ca6a6e1841a442b2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "a760e485ae231f46330b091de8d7de429403b29e2d5c141d8ede6789dbbe2483",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "b907cc130306dac18b2bc257e37e10f1c27783322fbc02a889d1f35bc9692af0",
+      "renderedHash": "62abf9b151c7afe0ec34baec4d2858b7962b1a26bad415e7df7b72f1987f24c7",
       "enabled": true,
       "upstreamSkills": [
         "decider",
@@ -2566,7 +2566,7 @@
       "installation": "1a2ec87f797efe59",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2d24dad709ba8c4678d716d5b58730d3b30621cece2cc57333a0663d88eddeb1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2593,7 +2593,7 @@
       "installation": "05af969f2a9dc164",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2f87f11e752018f2761c2469d7200536a6ed019893cdef3d894c04f6b36987d3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2618,7 +2618,7 @@
       "installation": "e7a7739a5f25ac0b",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2f87f11e752018f2761c2469d7200536a6ed019893cdef3d894c04f6b36987d3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2643,7 +2643,7 @@
       "installation": "c10779cdb35518dc",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2f87f11e752018f2761c2469d7200536a6ed019893cdef3d894c04f6b36987d3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2668,7 +2668,7 @@
       "installation": "06fcd6ac79aa7f49",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "2f87f11e752018f2761c2469d7200536a6ed019893cdef3d894c04f6b36987d3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2693,7 +2693,7 @@
       "installation": "adcc0475793c88b3",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b03fcc00947bd14fdeca808b20a49ab01be0456601f2a7311ffa1524db9c39cb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2718,7 +2718,7 @@
       "installation": "a134b57dc2c4fe8d",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b03fcc00947bd14fdeca808b20a49ab01be0456601f2a7311ffa1524db9c39cb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2743,7 +2743,7 @@
       "installation": "ca26468fbb0f1611",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "056014489bdf17897fb9de308ecc1ea22c3ffdf83c3894382b08f0e94b2dbcdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2768,7 +2768,7 @@
       "installation": "57f020f751699768",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "056014489bdf17897fb9de308ecc1ea22c3ffdf83c3894382b08f0e94b2dbcdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2793,7 +2793,7 @@
       "installation": "aa77561103223947",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "056014489bdf17897fb9de308ecc1ea22c3ffdf83c3894382b08f0e94b2dbcdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2818,7 +2818,7 @@
       "installation": "ea174c8bbd957b70",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "056014489bdf17897fb9de308ecc1ea22c3ffdf83c3894382b08f0e94b2dbcdb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2843,7 +2843,7 @@
       "installation": "439e18ab7db06bcb",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8ccd3dfb4de22a284ac29aa19a4b200dd2d2dcf999aae41e40c4edc276f75c7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2868,7 +2868,7 @@
       "installation": "1cb6831b4839eca2",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8ccd3dfb4de22a284ac29aa19a4b200dd2d2dcf999aae41e40c4edc276f75c7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2893,7 +2893,7 @@
       "installation": "9ce74fdc8f2c7cc5",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8ccd3dfb4de22a284ac29aa19a4b200dd2d2dcf999aae41e40c4edc276f75c7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2918,7 +2918,7 @@
       "installation": "e7e909a1c3222d5e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8ccd3dfb4de22a284ac29aa19a4b200dd2d2dcf999aae41e40c4edc276f75c7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -2942,13 +2942,13 @@
     "hook:command-safety:claude": {
       "installation": "912f19bf5430f975",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "dd2e7405c3005d07d9b60be305d0cf235917116103df1191ea2efbd2b0accfa3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6bb666a5dd951984605b3b21430f60ede92d219b451e662ee7904cb158cdc6f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "8bdd52f2a141c3afab2a131eea26d1fef7782cf0b73f5a93eee4c7a01d31d0ad",
+      "renderedHash": "c97f9a10081635a5f082a8879d179808158124643caa1cfcb0da12d719256835",
       "enabled": true,
       "emitted": {
         "kind": "hook",
@@ -2968,13 +2968,13 @@
     "hook:command-safety:codex": {
       "installation": "5af272161def9bcc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "dd2e7405c3005d07d9b60be305d0cf235917116103df1191ea2efbd2b0accfa3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6bb666a5dd951984605b3b21430f60ede92d219b451e662ee7904cb158cdc6f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "8bdd52f2a141c3afab2a131eea26d1fef7782cf0b73f5a93eee4c7a01d31d0ad",
+      "renderedHash": "c97f9a10081635a5f082a8879d179808158124643caa1cfcb0da12d719256835",
       "enabled": true,
       "emitted": {
         "kind": "hook",
@@ -2994,13 +2994,13 @@
     "hook:command-safety:copilot": {
       "installation": "82872209234ad4c3",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "dd2e7405c3005d07d9b60be305d0cf235917116103df1191ea2efbd2b0accfa3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6bb666a5dd951984605b3b21430f60ede92d219b451e662ee7904cb158cdc6f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "8bdd52f2a141c3afab2a131eea26d1fef7782cf0b73f5a93eee4c7a01d31d0ad",
+      "renderedHash": "c97f9a10081635a5f082a8879d179808158124643caa1cfcb0da12d719256835",
       "enabled": true,
       "emitted": {
         "kind": "hook",
@@ -3020,13 +3020,13 @@
     "hook:command-safety:pi": {
       "installation": "f05aae69fcd55954",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "dd2e7405c3005d07d9b60be305d0cf235917116103df1191ea2efbd2b0accfa3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6bb666a5dd951984605b3b21430f60ede92d219b451e662ee7904cb158cdc6f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "8bdd52f2a141c3afab2a131eea26d1fef7782cf0b73f5a93eee4c7a01d31d0ad",
+      "renderedHash": "c97f9a10081635a5f082a8879d179808158124643caa1cfcb0da12d719256835",
       "enabled": true,
       "emitted": {
         "kind": "hook",
@@ -3047,7 +3047,7 @@
       "installation": "8c243ea9c90ddc6f",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "9246462997cb2e9e8166226f651f7598ea6c81bd0e025f9861e7366ffca2d699",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3073,7 +3073,7 @@
       "installation": "fcaff6a23d7f55fa",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "158045e0bc3594e6b18d6cb77032b9ef98aad34cee1b35a0f556684c76a09fc9",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3098,7 +3098,7 @@
       "installation": "1309182bdda05271",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "158045e0bc3594e6b18d6cb77032b9ef98aad34cee1b35a0f556684c76a09fc9",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3123,7 +3123,7 @@
       "installation": "a8827aec2ea66915",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "74f05162aae46b1010cf941701dc7ed05d2866543f469fc6bbd19da3b1e390c8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3149,7 +3149,7 @@
       "installation": "19a9b00ce1737874",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b9bef7a059260bc72f4e1994cf6160602ff85874df2505dea49219bec792e100",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3175,7 +3175,7 @@
       "installation": "21f1dd3cc47efdbb",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b9bef7a059260bc72f4e1994cf6160602ff85874df2505dea49219bec792e100",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3201,7 +3201,7 @@
       "installation": "7338a7a42a95f299",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b9bef7a059260bc72f4e1994cf6160602ff85874df2505dea49219bec792e100",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3227,7 +3227,7 @@
       "installation": "ec63a261b1588f0e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "11fa08ec1e907e5932db26850c5b2708fb167cee7ed22071584716f4e58175f7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3253,7 +3253,7 @@
       "installation": "7e351046bc60b315",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "11fa08ec1e907e5932db26850c5b2708fb167cee7ed22071584716f4e58175f7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3279,7 +3279,7 @@
       "installation": "e1570c6865879662",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "11fa08ec1e907e5932db26850c5b2708fb167cee7ed22071584716f4e58175f7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3305,7 +3305,7 @@
       "installation": "2b851caf6da969ef",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "11fa08ec1e907e5932db26850c5b2708fb167cee7ed22071584716f4e58175f7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3331,7 +3331,7 @@
       "installation": "73a5375ac6d24ceb",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "1bfbcb2c43e6fab13888956bdc98691ec72d4eadf293187f4867af817d60bdbe",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3356,7 +3356,7 @@
       "installation": "02f895721dc69e19",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7a99ebbd12769b351b8656699134c0f93d7ab06af43b4cb4ea8ac410fcaf64aa",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3382,7 +3382,7 @@
       "installation": "b0bac710f3649290",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7a99ebbd12769b351b8656699134c0f93d7ab06af43b4cb4ea8ac410fcaf64aa",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3408,7 +3408,7 @@
       "installation": "3417f1762ca6022f",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7a99ebbd12769b351b8656699134c0f93d7ab06af43b4cb4ea8ac410fcaf64aa",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3434,7 +3434,7 @@
       "installation": "195fc22ad23f4078",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7a99ebbd12769b351b8656699134c0f93d7ab06af43b4cb4ea8ac410fcaf64aa",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3460,7 +3460,7 @@
       "installation": "b564a05bbcec93e9",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4fa45a9fc7c4f7a5bb5ff5bb66e392460442ac8ed4ef14832d17832a2a4515eb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3486,7 +3486,7 @@
       "installation": "f1b822da168e5cc0",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4fa45a9fc7c4f7a5bb5ff5bb66e392460442ac8ed4ef14832d17832a2a4515eb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3512,7 +3512,7 @@
       "installation": "11732a96eb499bbf",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4fa45a9fc7c4f7a5bb5ff5bb66e392460442ac8ed4ef14832d17832a2a4515eb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3538,7 +3538,7 @@
       "installation": "ca5aca210acdc348",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4fa45a9fc7c4f7a5bb5ff5bb66e392460442ac8ed4ef14832d17832a2a4515eb",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3564,7 +3564,7 @@
       "installation": "30c6a05130a7c090",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "eef427b33e0fbbfbb8b807dd0986ffa66ce350033aac9bb23255988b03925024",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3590,7 +3590,7 @@
       "installation": "63d6aefb3d43ef3e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "b128f266b3d67697e7ac128f8aabc97b472a03cc7fe6f05e4fc9b145cc315442",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3615,7 +3615,7 @@
       "installation": "d276ad44d9a2564e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "c7905659a294ec88a2b38b9bfbf071d0160a45689ece954a0f9564e3c5791ba2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3641,7 +3641,7 @@
       "installation": "be86dba1193413eb",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "59a551ade6457eb572d3cec126050d66b0bc888f313d802a675ea69e6f8994db",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3666,7 +3666,7 @@
       "installation": "1d0bbe4845d2e442",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "59a551ade6457eb572d3cec126050d66b0bc888f313d802a675ea69e6f8994db",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3691,7 +3691,7 @@
       "installation": "f1587f8a02bc2665",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "59a551ade6457eb572d3cec126050d66b0bc888f313d802a675ea69e6f8994db",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3716,7 +3716,7 @@
       "installation": "111d7e528eb81afe",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "59a551ade6457eb572d3cec126050d66b0bc888f313d802a675ea69e6f8994db",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3741,7 +3741,7 @@
       "installation": "f16d2ecbcff0f182",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7ab383589c8518690ae19372fbf44bca629ab66adfadf8d16a6212d288c5c7c6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3766,7 +3766,7 @@
       "installation": "5c9beabe785df6f3",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "7ab383589c8518690ae19372fbf44bca629ab66adfadf8d16a6212d288c5c7c6",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3791,7 +3791,7 @@
       "installation": "1d770edb03268b1e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "26090ae471accc49d86a2b1c10fd364b72df1ce4f6a767fd10e82318770d3105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3816,7 +3816,7 @@
       "installation": "06bab45811bdf885",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "26090ae471accc49d86a2b1c10fd364b72df1ce4f6a767fd10e82318770d3105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3841,7 +3841,7 @@
       "installation": "9178f4eb6af3f7f2",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "26090ae471accc49d86a2b1c10fd364b72df1ce4f6a767fd10e82318770d3105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3866,7 +3866,7 @@
       "installation": "e662c4e05d11499e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7dad268fbd914b6517b1afe088558166c009cd0ac221ce83fed82de7e8488e3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3891,7 +3891,7 @@
       "installation": "dbd6e38c75680005",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7dad268fbd914b6517b1afe088558166c009cd0ac221ce83fed82de7e8488e3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3916,7 +3916,7 @@
       "installation": "e4bdc00334d5ab72",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7dad268fbd914b6517b1afe088558166c009cd0ac221ce83fed82de7e8488e3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3941,7 +3941,7 @@
       "installation": "057c3df8ab9ecbe4",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8fa08d86e3482b5f30034dd7522ce3236f6e6a5000b8f64d6009093dccc5577",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3967,7 +3967,7 @@
       "installation": "3d37325e8cc2378b",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8fa08d86e3482b5f30034dd7522ce3236f6e6a5000b8f64d6009093dccc5577",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -3993,7 +3993,7 @@
       "installation": "6ad256e3e819f05c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8fa08d86e3482b5f30034dd7522ce3236f6e6a5000b8f64d6009093dccc5577",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4019,7 +4019,7 @@
       "installation": "e9ce1446b50a21c9",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f8fa08d86e3482b5f30034dd7522ce3236f6e6a5000b8f64d6009093dccc5577",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4045,7 +4045,7 @@
       "installation": "1a500bd2390c84ab",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "dcf81dac1713efe6bda51892bf24dcc18100c27d015605e424f6d92fcd51217d",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4071,7 +4071,7 @@
       "installation": "ea9d083875cda202",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "dcf81dac1713efe6bda51892bf24dcc18100c27d015605e424f6d92fcd51217d",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4097,7 +4097,7 @@
       "installation": "c017ad5280c9b025",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "dcf81dac1713efe6bda51892bf24dcc18100c27d015605e424f6d92fcd51217d",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4123,7 +4123,7 @@
       "installation": "90c330d6f5e8e5be",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "dcf81dac1713efe6bda51892bf24dcc18100c27d015605e424f6d92fcd51217d",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4149,7 +4149,7 @@
       "installation": "f9e9c48f9a68dffd",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "101caf97829906294354478ca77d288f5311a70a3c6ba90ae2babf9e3bf34624",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4175,7 +4175,7 @@
       "installation": "20e23370d61a3b5c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "101caf97829906294354478ca77d288f5311a70a3c6ba90ae2babf9e3bf34624",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4201,7 +4201,7 @@
       "installation": "1211dbf4101c2eb7",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "a334bd710c5b926e24b2dd2a066d3b4dcd6747030a111bf7cabcc545ea242ad7",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4226,7 +4226,7 @@
       "installation": "b0ac901dc96ea316",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "115c27e3cdcd6ffb0998091cd0ecc39f27f58befd77a70032c29f9e67e990c5c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4252,7 +4252,7 @@
       "installation": "3bec1f60f1659d58",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "81b6d60d878cd771c551f7add08301b11830626aff996f7b394ebcdf4475d105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4278,7 +4278,7 @@
       "installation": "6f72dd8abc71cb9f",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "81b6d60d878cd771c551f7add08301b11830626aff996f7b394ebcdf4475d105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4303,7 +4303,7 @@
       "installation": "1360ffcb21747248",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "81b6d60d878cd771c551f7add08301b11830626aff996f7b394ebcdf4475d105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4328,7 +4328,7 @@
       "installation": "45f25552b60b14bd",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "81b6d60d878cd771c551f7add08301b11830626aff996f7b394ebcdf4475d105",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4353,7 +4353,7 @@
       "installation": "169fb338a141d89e",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "660203fe1cea96ed3624fee5c604686785158e244e45bc79e811d705879b0557",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4375,7 +4375,7 @@
       "installation": "0276190fe5f7b505",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "660203fe1cea96ed3624fee5c604686785158e244e45bc79e811d705879b0557",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4396,7 +4396,7 @@
       "installation": "0cd5bfff1358a872",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "660203fe1cea96ed3624fee5c604686785158e244e45bc79e811d705879b0557",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4417,7 +4417,7 @@
       "installation": "df337211dc6defbf",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "660203fe1cea96ed3624fee5c604686785158e244e45bc79e811d705879b0557",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4438,7 +4438,7 @@
       "installation": "3b1c99ee163e32de",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "0c3ba74335022a26415c6667c0e6264c015493b0dd77d5c200b1e469439b1e04",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4460,7 +4460,7 @@
       "installation": "4ae4da1ee0f18345",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "0c3ba74335022a26415c6667c0e6264c015493b0dd77d5c200b1e469439b1e04",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4481,7 +4481,7 @@
       "installation": "fcf2e5be30dcf9b2",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "0c3ba74335022a26415c6667c0e6264c015493b0dd77d5c200b1e469439b1e04",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4502,7 +4502,7 @@
       "installation": "31276022c9c79eff",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "0c3ba74335022a26415c6667c0e6264c015493b0dd77d5c200b1e469439b1e04",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4522,13 +4522,13 @@
     "skill:commit-guards:claude": {
       "installation": "ed3d67a9725173af",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ec862366700d866c70ed76161854f21bf841cf97518be0e52453f03fbf734ef0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0f5efabc16269a4849fea672fa4992e7e793da588f6e3c0ef7b1d9d16e13e119",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "738d068cd6f2ffd1f43de1eb045ee68569c6be018b1fcae54d5448305ead3669",
+      "renderedHash": "5ae349a087840557b5dffd7089dc8ea8a6e4ee81e56538912d5767bc0bdbd562",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4544,13 +4544,13 @@
     "skill:commit-guards:codex": {
       "installation": "cbd7ffbfa4602026",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ec862366700d866c70ed76161854f21bf841cf97518be0e52453f03fbf734ef0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0f5efabc16269a4849fea672fa4992e7e793da588f6e3c0ef7b1d9d16e13e119",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "738d068cd6f2ffd1f43de1eb045ee68569c6be018b1fcae54d5448305ead3669",
+      "renderedHash": "5ae349a087840557b5dffd7089dc8ea8a6e4ee81e56538912d5767bc0bdbd562",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4565,13 +4565,13 @@
     "skill:commit-guards:copilot": {
       "installation": "8481c5bf56f9a7f1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ec862366700d866c70ed76161854f21bf841cf97518be0e52453f03fbf734ef0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0f5efabc16269a4849fea672fa4992e7e793da588f6e3c0ef7b1d9d16e13e119",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "738d068cd6f2ffd1f43de1eb045ee68569c6be018b1fcae54d5448305ead3669",
+      "renderedHash": "5ae349a087840557b5dffd7089dc8ea8a6e4ee81e56538912d5767bc0bdbd562",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4586,13 +4586,13 @@
     "skill:commit-guards:pi": {
       "installation": "384b323130ec3082",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "ec862366700d866c70ed76161854f21bf841cf97518be0e52453f03fbf734ef0",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0f5efabc16269a4849fea672fa4992e7e793da588f6e3c0ef7b1d9d16e13e119",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "738d068cd6f2ffd1f43de1eb045ee68569c6be018b1fcae54d5448305ead3669",
+      "renderedHash": "5ae349a087840557b5dffd7089dc8ea8a6e4ee81e56538912d5767bc0bdbd562",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4608,7 +4608,7 @@
       "installation": "fea4eda8685f61d1",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "e5a8f40a0a5f0c109fd94ef6581981d23c96153f569697ba0fb0977b843d4686",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4630,7 +4630,7 @@
       "installation": "43df73e847042228",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "e5a8f40a0a5f0c109fd94ef6581981d23c96153f569697ba0fb0977b843d4686",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4651,7 +4651,7 @@
       "installation": "f007fc8c6ac70a07",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "e5a8f40a0a5f0c109fd94ef6581981d23c96153f569697ba0fb0977b843d4686",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4672,7 +4672,7 @@
       "installation": "c9b7ce620a8a8930",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "e5a8f40a0a5f0c109fd94ef6581981d23c96153f569697ba0fb0977b843d4686",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -4692,13 +4692,13 @@
     "skill:decider:claude": {
       "installation": "efccd1f772252cbb",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "d3236fa0cf83120cc423ea00b419caab22a64c24111378896c2eb205e45989f8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ed0ea493bc13ee3868cf585e868c1bd5c547ec6999b9191f30b2122468ee66fe",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "fa9681af0c9cf9259e119981dd08e0536846f17fd571d7209f221522e688d67c",
+      "renderedHash": "b03e0be183110712f5ede1bbe16d04bf4950e2658517ebeeda337c23337e8282",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4714,13 +4714,13 @@
     "skill:decider:codex": {
       "installation": "2b5a2e9a67637bb2",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "d3236fa0cf83120cc423ea00b419caab22a64c24111378896c2eb205e45989f8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ed0ea493bc13ee3868cf585e868c1bd5c547ec6999b9191f30b2122468ee66fe",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "fa9681af0c9cf9259e119981dd08e0536846f17fd571d7209f221522e688d67c",
+      "renderedHash": "b03e0be183110712f5ede1bbe16d04bf4950e2658517ebeeda337c23337e8282",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4735,13 +4735,13 @@
     "skill:decider:copilot": {
       "installation": "729176eb28e69075",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "d3236fa0cf83120cc423ea00b419caab22a64c24111378896c2eb205e45989f8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ed0ea493bc13ee3868cf585e868c1bd5c547ec6999b9191f30b2122468ee66fe",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "fa9681af0c9cf9259e119981dd08e0536846f17fd571d7209f221522e688d67c",
+      "renderedHash": "b03e0be183110712f5ede1bbe16d04bf4950e2658517ebeeda337c23337e8282",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4756,13 +4756,13 @@
     "skill:decider:pi": {
       "installation": "cc26cf048281c90e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "d3236fa0cf83120cc423ea00b419caab22a64c24111378896c2eb205e45989f8",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ed0ea493bc13ee3868cf585e868c1bd5c547ec6999b9191f30b2122468ee66fe",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "fa9681af0c9cf9259e119981dd08e0536846f17fd571d7209f221522e688d67c",
+      "renderedHash": "b03e0be183110712f5ede1bbe16d04bf4950e2658517ebeeda337c23337e8282",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4777,13 +4777,13 @@
     "skill:deep-research:claude": {
       "installation": "7592431192a9e8ad",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffeddf1621e4fd512afa14520497659e5be4a6910392040b7e729a41b307d82",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c971b8720e1a77b7c11e50dc6fb086d710d42b29c0637b406f40a992161cea45",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "706c01d11c5d042d98ddb6c4d153099dd68c0ab820fae6dfdbff00533c864211",
+      "renderedHash": "88296611496e0dd80ec060e82b96e3c3d089ea7dc60b046cda392357be0e51b3",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4798,13 +4798,13 @@
     "skill:deep-research:codex": {
       "installation": "a182a561031fc6c4",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffeddf1621e4fd512afa14520497659e5be4a6910392040b7e729a41b307d82",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c971b8720e1a77b7c11e50dc6fb086d710d42b29c0637b406f40a992161cea45",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "706c01d11c5d042d98ddb6c4d153099dd68c0ab820fae6dfdbff00533c864211",
+      "renderedHash": "88296611496e0dd80ec060e82b96e3c3d089ea7dc60b046cda392357be0e51b3",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4818,13 +4818,13 @@
     "skill:deep-research:copilot": {
       "installation": "ff006b6bc6e2f65b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffeddf1621e4fd512afa14520497659e5be4a6910392040b7e729a41b307d82",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c971b8720e1a77b7c11e50dc6fb086d710d42b29c0637b406f40a992161cea45",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "706c01d11c5d042d98ddb6c4d153099dd68c0ab820fae6dfdbff00533c864211",
+      "renderedHash": "88296611496e0dd80ec060e82b96e3c3d089ea7dc60b046cda392357be0e51b3",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4838,13 +4838,13 @@
     "skill:deep-research:pi": {
       "installation": "a57471fd3c8e834c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffeddf1621e4fd512afa14520497659e5be4a6910392040b7e729a41b307d82",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "c971b8720e1a77b7c11e50dc6fb086d710d42b29c0637b406f40a992161cea45",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "706c01d11c5d042d98ddb6c4d153099dd68c0ab820fae6dfdbff00533c864211",
+      "renderedHash": "88296611496e0dd80ec060e82b96e3c3d089ea7dc60b046cda392357be0e51b3",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4858,13 +4858,13 @@
     "skill:dep-radar:claude": {
       "installation": "18eec75d33677e5d",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "83e1c9901d4a54e578dbc4b8e0f9a035609bb0b708c47f52acd670c307e198b3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "cab0c727ea5795062bea4800fd03a60315a744fb92f268b39da8d751acc80de1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e0cbda76d4d7a46d23752a2a295ae8e39aee61c0107b476236af36b32e6603d4",
+      "renderedHash": "c3d2e887871d6f6a4b3a5dc57351b63861f3d74510b2ffabe6357fa6f9356b60",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4879,13 +4879,13 @@
     "skill:dep-radar:codex": {
       "installation": "9303786f049de794",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "83e1c9901d4a54e578dbc4b8e0f9a035609bb0b708c47f52acd670c307e198b3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "cab0c727ea5795062bea4800fd03a60315a744fb92f268b39da8d751acc80de1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e0cbda76d4d7a46d23752a2a295ae8e39aee61c0107b476236af36b32e6603d4",
+      "renderedHash": "c3d2e887871d6f6a4b3a5dc57351b63861f3d74510b2ffabe6357fa6f9356b60",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4899,13 +4899,13 @@
     "skill:dep-radar:copilot": {
       "installation": "bb8db68d86928bcb",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "83e1c9901d4a54e578dbc4b8e0f9a035609bb0b708c47f52acd670c307e198b3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "cab0c727ea5795062bea4800fd03a60315a744fb92f268b39da8d751acc80de1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e0cbda76d4d7a46d23752a2a295ae8e39aee61c0107b476236af36b32e6603d4",
+      "renderedHash": "c3d2e887871d6f6a4b3a5dc57351b63861f3d74510b2ffabe6357fa6f9356b60",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4919,13 +4919,13 @@
     "skill:dep-radar:pi": {
       "installation": "91dcad8e6a44febc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "83e1c9901d4a54e578dbc4b8e0f9a035609bb0b708c47f52acd670c307e198b3",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "cab0c727ea5795062bea4800fd03a60315a744fb92f268b39da8d751acc80de1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "e0cbda76d4d7a46d23752a2a295ae8e39aee61c0107b476236af36b32e6603d4",
+      "renderedHash": "c3d2e887871d6f6a4b3a5dc57351b63861f3d74510b2ffabe6357fa6f9356b60",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4939,13 +4939,13 @@
     "skill:dev:claude": {
       "installation": "c631fea42b511bdc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "128e10db95cf615c2b5037d1597e6b7ccc7f3bcac63617308c8d1af43678b876",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "973e1be6f111c7fe4e3a60a57cbd45eacc307aab3aa325693aa557373a84fac1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "83937c1ac32f4f7dc147cc830877fa6bef939c4c852a030b98b343732c93ce8d",
+      "renderedHash": "b89277e048570f32a5b779f0cc4af99aef53535938586ed09e73b61211cbb351",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4961,13 +4961,13 @@
     "skill:dev:codex": {
       "installation": "543e5a6339852843",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "128e10db95cf615c2b5037d1597e6b7ccc7f3bcac63617308c8d1af43678b876",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "973e1be6f111c7fe4e3a60a57cbd45eacc307aab3aa325693aa557373a84fac1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "83937c1ac32f4f7dc147cc830877fa6bef939c4c852a030b98b343732c93ce8d",
+      "renderedHash": "b89277e048570f32a5b779f0cc4af99aef53535938586ed09e73b61211cbb351",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -4982,13 +4982,13 @@
     "skill:dev:copilot": {
       "installation": "ffd2c9a121c367f4",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "128e10db95cf615c2b5037d1597e6b7ccc7f3bcac63617308c8d1af43678b876",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "973e1be6f111c7fe4e3a60a57cbd45eacc307aab3aa325693aa557373a84fac1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "83937c1ac32f4f7dc147cc830877fa6bef939c4c852a030b98b343732c93ce8d",
+      "renderedHash": "b89277e048570f32a5b779f0cc4af99aef53535938586ed09e73b61211cbb351",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5003,13 +5003,13 @@
     "skill:dev:pi": {
       "installation": "6531e6e748c85ac1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "128e10db95cf615c2b5037d1597e6b7ccc7f3bcac63617308c8d1af43678b876",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "973e1be6f111c7fe4e3a60a57cbd45eacc307aab3aa325693aa557373a84fac1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "83937c1ac32f4f7dc147cc830877fa6bef939c4c852a030b98b343732c93ce8d",
+      "renderedHash": "b89277e048570f32a5b779f0cc4af99aef53535938586ed09e73b61211cbb351",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5025,7 +5025,7 @@
       "installation": "8f0c2e5731816bfe",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "ef7e96e8e40b0b08634acfba3974e8eac0d32ddb4bc1a653cae93e6f7fd28c92",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5046,7 +5046,7 @@
       "installation": "ad193b80a7d3ae65",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "ef7e96e8e40b0b08634acfba3974e8eac0d32ddb4bc1a653cae93e6f7fd28c92",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5066,7 +5066,7 @@
       "installation": "8688c7dc2409e352",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "ef7e96e8e40b0b08634acfba3974e8eac0d32ddb4bc1a653cae93e6f7fd28c92",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5086,7 +5086,7 @@
       "installation": "05bb6c90fa34f89f",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "ef7e96e8e40b0b08634acfba3974e8eac0d32ddb4bc1a653cae93e6f7fd28c92",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5105,13 +5105,13 @@
     "skill:docs-writing:claude": {
       "installation": "ebe7cabdde359317",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "01416d9c0c10a2690b6a53c66c7b73b8acfc41b78272df1c9f97b45e95ac032c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ff559fc51f236c3e7b5d105b79cc1387e7eb7ca6603372697fb9c864396b3613",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d5e4dca2af03804968c39f9b92cf86a864c31a9d82db053d5b9c7c25a10cdc2c",
+      "renderedHash": "a4a830e4436d8485a5ddfd878ad0a79f88100dac9804038b5adaa2262dae6f17",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5127,13 +5127,13 @@
     "skill:docs-writing:codex": {
       "installation": "ea70b695688bcf0e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "01416d9c0c10a2690b6a53c66c7b73b8acfc41b78272df1c9f97b45e95ac032c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ff559fc51f236c3e7b5d105b79cc1387e7eb7ca6603372697fb9c864396b3613",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d5e4dca2af03804968c39f9b92cf86a864c31a9d82db053d5b9c7c25a10cdc2c",
+      "renderedHash": "a4a830e4436d8485a5ddfd878ad0a79f88100dac9804038b5adaa2262dae6f17",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5148,13 +5148,13 @@
     "skill:docs-writing:copilot": {
       "installation": "4e72bc932982bb19",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "01416d9c0c10a2690b6a53c66c7b73b8acfc41b78272df1c9f97b45e95ac032c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ff559fc51f236c3e7b5d105b79cc1387e7eb7ca6603372697fb9c864396b3613",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d5e4dca2af03804968c39f9b92cf86a864c31a9d82db053d5b9c7c25a10cdc2c",
+      "renderedHash": "a4a830e4436d8485a5ddfd878ad0a79f88100dac9804038b5adaa2262dae6f17",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5169,13 +5169,13 @@
     "skill:docs-writing:pi": {
       "installation": "f572ee7b5ad334ea",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "01416d9c0c10a2690b6a53c66c7b73b8acfc41b78272df1c9f97b45e95ac032c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "ff559fc51f236c3e7b5d105b79cc1387e7eb7ca6603372697fb9c864396b3613",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "d5e4dca2af03804968c39f9b92cf86a864c31a9d82db053d5b9c7c25a10cdc2c",
+      "renderedHash": "a4a830e4436d8485a5ddfd878ad0a79f88100dac9804038b5adaa2262dae6f17",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5190,13 +5190,13 @@
     "skill:github:claude": {
       "installation": "d6a195805a43516c",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffbe8797217fffca8c3a23b7bfb098ae2771829e5eafe459326e05583a3ac5c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "d458e3b191a3a206bb496bf12cca986d6b91985f20d554146bc01f68a9fdc727",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "9cb62aea6e509dc306c30068597d14c5fe00d1adffdcde904c4c5f5eb57549a0",
+      "renderedHash": "a8e09e17ce074337840fc744a44582bca95f503ac5e980508a7da9214eb45b69",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5212,13 +5212,13 @@
     "skill:github:codex": {
       "installation": "9fe659507f4b1a33",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffbe8797217fffca8c3a23b7bfb098ae2771829e5eafe459326e05583a3ac5c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "d458e3b191a3a206bb496bf12cca986d6b91985f20d554146bc01f68a9fdc727",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "9cb62aea6e509dc306c30068597d14c5fe00d1adffdcde904c4c5f5eb57549a0",
+      "renderedHash": "a8e09e17ce074337840fc744a44582bca95f503ac5e980508a7da9214eb45b69",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5233,13 +5233,13 @@
     "skill:github:copilot": {
       "installation": "d617716600b77b84",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffbe8797217fffca8c3a23b7bfb098ae2771829e5eafe459326e05583a3ac5c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "d458e3b191a3a206bb496bf12cca986d6b91985f20d554146bc01f68a9fdc727",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "9cb62aea6e509dc306c30068597d14c5fe00d1adffdcde904c4c5f5eb57549a0",
+      "renderedHash": "a8e09e17ce074337840fc744a44582bca95f503ac5e980508a7da9214eb45b69",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5254,13 +5254,13 @@
     "skill:github:pi": {
       "installation": "f399a1f650e23fd1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "6ffbe8797217fffca8c3a23b7bfb098ae2771829e5eafe459326e05583a3ac5c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "d458e3b191a3a206bb496bf12cca986d6b91985f20d554146bc01f68a9fdc727",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "9cb62aea6e509dc306c30068597d14c5fe00d1adffdcde904c4c5f5eb57549a0",
+      "renderedHash": "a8e09e17ce074337840fc744a44582bca95f503ac5e980508a7da9214eb45b69",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5275,13 +5275,13 @@
     "skill:harness-ci:claude": {
       "installation": "cebaae13000ab460",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "436f0d6dc0298d0efb7e69f46334e382e9d66eaf8a619265baa589fec4120706",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6254c0e1d96113c255bc3ce8fe9b77671b364e397f6f28803f1ae7c21ac309f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "6918133c4860af961d017f006259efab8d2c6ebd35cec830e0b851f651f2cd03",
+      "renderedHash": "30803b71a0ac5e6a211a3384486ed1b1156bcf6eee9b8990d1e7fa96c3751c04",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5297,13 +5297,13 @@
     "skill:harness-ci:codex": {
       "installation": "eac530b78bcd3e07",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "436f0d6dc0298d0efb7e69f46334e382e9d66eaf8a619265baa589fec4120706",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6254c0e1d96113c255bc3ce8fe9b77671b364e397f6f28803f1ae7c21ac309f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "6918133c4860af961d017f006259efab8d2c6ebd35cec830e0b851f651f2cd03",
+      "renderedHash": "30803b71a0ac5e6a211a3384486ed1b1156bcf6eee9b8990d1e7fa96c3751c04",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5318,13 +5318,13 @@
     "skill:harness-ci:copilot": {
       "installation": "030f9aeb9e3fb4f0",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "436f0d6dc0298d0efb7e69f46334e382e9d66eaf8a619265baa589fec4120706",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6254c0e1d96113c255bc3ce8fe9b77671b364e397f6f28803f1ae7c21ac309f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "6918133c4860af961d017f006259efab8d2c6ebd35cec830e0b851f651f2cd03",
+      "renderedHash": "30803b71a0ac5e6a211a3384486ed1b1156bcf6eee9b8990d1e7fa96c3751c04",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5339,13 +5339,13 @@
     "skill:harness-ci:pi": {
       "installation": "33e0b75b72dc2125",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "436f0d6dc0298d0efb7e69f46334e382e9d66eaf8a619265baa589fec4120706",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "b6254c0e1d96113c255bc3ce8fe9b77671b364e397f6f28803f1ae7c21ac309f",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "6918133c4860af961d017f006259efab8d2c6ebd35cec830e0b851f651f2cd03",
+      "renderedHash": "30803b71a0ac5e6a211a3384486ed1b1156bcf6eee9b8990d1e7fa96c3751c04",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5361,7 +5361,7 @@
       "installation": "f45178ba8dd7b9d6",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7f49ff055a3d416d3d0b7ae0add1f73015bde3429916e5393049b384e3a3fe1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5382,7 +5382,7 @@
       "installation": "d0903a51d512b25d",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7f49ff055a3d416d3d0b7ae0add1f73015bde3429916e5393049b384e3a3fe1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5402,7 +5402,7 @@
       "installation": "8a82fcb09581fa0a",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7f49ff055a3d416d3d0b7ae0add1f73015bde3429916e5393049b384e3a3fe1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5422,7 +5422,7 @@
       "installation": "9c686ed553e86c97",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "d7f49ff055a3d416d3d0b7ae0add1f73015bde3429916e5393049b384e3a3fe1",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5441,13 +5441,13 @@
     "skill:linear:claude": {
       "installation": "b3e6bcac5ebd3bce",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "878829e8dd8c79aa4d6376a6c80409c867e8dfb696ff3734c4726ac0619f19d4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4fc799f59ccd715d8ee22c6e484fcb2daa7be5f4452cdd2782085a06a778edaf",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "552e21c7ca5c847f2176a1dfff9d1cf849b30bf25266385c77504599d9cc56a8",
+      "renderedHash": "0776c7527481f3f48196520e4d8a634841e05d380adf4b03e581967468d14eb1",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5463,13 +5463,13 @@
     "skill:linear:codex": {
       "installation": "0b74ad06b48eb9d5",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "878829e8dd8c79aa4d6376a6c80409c867e8dfb696ff3734c4726ac0619f19d4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4fc799f59ccd715d8ee22c6e484fcb2daa7be5f4452cdd2782085a06a778edaf",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "552e21c7ca5c847f2176a1dfff9d1cf849b30bf25266385c77504599d9cc56a8",
+      "renderedHash": "0776c7527481f3f48196520e4d8a634841e05d380adf4b03e581967468d14eb1",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5484,13 +5484,13 @@
     "skill:linear:copilot": {
       "installation": "8a4c54bf1d420d22",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "878829e8dd8c79aa4d6376a6c80409c867e8dfb696ff3734c4726ac0619f19d4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4fc799f59ccd715d8ee22c6e484fcb2daa7be5f4452cdd2782085a06a778edaf",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "552e21c7ca5c847f2176a1dfff9d1cf849b30bf25266385c77504599d9cc56a8",
+      "renderedHash": "0776c7527481f3f48196520e4d8a634841e05d380adf4b03e581967468d14eb1",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5505,13 +5505,13 @@
     "skill:linear:pi": {
       "installation": "f287318ef7c127af",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "878829e8dd8c79aa4d6376a6c80409c867e8dfb696ff3734c4726ac0619f19d4",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4fc799f59ccd715d8ee22c6e484fcb2daa7be5f4452cdd2782085a06a778edaf",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "552e21c7ca5c847f2176a1dfff9d1cf849b30bf25266385c77504599d9cc56a8",
+      "renderedHash": "0776c7527481f3f48196520e4d8a634841e05d380adf4b03e581967468d14eb1",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5527,7 +5527,7 @@
       "installation": "008e28f7e05466dd",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f1c8c10cf87be20ffe4e4d322c00460488bd449b60888bc1056fce27c567af4b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5549,7 +5549,7 @@
       "installation": "2f69867ce8c41d14",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f1c8c10cf87be20ffe4e4d322c00460488bd449b60888bc1056fce27c567af4b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5570,7 +5570,7 @@
       "installation": "3c4910615d219d4b",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f1c8c10cf87be20ffe4e4d322c00460488bd449b60888bc1056fce27c567af4b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5591,7 +5591,7 @@
       "installation": "ad2443a98d399f3c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "f1c8c10cf87be20ffe4e4d322c00460488bd449b60888bc1056fce27c567af4b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -5611,13 +5611,13 @@
     "skill:orch:claude": {
       "installation": "e0f8866e73c4061b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5fb7304a6082c1ccbc259fe73de58326ee187c611fb00bb6187151f86db0e933",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8290a3c64774066a0bd1520261dce64e53ac3792baeb46da05fd59780da662be",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "3d8dc24a8c4921306439812a58d95ccb96643a04e0550e5f7196a842bdb9029a",
+      "renderedHash": "b48165643de01024415adfc4efa155f7f210c4e14122ae8238c76e6777ef1d84",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5633,13 +5633,13 @@
     "skill:orch:codex": {
       "installation": "0f042c97257acc92",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5fb7304a6082c1ccbc259fe73de58326ee187c611fb00bb6187151f86db0e933",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8290a3c64774066a0bd1520261dce64e53ac3792baeb46da05fd59780da662be",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "3d8dc24a8c4921306439812a58d95ccb96643a04e0550e5f7196a842bdb9029a",
+      "renderedHash": "b48165643de01024415adfc4efa155f7f210c4e14122ae8238c76e6777ef1d84",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5654,13 +5654,13 @@
     "skill:orch:copilot": {
       "installation": "351f8a4f64ab6755",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5fb7304a6082c1ccbc259fe73de58326ee187c611fb00bb6187151f86db0e933",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8290a3c64774066a0bd1520261dce64e53ac3792baeb46da05fd59780da662be",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "3d8dc24a8c4921306439812a58d95ccb96643a04e0550e5f7196a842bdb9029a",
+      "renderedHash": "b48165643de01024415adfc4efa155f7f210c4e14122ae8238c76e6777ef1d84",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5675,13 +5675,13 @@
     "skill:orch:pi": {
       "installation": "a8c4576972d2966e",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "5fb7304a6082c1ccbc259fe73de58326ee187c611fb00bb6187151f86db0e933",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "8290a3c64774066a0bd1520261dce64e53ac3792baeb46da05fd59780da662be",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "3d8dc24a8c4921306439812a58d95ccb96643a04e0550e5f7196a842bdb9029a",
+      "renderedHash": "b48165643de01024415adfc4efa155f7f210c4e14122ae8238c76e6777ef1d84",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5696,13 +5696,13 @@
     "skill:preflight:claude": {
       "installation": "ada1a591177caadc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a6e3a4e5016ae5219e369988a48f62c6bc5312010a2136f43fa74d10b3d8f27b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4163b7b40ff4cf7f79daefd813b81520495b1b1f61dd10ee27b6ea7e41004532",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a64c27fff53355d95465602c035481359fefd2f34051ab30d00ac013ab910d35",
+      "renderedHash": "65dd82ddaf9871f3fdb5ed3cb9b865e56b2f10d01a57993d82dc7757e1e68263",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5717,13 +5717,13 @@
     "skill:preflight:codex": {
       "installation": "89a5c54a76addd43",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a6e3a4e5016ae5219e369988a48f62c6bc5312010a2136f43fa74d10b3d8f27b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4163b7b40ff4cf7f79daefd813b81520495b1b1f61dd10ee27b6ea7e41004532",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a64c27fff53355d95465602c035481359fefd2f34051ab30d00ac013ab910d35",
+      "renderedHash": "65dd82ddaf9871f3fdb5ed3cb9b865e56b2f10d01a57993d82dc7757e1e68263",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5737,13 +5737,13 @@
     "skill:preflight:copilot": {
       "installation": "6e1a6e366fc764f4",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a6e3a4e5016ae5219e369988a48f62c6bc5312010a2136f43fa74d10b3d8f27b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4163b7b40ff4cf7f79daefd813b81520495b1b1f61dd10ee27b6ea7e41004532",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a64c27fff53355d95465602c035481359fefd2f34051ab30d00ac013ab910d35",
+      "renderedHash": "65dd82ddaf9871f3fdb5ed3cb9b865e56b2f10d01a57993d82dc7757e1e68263",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5757,13 +5757,13 @@
     "skill:preflight:pi": {
       "installation": "f3daee2490be79c1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "a6e3a4e5016ae5219e369988a48f62c6bc5312010a2136f43fa74d10b3d8f27b",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "4163b7b40ff4cf7f79daefd813b81520495b1b1f61dd10ee27b6ea7e41004532",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "a64c27fff53355d95465602c035481359fefd2f34051ab30d00ac013ab910d35",
+      "renderedHash": "65dd82ddaf9871f3fdb5ed3cb9b865e56b2f10d01a57993d82dc7757e1e68263",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5777,13 +5777,13 @@
     "skill:project-management:claude": {
       "installation": "060213f3706dd430",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b7d7ce950b738891057c4bf135b05a051df6c6f922121700b8dd716477077a4c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "63715de697d191e6e53bbf95950a5204bcbf3b60dbe8c90bc1c810d144749086",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bee4999c855cf002cc0611d43908519cc1211ccdcb9decbebaee1a94de986128",
+      "renderedHash": "7e42fe316838daf2919f08751853cd2dd1e612f958544f56da1b0ab52a3deaae",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5799,13 +5799,13 @@
     "skill:project-management:codex": {
       "installation": "c7d0ab1e4c686077",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b7d7ce950b738891057c4bf135b05a051df6c6f922121700b8dd716477077a4c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "63715de697d191e6e53bbf95950a5204bcbf3b60dbe8c90bc1c810d144749086",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bee4999c855cf002cc0611d43908519cc1211ccdcb9decbebaee1a94de986128",
+      "renderedHash": "7e42fe316838daf2919f08751853cd2dd1e612f958544f56da1b0ab52a3deaae",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5820,13 +5820,13 @@
     "skill:project-management:copilot": {
       "installation": "56019ad5521a11c0",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b7d7ce950b738891057c4bf135b05a051df6c6f922121700b8dd716477077a4c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "63715de697d191e6e53bbf95950a5204bcbf3b60dbe8c90bc1c810d144749086",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bee4999c855cf002cc0611d43908519cc1211ccdcb9decbebaee1a94de986128",
+      "renderedHash": "7e42fe316838daf2919f08751853cd2dd1e612f958544f56da1b0ab52a3deaae",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5841,13 +5841,13 @@
     "skill:project-management:pi": {
       "installation": "f46022c4709acc75",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "b7d7ce950b738891057c4bf135b05a051df6c6f922121700b8dd716477077a4c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "63715de697d191e6e53bbf95950a5204bcbf3b60dbe8c90bc1c810d144749086",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bee4999c855cf002cc0611d43908519cc1211ccdcb9decbebaee1a94de986128",
+      "renderedHash": "7e42fe316838daf2919f08751853cd2dd1e612f958544f56da1b0ab52a3deaae",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5862,13 +5862,13 @@
     "skill:review-gate:claude": {
       "installation": "4fd0add5b9e0cc81",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1ab1f5dc3a83cb3776f55f38f23d84a5637b5f35ec2cbb1b32924d5be9b2221c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0dbeb557ec4155ac0da33ed29f362bf940aa22d7f5d992da0d0f4466041c6fd1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "0797f446c0ebe1dcda2608976cf25bfde60917d4a0978ce726a5c15ccaa2a22d",
+      "renderedHash": "fa94850e7b8e5589848b077c37c7e7041b4f83f675a91ae91a509b7908351e81",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5884,13 +5884,13 @@
     "skill:review-gate:codex": {
       "installation": "be71bdb7f8f4b938",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1ab1f5dc3a83cb3776f55f38f23d84a5637b5f35ec2cbb1b32924d5be9b2221c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0dbeb557ec4155ac0da33ed29f362bf940aa22d7f5d992da0d0f4466041c6fd1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "0797f446c0ebe1dcda2608976cf25bfde60917d4a0978ce726a5c15ccaa2a22d",
+      "renderedHash": "fa94850e7b8e5589848b077c37c7e7041b4f83f675a91ae91a509b7908351e81",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5905,13 +5905,13 @@
     "skill:review-gate:copilot": {
       "installation": "30280d2d68972ff7",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1ab1f5dc3a83cb3776f55f38f23d84a5637b5f35ec2cbb1b32924d5be9b2221c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0dbeb557ec4155ac0da33ed29f362bf940aa22d7f5d992da0d0f4466041c6fd1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "0797f446c0ebe1dcda2608976cf25bfde60917d4a0978ce726a5c15ccaa2a22d",
+      "renderedHash": "fa94850e7b8e5589848b077c37c7e7041b4f83f675a91ae91a509b7908351e81",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5926,13 +5926,13 @@
     "skill:review-gate:pi": {
       "installation": "23e5d8babc35bbe0",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "1ab1f5dc3a83cb3776f55f38f23d84a5637b5f35ec2cbb1b32924d5be9b2221c",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "0dbeb557ec4155ac0da33ed29f362bf940aa22d7f5d992da0d0f4466041c6fd1",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "0797f446c0ebe1dcda2608976cf25bfde60917d4a0978ce726a5c15ccaa2a22d",
+      "renderedHash": "fa94850e7b8e5589848b077c37c7e7041b4f83f675a91ae91a509b7908351e81",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5947,13 +5947,13 @@
     "skill:reviewer:claude": {
       "installation": "063fe26efd15e258",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8bce5e27256ed19e54ebc3c1626809d0a473575ae86bf63ea4e4448279e25723",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f05297b42f33ee4dd52399511cbc019c3dc5debf277870c108bc1e0f64afb0c6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f9b8fd1440d39844721fd755223798fb3154fd97763b831fc436b39acd283596",
+      "renderedHash": "7efa7867c93d3883837764f61856f78b6d42622865c84b48ef8d83e975525752",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5969,13 +5969,13 @@
     "skill:reviewer:codex": {
       "installation": "ec2cefa5404bf29f",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8bce5e27256ed19e54ebc3c1626809d0a473575ae86bf63ea4e4448279e25723",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f05297b42f33ee4dd52399511cbc019c3dc5debf277870c108bc1e0f64afb0c6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f9b8fd1440d39844721fd755223798fb3154fd97763b831fc436b39acd283596",
+      "renderedHash": "7efa7867c93d3883837764f61856f78b6d42622865c84b48ef8d83e975525752",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -5990,13 +5990,13 @@
     "skill:reviewer:copilot": {
       "installation": "8ffa70a8fdf9b148",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8bce5e27256ed19e54ebc3c1626809d0a473575ae86bf63ea4e4448279e25723",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f05297b42f33ee4dd52399511cbc019c3dc5debf277870c108bc1e0f64afb0c6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f9b8fd1440d39844721fd755223798fb3154fd97763b831fc436b39acd283596",
+      "renderedHash": "7efa7867c93d3883837764f61856f78b6d42622865c84b48ef8d83e975525752",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6011,13 +6011,13 @@
     "skill:reviewer:pi": {
       "installation": "05be766db36d89bd",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8bce5e27256ed19e54ebc3c1626809d0a473575ae86bf63ea4e4448279e25723",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "f05297b42f33ee4dd52399511cbc019c3dc5debf277870c108bc1e0f64afb0c6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "f9b8fd1440d39844721fd755223798fb3154fd97763b831fc436b39acd283596",
+      "renderedHash": "7efa7867c93d3883837764f61856f78b6d42622865c84b48ef8d83e975525752",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6032,13 +6032,13 @@
     "skill:second-opinion:claude": {
       "installation": "6e5b7439f8fd5754",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "cdfb8a34dff6e2d2627a9e538bc339155f22a3ad076e4876f40e2fede39e62f2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5ea8bc6640386fab5afb8edf57fc2b2f1d809f5e52be6a1a0123bf245c5a924c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c0b3814dcd16aea46eb536585791fb1da54bd0501cc576c31d352b5af03e67d2",
+      "renderedHash": "bf1e535c24063a2c8bd53accee7f5d79120f9121805402eb634d7364c50f4b48",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6053,13 +6053,13 @@
     "skill:second-opinion:codex": {
       "installation": "8db679919db64c9b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "cdfb8a34dff6e2d2627a9e538bc339155f22a3ad076e4876f40e2fede39e62f2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5ea8bc6640386fab5afb8edf57fc2b2f1d809f5e52be6a1a0123bf245c5a924c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c0b3814dcd16aea46eb536585791fb1da54bd0501cc576c31d352b5af03e67d2",
+      "renderedHash": "bf1e535c24063a2c8bd53accee7f5d79120f9121805402eb634d7364c50f4b48",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6073,13 +6073,13 @@
     "skill:second-opinion:copilot": {
       "installation": "f3230b977b47cccc",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "cdfb8a34dff6e2d2627a9e538bc339155f22a3ad076e4876f40e2fede39e62f2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5ea8bc6640386fab5afb8edf57fc2b2f1d809f5e52be6a1a0123bf245c5a924c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c0b3814dcd16aea46eb536585791fb1da54bd0501cc576c31d352b5af03e67d2",
+      "renderedHash": "bf1e535c24063a2c8bd53accee7f5d79120f9121805402eb634d7364c50f4b48",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6093,13 +6093,13 @@
     "skill:second-opinion:pi": {
       "installation": "2171c6aedc2eb9f9",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "cdfb8a34dff6e2d2627a9e538bc339155f22a3ad076e4876f40e2fede39e62f2",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "5ea8bc6640386fab5afb8edf57fc2b2f1d809f5e52be6a1a0123bf245c5a924c",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "c0b3814dcd16aea46eb536585791fb1da54bd0501cc576c31d352b5af03e67d2",
+      "renderedHash": "bf1e535c24063a2c8bd53accee7f5d79120f9121805402eb634d7364c50f4b48",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6114,7 +6114,7 @@
       "installation": "f411c9cbfbd97bb5",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "56d97841a7122bc1a5459d3f3ec88d716aad15b83edfe9c26a104eff35a64983",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6136,7 +6136,7 @@
       "installation": "1e9b9898d973dc0c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "56d97841a7122bc1a5459d3f3ec88d716aad15b83edfe9c26a104eff35a64983",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6157,7 +6157,7 @@
       "installation": "ee52ac17ee15c503",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "56d97841a7122bc1a5459d3f3ec88d716aad15b83edfe9c26a104eff35a64983",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6178,7 +6178,7 @@
       "installation": "67937dce8cbef994",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "56d97841a7122bc1a5459d3f3ec88d716aad15b83edfe9c26a104eff35a64983",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6199,7 +6199,7 @@
       "installation": "d339cf05514ebe94",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4e10d8ab37d85e2ca1d9c8516643f28f61b822d2a7388a8bbb7c743189656f3a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6221,7 +6221,7 @@
       "installation": "2ca1b05c95a7e1db",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4e10d8ab37d85e2ca1d9c8516643f28f61b822d2a7388a8bbb7c743189656f3a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6242,7 +6242,7 @@
       "installation": "136bea7ffd19f90c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4e10d8ab37d85e2ca1d9c8516643f28f61b822d2a7388a8bbb7c743189656f3a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6263,7 +6263,7 @@
       "installation": "082373d4adc87a39",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "4e10d8ab37d85e2ca1d9c8516643f28f61b822d2a7388a8bbb7c743189656f3a",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6349,13 +6349,13 @@
     "skill:worktree:claude": {
       "installation": "97064af7425f2d4a",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f246306e2bb899843cbd0a1e6787addebbe15425a5a5f85f4c99a48eb2bb5e89",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dc139332b78a35ae5126e9238d82a3860d313082d8281dafe37025d819c8ebe6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "08abb2101b9b1d3d5beb6293c425875aa82227b4de841c2638670d619e6c8048",
+      "renderedHash": "edae616c6cafa06016c299521fdf7e2944b5439f482a7439ed82fc4b2de6cba2",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6371,13 +6371,13 @@
     "skill:worktree:codex": {
       "installation": "ab8d1b92213dd8a1",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f246306e2bb899843cbd0a1e6787addebbe15425a5a5f85f4c99a48eb2bb5e89",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dc139332b78a35ae5126e9238d82a3860d313082d8281dafe37025d819c8ebe6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "08abb2101b9b1d3d5beb6293c425875aa82227b4de841c2638670d619e6c8048",
+      "renderedHash": "edae616c6cafa06016c299521fdf7e2944b5439f482a7439ed82fc4b2de6cba2",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6392,13 +6392,13 @@
     "skill:worktree:copilot": {
       "installation": "6dbbdc1165ea6fd6",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f246306e2bb899843cbd0a1e6787addebbe15425a5a5f85f4c99a48eb2bb5e89",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dc139332b78a35ae5126e9238d82a3860d313082d8281dafe37025d819c8ebe6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "08abb2101b9b1d3d5beb6293c425875aa82227b4de841c2638670d619e6c8048",
+      "renderedHash": "edae616c6cafa06016c299521fdf7e2944b5439f482a7439ed82fc4b2de6cba2",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6413,13 +6413,13 @@
     "skill:worktree:pi": {
       "installation": "de547ba3ca8b281b",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "f246306e2bb899843cbd0a1e6787addebbe15425a5a5f85f4c99a48eb2bb5e89",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceHash": "dc139332b78a35ae5126e9238d82a3860d313082d8281dafe37025d819c8ebe6",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "08abb2101b9b1d3d5beb6293c425875aa82227b4de841c2638670d619e6c8048",
+      "renderedHash": "edae616c6cafa06016c299521fdf7e2944b5439f482a7439ed82fc4b2de6cba2",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6435,7 +6435,7 @@
       "installation": "0a96b908cbe29794",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "186407a87f5838ded1539914d693b171b12887724e878d9d7ee2bbfed11f8d47",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6457,7 +6457,7 @@
       "installation": "1cabc0ca0dfe24db",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "186407a87f5838ded1539914d693b171b12887724e878d9d7ee2bbfed11f8d47",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6478,7 +6478,7 @@
       "installation": "ba268e694653b40c",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "186407a87f5838ded1539914d693b171b12887724e878d9d7ee2bbfed11f8d47",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6499,7 +6499,7 @@
       "installation": "9dcc346f39ef4339",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "186407a87f5838ded1539914d693b171b12887724e878d9d7ee2bbfed11f8d47",
-      "sourceCommit": "d9404e6180149ee91f9aac1587b057f0c33ca768",
+      "sourceCommit": "807ff372ae2894bc8568aaff67f637c05448f037",
       "selector": {
         "sourceRev": null,
         "rev": null
@@ -6520,7 +6520,7 @@
   "sources": {
     "kendex": {
       "repo": "vanillagreencom/kendex",
-      "commit": "d9404e6180149ee91f9aac1587b057f0c33ca768"
+      "commit": "807ff372ae2894bc8568aaff67f637c05448f037"
     }
   },
   "claudeProjectDefault": "owned"

@@ -15,7 +15,6 @@ metadata:
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
 - In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per `.agents/skills/project-management/SKILL.md` § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 
@@ -67,7 +66,7 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 
 ### Work priority
 
-Priority rule: performance, optimization, efficiency, scalability, maintainability, architecture and CI issues precede product/features. Run CI first, then Verifying items. Exceptions require the owner's word on a named item, a production outage, a security or data-loss defect, or a hard deadline. Target at least 10 lanes while accounts have headroom. Keep the existing eligibility and ownership gates. Select eligible work. Never invent tasks to fill slots.
+Priority rule: performance, optimization, efficiency, scalability, maintainability, architecture and CI issues precede product/features. Run CI first, then Verifying items. Exceptions require the owner's word on a named item, a production outage, a security or data-loss defect, or a hard deadline. Launch eligible work up to ORCH_OVERSEER_LANES while accounts and local smoke capacity permit it. Keep the existing eligibility and ownership gates. Select eligible work. Never invent tasks to fill slots.
 
 `ci-infra` implies Urgent unless the issue deliberately records why it is lower. Everything VGS uses to decide whether a change is safe to merge lives in that category, so a defect there invalidates the evidence behind every other issue's "verified" claim.
 

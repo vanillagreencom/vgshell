@@ -32,11 +32,11 @@ What changed, which checks ran, their results, and any architecture change the c
 
 Read each before acting:
 
+- code-quality: .agents/skills/code-quality/SKILL.md
 - decider: .agents/skills/decider/SKILL.md
 - dev: .agents/skills/dev/SKILL.md
 - github: .agents/skills/github/SKILL.md
 - linear: .agents/skills/linear/SKILL.md
-- code-quality: .agents/skills/code-quality/SKILL.md
 - preflight: .agents/skills/preflight/SKILL.md
 
 ## Additional Instructions

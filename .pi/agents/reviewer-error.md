@@ -46,8 +46,8 @@ Fail-open paths, silent failures, swallowed errors, wrong-cause diagnostics → 
 
 Read each before acting:
 
-- reviewer: .agents/skills/reviewer/SKILL.md
 - code-quality: .agents/skills/code-quality/SKILL.md
+- reviewer: .agents/skills/reviewer/SKILL.md
 
 ## Additional Instructions
 

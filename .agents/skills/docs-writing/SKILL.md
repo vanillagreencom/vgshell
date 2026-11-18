@@ -13,14 +13,14 @@ metadata:
 <!-- kendex:project-instructions:start -->
 ## Project Instructions
 
+Before a rewrite removes a tracked copy, preserve its evidence on the owning tracker issue.
+
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
 
 ## VGS documentation policy (KEN-3470)
 
-- This repository adopts bot-instructions for its GitHub review bots. Keep the generated GitHub instruction files and review doctrine consistent with the effective manifest, and render them through their owning package. (DW05)
 - Write the README for a reader with moderate technical knowledge: what the product does and why it matters. Engineering implementation detail goes in DEVELOPMENT.md or docs/architecture/. (DW07)
 <!-- kendex:project-instructions:end -->
 

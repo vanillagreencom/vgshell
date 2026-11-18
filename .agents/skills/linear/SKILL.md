@@ -15,63 +15,15 @@ metadata:
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
 - VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
 - Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
 - In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per `.agents/skills/project-management/SKILL.md` § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 
 ## Tracker policy: Linear is canonical; GitHub Issues is intake-only
 
-Create, label, and work issues ONLY in Linear (team vgs, identifiers VGS-<n>). GitHub Issues stays as intake, and nothing syncs back. Before creating a Linear issue, dedupe across BOTH trackers (`gh issue list --search` + Linear cache) — never file the same problem twice.
+Create, label, and work issues ONLY in Linear (team vgs, identifiers VGS-<n>). GitHub Issues stays as intake, and nothing syncs back. Before creating a Linear issue, dedupe across BOTH trackers (`gh issue list --search` + live Linear search) — never file the same problem twice.
 
-Mirroring GitHub intake into Linear is a MANUAL triage step. No automation does it: there is no sync workflow under `.github/` and no Linear-side GitHub integration creating issues, so an unmirrored GitHub issue never reaches the canonical tracker and can sit unseen indefinitely. Run the triage pass when picking up work:
-
-```bash
-gh issue list --state open --limit 50 --json number,title,url,createdAt \
-  --jq '.[] | [.number, .createdAt, .url, .title] | @tsv' &&
-.agents/skills/linear/scripts/linear.sh issues list --all-projects --max
-```
-
-The two listings are chained: a `gh issue list` that fails prints nothing, and unchained the Linear listing's success becomes the block's — an empty GitHub column then reads as "nothing to mirror", the exact false-clean this pass exists to prevent.
-
-For each GitHub issue with no Linear counterpart, fetch title, body and url in one call and build the description — the full body plus a provenance line back to the GitHub issue — then create it in team vgs and work the Linear issue rather than the GitHub one:
-
-```bash
-gh_json= gh_body= &&
-gh_json="$(mktemp)" &&
-gh_body="$(mktemp)" &&
-gh issue view <n> --json title,body,url > "$gh_json" &&
-jq -r '(.body | sub("\\s+$"; "")) + "\n\n---\n\nMirrored from GitHub issue [" + .url + "](<" + .url + ">) (intake-only tracker)."' "$gh_json" > "$gh_body" &&
-{ [ -s "$gh_body" ] || { echo "mirror: description body is empty, not creating" >&2; false; }; } &&
-title="$(jq -r .title "$gh_json")" &&
-.agents/skills/linear/scripts/linear.sh issues create --title "$title" \
-  --description-file "$gh_body"
-created=$?
-cleaned=0
-for tmp in "$gh_json" "$gh_body"; do
-  [ -n "$tmp" ] || continue
-  rm -f -- "$tmp" || { cleaned=1; echo "mirror: could not remove $tmp, which still holds the issue JSON or body" >&2; }
-done
-( exit "$(( created ? created : cleaned ))" )
-```
-
-Run that block as a UNIT, in one shell — the `mktemp` paths live in variables, so a command run on its own would find them empty and redirect to nothing.
-
-NO STEP'S FAILURE MAY BE MASKED BY A LATER STEP'S SUCCESS. Every producing step is chained with `&&`, so the first failure short-circuits the rest and becomes the list's status; `created=$?` captures it, the cleanup loop runs on every path, and `( exit ... )` re-raises it. That direction is the worst one here — this is the manual GitHub-to-Linear step, so a masked failure means work never filed and never noticed. Each shape below was a real silent failure before it was written this way:
-
-* `rm -f` last made ITS status the block's, and `rm -f` almost always succeeds: a create that failed on credentials, validation or an API error reported success and the agent believed the issue was filed.
-* `gh issue view` and the description `jq` ran unchecked, so the create ran on whatever landed in the file — an empty description, the GitHub body and the provenance line lost, reported as success.
-* the title `jq` ran inside the create's own argument list, where a command substitution's status is discarded whatever it exits with; hoisting it into `title=` is what makes that status visible.
-* `[ -s "$gh_body" ]` because a status is a PROXY — what must be true is that the file has CONTENT — and it speaks when it refuses, since an empty-but-succeeded producer prints no diagnostic of its own.
-* the cleanup itself ran unchecked, so a `rm` that failed after a successful create left the issue JSON and the rendered body on disk while the block reported success. `cleaned` records it, the loop names the file that survived, and the status is `created` when the create failed and `cleaned` otherwise — the create's failure is the more important one and still wins, but a cleanup failure cannot vanish behind it.
-
-`gh_json= gh_body=` BEFORE the first `mktemp`, and this one is about the operator's own shell rather than about statuses. You paste this block into an interactive shell, where `set -u` is off and both names may already be in use. If the FIRST `mktemp` fails, the `&&` chain stops before `gh_body` is ever assigned — and the cleanup at the bottom still runs, expanding whatever `gh_body` happened to mean in your session and `rm`-ing a file this block never created. Initializing both to empty first is what makes that impossible, and the loop skips an empty path rather than passing it to `rm`. A runbook a person pastes into their own shell must not be able to delete a file they named.
-
-`( exit ... )` rather than a bare `exit`, which would close an operator's interactive shell, and rather than a `trap ... EXIT`, which would linger in that shell for the rest of the session. `mktemp`, not `/tmp/gh-<n>.json`: that path is fully predictable from the issue number, so two lanes mirroring the same issue overwrite each other's file, and a pre-created symlink there would be followed by the redirect.
-
-The list query carries `url` so the triage table is actionable; `body` is fetched per issue rather than for all 50, and every field the description needs comes from these commands alone — no extra lookup.
-
-Automating this needs owner action (Linear workspace admin, or a LINEAR_API_KEY repo secret); no decision record covers it.
+GitHub intake is mirrored manually. When selecting work, compare the open GitHub issues with the team's Linear issues. For an unmatched issue, create the Linear issue with the complete GitHub body and a link to its source. Stop and report an unreadable listing, empty body or failed create; none means that intake is complete. Keep work in Linear. Do not add synchronization automation as part of triage.
 
 Link work to its issue through the branch name: `vgs-<n>-<slug>`. Linear's GitHub integration matches that to attach the PR, and `GH_ISSUE_PATTERN` in kendex.settings.toml reads the same shape. Commit subjects carry the identifier as the scope: `area(VGS-12): imperative summary`.
 

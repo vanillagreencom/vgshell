@@ -11,14 +11,6 @@ metadata:
   bugs: "https://github.com/vanillagreencom/kendex/issues"
 ---
 
-<!-- kendex:project-instructions:start -->
-## Project Instructions
-
-Kendex workflow policy VGS keeps (KEN-3470):
-
-- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
-<!-- kendex:project-instructions:end -->
-
 # Deep Research
 
 In Pi with the `web_research` tool active, use that tool, passing `outputPath` when creating a report. In every other harness, run `scripts/deep-research` with `EXA_API_KEY` set.
