@@ -464,7 +464,7 @@ function accountValueRows(row) {
     if (d.gateway !== undefined && d.gateway.balance > 0)
         rows.push({ label: "API credits", value: d.gateway.balance < 0.01 ? "$" + String(d.gateway.balance) : money(d.gateway.balance, "USD") });
     if (d.availableResets > 0)
-        rows.push({ label: "Available resets", value: wholeNumber(d.availableResets) });
+        rows.push({ label: "Resets", value: wholeNumber(d.availableResets) });
     return rows;
 }
 

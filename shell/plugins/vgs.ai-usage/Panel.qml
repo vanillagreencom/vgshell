@@ -231,7 +231,7 @@ Item {
                     Row {
                         id: identity
                         spacing: Theme.stack.inline
-                        Label { anchors.verticalCenter: parent.verticalCenter; role: "label"; text: entry.title }
+                        Label { anchors.verticalCenter: parent.verticalCenter; role: "eyebrow"; text: entry.title }
                         Badge { anchors.verticalCenter: parent.verticalCenter; visible: entry.api; text: "[API]"; tone: "info" }
                     }
                     // The button's box overruns the line into the card's
@@ -314,16 +314,17 @@ Item {
                     // Full view separates credits from limits; Compact
                     // keeps the same gap between every row.
                     readonly property real groupGap: root.fullView ? Theme.stack.group : Theme.row.lineGap
-                    visible: entry.windows.length > 0
+                    visible: entry.windows.length > 0 || entry.values.length > 0
                     width: parent.width
                     spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap
                     Repeater {
-                        model: entry.windows
+                        model: entry.windows.concat(entry.values)
                         Column {
                             id: usageLimit
                             required property var modelData
-                            // A credit with no used share, such as a balance, has no tone.
-                            readonly property color usageColor: modelData.tone === "" ? Theme.text.body.color
+                            readonly property bool accountValue: modelData.value !== undefined
+                            // Available account credits and resets are a good state.
+                            readonly property color usageColor: accountValue ? Theme.color.success : modelData.tone === "" ? Theme.text.body.color
                                 : modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
                             width: parent.width
                             spacing: Theme.row.lineGap
@@ -354,12 +355,12 @@ Item {
                                         visible: text !== ""
                                         anchors.verticalCenter: parent.verticalCenter
                                         role: "hint"
-                                        text: modelData.reset
+                                        text: modelData.reset || ""
                                     }
                                     Label {
                                         anchors.verticalCenter: parent.verticalCenter
                                         role: "body"
-                                        text: modelData.text
+                                        text: usageLimit.accountValue ? modelData.value : modelData.text
                                         color: usageLimit.usageColor
                                     }
                                 }
@@ -368,21 +369,11 @@ Item {
                             // balance has no bar and no tone.
                             Loader {
                                 width: parent.width
-                                active: root.fullView && usageLimit.modelData.bar
+                                active: root.fullView && !usageLimit.accountValue && usageLimit.modelData.bar
                                 visible: active
                                 sourceComponent: ProgressBar { value: Math.min(usageLimit.modelData.percent, 100) / 100; tone: usageLimit.modelData.tone }
                             }
                         }
-                    }
-                }
-
-                Repeater {
-                    model: entry.values
-                    FormRow {
-                        required property var modelData
-                        width: parent.width
-                        label: modelData.label
-                        Label { role: "body"; text: modelData.value }
                     }
                 }
 
