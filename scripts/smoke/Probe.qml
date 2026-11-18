@@ -1206,12 +1206,21 @@ Scope {
     // through the overlay's AnchorTracker; inside the first item named
     // `scopeType` that draws `scopeText` when `scopeType` is not empty, as
     // scopedItem scopes. null when there is none.
+    function popupOf(owner) {
+        const anchored = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+        if (anchored !== null && anchored !== undefined) return anchored;
+        // ModalDialog's Loader owns an OverlaySurface rather than a
+        // visual child. Read its content through the same popup queries.
+        return owner instanceof Loader && owner.item !== null && !(owner.item instanceof Item)
+            && owner.item.contentItem !== undefined ? owner.item : null;
+    }
+
     function popupItem(hostKey, id, scopeType, scopeText, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
         const draws = node => root.descendants(node).some(child => child instanceof Text && root.visibleInTree(child) && child.text === scopeText);
         for (const owner of root.descendants(item)) {
-            const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+            const popup = root.popupOf(owner);
             if (popup === null || popup === undefined || !popup.visible) continue;
             let within = popup.contentItem;
             if (scopeType !== "") {
@@ -1239,7 +1248,7 @@ Scope {
         const item = root.instance(hostKey, id);
         if (item === null) return "absent";
         const found = root.descendants(item).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && (child.enabled || !enabledOnly));
-        return found === undefined ? "absent" : root.json(root.windowBox(found));
+        return found === undefined ? "absent" : root.json(root.pointerBox(found, false));
     }
 
     function fieldOf(panel, id, key) {
@@ -1383,6 +1392,20 @@ Scope {
             if (area !== undefined) return { dialog: dialogs[0], area: area };
         }
         return "no-card-area";
+    }
+
+    // Text-only help takes the pointer on its words, not the empty part
+    // of a form's label column. Use its first rendered span as a click box.
+    function pointerBox(item, global) {
+        const spans = root.typeName(item) === "InfoButton" ? item.underlined : [];
+        const span = spans.length > 0 ? spans[0] : null;
+        const x = span === null ? 0 : span.left;
+        const y = span === null ? 0 : span.line * item.linePitch;
+        const at = global ? item.mapToGlobal(x, y) : item.mapToItem(null, x, y);
+        return [at.x, at.y, span === null ? item.width : span.right - span.left, span === null ? item.height : item.linePitch];
+    }
+    function pointerHovered(item) {
+        return root.typeName(item) === "InfoButton" ? item.hoveredLink === true : item.hovered === true;
     }
 
     function windowBox(item) {
@@ -3039,12 +3062,8 @@ Scope {
                 for (const entry of Plugins.built[hostKey]) {
                     const trees = [entry.instance];
                     for (const owner of root.descendants(entry.instance)) {
-                        const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                        const popup = root.popupOf(owner);
                         if (popup !== null && popup !== undefined && popup.visible) trees.push(popup.contentItem);
-                        // A ModalDialog's Loader owns a window, not a visual
-                        // child. Its content needs the same inventory.
-                        if (owner instanceof Loader && owner.item !== null && !(owner.item instanceof Item)
-                            && owner.item.visible && owner.item.contentItem !== undefined) trees.push(owner.item.contentItem);
                     }
                     for (const tree of trees) {
                         for (const pane of root.titledPanes(tree)) {
@@ -3133,7 +3152,8 @@ Scope {
         // The box of the first visible, enabled item named `type` whose
         // `text` is `text`, in screen coordinates, so a row can click it.
         function itemGeometry(hostKey: string, id: string, type: string, text: string): string {
-            return root.geometry(root.textItem(hostKey, id, type, text));
+            const found = root.textItem(hostKey, id, type, text);
+            return found === null ? "absent" : root.json(root.pointerBox(found, true));
         }
         // Whether that item reports the pointer over it: "true", "false",
         // or "absent" with no such item. The compositor routes a click by
@@ -3141,7 +3161,7 @@ Scope {
         // itemGeometry reads, so a row clicks once this reads "true".
         function itemHovered(hostKey: string, id: string, type: string, text: string): string {
             const found = root.textItem(hostKey, id, type, text);
-            return found === null ? "absent" : String(found.hovered === true);
+            return found === null ? "absent" : String(root.pointerHovered(found));
         }
         // The same for the first visible, enabled item named `type` whose
         // `label` is `label`, for an icon button, which draws no text.
@@ -3361,7 +3381,7 @@ Scope {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             for (const owner of root.descendants(item)) {
-                const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                const popup = root.popupOf(owner);
                 if (popup === null || popup === undefined || !popup.visible) continue;
                 const focused = root.descendants(popup.contentItem).filter(child => child.activeFocus);
                 if (focused.length === 0) return "no-focus";
@@ -3374,11 +3394,11 @@ Scope {
         // reports the pointer over it: "true", "false", or "absent".
         function scopedWindowGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : root.json(root.windowBox(found));
+            return found === null ? "absent" : root.json(root.pointerBox(found, false));
         }
         function scopedItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : String(found.hovered === true);
+            return found === null ? "absent" : String(root.pointerHovered(found));
         }
         function windowGeometry(hostKey: string, id: string, type: string, text: string): string {
             return root.labelledBox(hostKey, id, type, text, true);

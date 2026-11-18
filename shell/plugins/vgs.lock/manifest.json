@@ -62,7 +62,7 @@
     "allowDelegateUnlock": {
       "type": "boolean",
       "label": "Temporary unlock",
-      "info": "Any application running as you can unlock without a password for up to 60 seconds. VGS cannot verify Jarvis or your approval of the step. This gives other apps easier access. Turning this off locks active access. VGS must stay running and responsive: a crash can leave access open, a stall can delay locking, and sleep with Lock before sleep off can extend access.",
+      "info": "Any app running as you can request password-free access for up to 60 seconds.\nVGS cannot check that Jarvis made the request or that you approved it.\nTurning this off ends active access.\nVGS must keep running and responding. A crash can leave access open, and a stall can delay locking.\nSleep can extend access if Lock before sleep is off.",
       "group": "Lock"
     }
   },
@@ -83,7 +83,7 @@
     "temporaryAccess": {
       "type": "state",
       "label": "Temporary access",
-      "info": "An allowed request lasts at most 60 seconds while VGS runs and responds. The lock key, inactivity, sleep or turning the permission off can lock sooner. A VGS crash can leave access open; a stall or sleep with Lock before sleep off can extend it."
+      "info": "Access lasts up to 60 seconds while VGS runs and responds.\nThe lock key, inactivity, sleep or turning off permission can end it sooner.\nA crash can leave access open. A stall can delay locking.\nSleep can extend access if Lock before sleep is off."
     }
   },
   "requirements": [
@@ -97,7 +97,7 @@
       {
         "shortcut": "lock",
         "key": "SUPER+DELETE",
-        "info": "Locks the screen at once and ends temporary access. Your password unlocks it; Temporary unlock also permits password-free access requests."
+        "info": "Locks immediately and ends temporary access.\nUse your password to unlock. Temporary unlock also permits password-free access requests."
       }
     ]
   }

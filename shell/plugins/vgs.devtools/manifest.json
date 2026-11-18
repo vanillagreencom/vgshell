@@ -47,13 +47,12 @@
   "status": {
     "mise": {
       "type": "state",
-      "label": "Tool manager",
-      "info": "mise installs and updates your developer tools."
+      "label": "Tool manager"
     },
     "checks": {
       "type": "state",
       "label": "Checks",
-      "info": "Update checks wait 10 minutes before they run again. This limits requests to the services that supply tool versions. Local checks run again when you reopen Dev Tools."
+      "info": "Update checks wait 10 minutes before they run again to limit requests to version services.\nLocal checks run again when you reopen Dev Tools."
     },
     "installed": {
       "type": "count",

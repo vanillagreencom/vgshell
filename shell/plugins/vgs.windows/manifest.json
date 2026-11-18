@@ -14,7 +14,7 @@
   "pane": { "group": "Appearance", "order": 20 },
   "hyprland": {
     "binds": [
-      { "shortcut": "group-lock", "key": "SUPER+CTRL+G", "info": "Locks the group of the focused window, or unlocks it, and shows a notification that tells you which. A window in no group stays as it is." }
+      { "shortcut": "group-lock", "key": "SUPER+CTRL+G", "info": "A window outside a group stays unchanged.\nA notification confirms whether the group is locked or unlocked." }
     ]
   },
   "requirements": [

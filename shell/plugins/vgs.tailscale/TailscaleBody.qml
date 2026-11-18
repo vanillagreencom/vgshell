@@ -251,6 +251,8 @@ FocusScope {
         }
     }
 
+    readonly property string inboundInfo: "In this Tailscale mode, connections stay inside Tailscale.\nThey do not reach the system connection list that VGS reads."
+
     CopyText { id: copier }
 
     // The inbound line's info mark and Install, after its text. An inline
@@ -258,16 +260,10 @@ FocusScope {
     // (https://doc.qt.io/qt-6/qtqml-documents-definetypes.html#inline-components).
     component InboundActions: Row {
         id: actions
-        property bool info: false
         property bool offer: false
         signal install()
         spacing: Theme.stack.inline
-        InfoButton {
-            anchors.verticalCenter: parent.verticalCenter
-            visible: actions.info
-            title: "Connected to this device"
-            info: "Without its network interface, Tailscale handles each connection inside its own program, so the connections never reach the list this computer keeps, where VGS reads them."
-        }
+
         RowAction {
             anchors.verticalCenter: parent.verticalCenter
             visible: actions.offer
@@ -313,20 +309,14 @@ FocusScope {
                     if (row !== undefined && row.address !== "") root.copy(key, row.address);
                 }
             }
-            Row {
+            InfoButton {
                 visible: root.devices.count > root.devices.rows.length
-                spacing: Theme.stack.inline
-
-                Label {
-                    anchors.verticalCenter: parent.verticalCenter
-                    role: "hint"
-                    text: "Showing " + root.devices.rows.length + " of " + root.devices.count + " devices."
-                }
-                InfoButton {
-                    anchors.verticalCenter: parent.verticalCenter
-                    title: "Network devices"
-                    info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. The admin console on the Tailscale website lists every device."
-                }
+                width: parent.width
+                role: "hint"
+                text: "Showing " + root.devices.rows.length + " of " + root.devices.count + " devices."
+                title: "Network devices"
+                info: "The list shows the first " + root.devices.rows.length + " devices so it opens quickly.\nOpen the Tailscale website's admin console to see every device."
+                wrapMode: Text.Wrap
             }
         }
     }
@@ -550,7 +540,8 @@ FocusScope {
                     iconCount: root.inboundBadge.count
                     text: "Connected to this device"
                     secondary: root.inbound.secondary
-                    trailing: [InboundActions { info: root.inbound.info; offer: root.inbound.offer; onInstall: root.offerSockets() }]
+                    info: root.inbound.info ? root.inboundInfo : ""
+                    trailing: [InboundActions { offer: root.inbound.offer; onInstall: root.offerSockets() }]
                     Column {
                         id: inboundList
                         width: parent.width
@@ -644,6 +635,7 @@ FocusScope {
             objectName: "tailscale-inbound-section"
             visible: root.expanded && root.connected && root.inbound.shown
             title: "Connected to this device"
+            info: root.inbound.info ? root.inboundInfo : ""
             Row {
                 width: parent.width
                 spacing: Theme.stack.inline
@@ -659,7 +651,6 @@ FocusScope {
                 InboundActions {
                     id: inboundActions
                     anchors.verticalCenter: parent.verticalCenter
-                    info: root.inbound.info
                     offer: root.inbound.offer
                     onInstall: root.offerSockets()
                 }

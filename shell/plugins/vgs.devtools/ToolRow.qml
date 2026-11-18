@@ -72,11 +72,13 @@ Item {
         width: root.stacked ? root.room : Math.max(0, root.room - trailing.implicitWidth - root.look.row.gap)
         spacing: root.look.row.lineGap
 
-        Label {
+        InfoButton {
             width: parent.width
             role: "item"
-            text: root.view.name
-            elide: Text.ElideRight
+            title: root.view.name
+            info: root.info
+            wrapMode: Text.Wrap
+            onInfoPageActivated: (page, tab) => root.pageActivated(page, tab)
         }
         Label {
             width: parent.width
@@ -134,13 +136,6 @@ Item {
         x: root.stacked ? texts.x : root.width - implicitWidth
         y: root.stacked ? texts.y + texts.implicitHeight + root.look.row.gap : Math.round((root.height - implicitHeight) / 2)
         spacing: root.look.row.actionGap
-
-        InfoButton {
-            anchors.verticalCenter: parent.verticalCenter
-            title: root.view.name
-            info: root.info
-            visible: info !== ""
-        }
 
         Repeater {
             model: root.view.chips

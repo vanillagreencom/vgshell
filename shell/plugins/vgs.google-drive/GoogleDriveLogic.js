@@ -138,16 +138,16 @@ var CONFLICT_TEXT = {
 // that states a limit has an info that says why
 // (docs/architecture/design-system.md § Copy).
 var CONFLICT_INFO = {
-    "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder.",
-    "two-way-removed-locally": "Google controls Trash retention. Emptying Trash can remove this recovery before its normal expiry.",
+    "both-changed-kept": "VGS deletes kept copies after 30 days to limit disk use.\nMove a copy out of its folder to keep it longer.",
+    "two-way-removed-locally": "Google controls how long Drive Trash keeps files.\nEmptying Trash can remove this copy before that time.",
     "two-way-removed-on-drive": "Move a recovery copy out of this folder to keep it longer than 30 days.",
     "two-way-both-changed-local-recovery": "Move a recovery copy out of this folder to keep it longer than 30 days.",
-    "two-way-both-changed-drive-trash": "Google controls Trash retention. Emptying Trash can remove this recovery.",
-    "two-way-both-changed-drive-revisions": "Google controls revision retention. VGS does not keep a local copy of the remote version.",
+    "two-way-both-changed-drive-trash": "Google controls how long Drive Trash keeps files.\nEmptying Trash can remove this copy.",
+    "two-way-both-changed-drive-revisions": "Google controls how long file versions remain available.\nVGS does not keep a local copy of the Drive version.",
     "local-recovery-completed": "Move a recovery copy out of this folder to keep it longer than 30 days.",
-    "local-recovery-partial": "A failed operation is not rolled back. Keep these bytes until you have reviewed the active folders. Move them out of recovery to keep them longer than 30 days.",
-    "exports-recovery-completed": "Native documents are edited, renamed and moved on Drive. Their separate copies are download-only and do not enter two-way sync. Move recovery bytes out to keep them longer than 30 days.",
-    "exports-recovery-partial": "A failed download can already have replaced copies. The separate copies folder never uploads to Drive. Move recovery bytes out to keep them longer than 30 days."
+    "local-recovery-partial": "A failed operation does not undo changes it already made.\nKeep these copies until you review the active folders.\nMove them out of recovery to keep them longer than 30 days.",
+    "exports-recovery-completed": "Edit, rename and move Google documents on Drive.\nTheir separate downloads never sync back to Drive.\nMove a recovery copy out of this folder to keep it longer than 30 days.",
+    "exports-recovery-partial": "A failed download can already have replaced copies.\nThe separate copies folder never uploads to Drive.\nMove recovery copies out to keep them longer than 30 days."
 };
 CONFLICT_INFO["initialize-recovery-completed"] = CONFLICT_INFO["local-recovery-completed"];
 CONFLICT_INFO["initialize-recovery-partial"] = CONFLICT_INFO["local-recovery-partial"];
@@ -704,9 +704,9 @@ function firstPairValue(cloud, presence) {
 // Each key's hint and explanation on the Setup tab, by account.
 var KEY_ITEMS = [
     { label: "Client ID", account: "client-id", hint: "Ends in .apps.googleusercontent.com",
-        info: "The first key of your Google Cloud client. In Google Cloud, open Clients and select your client. Copy the Client ID there and paste it here." },
+        info: "In Google Cloud, open Clients and select your client.\nCopy its Client ID and paste it here." },
     { label: "Client secret", account: "client-secret", hint: "Starts with GOCSPX-. Google shows it only once.",
-        info: "The second key of your Google Cloud client. Google shows it once, in the window that opens when you create the client. Copy it from there. Lost it? In Google Cloud, open your client, select Add secret and paste the new secret here." }
+        info: "Google shows the Client secret only when you create it. Copy it then and paste it here.\nIf you lost it, open your client in Google Cloud.\nSelect Add secret and paste the new secret here." }
 ];
 
 // The `keys` presence list: the client ID and secret, each with the

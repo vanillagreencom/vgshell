@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -19,29 +18,9 @@ import qs.Ui
 // beside a one-line control; such a control grows the row, so its first
 // line starts at the row box's top. A label too long for its
 // column wraps onto as many lines as it needs and never elides; the row
-// grows to hold them. `labelTooltip`, when set, is the label's tooltip on
-// hover and keyboard focus. It ends on the row's end edge and moves no
-// row. It opens centred on the label's box, past the
-// control's drawn end (Theme.inkEnd), `tooltip.gap` after it, where its
-// text wrapped to the room left there reaches no further than `stack.row`
-// above or below that box and stops short of the first line under the
-// value, so it covers neither its own control nor a row beside it and
-// clips no hint. Otherwise, as beside a control that fills the value
-// column, it opens under the row's label and control, as wide as the
-// row, so it covers the whole of the line it lies on: the first line under
-// the value, the row's message or text its owner draws there while
-// `textBelow` holds, which it covers from that line's top. That band is one
-// line: the room under that line's top holds no more. It stays clear
-// of the label's focus ring, which draws outside the label's box: where
-// the ring reaches that line, as under a label of two lines, it starts on
-// the value column, beside the ring, and still covers the line from its
-// top. A row with no such line has no room of its own under it, and an
-// explainer too long for one line of the value column would run past that
-// line onto the next row, so there the label opens no tooltip and is no Tab
-// stop: the row's info button holds the explanation and opens it in its
-// dialog, before `info` where the row has both. That button opens no
-// tooltip: under it lies the next row's label, and past it its own row's
-// control. `warning` is the row's message:
+// grows to hold them. Help, including `labelTooltip`, belongs to the
+// dotted label and opens in ModalDialog. Its click and focus target stay
+// separate from the value control. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
 // column, `field.gap` below its control's drawn ink, the measure key/value
 // rows stand by (Theme.inkBelow, a Label in the slot by its font), and
@@ -224,44 +203,7 @@ Item {
         }
         return slot.x + end;
     }
-    readonly property real besideX: controlEnd + Theme.tooltip.gap
-    readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.padding)
-    readonly property real besideHeight: besideMeasure.implicitHeight + besideInset.topPadding + besideInset.bottomPadding
-    ClearingInset {
-        id: besideInset
-        pad: Theme.tooltip.padding
-        content: besideMeasure
-    }
-    // Where the first line under the value starts, -1 with no such line.
-    // In the row box's frame, as are the label's and the control's tops
-    // and the places that read them.
-    readonly property real underText: textBelow ? slotTop + slot.height + Theme.field.gap : warning !== "" ? messageTop : -1
-    readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
-    readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
-    readonly property real ringBottom: labelTop + labelText.height + labelRing.extent
-    readonly property bool ringAtUnderText: underText >= 0 && ringBottom + Theme.tooltip.gap > underText
-    readonly property real underX: ringAtUnderText ? valueX : 0
-    // The box a one-line label centres on, whatever the label's own lines.
-    readonly property real oneLineBox: controlFirstLine > 0 ? controlFirstLine : Math.max(Theme.row.height, slot.childrenRect.height)
-    readonly property bool underLine: textBelow || warning !== ""
-    // Whether the explainer has room past the control beside a label of any
-    // line count, and ends above a line under the value: less a pixel, which
-    // the control's rounded centre can take. Centred on the slot, it ends
-    // above that line while half its height fits between the slot's centre
-    // and the line's start, `field.gap` under the slot's box for the
-    // owner's text and under the control's ink for the message.
-    readonly property bool besideRoom: besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row && (!underLine || besideHeight <= 2 * ((textBelow ? slot.height : controlInk) + Theme.field.gap) - slot.childrenRect.height - 1)
-    // Whether the band over that line holds the explainer on one line of the
-    // value column, the room it has beside a label ring that reaches the line.
-    // A wrapped Text's implicitWidth is its width on one line.
-    readonly property bool bandOneLine: underLine && Math.ceil(besideMeasure.implicitWidth) <= valueRoom - 2 * Theme.tooltip.padding
-    // Whether the info button holds the explainer: a band under a row with
-    // no line under its value, or of more than one line, would cover the
-    // next row. The button narrows the label, so this reads neither the
-    // label's line count nor a place that moves with it.
-    readonly property bool explainInDialog: labelTooltip !== "" && labelColumn && !besideRoom && !bandOneLine
-    readonly property string tipText: explainInDialog ? "" : labelTooltip
-    readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n" + info
+    readonly property string dialogText: labelTooltip === "" ? info : info === "" ? labelTooltip : labelTooltip + "\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // The row box, the end of the message's line and the room under the
     // lower of the two, each from the row box's top, so the space above it
@@ -344,7 +286,7 @@ Item {
     // text line read by its font while BYFONT holds and by its glyphs
     // otherwise.
     function drawnBelow(byFont) {
-        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - (byFont ? fontBelow(labelText) : labelText.inkBelow) : 0;
+        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - (byFont ? fontBelow(labelText.labelItem) : labelText.inkBelow) : 0;
         for (const child of slot.children) {
             if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - (byFont && child instanceof Label ? fontBelow(child) : Theme.inkBelow(child)));
         }
@@ -356,7 +298,7 @@ Item {
     // How far below the row box's top the row's highest drawn part starts,
     // read as drawnBelow reads.
     function drawnAbove(byFont) {
-        let top = labelColumn && label !== "" ? labelTop + (byFont ? fontAbove(labelText) : labelText.inkAbove) : ownHeight;
+        let top = labelColumn && label !== "" ? labelTop + (byFont ? fontAbove(labelText.labelItem) : labelText.inkAbove) : ownHeight;
         for (const child of slot.children) {
             if (child.visible) top = Math.min(top, slotTop + child.y + (byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child)));
         }
@@ -377,45 +319,17 @@ Item {
     implicitWidth: slot.x + Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, slot.childrenRect.width))
     implicitHeight: shift + ownHeight
 
-    Label {
+    InfoButton {
         id: labelText
         objectName: "fieldLabel"
-        T.Control {
-            id: labelFocus
-            Accessible.name: labelText.text
-            Accessible.role: Accessible.StaticText
-            anchors.fill: parent
-            activeFocusOnTab: root.tipText !== "" && visible
-            Tooltip {
-                text: root.tipText
-                side: root.explainBeside ? "right" : "belowStart"
-                // The side's gap from this box's end puts the tooltip at `besideX`.
-                box: root.explainBeside ? Qt.rect(0, -root.labelTop, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -root.labelTop, root.width - root.underX, root.underText - Theme.tooltip.gap)
-                maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.padding
-                minWidth: root.explainBeside ? 0 : root.width - root.underX
-            }
-        }
-        FocusRing { id: labelRing; target: labelFocus; outside: true }
         role: "label"
-        text: root.label
+        title: root.label
+        info: root.dialogText
         visible: root.labelColumn
-        width: Theme.field.labelWidth - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
+        width: Theme.field.labelWidth
         wrapMode: Text.Wrap
         y: root.shift + root.labelTop
-    }
-
-    Loader {
-        id: infoButton
-        active: root.dialogText !== "" && root.labelColumn
-        x: Theme.field.labelWidth - width
-        y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2) + root.shift
-        sourceComponent: InfoButton {
-            title: root.label
-            info: root.dialogText
-            // Under the button a tooltip would cover the next row's label.
-            tooltip: ""
-            onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
-        }
+        onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
     }
 
     Item {
@@ -448,16 +362,6 @@ Item {
         y: root.shift + (root.actionBelow ? root.messageBottom - height : root.messageBottom - root.messageLine + Math.round((root.messageLine - height) / 2))
         width: root.actionItem === null ? 0 : root.actionItem.width
         height: root.actionItem === null ? 0 : root.actionItem.height
-    }
-
-    // The explainer's text at the width it wraps to past the control.
-    Label {
-        id: besideMeasure
-        visible: false
-        role: "tooltip"
-        text: root.labelTooltip
-        width: Math.max(1, root.besideWrap)
-        wrapMode: Text.Wrap
     }
 
     // One line of the message's role, for its font's lines (fontBelow).

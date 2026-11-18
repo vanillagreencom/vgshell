@@ -56,15 +56,20 @@ T.Control {
     property string link: ""
     property string role: "body"
     property bool focusPreview: false
+    property bool parseReferences: true
+    property bool dottedUnderline: false
+    property bool underlineAtRest: false
+    readonly property alias labelItem: label
+    readonly property alias capCentre: label.capCentre
     property bool wrapAtSpaces: false
     property alias color: label.color
     property color linkColor: Theme.color.accent
     property alias wrapMode: label.wrapMode
     property alias horizontalAlignment: label.horizontalAlignment
     readonly property alias lineCount: label.lineCount
-    readonly property var reference: PageReference.parse(text)
+    readonly property var reference: parseReferences ? PageReference.parse(text) : ({ words: "", page: "", tab: "" })
     // The text drawn and the words of it that are the link.
-    readonly property var references: PageReference.references(text)
+    readonly property var references: parseReferences ? PageReference.references(text) : ({ text: text, links: [] })
     readonly property string plain: references.text
     // Whether the text cites `link`: a link it does not cite gives way to
     // the page reference.
@@ -247,6 +252,8 @@ T.Control {
 
     readonly property real inkAbove: label.y + label.inkAbove
     function topForLeadingIcon(iconHeight, origin, link) { return label.y + label.topForLeadingIcon(iconHeight, origin, link); }
+    function topForCapCenter(box) { return label.topForCapCenter(box); }
+    function capTop() { return label.capTop(); }
 
     // positionAt reads layout through a method, so follow its inputs and
     // layout notifications explicitly, as the link boxes above do.
@@ -267,7 +274,7 @@ T.Control {
     readonly property real inkBelow: {
         const lastStart = lastLineStart;
         const glyphs = label.inkBelow;
-        const lastUnderlined = linked && !standalone && lastStart >= 0 && layout.links.some(item => item.end > lastStart);
+        const lastUnderlined = linked && (underlineAtRest || !standalone) && lastStart >= 0 && layout.links.some(item => item.end > lastStart);
         return height - label.y - label.height + (lastUnderlined ? Math.min(glyphs, label.height - underlineBottom(label.lineCount - 1)) : glyphs);
     }
 
@@ -307,14 +314,29 @@ T.Control {
 
     Repeater {
         model: root.underlined
-        Rectangle {
+        Item {
             required property var modelData
             x: modelData.left
             y: label.baselineOffset + modelData.line * root.linePitch + root.underlineOffset
             width: modelData.right - modelData.left
             height: root.underlineThickness
-            visible: root.standalone ? root.hoveredLink : true
-            color: root.linkColor
+            visible: root.underlineAtRest || !root.standalone || root.hoveredLink
+            Rectangle {
+                anchors.fill: parent
+                visible: !root.dottedUnderline
+                color: root.linkColor
+            }
+            Repeater {
+                model: root.dottedUnderline ? Math.floor(parent.width / (2 * root.underlineThickness)) : 0
+                Rectangle {
+                    required property int index
+                    x: index * 2 * root.underlineThickness
+                    width: root.underlineThickness
+                    height: width
+                    radius: width / 2
+                    color: root.linkColor
+                }
+            }
         }
     }
 

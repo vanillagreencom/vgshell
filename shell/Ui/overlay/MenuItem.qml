@@ -41,6 +41,9 @@ T.MenuItem {
 
     property string iconName: ""
     property string shortcut: ""
+    property string info: ""
+    property Item helpReturnFocus: null
+    property bool helpByKey: false
     // Keep unavailable entries reachable; the menu shows the cause in the
     // row because its scope holds focus and suppresses action tooltips.
     property string disabledReason: ""
@@ -52,6 +55,7 @@ T.MenuItem {
     readonly property bool lit: cursor !== null ? cursor.shown && cursor.placed === root : highlighted
 
     signal pointed()
+    onTriggered: if (help.item !== null && !lockState.locked) help.item.openInfo(root.helpByKey)
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: implicitContentWidth + leftPadding + rightPadding
@@ -120,12 +124,31 @@ T.MenuItem {
             id: title
             role: "menuItem"
             spaceWrappedText: root.text
+            visible: root.info === ""
             color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
             x: parent.lead
             width: Math.max(0, parent.width - parent.lead - parent.tail)
             wrapMode: Text.Wrap
             y: root.wraps ? 0 : topForCapCenter(parent.height)
             TextMetrics { id: oneLine; font: title.font; text: root.text }
+        }
+        Loader {
+            id: help
+            active: root.info !== ""
+            x: title.x
+            y: title.y
+            width: title.width
+            sourceComponent: InfoButton {
+                id: helpLabel
+                title: root.text
+                info: root.info
+                role: "menuItem"
+                color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
+                wrapMode: Text.Wrap
+                returnFocus: root.helpReturnFocus === null ? helpLabel : root.helpReturnFocus
+                activeFocusOnTab: false
+                onActivated: root.triggered()
+            }
         }
         Label {
             id: hint

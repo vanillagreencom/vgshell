@@ -5,8 +5,8 @@ import qs.Ui
 // The heading of one section of a panel: an eyebrow title and an optional
 // description under it. It spans its parent, as a heading does, unless
 // given a width; a surface that insets its rows sets `leftPadding` and
-// `rightPadding` to match. `info` adds an InfoButton after the title,
-// whose dialog takes `infoTitle`, the title unless set.
+// `rightPadding` to match. `info` gives the title a dotted help underline;
+// its dialog takes `infoTitle`, the title unless set.
 //
 // It owns the space on both sides, so no page pads a heading. Above, it
 // leaves `spaceAbove`, `stack.heading`, from the lowest drawn pixel of the
@@ -79,29 +79,15 @@ Column {
     bottomPadding: Math.max(0, spaceBelow - parentSpacing)
     spacing: Theme.sectionHeader.gap
 
-    Item {
+    InfoButton {
+        id: titleLabel
         width: root.bodyWidth
-        height: Math.max(titleLabel.implicitHeight, infoButton.implicitHeight)
-
-        Label {
-            id: titleLabel
-            role: "eyebrow"
-            text: root.text
-            width: parent.width - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
-            anchors.verticalCenter: parent.verticalCenter
-            elide: Text.ElideRight
-        }
-        Loader {
-            id: infoButton
-            active: root.info !== ""
-            anchors.left: titleLabel.right
-            anchors.leftMargin: Theme.space.xs
-            anchors.verticalCenter: parent.verticalCenter
-            sourceComponent: InfoButton {
-                title: root.infoTitle
-                info: root.info
-            }
-        }
+        role: "eyebrow"
+        text: root.text
+        title: root.infoTitle
+        info: root.info
+        wrapMode: Text.Wrap
+        onInfoPageActivated: (page, tab) => root.pageActivated(page, tab)
     }
     LinkText {
         role: "hint"

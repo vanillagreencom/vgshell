@@ -930,7 +930,7 @@ var TOKENS = {
     listItem: {
         height: length("{row.height}"),
         twoLineHeight: length("{row.twoLineHeight}"),
-        paddingX: length("{row.paddingX}"),
+        paddingX: length("{space.sm}"),
         gap: length("{control.gap}"),
         iconGap: length("{space.lg}"),
         radius: length("{radius.sm}"),

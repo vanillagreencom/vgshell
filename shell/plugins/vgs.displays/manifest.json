@@ -30,12 +30,12 @@
     "automaticHdr": false
   },
   "schema": {
-    "primaryOutput": {"type": "string", "label": "Primary display", "optionsFrom": "primaryOutputs", "info": "The login form appears on this display. If it is disconnected, off or mirroring, the login form uses another display until it is available again.", "group": "Displays"},
+    "primaryOutput": {"type": "string", "label": "Primary display", "optionsFrom": "primaryOutputs", "info": "The login form uses this display.\nIf it is disconnected, off or mirroring, the form uses another display until this one is available.", "group": "Displays"},
     "vrr": {"type": "number", "label": "Variable refresh rate", "description": "Applies to all capable displays", "min": 0, "max": 3, "step": 1, "presets": [{"value": 0, "label": "Off"}, {"value": 1, "label": "On"}, {"value": 2, "label": "Fullscreen only"}, {"value": 3, "label": "Fullscreen game or video"}], "group": "Displays"},
     "automaticHdr": {"type": "boolean", "label": "Automatic HDR", "description": "Switch only for HDR content on a supported display", "shownWhen": "hdrDisplay", "group": "Displays"},
-    "brightnessStep": {"type": "number", "label": "Key and scroll step", "info": "Each brightness key press or bar scroll changes the level by this step. Set the level itself in System Settings → Displays.", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness"},
+    "brightnessStep": {"type": "number", "label": "Key and scroll step", "info": "Each brightness key press or bar scroll changes the level by this amount.\nChange the current level in [Displays](page:vgs.displays).", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness"},
     "keysTarget": {"type": "enum", "label": "Brightness keys change", "options": [{"value": "focused", "label": "Focused display"}, {"value": "all", "label": "All displays"}], "group": "Brightness"},
-    "linked": {"type": "boolean", "label": "Link displays", "info": "A brightness change moves every display by the same amount.", "group": "Brightness"},
+    "linked": {"type": "boolean", "label": "Link displays", "info": "Changing brightness moves every display by the same amount.", "group": "Brightness"},
     "dimAfterSeconds": {"type": "number", "label": "Dim when inactive", "min": 0, "max": 3600, "step": 10, "unit": "seconds", "allowCustom": true, "presets": [{"value": 0, "label": "Never"}, {"value": 60}, {"value": 120}, {"value": 300}, {"value": 600}], "group": "Dimming"},
     "dimPercent": {"type": "number", "label": "Dimmed brightness", "description": "A display already darker keeps its level", "min": 1, "max": 90, "step": 1, "unit": "%", "allowCustom": true, "presets": [{"value": 10}, {"value": 20}, {"value": 30}, {"value": 40}, {"value": 50}], "group": "Dimming"}
   },
@@ -43,8 +43,8 @@
     "options": { "vrr": "misc.vrr", "automaticHdr": "render.cm_auto_hdr" },
     "monitors": "outputs",
     "binds": [
-      { "shortcut": "brightness-up", "key": "XF86MonBrightnessUp", "info": "Makes the screen brighter by one step." },
-      { "shortcut": "brightness-down", "key": "XF86MonBrightnessDown", "info": "Makes the screen dimmer by one step." }
+      { "shortcut": "brightness-up", "key": "XF86MonBrightnessUp" },
+      { "shortcut": "brightness-down", "key": "XF86MonBrightnessDown" }
     ]
   },
   "status": {

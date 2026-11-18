@@ -80,6 +80,9 @@ Item {
             MenuItem { id: hideEntry; text: "Hide"; iconName: "eye-off" }
             MenuItem { id: settingsEntry; text: "Settings"; iconName: "settings" }
         }
+        Menu { id: helpMenu
+            MenuItem { id: helpEntry; text: "Message limits"; info: "A useful limit for this view."; helpReturnFocus: host }
+        }
         Menu { id: oneWord
             MenuItem { text: "Off" }
         }
@@ -223,6 +226,22 @@ Item {
             compare(popover.opened, false);
             host.visible = true;
             host.x = 0;
+        }
+
+        function test_menu_help_uses_the_dotted_label_and_returns_to_its_opener_data() {
+            return [{ tag: "keyboard", pointer: false }, { tag: "pointer", pointer: true }];
+        }
+        function test_menu_help_uses_the_dotted_label_and_returns_to_its_opener(data) {
+            helpMenu.open("key");
+            tryCompare(helpMenu, "opened", true);
+            const label = descendants(helpEntry).find(item => item instanceof InfoButton);
+            verify(label !== undefined);
+            if (data.pointer) mouseClick(label);
+            else keyClick(Qt.Key_Enter);
+            tryCompare(label, "infoOpen", true);
+            tryCompare(helpMenu, "opened", false);
+            label.closeInfo();
+            tryCompare(host, "activeFocus", true);
         }
 
         function test_menu_moves_and_triggers_by_key() {

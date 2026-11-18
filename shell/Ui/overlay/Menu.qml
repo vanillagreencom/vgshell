@@ -192,7 +192,7 @@ Item {
         flickable: root.scrollArea
         itemAt: index => root.items()[index]
         onMoved: index => root.keyTo(index)
-        onActivated: index => root.triggerCurrent()
+        onActivated: index => { root.keyChose = true; root.triggerCurrent(); }
     }
 
     // Every entry draws its highlight through the menu's cursor, and a
@@ -205,6 +205,7 @@ Item {
             Component.onCompleted: {
                 modelData.cursor = Qt.binding(() => root.plate);
                 modelData.barRoom = Qt.binding(() => root.overflows ? Theme.scrollArea.gutter : 0);
+                modelData.helpByKey = Qt.binding(() => root.keyChose);
             }
             function onPointed() { if (root.reachable(modelData)) root.currentIndex = root.items().indexOf(modelData); }
         }

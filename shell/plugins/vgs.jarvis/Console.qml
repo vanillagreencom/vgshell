@@ -199,7 +199,7 @@ FocusScope {
     // History's Messages: every turn the log holds, oldest first.
     readonly property var historyRows: History.messages(conversation, historyQuery)
     readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
-    readonly property string historyLimit: "Problems holds the newest 20 failures. Search and the type filter apply only to the records it still holds."
+    readonly property string historyLimit: "The list keeps the newest 20 failures.\nSearch and the type filter use only these records."
     // A duplex voice takes no typed message (Session.sayRefusal): the
     // message box stays, locked, under one notice that says how to talk.
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
@@ -326,22 +326,9 @@ FocusScope {
     function closeDialogs() {
         editingAsk = null;
         pendingChoice = null;
-        help = null;
     }
 
-    // More's help: TITLE and TEXT in a dialog over the console, which gives
-    // the focus back to More as it closes.
-    property var help: null
-    property bool helpByKey: false
-    function openHelp(title, text) {
-        help = { title: title, text: text };
-        Qt.callLater(() => helpDialog.forceActiveFocus(Qt.OtherFocusReason));
-    }
-    function closeHelp() {
-        if (help === null) return;
-        help = null;
-        Qt.callLater(() => moreButton.forceActiveFocus(helpByKey ? Qt.TabFocusReason : Qt.MouseFocusReason));
-    }
+
 
     // The History tab filtered to its Problems list, every record in it
     // shown, its search field focused (focusTab).
@@ -742,14 +729,13 @@ FocusScope {
                 iconName: "ellipsis"
                 label: "More"
                 onClicked: {
-                    root.helpByKey = visualFocus;
                     moreMenu.toggle(KeyNavLogic.opener(moreButton));
                 }
                 Menu {
                     id: moreMenu
                     MenuItem { text: "Jarvis home"; onTriggered: root.shell.surfaces.openPage("vgs.jarvis", "Settings/home") }
-                    MenuItem { text: "Message limits"; onTriggered: root.openHelp(text, root.messageLimit.info) }
-                    MenuItem { text: "History limits"; onTriggered: root.openHelp(text, root.historyLimit) }
+                    MenuItem { text: "Message limits"; info: root.messageLimit.info; helpReturnFocus: moreButton }
+                    MenuItem { text: "History limits"; info: root.historyLimit; helpReturnFocus: moreButton }
                     MenuItem {
                         text: "Stop Jarvis startup or current work"
                         disabledReason: root.nothingToStop ? "Jarvis has no current work to stop." : ""
@@ -1413,23 +1399,6 @@ FocusScope {
             actions: [{ label: model ? "Change model" : "Change effort", role: "accept" }, { label: "Cancel", role: "cancel" }]
             onAccepted: root.closeChoice(true)
             onRejected: root.closeChoice(false)
-        }
-    }
-    // More's Message limits and History limits.
-    Item {
-        anchors.fill: parent
-        visible: root.help !== null
-        Scrim { onClicked: root.closeHelp() }
-        Dialog {
-            id: helpDialog
-            anchors.centerIn: parent
-            width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
-            availableHeight: parent.height - 2 * Theme.dialog.margin
-            title: root.help === null ? "" : root.help.title
-            message: root.help === null ? "" : root.help.text
-            actions: [{ label: "Close", role: "cancel" }]
-            onRejected: root.closeHelp()
-            onMessagePageActivated: (page, tab) => { root.closeHelp(); root.shell.surfaces.openPage(page, tab); }
         }
     }
 }

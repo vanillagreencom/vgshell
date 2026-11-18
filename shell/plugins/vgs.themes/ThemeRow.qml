@@ -64,8 +64,6 @@ Column {
         highlighted: root.selected
         cursor: root.cursor
         enabled: root.applicable || (root.actionLabel !== "" && root.actionEnabled)
-        topPadding: Theme.stack.row
-        bottomPadding: Theme.stack.row
         onClicked: root.activate()
         contentItem: Item {
             implicitHeight: body.implicitHeight

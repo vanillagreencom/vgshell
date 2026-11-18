@@ -130,7 +130,7 @@ FocusScope {
                 id: windowsRow
                 width: parent.width
                 label: "Window animations"
-                info: "On: Hyprland moves your windows with the motion above. Off: Hyprland keeps the window animations from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "."
+                info: "On uses the window motion above.\nOff keeps animations from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "."
                 onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 source: root.appearance === null ? "hyprland" : root.sourceOf("windowAnimations")
                 userValue: true

@@ -13,6 +13,10 @@
 # page reference in a FormRow's message opens the Settings window on that
 # page, by a click and by Tab then Enter. A page no plugin has and a shell
 # with the manager window off each answer a refusal.
+# Help opened from a widget flyout, Settings and a plugin window uses the
+# same screen-centred ModalDialog, closes on Escape and outside press, and
+# releases its surface when its caller is destroyed. A displaced card in
+# the existing focus control must fail the same screen-centre reading.
 # inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Core/Compositor.qml shell/Core/HyprlandLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/plugins.sh
 set -euo pipefail
 leak_plugin_setup vgs.themes true || { fail "surfaces: fixture precondition failed"; return 1; }
@@ -1435,6 +1439,67 @@ expect_poll "ModalDialog leaves the title-space after a bare title" True modal_t
 expect "the actual ModalDialog fixture closes" ok ipc smoke popupDrop focus-title-modal
 expect_poll "the actual ModalDialog surface closes" 0 layer_count vgs:dialog
 
+surf_help_evidence() { ipc smoke popupRead surface-help evidence; }
+surf_help_ready() {
+  surf_help_evidence | py_reply 'import json,sys
+v=json.load(sys.stdin)
+if not isinstance(v,dict): print("unavailable")
+else: print(str(v.get("loaded") is True and v.get("card") is True and v.get("opened") is True and v.get("mapped") is True and v.get("focused") is True and v.get("scrim") is True and v.get("noHoverCopy") is True and v.get("screen") != "" and v.get("screen") == v.get("callerScreen") and v.get("placement") == "center").lower())'
+}
+surf_help_centred() {
+  local layer outputs
+  layer="$(surface_box vgs:dialog)" || return 1
+  outputs="$(hypr -j monitors)" || return 1
+  surf_help_evidence | py_reply 'import json,sys
+v=json.load(sys.stdin); layer=json.loads(sys.argv[1]); outputs=json.loads(sys.argv[2])
+if not isinstance(v,dict) or not isinstance(v.get("box"),list) or not isinstance(layer,list):
+    print("unavailable")
+else:
+    found=[m for m in outputs if m["name"] == v.get("screen")]
+    if len(found) != 1: print("outputs=%d" % len(found))
+    else:
+        m=found[0]; b=v["box"]
+        width,height=(m["height"],m["width"]) if m["transform"] % 2 else (m["width"],m["height"])
+        dx=layer[0]+b[0]+b[2]/2-m["x"]-width/m["scale"]/2
+        dy=layer[1]+b[1]+b[3]/2-m["y"]-height/m["scale"]/2
+        print("centred" if abs(dx)<=1 and abs(dy)<=1 else "offset")' "$layer" "$outputs"
+}
+surf_help_centre_check() { expect "help is centred on its caller's screen" centred surf_help_centred; }
+for surf_help_case in flyout settings plugin; do
+  case "$surf_help_case" in
+    flyout)
+      expect "the widget opens a flyout for its help" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
+      expect_poll "the flyout is built before its help" 1 ipc smoke readInstance panel acme.surfaces opened
+      surf_help_host=panel surf_help_id=acme.surfaces ;;
+    settings)
+      expect "Settings opens the plugin page for its help" ok ipc shell summon window vgs.settings '{"plugin":"acme.surfaces","tab":"Settings"}'
+      expect_poll "Settings maps before its help" 1 window_count Plugins
+      surf_help_host=window surf_help_id=vgs.settings ;;
+    plugin)
+      expect "the plugin window opens for its help" ok ipc shell summon window acme.surfaces '{}'
+      expect_poll "the plugin window maps before its help" 1 window_count Surfaces
+      surf_help_host=window surf_help_id=acme.surfaces ;;
+  esac
+  expect "$surf_help_case builds the shared help fixture" ok ipc smoke popupLoad surface-help "$surf/Help.qml" "$surf_help_host" "$surf_help_id" '{}'
+  expect "$surf_help_case opens help" ok ipc smoke popupCall surface-help openInfo
+  expect_poll "$surf_help_case maps the shared modal without hover copy" true surf_help_ready
+  surf_help_centre_check
+  type_keys -k Escape || fail "Escape in $surf_help_case help failed"
+  expect_poll "$surf_help_case help closes with Escape" false ipc smoke popupRead surface-help opened
+  expect_poll "$surf_help_case Escape releases the modal surface" 0 layer_count vgs:dialog
+  expect "$surf_help_case reopens help for its outside press" ok ipc smoke popupCall surface-help openInfo
+  expect_poll "$surf_help_case help maps before its outside press" true surf_help_ready
+  read -r surf_help_x surf_help_y < <(at_centre vgs:dialog '[1,1,1,1]') || fail "the help scrim's point is unreadable"
+  click "$surf_help_x" "$surf_help_y" || fail "the outside help press failed"
+  expect_poll "$surf_help_case help closes with an outside press" false ipc smoke popupRead surface-help opened
+  expect_poll "$surf_help_case outside press releases the modal surface" 0 layer_count vgs:dialog
+  expect "$surf_help_case reopens help before destroying its caller" ok ipc smoke popupCall surface-help openInfo
+  expect_poll "$surf_help_case help maps before destroying its caller" true surf_help_ready
+  expect "$surf_help_case destroys its help caller" ok ipc smoke popupDrop surface-help
+  expect_poll "$surf_help_case caller destruction releases its modal" 0 layer_count vgs:dialog
+  expect "$surf_help_case host closes after its help" ok ipc shell hide "$surf_help_host" "$surf_help_id"
+done
+
 # A page reference in the panel's FormRow message opens the Settings window
 # on the page it names through shell.surfaces.openPage, by a click on its
 # words and by Tab then Enter, the Tab after the Next button. The panel
@@ -1533,6 +1598,9 @@ edit_tree focus-keyboard-open shell/Ui/foundation/KeyNavLogic.js \
 edit_tree focus-keyboard-open shell/Ui/layout/Pane.qml \
   'readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap' \
   'readonly property real headerBodyGap: gap'
+edit_tree focus-keyboard-open shell/Ui/overlay/ModalDialog.qml \
+  'anchors.centerIn: parent' \
+  'anchors.top: parent.top; anchors.left: parent.left'
 stop_shell
 start_shell "$sandbox/tree-focus-keyboard-open" "$sandbox/focus-keyboard-open.log" || fail "the initial keyboard reason control starts"
 expect "the focus control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
@@ -1551,6 +1619,14 @@ modal_gap_control() { (failures=0 behaviour_failures=0; modal_gap_check >"$sandb
 expect "control: restoring the old gap fails the actual ModalDialog title-space assertion" 1 modal_gap_control
 sed 's/^/  CONTROL  /' "$sandbox/modal-old-gap-control.log"
 expect "the old-gap control closes the actual ModalDialog" ok ipc smoke popupDrop focus-title-modal
+expect "the displaced-help control builds the same help fixture" ok ipc smoke popupLoad surface-help "$surf/Help.qml" window acme.surfaces '{}'
+expect "the displaced-help control opens help" ok ipc smoke popupCall surface-help openInfo
+expect_poll "the displaced-help control maps before its centre reading" true surf_help_ready
+surf_help_centre_control() { (failures=0 behaviour_failures=0; surf_help_centre_check >"$sandbox/help-centre-control.log"; echo "$failures"); }
+expect "control: a displaced help card fails the same screen-centre assertion" 1 surf_help_centre_control
+sed 's/^/  CONTROL  /' "$sandbox/help-centre-control.log"
+expect "the displaced-help control destroys its caller" ok ipc smoke popupDrop surface-help
+expect_poll "the displaced-help control releases its modal" 0 layer_count vgs:dialog
 expect "the focus control window closes" ok ipc shell hide window acme.surfaces
 expect "the focus control restores its disabled fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell

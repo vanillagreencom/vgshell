@@ -96,7 +96,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE", "info": "Turns the Hide top bar setting on or off. A bar hidden by another program, such as a zoom mode, shows again when that program shows it." }
+      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE", "info": "Changes Hide top bar.\nIf another app hides the bar, that app controls when it returns." }
     ]
   },
   "menu": {

@@ -37,7 +37,7 @@
     "showCount": {
       "type": "boolean",
       "label": "Show count",
-      "info": "Shows the number of running agents, or of warnings and problems while there are any, on the corner of the shield.",
+      "info": "The shield shows the number of running agents.\nWhile warnings or problems need attention, it shows their count instead.",
       "group": "Display"
     },
     "hideWhenIdle": {
@@ -58,15 +58,15 @@
     { "command": "systemctl", "optional": false, "purpose": "Restarts Agent Warden checks", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" } }
   ],
   "status": {
-    "warden": {"type": "state", "label": "Warden", "info": "Shows whether Agent Warden watches your agents and whether any needs your attention."},
+    "warden": {"type": "state", "label": "Warden"},
     "setup": {"type": "state", "label": "Warden setup", "action": {"label": "Set up", "tui": "setup"}, "setup": true},
     "agents": {"type": "count", "label": "Agents running"},
-    "lastCheck": {"type": "time", "label": "Last check", "info": "If this time stops changing, open the Agent Warden panel and choose Start checks."},
+    "lastCheck": {"type": "time", "label": "Last check", "info": "If this time stops changing, open the Agent Warden panel.\nSelect Start checks."},
     "detail": {"type": "data", "label": "Detail"}
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": null, "info": "Opens the Agent Warden panel, or closes it when it is open." }
+      { "shortcut": "toggle", "key": null }
     ]
   },
   "tui": {

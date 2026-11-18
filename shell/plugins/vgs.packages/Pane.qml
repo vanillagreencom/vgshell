@@ -169,7 +169,7 @@ FocusScope {
                 id: commandField
                 width: parent.width
                 key: "command"
-                spec: ({ type: "string", label: "Review command", description: "Optional command to use instead of the selected AI agent", info: "The command starts in the folder of its own review. A command whose first word is claude starts in one fixed folder. Neither folder holds an update or another review, so an agent with its own sandbox cannot change them. A claude command asks you before it reads its review files or writes its verdict, unless your options allow or deny that. VGS does not limit a command that has no sandbox.", presets: [{ value: "", label: "Use the selected AI agent" }], allowCustom: true })
+                spec: ({ type: "string", label: "Review command", description: "Optional command to use instead of the selected AI agent", info: "The command starts in its own review folder. A command that starts with claude uses one fixed folder.\nNeither folder holds updates or other reviews, so an agent with its own sandbox cannot change them.\nA claude command asks before reading review files or saving a verdict, unless your options allow or deny this.\nVGS does not restrict commands that have no sandbox.", presets: [{ value: "", label: "Use the selected AI agent" }], allowCustom: true })
                 value: root.review.command || ""
                 onApply: value => root.changeReview("command", value)
             }

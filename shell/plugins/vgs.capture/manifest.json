@@ -32,7 +32,7 @@
     "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
     "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f", "browser": "nautilus --select %f" },
   "schema": {
-    "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "In an area capture, a click takes the window or display under it and a drag takes an area.", "group": "Screenshots"},
+    "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "Click to capture the window or display under the pointer.\nDrag to capture an area.", "group": "Screenshots"},
     "cursor": {"type": "boolean", "label": "Include pointer", "group": "Screenshots"},
     "processing": {"type": "enum", "label": "After capture", "options": [{"value": "save-copy", "label": "Save and copy"}, {"value": "copy", "label": "Copy only"}, {"value": "save", "label": "Save only"}], "group": "Screenshots"},
     "folder": {"type": "string", "label": "Screenshot folder", "presets": [{"value": "", "label": "Pictures / Screenshots"}], "allowCustom": true, "group": "Folders"},
@@ -41,7 +41,7 @@
     "quality": {"type": "enum", "label": "Quality", "options": [{"value": "medium", "label": "Medium"}, {"value": "high", "label": "High"}, {"value": "very_high", "label": "Very high"}, {"value": "ultra", "label": "Ultra"}], "group": "Recording"},
     "frameRate": {"type": "number", "label": "Frames per second", "min": 1, "max": 240, "step": 1, "group": "Recording"},
     "codec": {"type": "enum", "label": "Video codec", "options": [{"value": "auto", "label": "Auto"}, {"value": "h264", "label": "H.264"}, {"value": "hevc", "label": "HEVC"}, {"value": "av1", "label": "AV1"}, {"value": "vp9", "label": "VP9"}], "group": "Recording"},
-    "constantFrameRate": {"type": "boolean", "label": "Constant frame rate", "tooltip": "Records frames at a fixed interval, even when nothing moves.", "description": "Some video editors need it", "group": "Recording"},
+    "constantFrameRate": {"type": "boolean", "label": "Constant frame rate", "tooltip": "Records at fixed intervals, even when nothing moves.", "description": "Some video editors need it", "group": "Recording"},
     "recordCursor": {"type": "boolean", "label": "Include pointer", "group": "Recording"},
     "audioSources": {"type": "list", "label": "Extra audio sources", "description": "Each source records as its own audio track", "group": "Recording", "items": {"source": {"type": "string", "label": "Source", "optionsFrom": "audioSources"}}, "defaults": {"source": ""}},
     "webcam": {"type": "boolean", "label": "Include camera", "group": "Recording"},
@@ -54,15 +54,15 @@
     "browser": {"type": "string", "label": "File browser", "group": "Open with", "presets": [{"value": "nautilus --select %f", "label": "Nautilus"}], "allowCustom": true}
   },
   "hyprland": { "binds": [
-    { "shortcut": "screenshot", "key": "PRINT", "info": "Takes a screenshot of the screen that has focus right away." },
-    { "shortcut": "screenshot-area", "key": "SUPER+SHIFT+S", "info": "Lets you drag over an area of the screen, then takes a screenshot of that area." },
-    { "shortcut": "record", "key": "SUPER+SHIFT+R", "info": "Lets you drag over an area and starts recording it. Press the key again to stop the recording." },
-    { "shortcut": "record-output", "key": null, "info": "Starts recording the screen that has focus. Press the key again to stop the recording." },
-    { "shortcut": "toggle", "key": "SUPER+CTRL+SHIFT+S", "info": "Opens the Capture options, where you choose what to capture, or closes them." },
-    { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
+    { "shortcut": "screenshot", "key": "PRINT", "info": "Captures the screen that has focus immediately." },
+    { "shortcut": "screenshot-area", "key": "SUPER+SHIFT+S" },
+    { "shortcut": "record", "key": "SUPER+SHIFT+R", "info": "Drag to select an area and start recording.\nPress the shortcut again to stop." },
+    { "shortcut": "record-output", "key": null, "info": "Records the screen that has focus.\nPress the shortcut again to stop." },
+    { "shortcut": "toggle", "key": "SUPER+CTRL+SHIFT+S" },
+    { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Drag to select an area.\nVGS reads the text in it and copies the text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "Sharing picker", "group": "Screen sharing", "info": "When an app asks to share your screen, the picker lets you choose what it can see. VGS sets it up for you, once no app shares your screen, and turning Capture off gives screen sharing its own picker back once no app shares your screen."},
+    "sharing": {"type": "state", "label": "Sharing picker", "group": "Screen sharing", "info": "Choose what an app can see when it asks to share your screen.\nVGS sets up its picker when no app is sharing.\nTurning Capture off restores the other screen picker when sharing ends."},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},

@@ -73,6 +73,26 @@ Item {
             iconActionsOf: row => row.key === "a" ? [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }] : []
         }
     }
+    Component {
+        id: cardList
+        Card {
+            property alias list: inner
+            width: 420
+            y: 320
+            DeviceList { id: inner; width: parent.width; rows: [{ key: "account", text: "Account", iconName: "user" }] }
+        }
+    }
+    Component {
+        id: paneList
+        Pane {
+            property alias list: inner
+            width: 420
+            y: 320
+            height: implicitHeight
+            fitToContent: true
+            DeviceList { id: inner; width: parent.width; rows: [{ key: "device", text: "Device", iconName: "printer" }] }
+        }
+    }
     Component { id: spyComponent; SignalSpy {} }
     // A locked list whose first and last rows open views of their own.
     Component {
@@ -131,6 +151,27 @@ Item {
         function leftOf(item) { return item.mapToItem(list, 0, 0).x; }
         function args(spy, index) { return Array.from(spy.signalArguments[index]); }
         readonly property var icons: [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }, { key: "copy", iconName: "copy", label: "Copy" }]
+
+        function test_last_hovered_plate_keeps_the_containers_inset_data() {
+            return [{ tag: "card", component: cardList }, { tag: "pane", component: paneList }];
+        }
+        function test_last_hovered_plate_keeps_the_containers_inset(data) {
+            const box = createTemporaryObject(data.component, root);
+            verify(box !== null);
+            verify(waitForPolish(box));
+            const row = box.list.rowAt(0);
+            mouseMove(row, row.width / 2, row.height / 2);
+            tryVerify(() => row.cursor.placed === row);
+            verify(waitForPolish(box));
+            const top = row.mapToItem(box, 0, 0);
+            const bottom = row.mapToItem(box, row.width, row.height);
+            verify(top.x > 0, "the plate clears the container's side");
+            fuzzyCompare(box.width - bottom.x, top.x, 1, "the side insets match");
+            fuzzyCompare(box.height - bottom.y, top.x, 1, "the bottom inset matches the sides");
+            compare(box.list.inkBelow, 0, "the list reports its plate box");
+            mouseMove(root, root.width - 1, root.height - 1);
+            compare(box.list.inkBelow, 0, "leaving the row moves no container edge");
+        }
 
         function init() {
             UnitTheme.reset();

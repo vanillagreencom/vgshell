@@ -53,7 +53,8 @@ Section {
 
     GroupList {
         id: list
-        // The list ends at its last row's drawn ink, so what stands under
+        // A hoverable list keeps its plate box; a passive list ends at
+        // its last row's drawn ink, so what stands under
         // it, its action or its hint, stands `stack.heading` below that ink,
         // as the token measures, whatever box or plate the row draws. The
         // ink is floored, as ClearingInset floors it, so the list keeps a
@@ -61,7 +62,7 @@ Section {
         readonly property Item lastRow: rows.count > 0 ? rows.itemAt(rows.count - 1) : null
         width: root.width
         visible: root.view.rows.length > 0
-        height: implicitHeight - (lastRow === null ? 0 : Math.floor(lastRow.drawnInkBelow))
+        height: implicitHeight - (lastRow === null ? 0 : Math.floor(lastRow.inkBelow))
 
         Repeater {
             id: rows

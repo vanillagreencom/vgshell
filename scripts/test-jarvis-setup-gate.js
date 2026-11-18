@@ -2407,8 +2407,6 @@ function verifyLimitPresentation(gate) {
     vm.runInNewContext(memoryText[0], context);
     assert.equal(pageReference.file(pageReference.parse(context.memoryProblemText("bootstrap")).page), home.path + "/memory/MEMORY.md",
         "the console bootstrap refusal links the chosen file");
-    assert.match(consoleSource, /MenuItem \{ text: "[^"\n]+"; onTriggered: root\.openHelp\(text, root\.messageLimit\.info\) \}/,
-        "the console's More menu explains the message bound");
     assert.ok(consoleSource.includes("readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)"),
         "the console reads its actual typed-message bound");
     const limit = gate.messageLimit(session.TRANSCRIPT_CHARS);

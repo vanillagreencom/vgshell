@@ -38,8 +38,8 @@
     "glass": true
   },
   "schema": {
-    "glass": {"type": "boolean", "label": "VGlass", "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides", "info": "VGlass draws notifications as frosted glass with a moving edge light."},
-    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Shows the sender photo and workspace icon from Slack on a notification. Each workspace below takes its own User OAuth Token. Select Create Slack app on its row to make one."},
+    "glass": {"type": "boolean", "label": "VGlass", "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides"},
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Each Slack workspace needs its own User OAuth Token.\nSelect Create Slack app on the workspace row to create one."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Urgent notifications stay until you close them, and a sender can ask for more time", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
     "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "group": "Slack"}
@@ -76,9 +76,9 @@
   "appearance": "Appearance.js",
   "hyprland": {
     "binds": [
-      { "shortcut": "inbox", "key": "SUPER+N", "info": "Opens the list of notifications you have not cleared, or closes it." },
-      { "shortcut": "act", "key": "SUPER+SHIFT+N", "info": "Does what a click on the newest notification does, also after it goes into the history." },
-      { "shortcut": "mark-read", "key": "SUPER+CTRL+N", "info": "Marks every notification as read, closes their popups and the panel, and keeps them in History." }
+      { "shortcut": "inbox", "key": "SUPER+N" },
+      { "shortcut": "act", "key": "SUPER+SHIFT+N", "info": "Runs the newest notification's click action, even after it moves to History." },
+      { "shortcut": "mark-read", "key": "SUPER+CTRL+N", "info": "Closes all notification popups and the panel.\nThe notifications stay in History as read." }
     ],
     "layerRules": [
       { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },

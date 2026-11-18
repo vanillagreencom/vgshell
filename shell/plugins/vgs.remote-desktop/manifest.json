@@ -59,7 +59,7 @@
       "type": "boolean",
       "label": "Hosting",
       "description": "When off, other computers cannot open a remote desktop to this one; SSH stays as it is",
-      "info": "Hosting lets your other computers open this desktop with Remote desktop over SSH.\nThe other computer needs key sign-in to this one: use Set up sign-in in its own Remote desktop section.\nA window your Hyprland configuration marks no_screen_share stays hidden in every screen capture, a remote session included.",
+      "info": "Other computers connect to this desktop over SSH.\nOn the other computer, use Set up sign-in in Remote desktop to enable key sign-in to this computer.\nWindows marked no_screen_share in your Hyprland configuration stay hidden in all screen captures, including remote sessions.",
       "problem": "hostingProblem"
     },
     "profiles": {
@@ -70,7 +70,7 @@
         "host": {
           "type": "string",
           "label": "Computer",
-          "info": "The computer's name in your SSH settings, or user@address.",
+          "info": "Enter a name from your SSH settings, or user@address.",
           "optionsFrom": "hosts",
           "placeholder": "Choose a computer",
           "allowCustom": true
@@ -108,7 +108,7 @@
         "video": {
           "type": "enum",
           "label": "Video",
-          "info": "Sets how this computer decodes the picture it receives. The other computer picks its own encoder. Graphics card uses less power and works on AMD and Intel graphics. Processor works on every computer.",
+          "info": "This selects how this computer reads the incoming picture. The remote computer chooses how to send it.\nGraphics card uses less power and works with AMD and Intel graphics.\nProcessor works on every computer.",
           "options": [
             { "value": "auto", "label": "Automatic" },
             { "value": "gpu", "label": "Graphics card" },
@@ -138,7 +138,7 @@
         "capture": {
           "type": "enum",
           "label": "Capture",
-          "info": "Read back frames works where Automatic shows a black picture, such as on a virtual machine.",
+          "info": "Choose Read back frames if Automatic gives a black picture, such as in a virtual machine.",
           "options": [
             { "value": "auto", "label": "Automatic" },
             { "value": "dmabuf", "label": "Graphics memory" },
@@ -152,7 +152,7 @@
         "releaseKey": {
           "type": "enum",
           "label": "Release keys",
-          "info": "These keys give your keyboard back to this computer while the remote desktop has it.",
+          "info": "Press these keys to give this computer control of the keyboard again.",
           "options": [
             { "value": "shift+escape", "label": "Shift+Esc" },
             { "value": "ctrl+alt+q", "label": "Ctrl+Alt+Q" },

@@ -179,6 +179,21 @@ Item {
 
         function row(index) { return repeater.itemAt(index); }
 
+        function test_hovered_row_content_keeps_padding_inside_its_plate_data() {
+            return [{ tag: "one line", index: 0 }, { tag: "two lines", index: 1 }];
+        }
+        function test_hovered_row_content_keeps_padding_inside_its_plate(data) {
+            const target = row(data.index);
+            mouseMove(target, target.width / 2, target.height / 2);
+            tryVerify(() => plate.placed === target);
+            const content = target.contentItem;
+            verify(content.x >= Theme.space.sm, "content clears the plate's start");
+            verify(target.width - content.x - content.width >= Theme.space.sm, "content clears the plate's end");
+            verify(content.y >= Theme.space.sm, "content clears the plate's top");
+            verify(target.height - content.y - content.height >= Theme.space.sm, "content clears the plate's bottom");
+        }
+
+
         function test_a_nested_list_releases_every_outer_hover() {
             holder.visible = false;
             const lists = createTemporaryObject(nestedLists, root);

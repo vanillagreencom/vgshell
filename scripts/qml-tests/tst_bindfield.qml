@@ -146,53 +146,23 @@ Item {
         function input(f) { return descendant(f, item => String(item).indexOf("ShortcutField") === 0); }
 
         function test_the_label_is_the_description_else_the_shortcut() {
-            compare(row.label, "Lock the screen");
-            compare(unbound.label, "lock");
+            compare(row.children[0].label, "Lock");
+            const label = descendant(row, item => item instanceof InfoButton);
+            compare(label.info, row.bind.info);
+            verify(label.activeFocusOnTab);
+            const plain = descendant(later, item => item instanceof InfoButton);
+            compare(plain.info, "");
+            verify(!plain.activeFocusOnTab);
         }
 
-        // A bind row with no hint has no line of its own under it, so its
-        // explanation opens in the info icon's dialog and neither the label
-        // nor the icon opens a tooltip over the bind under it.
-        function test_the_bind_explanation_is_in_the_info_dialog() {
-            const label = descendant(row, item => item.objectName === "fieldLabel");
-            const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
-            compare(tip.text, "", "the label opens the explanation over the next bind");
-            verify(!label.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
-            const mark = descendant(row, item => String(item).indexOf("InfoButton") === 0);
-            verify(mark !== null, "the bind draws its info icon");
-            compare(mark.info, "Locks the screen at once.");
-            compare(mark.tooltip, "");
-            compare(descendant(later, item => String(item).indexOf("InfoButton") === 0), null, "a bind with no explanation draws an info icon");
-        }
-
-        function tipOf(f) {
-            return descendant(descendant(f, item => item.objectName === "fieldLabel"), item => String(item).indexOf("Tooltip") === 0);
-        }
-
-        // The room under a hint's top holds a band of one line. A key row's
-        // explanation of one line opens there and ends above the next row;
-        // a longer one opens in the info icon's dialog and in no band.
-        function test_a_key_explanation_over_its_hint_keeps_one_line() {
-            const tip = tipOf(shortKey);
-            compare(tip.text, "Hold the key while you speak.");
-            compare(descendant(shortKey, item => String(item).indexOf("InfoButton") === 0), null, "a key row with room for its explanation draws an info icon");
-            tip.shown = true;
-            try {
-                verify(tip.opened, "the explanation opens its own surface");
-                const popup = tip.tracker.popup;
-                compare(popup.anchor.edges, Edges.Bottom | Edges.Left, "the explanation opens under its row");
-                const title = descendant(popup.contentItem, item => item.objectName === "tooltipTitle");
-                compare(title.lineCount, 1);
-                const top = tip.anchorItem.mapToItem(hinted, popup.anchor.rect.x, popup.anchor.rect.y + popup.anchor.rect.height - popup.anchor.margins.bottom);
-                verify(top.y + popup.implicitHeight <= underKeys.y, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underKeys.y);
-            } finally {
-                tip.shown = false;
+        function test_short_and_long_key_help_use_the_label() {
+            for (const field of [shortKey, longKey]) {
+                const label = descendant(field, item => item instanceof InfoButton);
+                verify(label !== null);
+                compare(label.info, field.bind.info);
+                verify(label.linked);
+                verify(label.activeFocusOnTab);
             }
-            compare(tipOf(longKey).text, "", "a long explanation opens in a band over the next row");
-            const mark = descendant(longKey, item => String(item).indexOf("InfoButton") === 0);
-            verify(mark !== null, "the key row draws its info icon");
-            compare(mark.info, longKey.bind.info);
-            compare(mark.tooltip, "");
         }
 
         function test_the_field_holds_the_key_in_effect() {

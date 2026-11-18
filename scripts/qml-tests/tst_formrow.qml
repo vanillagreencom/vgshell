@@ -31,13 +31,9 @@ import qs.Unit
 // 0 apart, so each with a message there grows by
 // the group space under its message. A page reference in the message or in
 // the info dialog's text asks for its page and tab through
-// `warningPageActivated` or `infoPageActivated`. A label's explainer
-// under its row lies on the row's hint, clear of the label's focus ring,
-// beside it on the value column where the ring reaches the hint, and draws
-// a lifted fill with no outline, unlike an input. A row with no hint and no
-// room past its control, or with an explainer too long for one line over
-// its hint, opens no explainer: its info button holds the text for its
-// dialog, the label is no Tab stop, and neither opens a tooltip.
+// `warningPageActivated` or `infoPageActivated`. Help belongs to the
+// dotted label, with an independent focus target and no hover tooltip.
+
 Item {
     id: root
     width: 480
@@ -112,96 +108,6 @@ Item {
         }
     }
 
-    // A label's explainer beside a short control, beside a control that
-    // fills the value column, too tall for the room past a short one, and
-    // beside a control taller than the box its label centres on.
-    // The switch fills the column, as a Settings editor's Loader sizes it.
-    FormRow { id: explainedSwitch; y: 1060; width: 420; label: "Click to select"; labelTooltip: "A click takes the window under it."; Switch { id: explainedToggle; width: parent.width; size: "sm" } }
-    FormRow { id: explainedWide; y: 1120; width: 420; label: "Format"; labelTooltip: "The clock's format."; Select { id: wideChoice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
-    // Two lines over the value column, three in the room past the switch.
-    FormRow {
-        id: explainedTall
-        y: 1180
-        width: 700
-        label: "Pointer"
-        labelTooltip: "Draws the pointer into each screenshot and recording, where it stands when the capture starts."
-        Switch { width: parent.width; size: "sm" }
-    }
-    FormRow { id: belowTall; y: 1180 + explainedTall.height; width: 700; label: "Camera"; Select { width: parent.width; model: ["None"] } }
-    FormRow {
-        id: explainedLines
-        y: 1300
-        width: 420
-        label: "Keys"
-        labelTooltip: "Hides the top bar."
-        Item { width: parent.width; height: 3 * Theme.row.height; readonly property real firstLineHeight: Theme.row.height }
-    }
-    // A hint under a switch: an explainer of two lines beside the switch
-    // fits the row gap above and below the label's box and reaches the hint.
-    Field {
-        id: hintedField
-        y: 1440
-        width: 570
-        inline: true
-        label: "Constant frame rate"
-        labelTooltip: "Records frames at a fixed interval, even when nothing moves."
-        hint: "Some video editors need it"
-        Switch { size: "sm" }
-    }
-    // An explainer of more than one line of the value column, over a hint.
-    Field {
-        id: hintedLong
-        y: 2040
-        width: 570
-        inline: true
-        label: "Frame rate"
-        labelTooltip: "Records every frame at the same interval, even when nothing on the screen moves, for as long as the recording runs."
-        hint: "Some video editors need it"
-        Switch { size: "sm" }
-    }
-    // The same hint under a label of one line: its ring ends above the hint.
-    Field {
-        id: hintedShort
-        y: 1620
-        width: 570
-        inline: true
-        label: "Frame rate"
-        labelTooltip: hintedField.labelTooltip
-        hint: "Some video editors need it"
-        Switch { size: "sm" }
-    }
-    // A warning starts at the switch's drawn track, above the bottom of
-    // its control box. Even a one-line beside popup would clip this hint.
-    FormRow {
-        id: hintedTrack
-        y: 2200
-        width: 570
-        label: "Clock"
-        labelTooltip: "Keep the clock visible."
-        warning: "A hint under the switch"
-        Switch { size: "sm" }
-    }
-    // A label of two lines beside a one-line control: its ring ends under
-    // the row box.
-    FormRow { id: explainedInfo; y: 1960; width: 420; label: "Format"; labelTooltip: "The clock's format."; info: "It follows the locale."; Select { width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
-    FormRow { id: explainedLong; y: 1700; width: 420; label: "Hide or show the top bar"; labelTooltip: "Hides the top bar."; Select { width: parent.width; model: ["None"] } }
-    // A hinted row whose label has two lines, and the row under it: the
-    // room under the hint's top holds a band of one line.
-    Column {
-        id: hintedColumn
-        y: 1780
-        width: 570
-        Field {
-            id: hintedAbove
-            width: parent.width
-            inline: true
-            label: "Constant frame rate"
-            labelTooltip: "Records frames at a fixed interval, even when nothing moves."
-            hint: "Some video editors need a constant frame rate"
-            Switch { size: "sm" }
-        }
-        FormRow { id: underHinted; width: parent.width; label: "Include pointer"; Switch { size: "sm" } }
-    }
     FormRow {
         id: paged
         y: 1540
@@ -263,18 +169,12 @@ Item {
         }
     }
 
-    Component {
-        id: ledLabelRow
-        FormRow { width: 420; info: "Details"; Switch { size: "sm" } }
-    }
-    FontMetrics { id: leadingMetrics }
-
     UnitCase {
         name: "formrow"
         when: windowShown
 
         function labelOf(row) { return row.children[0]; }
-        function infoOf(row) { return row.children[1]; }
+        function infoOf(row) { return labelOf(row); }
         function messageOf(row) { return row.children.find(child => child.role === "hint"); }
         function xIn(item, row) { return item.mapToItem(row, 0, 0).x; }
         function centreIn(item, row) { return item.mapToItem(row, 0, item.height / 2).y; }
@@ -286,26 +186,6 @@ Item {
         }
 
         function init() { UnitTheme.reset(); }
-
-        function test_info_mark_placement_data() {
-            return [
-                { tag: "one line", text: "Name", lines: 1 },
-                { tag: "two lines", text: "Name\nDetails", lines: 2 },
-                { tag: "three lines", text: "Name\nDetails\nMore", lines: 3 },
-                { tag: "four lines", text: "Name\nDetails\nMore\nLast", lines: 4 }
-            ];
-        }
-
-        function test_info_mark_placement(data) {
-            const row = createTemporaryObject(ledLabelRow, root, { label: data.text });
-            verify(row !== null);
-            const label = labelOf(row);
-            const mark = infoOf(row);
-            tryCompare(label, "lineCount", data.lines);
-            leadingMetrics.font = label.font;
-            const target = data.lines > 2 ? label.y + label.baselineOffset - leadingMetrics.capitalHeight / 2 : row.labelBox / 2;
-            fuzzyCompare(mark.y + mark.height / 2, target, 1);
-        }
 
         // The room a row with a message takes under it in the first
         // column, whose spacing is 0.
@@ -319,241 +199,14 @@ Item {
             return message.mapToItem(item, 0, message.height).y;
         }
 
-        function test_label_focus_uses_qt_keyboard_state() {
-            const label = labelOf(explainedLabel);
-            const control = label.children.find(child => child.visualFocus !== undefined);
-            const ring = label.children.find(child => String(child).indexOf("FocusRing") === 0);
-            control.forceActiveFocus(Qt.OtherFocusReason);
-            compare(control.activeFocus, true);
-            compare(control.Accessible.name, explainedLabel.label);
-            compare(control.Accessible.role, Accessible.StaticText);
-            compare(ring.visible, false);
-            keyClick(Qt.Key_Tab);
-            keyClick(Qt.Key_Backtab);
-            compare(control.activeFocus, true);
-            compare(ring.visible, true);
-        }
-
-        function tipOf(row) {
-            const control = labelOf(row).children.find(child => child.visualFocus !== undefined);
-            return control.data.find(child => String(child).indexOf("Tooltip") === 0);
-        }
-
-        // Where the tooltip opens, in the row's coordinates: its start and
-        // the centre of the box it opens beside. The stand-in window
-        // positions nothing; the anchor it is handed is what the compositor
-        // places the tooltip by.
-        function tipStart(row, tip) {
-            const anchor = tip.tracker.popup.anchor;
-            compare(anchor.edges, Edges.Right);
-            compare(anchor.gravity, Edges.Right);
-            return tip.anchorItem.mapToItem(row, anchor.rect.x + anchor.rect.width - anchor.margins.right, anchor.rect.y + anchor.rect.height / 2);
-        }
-
-        // Showing the tooltip moves no row: the rows keep their heights and
-        // the row under it keeps its place.
-        function showStill(row, tip, check) {
-            const height = row.height;
-            const below = belowTall.y;
-            tip.shown = true;
-            try {
-                verify(tip.opened, "the tooltip opens its own surface");
-                check(tip.tracker.popup);
-                compare(row.height, height, "the row keeps its height");
-                compare(belowTall.y, below, "the row under it stays put");
-            } finally {
-                tip.shown = false;
-            }
-        }
-
-        // It stays inside its own row: it ends on the row's end edge and
-        // reaches no further than the row gap above or below the label box.
-        function insideRow(row, popup, start) {
-            verify(popup.implicitWidth <= row.width - start.x, "the tooltip ends inside the row: " + popup.implicitWidth);
-            fuzzyCompare(start.y, row.labelBox / 2, 1, "the tooltip centres on the label's box");
-            verify(popup.implicitHeight <= row.labelBox + 2 * Theme.stack.row, "the tooltip covers no other row: " + popup.implicitHeight);
-        }
-
-        function test_a_label_tooltip_opens_past_its_control_data() {
-            return [
-                { tag: "switch", row: explainedSwitch, end: () => explainedToggle.indicator.mapToItem(explainedSwitch, explainedToggle.indicator.width, 0).x },
-                { tag: "value", row: explainedLabel, end: () => { const value = explainedLabel.children.find(child => child.x === explainedLabel.valueX).children[0]; return value.mapToItem(explainedLabel, value.implicitWidth, 0).x; } }
-            ];
-        }
-        function test_a_label_tooltip_opens_past_its_control(data) {
-            const tip = tipOf(data.row);
-            showStill(data.row, tip, popup => {
-                const start = tipStart(data.row, tip);
-                fuzzyCompare(start.x, data.end() + Theme.tooltip.gap, 1, "the tooltip starts a gap past the control's drawn end");
-                insideRow(data.row, popup, start);
-            });
-        }
-
-        // Where the room past the control cannot hold it, or it would
-        // reach the hint under the value there, the tooltip opens under the
-        // row's label and control, from the row's start edge. It covers
-        // neither the label nor any part of the control, and it covers a
-        // hint from the hint's top, so it clips no line of it.
-        function hintedRow(field) {
-            const found = [field];
-            for (let i = 0; i < found.length; i++)
-                for (const child of found[i].children) found.push(child);
-            return { row: field.children.find(child => child.objectName === "fieldRow"), hint: found.find(child => child.role === "hint" && child.text === field.hint) };
-        }
-        function ringOf(row) { return labelOf(row).children.find(child => String(child).indexOf("FocusRing") === 0); }
-
-        // `lines` is the label's line count and `beside` whether the band
-        // starts on the value column, beside the label's ring.
-        function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row_data() {
-            const hinted = hintedRow(hintedField);
-            const short = hintedRow(hintedShort);
-            return [
-                { tag: "hint under a switch", row: hinted.row, hint: hinted.hint, lines: 2, beside: true },
-                { tag: "hint under a switch, label of one line", row: short.row, hint: short.hint, lines: 1, beside: false }
-            ];
-        }
-        function test_a_label_tooltip_without_room_past_its_control_opens_under_the_row(data) {
-            const tip = tipOf(data.row);
-            showStill(data.row, tip, popup => {
-                const anchor = popup.anchor;
-                compare(anchor.edges, Edges.Bottom | Edges.Left);
-                compare(anchor.gravity, Edges.Bottom | Edges.Right);
-                const start = tip.anchorItem.mapToItem(data.row, anchor.rect.x, anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
-                const label = labelOf(data.row);
-                compare(label.lineCount, data.lines);
-                const from = data.beside ? data.row.valueX : 0;
-                fuzzyCompare(start.x, from, 1, "the tooltip starts on the row's start edge, or beside a ring that reaches the hint");
-                compare(popup.implicitWidth, data.row.width - from, "the tooltip ends on the row's end, so it covers the whole of a line under it");
-                // The ring as it draws around the focused label.
-                const ring = ringOf(data.row);
-                const ringEnd = ring.mapToItem(data.row, ring.width, ring.height);
-                verify(ringEnd.y > label.y + label.height, "the ring draws outside the label's box");
-                compare(ringEnd.y > data.row.boxHeight, data.lines > 1, "a ring ends under the row box only around two lines: " + ringEnd.y);
-                compare(start.y >= ringEnd.y + Theme.tooltip.gap || start.x >= ringEnd.x + Theme.tooltip.gap, true, "the tooltip touches the focused label's ring: " + start.x + "," + start.y + " ring " + ringEnd.x + "," + ringEnd.y);
-                verify(start.y >= label.y + label.height - label.inkBelow, "the tooltip opens under the row's label: " + start.y);
-                const controls = data.row.children[2].children;
-                verify(controls.length > 0, "the row holds its control");
-                for (const control of controls)
-                    compare(start.y >= control.mapToItem(data.row, 0, control.height).y, true, "the tooltip opens under the row's control: " + start.y);
-                verify(data.hint.visible && data.hint.height > 0, "the row draws its hint");
-                const content = popup.contentItem.children.find(child => child.objectName === "tooltipContent");
-                const title = content.children[0].children[0].children.find(child => child.objectName === "tooltipTitle");
-                compare(title.lineCount, 1, "the shown under-row band holds one line");
-                verify(popup.implicitHeight <= data.row.labelBox + 2 * Theme.stack.row, "the shown band fits the row gap: " + popup.implicitHeight);
-                console.log("formrow-band: candidate=" + data.row.besideHeight + " popup=" + popup.implicitHeight + " ink=" + (title.height - title.inkAbove - title.inkBelow));
-                compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
-            });
-        }
-
-        function test_a_beside_candidate_that_fits_the_row_cannot_clip_its_hint() {
-            const row = hintedTrack;
-            const hint = row.children.find(child => child.text === row.warning);
-            verify(hint !== undefined && hint.visible);
-            const hintTop = hint.mapToItem(row, 0, 0).y;
-            // Reach the clearance guard, not the independent height guard
-            // that already rejects the two-line beside candidates above.
-            verify(row.besideWrap > 0 && row.besideHeight <= row.labelBox + 2 * Theme.stack.row);
-            verify((row.labelBox + row.besideHeight) / 2 > hintTop, "the beside candidate reaches the hint");
-            showStill(row, tipOf(row), popup => {
-                const anchor = popup.anchor;
-                compare(anchor.edges, Edges.Bottom | Edges.Left, "help opens in the under-row band");
-                const start = tipOf(row).anchorItem.mapToItem(row, anchor.rect.x,
-                    anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
-                verify(start.y <= hintTop, "the band covers the hint from its top");
-                verify(start.x <= hint.x && start.x + popup.implicitWidth >= hint.x + hint.width,
-                    "the band covers the whole hint line, not just its end");
-            });
-        }
-
-        // A row with no hint has no line of its own under it, and the room
-        // under a hint's top holds a band of one line, so a longer band
-        // would lie on the next row. Its label opens nothing on hover
-        // or keyboard focus, and its info button holds the explainer for
-        // its dialog and opens no tooltip under itself either.
-        function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog_data() {
-            return [
-                { tag: "full-width control", row: explainedWide },
-                { tag: "too tall past the control", row: explainedTall },
-                { tag: "control taller than the label's box", row: explainedLines },
-                { tag: "label of two lines", row: explainedLong },
-                { tag: "too long for one line over its hint", row: hintedRow(hintedLong).row },
-                { tag: "with info of its own", row: explainedInfo, text: "The clock's format.\nIt follows the locale." }
-            ];
-        }
-        function test_a_label_tooltip_with_no_hint_and_no_room_goes_to_the_info_dialog(data) {
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
-            const label = labelOf(data.row);
-            const control = label.children.find(child => child.visualFocus !== undefined);
-            const tip = tipOf(data.row);
-            verify(!control.activeFocusOnTab, "a label that opens nothing is a Tab stop");
-            const opened = [];
-            const record = () => { if (tip.opened) opened.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                mouseMove(label, label.width / 2, label.height / 2);
-                control.forceActiveFocus(Qt.TabFocusReason);
-                compare(control.visualFocus, true);
-                wait(4 * Theme.tooltip.delay);
-                compare(opened.length, 0, "the label opens a band over the next row: " + opened);
-            } finally {
-                tip.openedChanged.disconnect(record);
-                mouseMove(root, root.width - 1, root.height - 1);
-            }
-            const mark = infoOf(data.row).item;
-            verify(mark !== null, "the row draws its info button");
-            compare(mark.info, data.text === undefined ? data.row.labelTooltip : data.text);
-            compare(mark.tooltip, "", "the info button opens the explainer under itself");
-            compare(mark.title, data.row.label);
-        }
-
-        // A row whose explainer opens beside its control, or over its hint,
-        // keeps it there: no info button takes it.
-        function test_a_label_tooltip_with_room_stays_on_the_label() {
-            for (const row of [explainedSwitch, explainedLabel, hintedRow(hintedField).row, hintedRow(hintedAbove).row]) {
-                compare(tipOf(row).text, row.labelTooltip);
-                compare(infoOf(row).item, null, "a row with room for its explainer draws an info button: " + row.label);
-            }
-        }
-
-        // Beside a ring that reaches the hint the band takes the whole
-        // value column, so an explainer of one line there stays on one line
-        // and ends at or above the next row's top.
-        function test_a_label_tooltip_over_the_hint_ends_above_the_next_row() {
-            const hinted = hintedRow(hintedAbove);
-            compare(labelOf(hinted.row).lineCount, 2);
-            const tip = tipOf(hinted.row);
-            showStill(hinted.row, tip, popup => {
-                const anchor = popup.anchor;
-                const top = tip.anchorItem.mapToItem(hintedColumn, anchor.rect.x, anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
-                compare(top.x, hinted.row.valueX, "the band starts beside the ring");
-                compare(top.y <= hinted.hint.mapToItem(hintedColumn, 0, 0).y, true, "the band covers the hint from its top: " + top.y);
-                compare(top.y + popup.implicitHeight <= underHinted.y, true, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underHinted.y);
-                console.log("formrow-clearance: band-bottom=" + (top.y + popup.implicitHeight) + " next-row=" + underHinted.y);
-            });
-        }
-
-        // The band under a row is no input: an input shows by its outline
-        // on the sunken fill, and the band is a lifted fill with none. A
-        // tooltip beside its item keeps the tooltip's outlined box.
-        function surfaceOf(popup) {
-            const surface = popup.contentItem.children.find(child => child.glassSurface === true);
-            const boxes = surface.children.filter(child => child.border !== undefined);
-            return { fill: boxes[0].color, outline: boxes[1].border.color, width: boxes[1].border.width };
-        }
-        function test_a_label_tooltip_under_the_row_draws_no_input() {
-            const panel = Theme.surface.level.raised.background;
-            verify(!Qt.colorEqual(Theme.textField.background, panel) && !Qt.colorEqual(Theme.textField.borderColor, Theme.textField.background), "an input draws no outlined sunken box");
-            const hinted = hintedRow(hintedShort).row;
-            showStill(hinted, tipOf(hinted), popup => {
-                const drawn = surfaceOf(popup);
-                verify(!Qt.colorEqual(drawn.fill, Theme.textField.background), "the band draws the input's fill: " + drawn.fill);
-                verify(!Qt.colorEqual(drawn.fill, panel), "the band draws the fill of the surface under it: " + drawn.fill);
-                verify(Qt.colorEqual(drawn.outline, drawn.fill), "the band draws an outline: " + drawn.outline);
-            });
-            showStill(explainedSwitch, tipOf(explainedSwitch), popup => {
-                const drawn = surfaceOf(popup);
-                verify(drawn.width > 0 && Qt.colorEqual(drawn.fill, Theme.tooltip.background) && Qt.colorEqual(drawn.outline, Theme.tooltip.border), "a tooltip beside its item draws the band: " + drawn.fill);
-            });
+        function test_label_help_is_one_independent_target() {
+            const help = labelOf(explainedLabel);
+            verify(help instanceof InfoButton);
+            compare(help.info, explainedLabel.labelTooltip);
+            compare(help.activeFocusOnTab, true);
+            help.forceActiveFocus(Qt.TabFocusReason);
+            compare(help.visualFocus, true);
+            compare(help.width, Theme.field.labelWidth);
         }
 
         function test_a_row_is_the_row_height_with_a_label_column() {
@@ -854,23 +507,22 @@ Item {
             compare(warningPages.signalArguments[0][1], "Setup");
         }
 
-        // The help dialog lives in its own popup window, under the icon.
         function test_an_info_page_reference_asks_for_its_page() {
             infoPages.clear();
-            const button = infoOf(paged).item;
-            button.openInfo();
-            tryCompare(button, "infoOpen", true);
-            const found = [button.popup.tracker.popup.contentItem];
+            const label = infoOf(paged);
+            const host = label.children.find(child => child.body !== undefined);
+            const body = createTemporaryObject(host.body, root, { width: 420 });
+            verify(body !== null);
+            const found = [body];
             for (let i = 0; i < found.length; i++)
                 for (const child of found[i].children) found.push(child);
             const link = found.find(child => child instanceof LinkText && child.linked);
-            verify(link !== undefined, "the help draws the reference as a link");
+            verify(link !== undefined);
+            label.openInfo();
             link.clicked();
-            tryCompare(button, "infoOpen", false);
+            compare(label.infoOpen, false);
             compare(infoPages.count, 1);
-            compare(infoPages.signalArguments[0][0], "acme.models");
-            compare(infoPages.signalArguments[0][1], "Keys");
-            button.destroyPopup();
+            compare(infoPages.signalArguments[0], ["acme.models", "Keys"]);
         }
 
         function test_the_smoke_hook_names_the_row() {

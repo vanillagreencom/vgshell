@@ -294,7 +294,7 @@
       "type": "boolean",
       "label": "Wake on LAN",
       "description": "A connection in use gets the change the next time it connects",
-      "info": "Lets another device on the same wired network wake this computer from sleep.",
+      "info": "Another device on the same wired network can wake this computer from sleep.",
       "group": "Network",
       "shownWhen": "ethernet",
       "problem": "wakeOnLanProblem"
@@ -305,7 +305,7 @@
       {
         "shortcut": "power-menu",
         "key": null,
-        "info": "Opens the power menu. Hold Space, Enter or the pointer on an action for 2 seconds to run it."
+        "info": "Hold an action for 2 seconds with Space, Enter or the pointer to run it."
       }
     ]
   },
@@ -378,7 +378,7 @@
       "label": "Disk sleep",
       "setup": "optional",
       "hint": "Stop hard disks after 30 minutes without use",
-      "info": "A hard disk stops after you leave it unused. Opening a file on a stopped disk takes longer while it starts again.",
+      "info": "Opening a file on a stopped disk takes longer while the disk starts again.",
       "action": {
         "label": "Allow",
         "system": "disk-sleep"
@@ -390,7 +390,7 @@
       "setup": true,
       "group": "Wake",
       "hint": "Only keyboards and pointing devices can wake the computer through USB or Bluetooth",
-      "info": "The power button and a USB device you connect during sleep also wake the computer.",
+      "info": "The power button can also wake the computer.\nConnecting a USB device during sleep can wake it too.",
       "action": { "label": "Allow", "system": "wake-sources" }
     },
     "power": {

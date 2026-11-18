@@ -172,7 +172,7 @@ Item {
             const last = drawn[drawn.length - 1];
             const groups = descendants(listOf(window)).find(item => item instanceof GroupList);
             verify(Number.isInteger(groups.height) && Number.isInteger(groups.implicitHeight), "the list keeps a whole-pixel height: " + groups.height);
-            compare(addOf(window).mapToItem(null, 0, 0).y - (last.mapToItem(null, 0, last.height).y - Math.floor(last.drawnInkBelow)), Theme.stack.heading, "Add stands stack.heading below the list's last drawn ink, floored");
+            compare(addOf(window).mapToItem(null, 0, 0).y - (last.mapToItem(null, 0, last.height).y - Math.floor(last.inkBelow)), Theme.stack.heading, "Add stands stack.heading below the list's last drawn ink, floored");
             compare(onTab(window, LinkText).map(text => text.text).filter(text => text === root.pairsEntry.hint).length, 1, "the hint reads under the list");
         }
 

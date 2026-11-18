@@ -385,7 +385,7 @@ Item {
             compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
             const label = descendants(field).find(item => item.objectName === "fieldLabel");
             const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
-            verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));
+            verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0 && item.info !== ""));
             compare(tip.text, "Open the window.");
             mouseMove(label, label.width / 2, label.height / 2);
             tryCompare(tip, "opened", true);

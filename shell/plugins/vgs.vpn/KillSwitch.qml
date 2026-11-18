@@ -35,10 +35,7 @@ Section {
         width: parent.width
         inline: true
         label: "Enabled"
-        info: "When a VPN you turned on in VGS drops, the kill switch blocks traffic outside it until it connects again or you turn it off in VGS.\n"
-            + "Turning the VPN off in another app or in a terminal counts as a drop, so the block stays.\n"
-            + "The block works while VGS is not running and after a restart. It works with WireGuard profiles.\n"
-            + "Containers and virtual machines on this computer work only with Allow local network on."
+        info: "If a VPN started in VGS drops, traffic stays blocked until it reconnects or you turn it off in VGS.\nTurning the VPN off elsewhere keeps the block.\nThe block stays active when VGS closes and after a restart.\nIt also works with WireGuard.\nTurn on Allow local network to use containers and virtual machines."
             + (root.view.countInfo === "" ? "" : "\n" + root.view.countInfo)
         hint: root.view.tone === "" ? root.view.hint : ""
         error: root.view.tone === "danger" ? root.view.hint : ""

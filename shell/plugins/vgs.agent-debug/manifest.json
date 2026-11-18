@@ -30,7 +30,7 @@
       "optionsFrom": "agents",
       "placeholder": "Choose an agent",
       "description": "Agent Debug notifies you only after you choose an agent",
-      "info": "Diagnose opens this agent with the facts of the failure: what failed, when, and where its record is. The agent reads the rest on this computer and asks you before it runs a command.\nAgent Debug tells you about each program at most once a minute, so a program that crashes again and again does not fill your screen."
+      "info": "Diagnose opens your chosen agent with the failure details.\nThe agent reads more on this computer and asks before it runs a command.\nEach program can send at most one notice per minute, so repeated crashes do not fill your screen."
     }
   },
   "tui": {

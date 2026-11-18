@@ -570,7 +570,7 @@ Item {
         function test_a_key_with_info_draws_its_own_icon_and_dialog() {
             const window = opened(); window.openPlugin("acme.explained", Qt.OtherFocusReason, "Setup");
             const line = label => onTab(window, StatusLine).find(item => item.label === label);
-            const marks = item => descendants(item).filter(child => child instanceof InfoButton && child.visible);
+            const marks = item => descendants(item).filter(child => child instanceof InfoButton && child.visible && child.info !== "");
             compare(marks(line("Client secret")).length, 0, "a key without info draws no info icon");
             const mark = marks(line("Client ID"));
             compare(mark.length, 1, "a key with info draws its own info icon");
@@ -597,12 +597,15 @@ Item {
             const window = opened(); window.openPlugin("acme.paged", Qt.OtherFocusReason, "Setup");
             const line = onTab(window, StatusLine).find(item => item.label === data.label);
             verify(line !== undefined, "the line draws");
-            const mark = descendants(line).filter(child => child instanceof InfoButton && child.visible);
+            const mark = descendants(line).filter(child => child instanceof InfoButton && child.visible && child.info !== "");
             compare(mark.length, 1, "the line draws its info icon");
             tryVerify(() => !descendants(window).find(item => item instanceof ListPage).visible);
             mouseClick(mark[0]);
             tryVerify(() => mark[0].infoOpen, 1000, "the icon opens its dialog");
-            const link = descendants(mark[0].popup.tracker.popup.contentItem).find(item => item instanceof LinkText && item.visible && item.linked);
+            const modal = descendants(mark[0]).find(item => item.body !== undefined);
+            const body = createTemporaryObject(modal.body, root, { width: 420 });
+            verify(body !== null);
+            const link = descendants(body).find(item => item instanceof LinkText && item.visible && item.linked);
             verify(link !== undefined, "the dialog draws the page reference as a link");
             link.clicked();
             tryVerify(() => pageOf(window).row !== null && pageOf(window).row.id === data.page, 2000, "the link opens the page it names");

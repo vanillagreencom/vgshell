@@ -87,19 +87,24 @@ warden_detail_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply
 warden_setup_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden setup"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 no_show_command() { ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,sys; print(str(not any("Show command" in r for r in json.load(sys.stdin))).lower())'; }
 warden_tools_drawn() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="required-tools"]; print(json.dumps([rows[0]["chips"], rows[0]["lines"], [b["text"] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
-warden_info="Shows whether Agent Warden watches your agents and whether any needs your attention."
+warden_info="$(python3 - "$repo/shell/plugins/vgs.agent-warden/manifest.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as source:
+    print(json.load(source)["status"]["lastCheck"]["info"].split("\n")[0])
+PY
+)"
 # The Warden setup step's own hint while vsys is missing.
 warden_vsys_hint="Install vsys first. Agent Warden needs it."
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
-warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
+warden_info_dialog() { printf '%s|%s\n' "$(info_label "Last check")" "$(info_label "$warden_info")"; }
 warden_info_closed() { info_label "$warden_info"; }
 warden_info_focus() { ipc smoke focused window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps(json.loads(t)[:2]))'; }
 info_close_click() {
   local rect x y
   rect="$(ipc smoke popupItemGeometry window vgs.settings Dialog "$1" Button Close)" || return 1
   [[ $rect == \[* ]] || { echo "info_close_click: no Close button in dialog $1: $rect" >&2; return 1; }
-  read -r x y < <(at_centre window:Plugins "$rect") || return 1
+  read -r x y < <(at_centre vgs:dialog "$rect") || return 1
   click "$x" "$y"
 }
 outside_surface_point() { # SURFACE
@@ -336,21 +341,21 @@ expect_poll "a checking warden with vsys present offers no Set up" '[["setup", "
 expect_poll "the Warden setup row draws Done and no action" "$(words "Warden setup" Done)" warden_setup_drawn
 settings_details
 expect_poll "the Warden reading draws Running and no step" "$(words Warden Running)" warden_detail_drawn
-settings_press --type InfoButton "About Warden" Field Warden || fail "the click on the Warden row's info icon failed"
-expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
-info_close_click Warden || fail "the click on the Warden info dialog's Close button failed"
-expect_poll "the Warden info dialog closes from its Close button" absent warden_info_closed
-expect_poll "the Warden info dialog returns focus to its icon after Close" '["InfoButton", "About Warden"]' warden_info_focus
-settings_press --type InfoButton "About Warden" Field Warden || fail "the second click on the Warden row's info icon failed"
-expect_poll "the Warden info dialog opens again for the outside press" "shown|shown" warden_info_dialog
-read -r warden_info_outside_x warden_info_outside_y < <(outside_surface_point window:Plugins) || fail "the outside point for the Warden info dialog is unreadable"
-click "$warden_info_outside_x" "$warden_info_outside_y" || fail "the outside press for the Warden info dialog failed"
-expect_poll "a press outside closes the Warden info dialog" absent warden_info_closed
+settings_press --type InfoButton "About Last check" Field "Last check" || fail "the click on the Last check row's help label failed"
+expect_poll "the Last check help dialog opens with its title and text" "shown|shown" warden_info_dialog
+info_close_click "Last check" || fail "the click on the Last check help dialog's Close button failed"
+expect_poll "the Last check help dialog closes from its Close button" absent warden_info_closed
+expect_poll "the Last check help dialog returns focus to its label after Close" '["InfoButton", "Last check"]' warden_info_focus
+settings_press --type InfoButton "About Last check" Field "Last check" || fail "the second click on the Last check row's help label failed"
+expect_poll "the Last check help dialog opens again for the outside press" "shown|shown" warden_info_dialog
+read -r warden_info_outside_x warden_info_outside_y < <(at_centre vgs:dialog '[1,1,1,1]') || fail "the outside point for the Last check help dialog is unreadable"
+click "$warden_info_outside_x" "$warden_info_outside_y" || fail "the outside press for the Last check help dialog failed"
+expect_poll "a press outside closes the Last check help dialog" absent warden_info_closed
 warden_info_unready() {
   (control_hovered() { echo false; }
-   if settings_press --type InfoButton "About Warden" Field Warden 2>&1 >/dev/null; then echo pressed; fi)
+   if settings_press --type InfoButton "About Last check" Field "Last check" 2>&1 >/dev/null; then echo pressed; fi)
 }
-expect "a scoped press the Warden row's info icon cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Warden" warden_info_unready
+expect "a scoped press the Last check row's help label cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Last check" warden_info_unready
 # Observe the reveal request while forwarding the real IPC and click. The
 # request must carry the same scope as the subsequent pointer lookup even
 # when the page currently has only one matching InfoButton.
@@ -372,16 +377,16 @@ warden_scoped_reveal() {
       fi
       warden_reveal_ipc "$@"
     }
-    settings_press --type InfoButton "About Warden" Field Warden || return 1
+    settings_press --type InfoButton "About Last check" Field "Last check" || return 1
     cat -- "$sandbox/warden-reveal-args"
   )
 }
 warden_scoped_reveal_check() {
-  expect "a scoped press reveals its own scope before pointing" $'smoke\nrevealScopedText\nwindow\nvgs.settings\nField\nWarden\nInfoButton\nAbout Warden' warden_scoped_reveal
+  expect "a scoped press reveals its own scope before pointing" $'smoke\nrevealScopedText\nwindow\nvgs.settings\nField\nLast check\nInfoButton\nAbout Last check' warden_scoped_reveal
 }
 warden_scoped_reveal_check
-expect_poll "the scoped reveal regression opens Warden's info dialog" "shown|shown" warden_info_dialog
-info_close_click Warden || fail "closing the scoped reveal regression's info dialog failed"
+expect_poll "the scoped reveal regression opens Last check's help dialog" "shown|shown" warden_info_dialog
+info_close_click "Last check" || fail "closing the scoped reveal regression's info dialog failed"
 expect_poll "the scoped reveal regression's info dialog closes" absent warden_info_closed
 warden_scoped_reveal_control() {
   (
@@ -393,17 +398,16 @@ warden_scoped_reveal_control() {
 }
 expect "control: restoring page-wide reveal fails the same scope assertion" 1 warden_scoped_reveal_control
 sed 's/^/  CONTROL  /' "$sandbox/warden-reveal-control.log"
-expect_poll "the page-wide reveal control still reaches the real info button" "shown|shown" warden_info_dialog
-info_close_click Warden || fail "closing the page-wide reveal control's info dialog failed"
+expect_poll "the page-wide reveal control still reaches the real help label" "shown|shown" warden_info_dialog
+info_close_click "Last check" || fail "closing the page-wide reveal control's info dialog failed"
 expect_poll "the page-wide reveal control's info dialog closes" absent warden_info_closed
 warden_first_absent() {
   (control_box() { echo absent; }
-   if point_item scoped:Plugins window vgs.settings Field Warden InfoButton "About Warden" 2>&1 >/dev/null; then echo pointed; fi)
+   if point_item scoped:Plugins window vgs.settings Field "Last check" InfoButton "About Last check" 2>&1 >/dev/null; then echo pointed; fi)
 }
-expect "a first absent box names its reading and lookup" "point_item: reading=first box=absent lookup=scoped:Plugins window vgs.settings Field Warden InfoButton About Warden" warden_first_absent
-# The copy sits beside DismissScope, a type internal to qs.Ui, which the
-# directory's own files reach and a file outside the module does not.
-info_control_dir="$repo/shell/Ui/overlay"
+expect "a first absent box names its reading and lookup" "point_item: reading=first box=absent lookup=scoped:Plugins window vgs.settings Field Last check InfoButton About Last check" warden_first_absent
+# A fresh directory avoids Qt's cached listing of directories already read.
+info_control_dir="$(mktemp -d "$sandbox/info-control.XXXXXX")" || fail "the info dialog control directory could not be created"
 python3 - "$repo/shell/Ui/controls/InfoButton.qml" "$info_control_dir/InfoButtonControl.qml" <<'PY'
 import sys
 src, dst = sys.argv[1:]

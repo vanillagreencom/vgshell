@@ -65,6 +65,7 @@ T.ItemDelegate {
     id: root
 
     property string iconName: ""
+    property string info: ""
     property string secondary: ""
     property string secondaryTone: ""
     property bool secondaryWraps: false
@@ -104,6 +105,8 @@ T.ItemDelegate {
     implicitHeight: Math.max((secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height) + secondaryLabel.addedHeight, implicitContentHeight + topPadding + bottomPadding)
     leftPadding: sidePadding
     rightPadding: leftPadding
+    topPadding: Theme.listItem.paddingX
+    bottomPadding: Theme.listItem.paddingX
     spacing: Theme.listItem.gap
     hoverEnabled: true
     down: clickable && pressed
@@ -146,9 +149,21 @@ T.ItemDelegate {
                 role: "item"
                 textFormat: Text.PlainText
                 text: root.text
+                visible: root.info === ""
                 color: root.lit ? Theme.listItem.selectedForeground : Theme.color.text
                 width: parent.width
                 elide: Text.ElideRight
+            }
+            Loader {
+                active: root.info !== ""
+                width: parent.width
+                sourceComponent: InfoButton {
+                    title: root.text
+                    info: root.info
+                    role: "item"
+                    color: root.lit ? Theme.listItem.selectedForeground : Theme.color.text
+                    wrapMode: Text.Wrap
+                }
             }
             Label {
                 id: secondaryLabel

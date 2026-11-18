@@ -140,28 +140,16 @@ Column {
         id: labelLine
         visible: root.label !== "" && !root.inline
         width: root.bodyWidth
-        height: Math.max(fieldLabel.implicitHeight, topInfo.implicitHeight)
+        height: fieldLabel.implicitHeight
 
-        Label {
+        InfoButton {
             id: fieldLabel
             role: "label"
-            text: root.label
-            width: parent.width - (topInfo.active ? topInfo.width + Theme.space.xs : 0)
-            anchors.verticalCenter: parent.verticalCenter
-            elide: Text.ElideRight
-        }
-
-        Loader {
-            id: topInfo
-            active: root.info !== ""
-            anchors.left: fieldLabel.right
-            anchors.leftMargin: Theme.space.xs
-            anchors.verticalCenter: parent.verticalCenter
-            sourceComponent: InfoButton {
-                title: root.label
-                info: root.info
-                onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
-            }
+            title: root.label
+            info: root.labelTooltip === "" ? root.info : root.info === "" ? root.labelTooltip : root.labelTooltip + "\n" + root.info
+            width: parent.width
+            wrapMode: Text.Wrap
+            onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
         }
     }
 

@@ -410,7 +410,7 @@ Item {
         function test_blocked_notice_data() {
             return [{ tag: "section", component: paneComponent }, { tag: "flyout", component: panelComponent }];
         }
-        function infoButton(item) { return find(item, child => String(child).indexOf("InfoButton") === 0); }
+        function infoButton(item) { return find(item, child => String(child).indexOf("InfoButton") === 0 && child.info !== ""); }
         function test_blocked_notice(data) {
             const ready = { state: "ready", reason: "granted" };
             const valid = (meantOn, mode) => ({ kind: "valid", meantOn: meantOn, mode: mode, portalUntil: "0" });

@@ -267,8 +267,8 @@ info_link_shown() { ipc smoke popupItemGeometry window vgs.settings "${2:-}" "${
 info_link_click() {
   local text="$1" scope_type="${2:-}" scope_text="${3:-}"
   local paragraph box linked rect="" last="" settled=false point x y failed_before="$failures"
-  # popupItemGeometry gives the whole paragraph in the popup window's
-  # Quickshell global frame, which at_centre places with the parent window.
+  # popupItemGeometry gives the whole paragraph in the modal window's
+  # frame, which at_centre places with its compositor layer.
   # linkBox is local to LinkText. Add its origin once and keep its size.
   # A link the dialog wraps holds a gap at its box's centre, so the click
   # aims at its first laid-out span (LinkText.underlined) on its line.
@@ -297,7 +297,7 @@ else:
     sleep 0.1
   done
   [[ $settled == true ]] || { echo "info_link_click: no still link in the info dialog: $rect" >&2; return 1; }
-  point="$(at_centre window:Plugins "$rect")" || return 1
+  point="$(at_centre vgs:dialog "$rect")" || return 1
   read -r x y <<<"$point" || return 1
   hover "$x" "$y" || return 1
   expect_poll "the info dialog's paragraph reports a link" true ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linked || return 1
@@ -312,7 +312,7 @@ expect "enabling the System window for the info link is allowed" ok ipc shell se
 expect_poll "the System window is enabled for the info link" True plugin_enabled vgs.system
 expect "the window opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows for its info dialog" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" SettingField On || fail "the click on the On field's info icon failed"
+settings_press --type InfoButton "About On" SettingField On || fail "the click on the On field's help label failed"
 expect_poll "the On field's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
 expect_poll "no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
 info_link_click "$page_info_text" || fail "the click on the info dialog's page reference failed"
@@ -1793,7 +1793,7 @@ expect "control: the copy takes a summon that names a tab" ok ipc shell summon w
 expect_poll "control: an open() that drops the tab shows Settings" '"acme.probe/Settings"' settings_shown
 expect "control: the copy opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "control: the copy shows the page link fixture's page" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" SettingField On || fail "control: the click on the On field's info icon failed"
+settings_press --type InfoButton "About On" SettingField On || fail "control: the click on the On field's help label failed"
 expect_poll "control: the copy's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
 expect_poll "control: no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
 expect "control: no System window is open before the info dialog's Sounds link click" 0 window_count 'System Settings'

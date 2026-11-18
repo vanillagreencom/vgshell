@@ -18,14 +18,28 @@ Item {
     property string message: ""
     property var actions: []
     property bool busy: false
+    property Component body: null
+    // Confirmations keep their held background; informational help may
+    // dismiss through the same scrim without accepting an action.
+    property bool dismissOnOutside: false
     readonly property var screen: OverlayState.outputOf(root)
     visible: surfaceLoader.item !== null && surfaceLoader.item.visible && surfaceLoader.item.backingWindowVisible
+    property bool counted: false
+    function share(open) {
+        if (open === counted) return;
+        counted = open;
+        if (open) OverlayState.opened(); else OverlayState.closed();
+    }
+    Component.onCompleted: share(surfaceLoader.active)
+    Component.onDestruction: share(false)
+
     signal accepted()
     signal rejected()
 
     Loader {
         id: surfaceLoader
         active: root.shown && root.screen !== null
+        onActiveChanged: root.share(active)
         sourceComponent: Hosts.OverlaySurface {
             screen: root.screen
             placement: "center"
@@ -36,7 +50,7 @@ Item {
 
             // The shared scrim consumes background input. A timed trial
             // can only end through its actions, Escape or its countdown.
-            Scrim {}
+            Scrim { onClicked: if (root.dismissOnOutside && !root.busy) root.rejected() }
 
             Dialog {
                 id: card
@@ -50,6 +64,10 @@ Item {
                 onAccepted: root.accepted()
                 onRejected: root.rejected()
                 Component.onCompleted: forceActiveFocus(Qt.OtherFocusReason)
+                Loader {
+                    width: parent.width
+                    sourceComponent: root.body
+                }
             }
         }
     }

@@ -191,7 +191,7 @@ Section {
             inline: true
             width: parent.width
             visible: root.stepped
-            info: "Choose from 0 to " + Engine.REST_MAX + " seconds (" + Engine.secondsText(Engine.REST_MAX) + "). After a run ends, Automations skips each scheduled time until the rest is over, so the next run cannot start just after a slow run. With 0, the automation runs at every scheduled time. Run now does not wait for the rest."
+            info: "Choose from 0 to " + Engine.REST_MAX + " seconds (" + Engine.secondsText(Engine.REST_MAX) + ").\nAfter a run ends, scheduled runs wait until this rest ends. This prevents another run just after a slow run.\nWith 0, every scheduled time can run.\nRun now skips the rest."
             error: root.validation.errors.rest || ""
             Row {
                 width: parent.width
