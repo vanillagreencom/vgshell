@@ -49,7 +49,7 @@ HEADER = DEVICE + "\nCreating QRhi with backend Vulkan for window 0x1234 (wflags
 CPU = "DEBUG qt.scenegraph.time.renderloop: [window 0x1234][render thread 0xabcd] syncAndRender: frame rendered in 2ms, sync=1, render=1, swap=0\n"
 GPU = "DEBUG qt.scenegraph.time.renderloop: [window 0x1234][render thread 0xabcd] syncAndRender: last retrieved GPU frame time was %.4f ms\n"
 STATE = {"complete": True, "window": "ProxiedWindow(0x1234)", "scale": 1, "presentation": [16] * 720}
-BASELINE = {"backend": "Vulkan", "device": "Test GPU", "ceilings": {
+BASELINE = {"backend": "Vulkan", "device": "Test GPU", "gpu_null_spread_ms": 0, "ceilings": {
     "cpu_sync_ms": 2, "cpu_render_ms": 2, "gpu_cost_ms": 0.2, "presentation_ms": 32}}
 
 
@@ -64,13 +64,21 @@ def stream_log(sync, render, gpu):
         for s, r, g in zip(sync, render, gpu, strict=True))
 
 
+STEADY_CLOCK = "clock_sm=2580/2601.5/2632 clock_mem=13801/13801 pstates=P1 clock_samples=4"
+
+
 def fixture(root):
     for scale in (1, 2):
-        for mode, gpu in (("off", 0.1), ("on", 0.2), ("costly", 1.0)):
+        for mode, gpu in (("off", 0.1), ("null", 0.1), ("on", 0.2), ("costly", 1.0)):
             stem = root / f"scale-{scale}-{mode}"
             stem.with_suffix(".log").write_text(log(gpu))
             stem.with_suffix(".json").write_text(json.dumps(dict(STATE, scale=scale)))
             stem.with_suffix(".cpu").write_text("0.5\n")
+            stem.with_suffix(".gpu").write_text("2\n")
+            stem.with_suffix(".gpu-peak").write_text("4\n")
+            stem.with_suffix(".gpu-foreign").write_text("1\n")
+            stem.with_suffix(".gpu-clock").write_text(STEADY_CLOCK + "\n")
+            stem.with_suffix(".load").write_text("quiet cpu=0.5 gpu_foreign=1 gpu=2 gpu_peak=4 clock=steady retaken=false\n")
 
 
 class ShaderReadings(unittest.TestCase):
@@ -81,8 +89,36 @@ class ShaderReadings(unittest.TestCase):
             for scale in (1, 2):
                 (root / f"scale-{scale}-on.log").write_text(stream_log([0] * 720, [0] * 720, [0.2] * 720))
                 (root / f"scale-{scale}-on.json").write_text(json.dumps(dict(STATE, scale=scale, presentation=[0] * 720)))
-            self.assertEqual(reader.calibrate([root], 2.8)["ceilings"], {
+            self.assertEqual(reader.calibrate([root])["ceilings"], {
                 "cpu_sync_ms": 1, "cpu_render_ms": 1, "gpu_cost_ms": 0.2, "presentation_ms": 1})
+
+    def test_null_spread_floor(self):
+        # A second identical scene measures instrument spread, including
+        # differences between passes/scales. Below that spread is not a
+        # resolved slowdown; an actual costly shader must still fail.
+        with tempfile.TemporaryDirectory() as scratch:
+            roots = [Path(scratch) / f"run-{index}" for index in (1, 2, 3)]
+            for root in roots:
+                root.mkdir()
+                fixture(root)
+            (roots[2] / "scale-2-null.log").write_text(log(0.5))
+            baseline = reader.calibrate(roots)
+            self.assertAlmostEqual(baseline["gpu_null_spread_ms"], 0.4)
+            self.assertAlmostEqual(baseline["calibration_runs"][2]["gpu_null_readings_ms"]["2"], 0.4)
+            self.assertAlmostEqual(baseline["ceilings"]["gpu_cost_ms"], 0.4)
+            for cost, rejected in ((0.3, False), (0.4, False), (0.4001, True)):
+                with self.subTest(cost=cost):
+                    (roots[0] / "scale-1-on.log").write_text(log(0.1 + cost))
+                    if rejected:
+                        with self.assertRaisesRegex(ValueError, "ceiling=exceeded"):
+                            reader.check(roots[0], baseline, 2.8)
+                    else:
+                        reader.check(roots[0], baseline, 2.8)
+            # Noise too wide to distinguish the planted shader is no
+            # calibration. It cannot write a higher accepted ceiling.
+            (roots[2] / "scale-2-null.log").write_text(log(1.0))
+            with self.assertRaisesRegex(ValueError, "costly-control=accepted"):
+                reader.calibrate(roots)
 
     def test_gpu_tick_boundary(self):
         ceilings = dict(BASELINE["ceilings"], gpu_cost_ms=0.0026)
@@ -94,17 +130,15 @@ class ShaderReadings(unittest.TestCase):
         # The on scene produces the CPU readings. Off/control pressure
         # cannot excuse a quiet on-scene CPU regression.
         cases = (
-            ("loaded CPU", "scale-1-on", "2.9", 3, 0.2, False, "--check", 77),
-            ("quiet same CPU", "scale-1-on", "2.8", 3, 0.2, False, "--check", 1),
-            ("off loaded only", "scale-1-off", "9.0", 3, 0.2, False, "--check", 1),
-            ("CPU pressure unread", "scale-1-on", "unmeasured", 3, 0.2, False, "--check", 77),
-            ("quiet GPU", "scale-1-on", "0.5", 1, 0.31, False, "--check", 1),
-            ("loaded GPU", "scale-1-on", "2.9", 3, 0.31, False, "--check", 1),
-            ("loaded weak control", "scale-1-on", "2.9", 3, 0.2, True, "--check", 1),
-            ("loaded calibration", "scale-1-on", "2.9", 3, 0.2, False, "--calibrate", 77),
-            ("loaded calibration weak control", "scale-1-on", "2.9", 3, 0.2, True, "--calibrate", 1),
+            ("loaded CPU", "scale-1-on", "2.9", 3, 0.2, False, 77),
+            ("quiet same CPU", "scale-1-on", "2.8", 3, 0.2, False, 1),
+            ("off loaded only", "scale-1-off", "9.0", 3, 0.2, False, 1),
+            ("CPU pressure unread", "scale-1-on", "unmeasured", 3, 0.2, False, 77),
+            ("quiet GPU", "scale-1-on", "0.5", 1, 0.31, False, 1),
+            ("loaded GPU", "scale-1-on", "2.9", 3, 0.31, False, 1),
+            ("loaded weak control", "scale-1-on", "2.9", 3, 0.2, True, 1),
         )
-        for name, stem, pressure, cpu, gpu, weak, choice, status in cases:
+        for name, stem, pressure, cpu, gpu, weak, status in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as scratch:
                 root = Path(scratch)
                 fixture(root)
@@ -113,10 +147,9 @@ class ShaderReadings(unittest.TestCase):
                 if weak:
                     (root / "scale-1-costly.log").write_text(log(0.2))
                 path = root / "baseline.json"
-                original = json.dumps({"shaders": {"voiceorb": BASELINE}})
-                path.write_text(original)
+                path.write_text(json.dumps({"shaders": {"voiceorb": BASELINE}}))
                 result = subprocess.run(
-                    [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", choice, str(path)],
+                    [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", "--check", str(path)],
                     env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                     text=True, capture_output=True, check=False)
                 self.assertEqual(result.returncode, status, result.stdout + result.stderr)
@@ -127,18 +160,16 @@ class ShaderReadings(unittest.TestCase):
                     self.assertEqual(fields["cpu_some_pct"], pressure)
                     self.assertEqual(float(fields["cpu_sync_ms"]), 3)
                     self.assertEqual(float(fields["cpu_render_ms"]), 3)
-                if gpu == 0.31 and choice == "--check":
+                if gpu == 0.31:
                     self.assertIn("gpu_cost_ms", fields)
                     self.assertAlmostEqual(float(fields["gpu_cost_ms"]), 0.21)
                     self.assertEqual(float(fields["ceiling_gpu_cost_ms"]), 0.2)
-                if choice == "--calibrate":
-                    self.assertEqual(path.read_text(), original)
 
     def test_distinct_readings_and_calibration(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             fixture(root)
-            result = reader.calibrate([root], 2.8)
+            result = reader.calibrate([root])
             self.assertEqual(result["samples"], 600)
             self.assertEqual(result["warmup"], 120)
             self.assertEqual(result["readings"]["1"], {
@@ -150,25 +181,24 @@ class ShaderReadings(unittest.TestCase):
             self.assertEqual(result["calibration_runs"][0]["cpu_some_pct"], 0.5)
 
     def test_calibration_pressure(self):
-        # Each run records its scenes' highest CPU pressure; one scene
-        # that could not read it makes the run's unmeasured, and a reading
-        # in another form fails.
-        cases = (
-            ("highest scene", {"scale-2-costly": "1.7"}, 1.7, None),
-            ("an unmeasured scene", {"scale-1-off": "unmeasured", "scale-2-on": "0.5"}, "unmeasured", None),
-            ("an unreadable reading", {"scale-1-on": "high"}, None, "cpu-pressure=unreadable"),
-        )
-        for label, files, want, error in cases:
-            with self.subTest(label), tempfile.TemporaryDirectory() as scratch:
-                root = Path(scratch)
-                fixture(root)
-                for stem, value in files.items():
-                    (root / f"{stem}.cpu").write_text(value + "\n")
-                if error:
-                    with self.assertRaisesRegex(ValueError, error):
-                        reader.calibrate([root], 2.8)
-                else:
-                    self.assertEqual(reader.calibrate([root], 2.8)["calibration_runs"][0]["cpu_some_pct"], want)
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "run-2/voiceorb"
+            root.mkdir(parents=True)
+            fixture(root)
+            marker = root / "scale-2-costly.load"
+            marker.write_text("quiet cpu=1.7 gpu_foreign=3 gpu=unmeasured gpu_peak=unmeasured clock=steady retaken=true\n")
+            run = reader.calibrate([root])["calibration_runs"][0]
+            self.assertEqual(run["cpu_some_pct"], 1.7)
+            expected = {scale: {mode: {"cpu_some_pct": 0.5, "gpu_foreign_pct": 1, "gpu_pct": 2,
+                                       "gpu_peak_pct": 4, "clock": "steady", "retaken": False}
+                                for mode in ("off", "null", "on", "costly")} for scale in ("1", "2")}
+            expected["2"]["costly"] = {"cpu_some_pct": 1.7, "gpu_foreign_pct": 3, "gpu_pct": "unmeasured",
+                                       "gpu_peak_pct": "unmeasured", "clock": "steady", "retaken": True}
+            self.assertEqual(run["scene_loads"], expected)
+            marker.unlink()
+            with self.assertRaisesRegex(reader.Unmeasured, r"scene-load=missing-or-unreadable .*run-2/voiceorb "
+                                        r"scale=2 scene=costly cpu_some_pct=0.5 gpu_foreign_pct=1 gpu_pct=2 gpu_peak_pct=4"):
+                reader.calibrate([root])
 
     def test_sample_and_attribution_rules(self):
         cases = (
@@ -203,7 +233,7 @@ class ShaderReadings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             fixture(root)
-            result = reader.calibrate([root], 2.8)
+            result = reader.calibrate([root])
             row = result["readings"]["1"]
             for name in reader.READINGS:
                 with self.subTest(name=name):
@@ -212,7 +242,7 @@ class ShaderReadings(unittest.TestCase):
             self.assertEqual(reader.over_ceiling(dict(row, cpu_sync_ms=1), dict(result["ceilings"], cpu_sync_ms=0)), ["cpu_sync_ms"])
             (root / "scale-2-costly.log").write_text(log(0.2))
             with self.assertRaisesRegex(ValueError, "costly-control=accepted scale=2"):
-                reader.calibrate([root], 2.8)
+                reader.calibrate([root])
 
     def test_check_mode_report_and_cli(self):
         cases = (
@@ -291,7 +321,7 @@ class ShaderReadings(unittest.TestCase):
                 (root / "scale-1-on.log").write_text(stream_log(
                     streams["cpu_sync_ms"], streams["cpu_render_ms"], streams["gpu_cost_ms"]))
                 (root / "scale-1-on.json").write_text(json.dumps(dict(STATE, presentation=streams["presentation_ms"])))
-                self.assertAlmostEqual(reader.calibrate([root], 2.8)["readings"]["1"][name], want)
+                self.assertAlmostEqual(reader.calibrate([root])["readings"]["1"][name], want)
                 self.assertEqual(reader.check(root, BASELINE, 2.8)["ceilings"], BASELINE["ceilings"])
 
     def test_gpu_cost_not_resolved(self):
@@ -306,7 +336,7 @@ class ShaderReadings(unittest.TestCase):
                 gpu[index] = 0.5
             (root / "scale-1-on.log").write_text(stream_log([1] * 720, [1] * 720, gpu))
             with self.assertRaisesRegex(ValueError, "gpu-cost=not-resolved reading_ms=0"):
-                reader.calibrate([root], 2.8)
+                reader.calibrate([root])
 
     def test_calibration_over_passes(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -316,7 +346,7 @@ class ShaderReadings(unittest.TestCase):
                 fixture(root)
             (second / "scale-2-on.log").write_text(log(0.25))
             (weak / "scale-1-costly.log").write_text(log(0.35))
-            result = reader.calibrate([first, second], 2.8)
+            result = reader.calibrate([first, second])
             self.assertAlmostEqual(result["ceilings"]["gpu_cost_ms"], 0.3)
             self.assertAlmostEqual(result["readings"]["2"]["gpu_cost_ms"], 0.15)
             self.assertAlmostEqual(result["readings"]["1"]["gpu_cost_ms"], 0.1)
@@ -324,7 +354,7 @@ class ShaderReadings(unittest.TestCase):
                              [f"{Path(scratch).name}/run-1/plasma", f"{Path(scratch).name}/run-2/plasma"])
             self.assertAlmostEqual(result["calibration_runs"][0]["readings"]["2"]["gpu_cost_ms"], 0.1)
             with self.assertRaisesRegex(ValueError, f"costly-control=accepted scale=1 .* run={Path(scratch).name}/run-3/plasma$"):
-                reader.calibrate([first, second, weak], 2.8)
+                reader.calibrate([first, second, weak])
             # A later pass is matched to the first pass's device.
             other = Path(scratch) / "run-4" / "plasma"
             other.mkdir(parents=True)
@@ -334,7 +364,7 @@ class ShaderReadings(unittest.TestCase):
             with self.assertRaisesRegex(
                     reader.Unmeasured,
                     r"calibration=identity-mismatch scale=2 scene=off want=\[Vulkan:Test GPU\] got=\[Vulkan:Other GPU\]"):
-                reader.calibrate([first, other], 2.8)
+                reader.calibrate([first, other])
 
     def test_check_takes_one_directory(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -384,7 +414,7 @@ class ShaderReadings(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             records = json.loads(path.read_text())["shaders"]
             self.assertEqual(records["voiceorb"], json.loads(kept)["shaders"]["voiceorb"])
-            self.assertEqual(records["plasma"]["ceilings"], reader.calibrate([root], 2.8)["ceilings"])
+            self.assertEqual(records["plasma"]["ceilings"], reader.calibrate([root])["ceilings"])
             path.unlink()
             result = run(root, path, "plasma", "--calibrate")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -393,6 +423,8 @@ class ShaderReadings(unittest.TestCase):
     def test_sample_and_ceiling_mutants_turn_tests_red(self):
         plants = (
             ("resolution floor", "max(RESOLUTION_MS[name], 2 *", "max(0 * RESOLUTION_MS[name], 2 *", "test_resolution_floor_and_boundary"),
+            ("null spread ignored", 'max(ceilings["gpu_cost_ms"], null_spread)',
+             'max(ceilings["gpu_cost_ms"], 0 * null_spread)', "test_null_spread_floor"),
             ("GPU tick equality", "round(reading[name] / RESOLUTION_MS[name]) > round(ceilings[name] / RESOLUTION_MS[name])",
              "reading[name] > ceilings[name]", "test_gpu_tick_boundary"),
             ("CPU pressure ignored", 'if value == "unmeasured" or value > pressure_limit}',
@@ -414,8 +446,8 @@ class ShaderReadings(unittest.TestCase):
              "test_percentile_ignores_a_spike gpu_cost_ms"),
             ("presentation read as its highest", '"presentation_ms": percentile(on["presentation_ms"])',
              '"presentation_ms": max(on["presentation_ms"])', "test_percentile_ignores_a_spike presentation_ms"),
-            ("unresolved GPU cost accepted", "if cost <= 0:", "if cost < -1:", "test_gpu_cost_not_resolved"),
-            ("passes not matched to the first", "measure(root, runs[0] if runs else None)", "measure(root, None)",
+            ("unresolved GPU cost accepted", "if cost <= 0 and resolved:", "if cost < -1 and resolved:", "test_gpu_cost_not_resolved"),
+            ("passes not matched to the first", "measure(root, runs[0] if runs else None, calibrating=True)", "measure(root, None, calibrating=True)",
              "test_calibration_over_passes"),
             ("calibration over passes", "for root in roots:", "for root in roots[:1]:", "test_calibration_over_passes"),
             ("costly control of every pass", "    for run in runs:\n        prove_control(",
@@ -465,9 +497,166 @@ class ShaderReadings(unittest.TestCase):
 
 
 SCENE = ROOT / "shader/measure-scene.sh"
+GPU_PROCESSES = ROOT / "shader/gpu-processes.py"
 
 
 class ShaderRunner(unittest.TestCase):
+    def test_pmon_blocks_and_foreign_window(self):
+        spec = importlib.util.spec_from_file_location("gpu_processes", GPU_PROCESSES)
+        pmon = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pmon)
+        lines = """#Date Time gpu pid type sm mem enc dec jpg ofa command
+#YYYYMMDD HH:MM:SS Idx # C/G % % % % % % name
+20261118 04:31:36 0 101 C+G 8 - - - - - qs
+20261118 04:31:36 0 102 G 4 - - - - - peer
+20261118 04:31:36 0 103 C+G - - - - - -
+20261118 04:31:37 0 104 G 5 - - - - - gone
+#Date Time gpu pid type sm mem enc dec jpg ofa command
+20261118 04:31:38 0 - - - - - - - -
+"""
+        cgroups = {101: "/unit.service/child", 102: "/unit.service-peer.service/worker.scope/subgroup",
+                   103: "/unit.service"}
+        times = iter((1000, 2000, 3000))
+        records = list(pmon.blocks(lines.splitlines(keepends=True), "/unit.service", cgroups.get, lambda: next(times)))
+        self.assertEqual(records, [
+            {"epoch_ms": 1000, "foreign_sm_pct": 4, "own_sm_pct": 8,
+             "processes": [[101, 8, True, "qs", "unit.service"], [102, 4, False, "peer", "worker.scope"],
+                           [103, 0, True, "", "unit.service"]]},
+            {"epoch_ms": 2000, "foreign_sm_pct": 5, "own_sm_pct": 0,
+             "processes": [[104, 5, False, "gone", ""]]},
+            {"epoch_ms": 3000, "foreign_sm_pct": 0, "own_sm_pct": 0, "processes": []},
+        ])
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "pmon.jsonl"
+            self.assertEqual(pmon.window(path, 1000, 2000), ("unmeasured", []))
+            path.write_text("".join(json.dumps(row) + "\n" for row in records) + '{"epoch_ms":')
+            self.assertEqual(pmon.window(path, 1000, 2000), (5, ["gone", "peer@worker.scope"]))
+            self.assertEqual(pmon.window(path, 3000, 3000), (0, []))
+            self.assertEqual(pmon.window(path, 3001, 4000), ("unmeasured", []))
+
+    def test_outer_sampler_stops_and_keeps_fence_status(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            nvidia = root / "nvidia-smi"
+            nvidia.write_text(f"""#!{sys.executable}
+from pathlib import Path
+import os
+import signal
+import sys
+home = Path(os.environ["HOME"])
+assert sys.argv[1:] == ["pmon", "-s", "u", "-d", "1", "-o", "DT"]
+def stop(signum, frame):
+    (home / "stopped").touch()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+signal.alarm(5)
+print("20261118 04:31:38 0 - - - - - - - -", flush=True)
+print("#Date Time gpu pid type sm mem enc dec jpg ofa command", flush=True)
+while True:
+    signal.pause()
+""")
+            nvidia.chmod(0o755)
+            fence = root / "fence"
+            fence.write_text(f"""#!{sys.executable}
+from pathlib import Path
+import sys
+import time
+assert sys.argv[1:4] == ["--keep", "--", "env"]
+name, path = sys.argv[4].split("=", 1)
+assert name == "VGS_SHADER_GPU_PROCESSES" and sys.argv[5:] == ["fixture scene", "scene arg"]
+deadline = time.monotonic() + 3
+while not Path(path).read_text().endswith("\\n"):
+    assert time.monotonic() < deadline
+    time.sleep(0.01)
+sys.exit(42)
+""")
+            fence.chmod(0o755)
+            result = subprocess.run(
+                [sys.executable, str(GPU_PROCESSES), "run", str(root / "output"),
+                 str(fence), "--keep", "--", "fixture scene", "scene arg"],
+                env={"PATH": f"{scratch}:/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
+                text=True, capture_output=True, check=False, timeout=10)
+            self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
+            self.assertTrue((root / "stopped").is_file())
+            traces = list((root / "output").glob("gpu-processes-*.jsonl"))
+            self.assertEqual(len(traces), 1)
+            record = json.loads(traces[0].read_text())
+            self.assertEqual(record["foreign_sm_pct"], 0)
+
+    def test_null_uses_identical_off_scene(self):
+        source = SCENE.read_text()
+        needle = '${scene/null/off}'
+        self.assertEqual(source.count(needle), 1)
+        script = r"""
+source "$1"
+cpu_some_us() { echo 0; }
+now_ms() { echo 0; }
+shell_env=(); bundled_fonts=(); shader=voiceorb; repo="$HOME"
+spawn_display() { printf '%s\n' "$@"; return 1; }
+measure_scene 1 "$2" "$HOME/scene"
+"""
+        for mutant, text in ((False, source), (True, source.replace(needle, "${scene}"))):
+            for mode in ("off", "null", "on", "costly"):
+                with self.subTest(mutant=mutant, mode=mode), tempfile.TemporaryDirectory() as scratch:
+                    subject = Path(scratch) / "measure-scene.sh"
+                    subject.write_text(text)
+                    nvidia = Path(scratch) / "nvidia-smi"
+                    nvidia.write_text("#!/bin/sh\nexit 127\n")
+                    nvidia.chmod(0o755)
+                    result = subprocess.run(
+                        [BASH, "-c", script, "_", str(subject), mode],
+                        env={"PATH": f"{scratch}:/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
+                        text=True, capture_output=True, check=False, timeout=10)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual((Path(scratch) / "scene.gpu").read_text(), "unmeasured\n")
+                    self.assertEqual((Path(scratch) / "scene.gpu-peak").read_text(), "unmeasured\n")
+                    self.assertEqual((Path(scratch) / "scene.gpu-clock").read_text(), "unmeasured\n")
+                    expected = "off" if mode == "null" else mode
+                    self.assertEqual(f"VGS_SHADER_MODE={expected}" in result.stdout.splitlines(),
+                                     not (mutant and mode == "null"), result.stdout)
+
+    def test_gpu_window_mean_rounds_half_up_and_keeps_peak(self):
+        source = SCENE.read_text()
+        needle = "mean = (2 * sum(values) + count) // (2 * count)"
+        self.assertEqual(source.count(needle), 1)
+        mutant = source.replace(needle, "mean = round(sum(values) / count)")
+        samples = ("4, 2580, 13801, P1", "2, 2601, 13801, P1", "5, 2602, 13801, P1", "7, 2632, 13801, P1")
+        script = r"""
+set -euo pipefail
+source "$1"
+cpu_some_us() { echo 0; }
+now_ms() { echo 0; }
+shell_env=(); bundled_fonts=(); shader=voiceorb; orb_style=""; orb_reduced=0; repo="$HOME"
+spawn_display() {
+  # Wait for the stand-in's acknowledgement that all samples were written.
+  while [[ ! -f $HOME/gpu-ready ]]; do sleep 0.01; done
+  echo 'shader-test: sampler-ready'
+  return 1
+}
+measure_scene 1 on "$HOME/scene"
+"""
+        for text, rounded in ((source, 5), (mutant, 4)):
+            with self.subTest(mean=rounded), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch)
+                subject = root / "measure-scene.sh"
+                subject.write_text(text)
+                nvidia = root / "nvidia-smi"
+                nvidia.write_text(
+                    '#!/bin/sh\n'
+                    '[ "$*" = "--query-gpu=utilization.gpu,clocks.sm,clocks.mem,pstate --format=csv,noheader,nounits -lms 500" ] || exit 1\n'
+                    + 'printf "%s\\n" ' + " ".join(f"'{sample}'" for sample in samples) + '\n: >"$HOME/gpu-ready"\n')
+                nvidia.chmod(0o755)
+                result = subprocess.run(
+                    [BASH, "-c", script, "_", str(subject)],
+                    env={"PATH": f"{scratch}:/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
+                    text=True, capture_output=True, check=False, timeout=10)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("shader-test: sampler-ready", result.stdout.splitlines(), result.stdout + result.stderr)
+                self.assertEqual((root / "scene.gpu-samples").read_text(), "\n".join(samples) + "\n")
+                self.assertEqual((root / "scene.gpu").read_text(), f"{rounded}\n")
+                self.assertEqual((root / "scene.gpu-peak").read_text(), "7\n")
+                self.assertEqual((root / "scene.gpu-clock").read_text(), STEADY_CLOCK + "\n")
+
     def held_scene(self, text, state):
         """Drive measure_held_scene from TEXT with its sandbox stubbed:
         measure_scene counts each measurement and held_mode_state answers
@@ -482,7 +671,15 @@ source "$1"
 source "$2"
 home="$HOME"; stub_state="$3"; sandbox="$HOME"
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-measure_scene() { local n=0; [[ -f $home/measured ]] && n="$(<"$home/measured")"; echo $((n + 1)) >"$home/measured"; scene_cpu_some_pct=1.5; }
+measure_scene() {
+  local n=0
+  [[ -f $home/measured ]] && n="$(<"$home/measured")"
+  echo $((n + 1)) >"$home/measured"
+  scene_cpu_some_pct=1.5 scene_gpu_foreign_pct=2 scene_gpu_pct=4 scene_gpu_peak_pct=7
+  scene_gpu_foreign_peers='["peer@worker.scope"]'
+  scene_gpu_clock=unmeasured
+  scene_start_ms=1795000000000 scene_end_ms=1795000012000
+}
 held_mode_state() { echo "$stub_state"; }
 mode_scale_of() { echo "1755x933 scale=1.5"; }
 measure_held_scene 2 on "$HOME/scale-2-on"
@@ -494,7 +691,9 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             measured = Path(scratch) / "measured"
             return result, int(measured.read_text()) if measured.exists() else 0, scratch
 
-    MEASURED = "shader-cost: scene=on scale=2 samples=600 cpu_some_pct=1.5 log=%s/scale-2-on.log"
+    MEASURED = ("shader-cost: scene=on scale=2 samples=600 cpu_some_pct=1.5 gpu_foreign_pct=2 "
+                'gpu_foreign_peers=["peer@worker.scope"] gpu_pct=4 gpu_peak_pct=7 '
+                "clock=unmeasured start_ms=1795000000000 end_ms=1795000012000 log=%s/scale-2-on.log")
 
     def held_cases(self):
         """Rows: the state after the measurement, exit status,
@@ -525,7 +724,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         cases = self.held_cases()
         plants = (
             ("a reset is measured", "  if [[ $state != held ]]; then", "  if false; then", cases[1]),
-            ("a reset passes", "    exit 1\n  fi", "    :\n  fi", cases[1]),
+            ("a reset passes", "    return 1\n  fi", "    :\n  fi", cases[1]),
         )
         text = SCENE.read_text()
         for name, old, new, case in plants:
@@ -541,6 +740,10 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         (scripts / "smoke").mkdir(parents=True)
         (scripts / "shader").mkdir()
         (root / "home").mkdir()
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "LC_ALL": "C"}
+        subprocess.run(["git", "init", "-q", "--template=", str(root)], env=env, check=True)
+        for lock in ("vgs-smoke-hold", "vgs-smoke-gate"):
+            (root / ".git" / lock).touch()
         (root / "shell/Ui/feedback/shaders").mkdir(parents=True)
         (root / "shell/Ui/foundation/shaders").mkdir(parents=True)
         (root / "shell/plugins/vgs.voice/shaders").mkdir(parents=True)
@@ -570,7 +773,26 @@ world_pressure_file="$HOME/pressure"
 printf 'some avg10=7.30 avg60=0.00 avg300=0.00 total=0\\n' >"$world_pressure_file"
 latency_pressure_limit=7.3
 latency_pressure_verdict() { if [[ $2 == 7.3 ]]; then echo within; else echo unmeasured; fi; }
-''' + harness)
+# These providers inject a pressure window; harness.sh owns the PSI math.
+# No runner test waits on real time.
+now_ms() {
+  local stamp=0
+  [[ ! -f $HOME/clock ]] || read -r stamp <"$HOME/clock"
+  echo "$stamp"
+  echo $((stamp + 1000)) >"$HOME/clock"
+}
+cpu_some_us() { echo 0; }
+smoke_hold_begin() { :; }
+smoke_hold_end() { :; }
+sleep() { :; }
+cpu_some_pct() {
+  local kind rest
+  while read -r kind rest; do
+    if [[ $kind == some && $rest =~ avg10=([0-9]+\\.[0-9])[0-9]($|[[:space:]]) ]]; then echo "${BASH_REMATCH[1]}"; return; fi
+  done <"$world_pressure_file"
+  echo unmeasured
+}
+''' + f"""write_quiet_clock() {{ printf '%s\\n' '{STEADY_CLOCK}' >"$1.gpu-clock"; }}\n""" + harness)
         # The runner asks the fence before it makes anything; this stand-in
         # answers that no amdgpu node is visible. scripts/test-gpu-fence.sh
         # holds the runner to the call.
@@ -588,8 +810,8 @@ with open(pathlib.Path(os.environ["HOME"], "compiler-calls"), "a") as calls:
         (root / "world-tmp").mkdir()
         return subprocess.run(
             [BASH, str(script), *args],
-            env={"PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "LC_ALL": "C", "QSB": str(compiler), "TMPDIR": str(root / "world-tmp")},
-            text=True, capture_output=True, check=False)
+            env=dict(env, QSB=str(compiler), TMPDIR=str(root / "world-tmp")),
+            text=True, capture_output=True, check=False, timeout=60)
 
     def test_uses_world_scratch(self):
         harness = """
@@ -625,9 +847,9 @@ exit 0
             (["--shader"], "shader-cost: refused argument=--shader value="),
         )
         text = RUNNER.read_text()
-        old = "${choice[0]} != --calibrate"
+        old = 'if [[ -n $runs && ${choice[0]} != --calibrate ]]; then'
         self.assertEqual(text.count(old), 1)
-        changed = text.replace(old, "${choice[0]} == never")
+        changed = text.replace(old, 'if [[ -n $runs && ${choice[0]} == never ]]; then')
         self.assertNotEqual(changed, text)
         with tempfile.TemporaryDirectory() as scratch:
             for index, (args, line) in enumerate(cases):
@@ -652,30 +874,50 @@ release_mode() { mode_hold=(); }
         scene = '''
 measure_held_scene() {
   echo measured >>"$home/scenes"
-  printf 'some avg10=7.40 total=0\\n' >"$world_pressure_file"
+  scene_cpu_some_pct=7.3 scene_gpu_foreign_pct=1 scene_gpu_pct=2 scene_gpu_peak_pct=4
+  write_quiet_clock "$3"
+  if [[ ${dirty_after:-any} == any || $2 == "${dirty_after:-any}" ]]; then
+    printf 'some avg10=7.40 total=0\\n' >"$world_pressure_file"
+  fi
 }
 '''
         text = RUNNER.read_text()
         needle = '  [[ $result == within ]] || {'
         self.assertEqual(text.count(needle), 1)
         mutant = text.replace(needle, '  true || {')
+        # Restoring the old avg10 reading makes only the ended-costly
+        # regression refuse: the next fresh window itself is quiet.
+        window = 'pressure="$(cpu_some_pct "$start_us" "$end_us" "$elapsed_ms")"'
+        self.assertEqual(text.count(window), 1)
+        historical = text.replace(window, r"""pressure=unmeasured
+  while read -r kind rest; do
+    if [[ $kind == some && $rest =~ avg10=([0-9]+\.[0-9])[0-9]($|[[:space:]]) ]]; then pressure="${BASH_REMATCH[1]}"; break; fi
+  done <"$world_pressure_file"
+""")
         with tempfile.TemporaryDirectory() as scratch:
             for name, seed, count in (("loaded", "some avg10=7.40 total=0", 0),
                                       ("unread", "full avg10=0.00 total=0", 0),
-                                      ("later", "some avg10=7.30 total=0", 1)):
-                for index, source in enumerate((text, mutant)):
+                                      ("later", "some avg10=7.30 total=0", 1),
+                                      ("ended-costly", "some avg10=7.30 total=0", 3)):
+                for index, source in enumerate((text, mutant, historical)):
                     with self.subTest(case=name, mutant=index):
                         root = Path(scratch) / f"{name}-{index}"
                         setup = harness + f"printf '%s\\n' '{seed}' >\"$world_pressure_file\"\n"
+                        if name == "ended-costly":
+                            setup += 'dirty_after=costly\ncpu_some_pct() { echo 7.3; }\n'
                         result = self.runner_copy(root, setup, source, scene=scene, readings="pass\n")
-                        self.assertEqual(result.returncode, 77 if index == 0 else 0, result.stdout + result.stderr)
+                        self.assertEqual(set(re.findall(r"window_ms=([0-9]+)", result.stdout)), {"1000"})
+                        admitted = index == 1 or (name == "ended-costly" and index == 0)
+                        self.assertEqual(result.returncode, 0 if admitted else 77, result.stdout + result.stderr)
                         measured = root / "home/scenes"
+                        expected_count = 6 * len(SCENES) if admitted else count
                         self.assertEqual(len(measured.read_text().splitlines()) if measured.exists() else 0,
-                                         count if index == 0 else 6 * len(SCENES))
-                        if index == 0:
+                                         expected_count)
+                        if not admitted:
                             self.assertIn("status=not-measured reason=cpu-pressure", result.stdout)
-                            self.assertIn("scene=run-1/voiceorb/scale-1-on" if count else "scene=setup", result.stdout)
-                            self.assertEqual((root / "home/compiler-calls").exists(), count > 0)
+                            next_scene = "run-1/plasma/scale-1-off" if name == "ended-costly" else "run-1/voiceorb/scale-1-on" if count else "setup"
+                            self.assertIn("scene=" + next_scene, result.stdout)
+                            self.assertEqual((root / "home/compiler-calls").exists(), expected_count > 0)
 
     def test_pass_loop(self):
         # The harness, the scene owner and the reader are stand-ins that
@@ -692,8 +934,16 @@ hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
 release_mode() { mode_hold=(); }
 """
         scene = """
-measure_held_scene() { printf 'held %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"; }
-measure_scene() { printf 'bare %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"; }
+measure_held_scene() {
+  printf 'held %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"
+  scene_cpu_some_pct=7.3 scene_gpu_foreign_pct=1 scene_gpu_pct=2 scene_gpu_peak_pct=4
+  write_quiet_clock "$3"
+}
+measure_scene() {
+  printf 'bare %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"
+  scene_cpu_some_pct=7.3 scene_gpu_foreign_pct=1 scene_gpu_pct=2 scene_gpu_peak_pct=4
+  write_quiet_clock "$3"
+}
 """
         readings = """import json, pathlib, sys
 with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
@@ -720,7 +970,7 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
                 shaders = chosen or SCENES
                 want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode} style=%s reduced=%s" % orb_words(shader)
                         for run in range(1, passes + 1) for scale in (1, 2) for shader in shaders
-                        for mode in ("off", "on", "costly")]
+                        for mode in ("off", "null", "on", "costly")]
                 for index, source in enumerate(sources):
                     with self.subTest(shaders=chosen, mutant=index):
                         root = Path(scratch) / f"{len(chosen)}-{index}"
@@ -741,6 +991,213 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
                         self.assertEqual(held, index == 0 or (chosen != () and index in (4, 7)),
                                          f"scenes={scenes} readings={calls}")
 
+    def test_scene_windows_and_retakes(self):
+        # The real reader consumes the stand-in scenes. Only the first
+        # voiceorb gate is loaded; both plasma on windows have high foreign
+        # load. A missing foreign window is also loaded, but every scene's
+        # high device-wide mean and peak are evidence only. GlassLens
+        # retakes a changing off clock and then an on clock that differs
+        # from the final off record.
+        harness = r'''
+home="$HOME"; sandbox="$HOME/sandbox"; mkdir -p "$sandbox"
+failures=0; mode_hold=(); latency_pressure_limit=2.8
+first_name() { echo WAYLAND-1; }
+unscaled_mode_of() { echo 1920x1080; }
+hidpi_mode_of() { echo 3840x2160; }
+hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
+release_mode() { mode_hold=(); }
+window= gate_pressure=0.5
+latency_pressure_verdict() {
+  case "$2" in 0.5|2.8) echo within ;; unmeasured) echo unread ;; *) echo unmeasured ;; esac
+}
+cpu_some_pct() { echo "$gate_pressure"; }
+smoke_hold_begin() {
+  window="$2"
+  printf 'begin %s %s\n' "$1" "$window" >>"$home/events"
+}
+sleep() {
+  printf 'gate %s\n' "${window:-setup}" >>"$home/events"
+  if [[ $window == run-1/voiceorb/scale-1-off && ! -f $home/gate-once ]]; then
+    gate_pressure=unmeasured
+    : >"$home/gate-once"
+  fi
+}
+smoke_hold_end() {
+  printf 'end %s\n' "$window" >>"$home/events"
+  window= gate_pressure=0.5
+}
+'''
+        scene = r'''
+measure_held_scene() {
+  local label="${3#"$logs"/}"
+  printf 'scene %s\n' "$label" >>"$home/events"
+  scene_cpu_some_pct=0.5 scene_gpu_foreign_pct=2 scene_gpu_pct=8 scene_gpu_peak_pct=9
+  case "${check_case:-calibration}:$label" in
+    quiet:*|clock:*|weak:*) ;;
+    missing:run-1/plasma/scale-1-off) scene_gpu_foreign_pct=unmeasured ;;
+    missing:*) ;;
+    *:run-1/plasma/scale-1-on) scene_gpu_foreign_pct=6 ;;
+  esac
+  if [[ $label == run-1/radial-backdrop/scale-1-off && ! -f $home/missing-once ]]; then
+    scene_gpu_foreign_pct=unmeasured
+    : >"$home/missing-once"
+  fi
+  cp "$source_repo/../fixture/scale-$1-$2.log" "$3.log"
+  if [[ $label == run-1/plasma/scale-1-on && -n ${check_case:-} && $check_case != within ]]; then
+    cp "$source_repo/../fixture/over.log" "$3.log"
+  elif [[ $label == run-1/plasma/scale-1-costly && ${check_case:-} == weak ]]; then
+    cp "$source_repo/../fixture/weak.log" "$3.log"
+  fi
+  cp "$source_repo/../fixture/scale-$1-$2.json" "$3.json"
+  printf '%s\n' "$scene_cpu_some_pct" >"$3.cpu"
+  printf '%s\n' "$scene_gpu_foreign_pct" >"$3.gpu-foreign"
+  if [[ $scene_gpu_foreign_pct == 6 ]]; then
+    printf '%s\n' '["peer@worker.scope"]' >"$3.gpu-foreign-peers"
+  else
+    printf '%s\n' '[]' >"$3.gpu-foreign-peers"
+  fi
+  printf '%s\n' "$scene_gpu_pct" >"$3.gpu"
+  printf '%s\n' "$scene_gpu_peak_pct" >"$3.gpu-peak"
+  write_quiet_clock "$3"
+  case "${check_case:-calibration}:$label" in
+    calibration:run-1/glass-lens/scale-1-off)
+      if [[ ! -f $home/clock-off-once ]]; then
+        printf '%s\n' 'clock_sm=787/2200/2632 clock_mem=810/13801 pstates=P1,P5 clock_samples=4' >"$3.gpu-clock"
+        : >"$home/clock-off-once"
+      fi ;;
+    calibration:run-1/glass-lens/scale-1-on)
+      if [[ ! -f $home/clock-on-once ]]; then
+        printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P1 clock_samples=4' >"$3.gpu-clock"
+        : >"$home/clock-on-once"
+      fi ;;
+    clock:run-1/plasma/scale-1-on|weak:run-1/plasma/scale-1-on|weak:run-1/plasma/scale-1-costly)
+      printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P1 clock_samples=4' >"$3.gpu-clock" ;;
+  esac
+}
+'''
+        text = RUNNER.read_text()
+        begin = '  smoke_hold_begin shader-cost "$label"'
+        gate = '  elif shader_pressure_gate "$label"; then'
+        retake = '    [[ $action == retake ]] || return 0'
+        foreign_gate = '((scene_gpu_foreign_pct <= shader_gpu_busy_limit))'
+        clock_gate = ' && $clock_state == steady'
+        for needle in (begin, gate, retake, foreign_gate, clock_gate):
+            self.assertEqual(text.count(needle), 1)
+        late_hold = text.replace(begin, '  :').replace(gate, gate + '\n  ' + begin)
+        no_retake = text.replace(retake, '    [[ $action == none ]] || return 0')
+        device_gate = text.replace(foreign_gate, '((scene_gpu_pct <= shader_gpu_busy_limit))')
+        voice = "run-1/voiceorb/scale-1-off"
+        plasma = "run-1/plasma/scale-1-on"
+        plasma_off = "run-1/plasma/scale-1-off"
+        plasma_costly = "run-1/plasma/scale-1-costly"
+        radial = "run-1/radial-backdrop/scale-1-off"
+        glass_off = "run-1/glass-lens/scale-1-off"
+        glass_on = "run-1/glass-lens/scale-1-on"
+        calibration_retakes = (voice, plasma, radial, glass_off, glass_on)
+        with tempfile.TemporaryDirectory() as scratch:
+            fixture_root = Path(scratch) / "fixture"
+            fixture_root.mkdir()
+            fixture(fixture_root)
+            (fixture_root / "over.log").write_text(log(0.35))
+            (fixture_root / "weak.log").write_text(log(0.25))
+
+            def measure(name, source, check_case=None, status=77, retakes=calibration_retakes):
+                root = Path(scratch) / name
+                output = root / "ceilings.json"
+                calibrate = check_case is None
+                args = ["--calibrate", str(output)] if calibrate else ["--shader", "plasma"]
+                setup = harness
+                if not calibrate:
+                    check = json.dumps({"shaders": {"plasma": BASELINE}})
+                    setup += f"printf '%s\\n' '{check}' >\"$source_repo/scripts/shader/ceilings.json\"\n"
+                    setup += f"check_case={check_case}\n"
+                result = self.runner_copy(root, setup, source, args, scene, READER.read_text())
+                modes = ("off", "null", "on", "costly") if calibrate else ("off", "on", "costly")
+                want = ["gate setup"]
+                for scale in (1, 2):
+                    for shader in SCENES if calibrate else ("plasma",):
+                        for mode in modes:
+                            label = f"run-1/{shader}/scale-{scale}-{mode}"
+                            want.extend([f"begin shader-cost {label}", f"gate {label}", f"scene {label}", f"end {label}"]
+                                        * (2 if label in retakes else 1))
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                self.assertEqual((root / "home/events").read_text().splitlines(), want)
+                logs = Path(re.search(r"^shader-cost: logs=(.+)$", result.stdout, re.M)[1])
+                if not calibrate:
+                    self.assertEqual({str(path.relative_to(logs)).removesuffix(".loaded.load")
+                                      for path in logs.rglob("*.loaded.load")}, set(retakes))
+                    for label in retakes:
+                        self.assertTrue((logs / (label + ".load")).read_text().startswith("loaded "))
+                    diagnostic = next((line for line in result.stdout.splitlines()
+                                       if line.startswith(("shader-cost: failed shader=", "shader-cost: status=not-measured shader="))), "")
+                    expected = {
+                        "within": "",
+                        "loaded": "reason=gpu-load scale=1",
+                        "weak": "costly-control=accepted scale=1",
+                        "quiet": "ceiling=exceeded scale=1 readings=gpu_cost_ms",
+                        "missing": "off_gpu_foreign_pct=unmeasured",
+                        "clock": "on_clock=differs on_clock_record=[clock_sm=1790/1800/1810 ",
+                    }[check_case]
+                    if expected:
+                        self.assertIn(expected, diagnostic)
+                    else:
+                        self.assertEqual(diagnostic, "")
+                    if check_case == "loaded":
+                        self.assertIn('on_gpu_foreign_pct=6 on_gpu_foreign_peers=["peer@worker.scope"]', diagnostic)
+                    if check_case == "clock":
+                        self.assertIn(f"off_clock=steady off_clock_record=[{STEADY_CLOCK}]", diagnostic)
+                    if check_case == "weak":
+                        self.assertTrue((logs / (plasma_costly + ".load")).read_text().endswith("clock=differs\n"))
+                    return
+
+                loaded = [dict(word.split("=", 1) for word in line.split()[2:])
+                          for line in result.stdout.splitlines() if line.startswith("shader-cost: loaded ")]
+                self.assertEqual(loaded, [
+                    dict(scene=label, attempt=attempt, cpu_some_pct="0.5", gpu_foreign_pct=foreign, gpu_pct="8", gpu_peak_pct="9",
+                         gate_cpu_some_pct=pressure, cpu_limit="2.8", gpu_limit="5", clock=clock,
+                         accepted="false", action=action)
+                    for label, attempt, foreign, pressure, clock, action in (
+                        (voice, "1", "2", "unmeasured", "steady", "retake"),
+                        (plasma, "1", "6", "0.5", "steady", "retake"),
+                        (plasma, "2", "6", "0.5", "steady", "none"),
+                        (radial, "1", "unmeasured", "0.5", "steady", "retake"),
+                        (glass_off, "1", "2", "0.5", "changed", "retake"),
+                        (glass_on, "1", "2", "0.5", "differs", "retake"),
+                    )
+                ])
+                for label in calibration_retakes:
+                    stem = logs / label
+                    self.assertEqual({path.name.removeprefix(stem.name + ".loaded.")
+                                      for path in stem.parent.glob(stem.name + ".loaded.*")},
+                                     {"cpu", "gpu", "gpu-clock", "gpu-foreign", "gpu-foreign-peers", "gpu-peak",
+                                      "json", "load", "log"})
+                self.assertEqual((logs / (plasma + ".load")).read_text(),
+                                 "loaded cpu=0.5 gpu_foreign=6 gpu=8 gpu_peak=9 clock=steady\n")
+                self.assertIn("scale=1 scene=on cpu_some_pct=0.5 gpu_foreign_pct=6 gpu_pct=8 gpu_peak_pct=9", result.stdout)
+                records = json.loads(output.read_text())["shaders"]
+                self.assertEqual(set(records), set(SCENES) - {"plasma"})
+                for shader, mode, retaken in (("voiceorb", "off", True), ("radial-backdrop", "off", True),
+                                              ("glass-lens", "off", True), ("glass-lens", "on", True),
+                                              ("glass-lens", "null", False)):
+                    self.assertEqual(records[shader]["calibration_runs"][0]["scene_loads"]["1"][mode],
+                                     {"cpu_some_pct": 0.5, "gpu_foreign_pct": 2, "gpu_pct": 8,
+                                      "gpu_peak_pct": 9, "clock": "steady", "retaken": retaken})
+
+            measure("calibration", text)
+            for case, status, retakes in (("within", 0, (plasma,)), ("loaded", 77, (plasma,)),
+                                          ("clock", 77, (plasma,)), ("weak", 1, (plasma, plasma_costly)), ("quiet", 1, ()),
+                                          ("missing", 77, (plasma_off,))):
+                with self.subTest(check=case):
+                    measure(case, text, case, status, retakes)
+            for name, mutant in (("late-hold", late_hold), ("no-retake", no_retake), ("device-gate", device_gate)):
+                self.assertNotEqual(mutant, text)
+                with self.subTest(mutant=name), self.assertRaises(AssertionError):
+                    measure(name, mutant)
+            without_clock_gate = text.replace(clock_gate, "")
+            self.assertNotEqual(without_clock_gate, text)
+            with self.assertRaises(AssertionError):
+                measure("without-clock-gate", without_clock_gate, "clock", 77, (plasma,))
+
     def test_verdict_over_shaders(self):
         # Every shader is judged, and a failure outranks a shader that
         # could not be measured, whichever comes first.
@@ -755,7 +1212,8 @@ hidpi_mode_of() { echo 3510x1866; }
 hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
 release_mode() { mode_hold=(); }
 """
-        scene = "measure_held_scene() { :; }\n"
+        scene = ("measure_held_scene() { scene_cpu_some_pct=7.3 scene_gpu_foreign_pct=1 "
+                 'scene_gpu_pct=2 scene_gpu_peak_pct=4; write_quiet_clock "$3"; }\n')
         readings = """import os, pathlib, sys
 shader = sys.argv[sys.argv.index("--shader") + 1]
 with open(pathlib.Path(__file__).with_name("judged"), "a") as judged:

@@ -1595,6 +1595,7 @@ fi
 printf 'run' >>"$TMP_ROOT/fence.log"
 for word in "\$@"; do printf ' [%s]' "\$word" >>"$TMP_ROOT/fence.log"; done
 echo >>"$TMP_ROOT/fence.log"
+printf '%s\n' "\$\$" >"$TMP_ROOT/fence-pid"
 SH
 printf '#!/bin/sh\necho runner-started >>"%s"\n' "$TMP_ROOT/fence.log" >"$TMP_ROOT/runner"
 chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
@@ -1606,7 +1607,7 @@ entry_words() {
   case "$1" in
     qml-smoke.sh) words=(--tree "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 --keep gallery) ;;
-    measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
+    measure-shader.sh) words=(--shader voiceorb --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
     jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model" --out "$TMP_ROOT/selftest-record.json") ;;
     test-smoke-sink.sh) words=() ;;
@@ -1626,7 +1627,10 @@ printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$TMP_ROOT/entry-bin/copilot" >"$TMP_
 printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/entry-bin/copilot"
 # sandbox-shots only resolves grim before the planted fence takes entry.
 printf '#!/bin/sh\nexit 99\n' >"$TMP_ROOT/entry-bin/grim"
-chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot" "$TMP_ROOT/entry-bin/grim"
+# Shader entry must hand the fence a trace path even when pmon is unavailable.
+# Never let this boundary control reach a real GPU command.
+printf '#!/bin/sh\nexit 127\n' >"$TMP_ROOT/entry-bin/nvidia-smi"
+chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot" "$TMP_ROOT/entry-bin/grim" "$TMP_ROOT/entry-bin/nvidia-smi"
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
 voxtype_models="$TMP_ROOT/voxtype-models"
 voxtype_builds="$TMP_ROOT/voxtype-builds"
@@ -1673,6 +1677,13 @@ PY
   cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$repo/scripts/smoke/row-inputs.sh" "$tree/scripts/smoke/"
   git -C "$tree" init -q
   git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
+  if [[ $name == measure-shader.sh && $3 == 0 && ${4:-} != missing-hold ]]; then
+    touch -- "$tree/.git/vgs-smoke-hold" "$tree/.git/vgs-smoke-gate"
+  fi
+  if [[ $name == measure-shader.sh ]]; then
+    mkdir -p -- "$tree/scripts/shader"
+    cp -- "$repo/scripts/shader/gpu-processes.py" "$tree/scripts/shader/"
+  fi
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
   cp -- "$repo/scripts/check-voiceorb-shader.py" "$tree/scripts/check-voiceorb-shader.py"
   cp -- "$repo/shell/plugins/vgs.jarvis/manifest.json" "$tree/shell/plugins/vgs.jarvis/manifest.json"
@@ -1684,6 +1695,9 @@ PY
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
   invocation=("$BASH" "$tree/scripts/$name")
+  if [[ $name == measure-shader.sh ]]; then
+    invocation=("$BASH" -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' _ "$TMP_ROOT/entry-pid" "${invocation[@]}")
+  fi
   if [[ $name == qml-smoke.sh && ${4:-} != driver ]]; then
     # The generic entry checks exercise its measurement/attempt boundary.
     # The ordinary resume driver has its fresh-world contract below.
@@ -1696,14 +1710,19 @@ PY
 }
 # enters FILE NAME: where the check fails, the fence gets the script's own
 # path and every argument, the script's status is the fence's, and nothing
-# was made under the tree or the scratch directory before.
+# was made under the scratch directory before. Shader entry prepares the
+# shared quiet-host files and starts its host trace before the fence.
 enters() {
-  local want word tree="$TMP_ROOT/tree-$2" declarations=()
+  local want word trace tree="$TMP_ROOT/tree-$2" declarations=()
   entry "$1" "$2" 1 || return 1
   case "$2" in
     qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --input "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --keep --out "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) declarations=(--out "$tree/tmp/o ut" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep) ;;
-    measure-shader.sh) declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep --out "$TMP_ROOT/cwd") ;;
+    measure-shader.sh)
+      trace="$(sed -n 's/^shader-cost: gpu-processes=//p' "$TMP_ROOT/out")"
+      [[ $trace == "$tree/tmp/shader-cost/"gpu-processes-*.jsonl && -f $trace ]] || return 1
+      declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep
+        -- env "VGS_SHADER_GPU_PROCESSES=$trace") ;;
     jarvis-selftest.sh) declarations=(--net --out "$tree/tmp/display-record" --out "$tree/tmp/selftest-records" --out "$tree/tmp/qml-smoke" --out "$TMP_ROOT" --sign-in COPILOT_HOME "$TMP_ROOT/entry-account" --secrets) ;;
     qml-unit.sh|test-smoke-sink.sh) ;;
   esac
@@ -1711,6 +1730,10 @@ enters() {
   for word in "${declarations[@]}" "$tree/scripts/$2"; do want+=" [$word]"; done
   if [[ $2 == sandbox-shots.sh ]]; then want+=" [--out] [$TMP_ROOT/tree-$2/tmp/o ut]"; fi
   for word in "${words[@]}"; do want+=" [$word]"; done
+  if [[ $2 == measure-shader.sh ]]; then
+    [[ -f $tree/.git/vgs-smoke-hold && -f $tree/.git/vgs-smoke-gate ]] || return 1
+    [[ -f $TMP_ROOT/fence-pid && "$(<"$TMP_ROOT/fence-pid")" != "$(<"$TMP_ROOT/entry-pid")" ]] || return 1
+  fi
   [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == "$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" ]]
 
 }
@@ -1718,17 +1741,33 @@ enters() {
 # never run.
 goes_on() {
   entry "$1" "$2" 0 || return 1
+  if [[ $2 == measure-shader.sh ]]; then
+    [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == harness-reached ]] || return 1
+  fi
   [[ "$(<"$TMP_ROOT/fence.log")" == check ]]
 }
 for name in "${entry_points[@]}"; do
   if enters "$repo/scripts/$name" "$name"; then ok "$name hands itself and its arguments to the fence before it makes anything"; else fail "$name hands itself and its arguments to the fence before it makes anything"; show; sed 's/^/        /' -- "$TMP_ROOT/fence.log"; fi
   if goes_on "$repo/scripts/$name" "$name"; then ok "$name goes on by itself where the check passes"; else fail "$name goes on by itself where the check passes"; sed 's/^/        /' -- "$TMP_ROOT/fence.log"; fi
   mutant="$TMP_ROOT/mutant-$name"
-  if ! mutate "$repo/scripts/$name" '--check || exec ' '--check || : ' "$mutant"; then fail "control: $name without its fence line"; continue; fi
+  entry_test='--check || exec ' skip_entry='--check || : ' force_entry='--check; exec '
+  if [[ $name == measure-shader.sh ]]; then
+    entry_test='if [[ $in_world == false ]]; then'
+    skip_entry='if false; then'
+    force_entry='if true; then'
+  fi
+  if ! mutate "$repo/scripts/$name" "$entry_test" "$skip_entry" "$mutant"; then fail "control: $name without its fence line"; continue; fi
   if enters "$mutant" "$name"; then fail "control: $name that never enters the fence stayed green"; else ok "control: $name that never enters the fence"; fi
-  if ! mutate "$repo/scripts/$name" '--check || exec ' '--check; exec ' "$mutant"; then fail "control: $name that always enters"; continue; fi
+  if ! mutate "$repo/scripts/$name" "$entry_test" "$force_entry" "$mutant"; then fail "control: $name that always enters"; continue; fi
   if goes_on "$mutant" "$name"; then fail "control: $name that always enters the fence stayed green"; else ok "control: $name that always enters the fence"; fi
 done
+entry "$repo/scripts/measure-shader.sh" measure-shader.sh 0 missing-hold
+if [[ $status -eq 77 && "$(<"$TMP_ROOT/fence.log")" == check && "$(<"$TMP_ROOT/err")" == *'missing=smoke-hold cause=lock-file-absent'* \
+  && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-hold && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-gate ]]; then
+  ok 'shader entry refuses absent hold files inside the world'
+else
+  fail 'shader entry refuses absent hold files inside the world'; show
+fi
 
 # A public smoke entry owns bookkeeping outside the attempt namespace and
 # always requests a fresh world. The stand-in deliberately starts no worker;

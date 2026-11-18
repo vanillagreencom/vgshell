@@ -149,6 +149,10 @@ make_world() {
     printf 'printf "%%s\n" "instance=${HYPRLAND_INSTANCE_SIGNATURE:-} xdisplay=${DISPLAY:-} wayland-socket=${WAYLAND_SOCKET:-}" >%q\n' "$dir/client-env" >>"$dir/$tool" || return 1
     chmod 755 "$dir/$tool" || return 1
   done
+  # The shader sampler is not a display client. Keep it off real devices
+  # while the controls exercise the scene's display guard.
+  printf '#!/bin/sh\nexit 127\n' >"$dir/bin/nvidia-smi" || return 1
+  chmod 755 "$dir/bin/nvidia-smi" || return 1
   mkdir -p -- "$dir/sandbox/bin" "$dir/sandbox/plugin/tui" "$dir/sandbox/repo/bin" "$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui" || return 1
   cp -- "$dir/sandbox/toplevel" "$dir/sandbox/bin/vgshell" || return 1
   cp -- "$dir/sandbox/toplevel" "$dir/sandbox/repo/bin/vgshell" || return 1

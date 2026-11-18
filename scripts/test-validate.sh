@@ -717,6 +717,7 @@ cases=(
   "orb-pack|shell/Ui/feedback/shaders/voiceorb.frag.qsb|all|$orb_shader_plan"
   "orb-compiler|scripts/check-voiceorb-shader.py|offline|$orb_check_plan"
   "shader-instrument|scripts/measure-shader.sh|all|python3 scripts/test-measure-shader.py"$'\nscripts/test-gpu-fence.sh\n'"$repo_plan"$'\nscripts/measure-shader.sh'
+  "shader-gpu-processes|scripts/shader/gpu-processes.py|all|python3 scripts/test-measure-shader.py"$'\nscripts/test-gpu-fence.sh\n'"$repo_plan"$'\nscripts/measure-shader.sh'
   "shader-reader|scripts/shader/readings.py|all|$shader_measure_plan"
   "shader-ceilings|scripts/shader/ceilings.json|all|$shader_measure_plan"
   "shader-scene|scripts/shader/Scene.qml|all|$shader_measure_plan"
