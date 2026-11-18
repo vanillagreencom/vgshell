@@ -21,7 +21,8 @@ import "../foundation/HintGround.js" as HintGround
 // The text may hold page references, `[words](page:<plugin id>/<tab>)`,
 // drawn as links in running text (LinkText) in callout.link.foreground,
 // solved from the accent to the same floor;
-// activating one emits `pageActivated` with its page
+// A trailing line containing only a reference joins the bottom action row,
+// before the other actions. Activating either form emits `pageActivated` with its page
 // and tab. `plain` draws the title and the text as the characters they
 // are, with no markup and no page or file reference, for words another
 // program supplies: Text's default AutoText draws text that looks like
@@ -60,9 +61,10 @@ Rectangle {
     property bool dismissible: false
     property bool showDontShowAgain: false
     property var links: []
+    readonly property var message: splitMessage()
     readonly property var tokens: toneOf(tone)
     readonly property var ground: Theme.hintContext(null, () => HintGround.groundUnder(root, Window.window, true))
-    readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : dismissal.visible ? dismissal : close.visible ? close : null
+    readonly property Item firstStop: body.visible && body.linked ? body : pageRepeater.count > 0 ? pageRepeater.itemAt(0) : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : dismissal.visible ? dismissal : close.visible ? close : null
     // The first shown line, which the icon leads.
     readonly property Item leadLine: titleLabel.visible ? titleLabel : plain ? plainBody : body
 
@@ -71,6 +73,28 @@ Rectangle {
     signal pageActivated(string page, string tab)
     signal dismissed()
     signal dontShowAgain()
+
+    // PageReference owns syntax and targets. Only whole trailing link lines
+    // move; running-text references keep LinkText's inline treatment.
+    function splitMessage() {
+        if (plain) return { body: text, actions: [] };
+        const parsed = PageReference.references(text);
+        const actions = [];
+        let plainEnd = parsed.text.length;
+        let sourceEnd = text.length;
+        for (let index = parsed.links.length - 1; index >= 0; index--) {
+            const reference = parsed.links[index];
+            const line = parsed.text.lastIndexOf("\n", reference.start - 1);
+            if (reference.page === "" || line < 0 || parsed.text.slice(line + 1, reference.start).trim() !== ""
+                    || parsed.text.slice(reference.end, plainEnd).trim() !== "") break;
+            actions.unshift(reference);
+            // Walk the known parsed literals backwards, so repeated labels
+            // and targets retain their original source boundary.
+            sourceEnd = text.lastIndexOf(reference.reference, sourceEnd - reference.reference.length);
+            plainEnd = line;
+        }
+        return { body: actions.length > 0 ? text.slice(0, sourceEnd).trimEnd() : text, actions };
+    }
 
     function toneOf(name) {
         const found = Theme.callout.tone[name];
@@ -129,7 +153,7 @@ Rectangle {
                 role: "body"
                 color: Theme.callout.text
                 linkColor: Theme.callout.link.foreground
-                text: root.plain ? "" : root.text
+                text: root.plain ? "" : root.message.body
                 wrapAtSpaces: true
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.pageActivated(page, tab)
@@ -150,12 +174,25 @@ Rectangle {
                 // Read inputs, not effective child visibility: a hidden
                 // parent's children are hidden too:
                 // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
-                visible: root.linkText !== "" || root.links.length > 0 || root.showDontShowAgain
+                visible: root.message.actions.length > 0 || root.linkText !== "" || root.links.length > 0 || root.showDontShowAgain
                 readonly property bool stacked: dismissal.visible && linkRow.lineWidth > width - dismissal.width - Theme.rowAction.gap
                 implicitHeight: Math.max(linkRow.height, dismissal.visible ? dismissal.y + dismissal.height : 0)
                 RowActions {
                     id: linkRow
                     width: footer.stacked || !dismissal.visible ? parent.width : Math.max(0, parent.width - dismissal.width - Theme.rowAction.gap)
+                    // Repeater inserts its items in model order before the
+                    // following child (doc.qt.io/qt-6/qml-qtquick-repeater.html).
+                    Repeater {
+                        id: pageRepeater
+                        model: root.message.actions
+                        RowAction {
+                            required property var modelData
+                            text: modelData.words
+                            tokens: Theme.callout.link
+                            Accessible.description: root.title
+                            onClicked: root.pageActivated(modelData.page, modelData.tab)
+                        }
+                    }
                     RowAction {
                         id: link
                         visible: root.linkText !== ""
