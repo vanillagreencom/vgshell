@@ -1,9 +1,10 @@
 import QtQuick
 import qs.Commons
 
-// FormRow allocates settings inputs; standalone controls keep their caller's
-// width within their bounds. Qt layouts honour attached bounds; Items do not.
-// Bind row allocations directly. Outside rows, a property action bounds the
+// FormRow allocates settings inputs, up to the shared input maximum. Outside
+// a row a control keeps its caller's width, such as a panel-wide tile group,
+// never under its minimum. Qt layouts honour attached bounds; Items do not.
+// Bind row allocations directly. Otherwise a property action bounds the
 // caller's width without removing its binding. Defer that correction until
 // anchors finish their geometry update.
 // Qt.callLater returns to the event loop before calling the function:
@@ -35,7 +36,7 @@ QtObject {
 
     function constrain() {
         if (!ready || target === null || allocation !== null) return;
-        const boundedWidth = Math.max(rowSlot !== null ? 0 : target.minimumWidth, Math.min(target.maximumWidth, target.width));
+        const boundedWidth = rowSlot === null ? Math.max(target.minimumWidth, target.width) : Math.min(target.maximumWidth, target.width);
         if (target.width !== boundedWidth) {
             correction.value = boundedWidth;
             correction.restart();

@@ -210,6 +210,8 @@ SETTINGS_ROWS = [
     ("a local wrapper carries row containment transitively", {PANE: "Item { Field { Holder {} } }\n", "shell/plugins/acme.pane/Holder.qml": "Item { Picker {} }\n", "shell/plugins/acme.pane/Picker.qml": "Select { width: parent.width }\n"}, {"settings-input-width"}),
     ("a composite's inner input owns its layout", {PANE: "Item { Field { Select { contentItem: TextField { width: parent.width } } } }\n"}, set()),
     ("standalone search outside rows retains its width", {PANE: "Item { TextField { variant: \"search\"; width: parent.width } Field { Select {} } }\n"}, set()),
+    ("a tile group outside a row keeps its layout width", {PANE: "Item { TileGroup { width: parent.width } }\n"}, set()),
+    ("the same tile group inside a row owns a caller width", {PANE: "Item { FormRow { TileGroup { width: parent.width } } }\n"}, {"settings-input-width"}),
     ("compact switches retain their shape", {PANE: "Item { Field { Switch { width: implicitWidth } } }\n"}, set()),
     ("an unrelated window's row is outside settings discovery", {"shell/plugins/acme.pane/Other.qml": "Item { Field { Select { width: parent.width } } }\n"}, set()),
     ("a width named only in a comment is not a finding", {PANE: "Item { FormRow { Select { /* width: parent.width */ } } }\n"}, set()),

@@ -63,11 +63,11 @@ Item {
             const rows = test_layout_bounds_data().filter(row => !buttons.includes(row.type));
             const inputs = rows.map(row => createTemporaryQmlObject("import QtQuick; import qs.Ui; " + row.type + " { " + fixtureProperties(row.type) + "width: parent.width }", holder));
             verify(inputs.every(input => input !== null));
-            tryVerify(() => inputs.every(input => input.width === Theme.control.maxWidth));
+            tryVerify(() => inputs.every(input => input.width === 2000));
             holder.width = 240;
             tryVerify(() => inputs.every(input => input.width === 240));
             holder.width = 2000;
-            tryVerify(() => inputs.every(input => input.width === Theme.control.maxWidth));
+            tryVerify(() => inputs.every(input => input.width === 2000));
             holder.width = 0;
             tryVerify(() => inputs.every(input => input.width === input.minimumWidth));
         }
@@ -81,8 +81,8 @@ Item {
             const outer = createTemporaryQmlObject("import QtQuick; import qs.Ui; " + data.type + " { width: parent.width }", holder);
             const inner = outer.children.find(child => child.placeholderText !== undefined);
             verify(inner !== undefined);
-            compareWidth(outer, Theme.control.maxWidth);
-            compareWidth(inner, Theme.control.maxWidth);
+            compareWidth(outer, 2000);
+            compareWidth(inner, 2000);
             holder.width = 240;
             compareWidth(outer, 240);
             compareWidth(inner, 240);
@@ -230,7 +230,7 @@ Item {
                 input.parent = outside;
                 compareWidth(input, 240);
                 outside.width = 2000;
-                compareWidth(input, Theme.control.maxWidth);
+                compareWidth(input, 2000);
             }
         }
     }

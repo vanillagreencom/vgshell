@@ -77,7 +77,7 @@ Item {
         function test_search_fills_its_box_without_changing_form_bounds(data) {
             const searchBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
                 + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
-            const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', searchBox);
+            const search = createTemporaryQmlObject('import QtQuick; import QtQuick.Layouts; import qs.Ui; TextField { variant: "search"; width: parent.width; Layout.fillWidth: true; leadingIcon: "search" }', searchBox);
             for (const width of [900, 80]) {
                 searchBox.width = width;
                 // Process InputWidth's Qt.callLater allocation before reading:
@@ -91,7 +91,8 @@ Item {
             compare(search.topPadding, 0);
             compare(search.bottomPadding, 0);
 
-            // Standalone search boxes have no form siblings imposing a minimum.
+            // Outside a settings row a field takes its holder's width, never
+            // under its minimum.
             const formBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
                 + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
             const inputs = [
@@ -104,7 +105,7 @@ Item {
                 // https://doc.qt.io/qt-6/qtquicklayouts-overview.html#specifying-preferred-size
                 const formWidth = data.layout ? Theme.size.panel.sm / 2 : width;
                 for (const field of inputs)
-                    tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, formWidth)));
+                    tryCompare(field, "width", Math.max(Theme.field.minWidth, formWidth));
             }
         }
 

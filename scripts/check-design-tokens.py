@@ -107,8 +107,9 @@ them composes, transitively:
                      horizontal anchors. FormRow owns the allocation;
                      local subclasses and wrappers are followed through
                      the same settings surface closure. A bounded input's
-                     inner controls belong to its layout, and standalone
-                     search outside a row keeps its own width
+                     inner controls belong to its layout, and an input
+                     outside a row, such as a panel's tile group or a
+                     standalone search, keeps the width its layout gives it
 Appearance rules, on a plugin whose manifest declares `appearance` (each
 directory under shell/plugins, or each directory given): a file of it that
 binds `Theme.appearance(`, or reads a `look.<path>` its owner hands it, draws
