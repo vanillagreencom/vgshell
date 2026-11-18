@@ -2307,7 +2307,12 @@ scene_cases=(
 )
 # Each case is label, status, line, then its arguments up to the next case,
 # counted by the arguments each row above carries.
-scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5 3 5 3 3 5 3 5)
+scene_arity=(
+  1 3 3 1 1 3 3     # Settings, Manager and refused scale
+  3 3 3 3 3 3       # Ground, style and hyprglass
+  3 3 3 1 1 3 1 1 3 1 3 5  # Scale, theme and scene selection
+  3 5 3 3 5 3 5     # Plugin enable and disable
+)
 # Where each case starts in scene_cases and how many arguments it takes, by
 # label, for the controls below.
 declare -A scene_at scene_argc
