@@ -69,9 +69,11 @@ Item {
         function plainBody(callout) { return lines(callout).children[2]; }
         function footer(callout) { return lines(callout).children[3]; }
         function linkRow(callout) { return footer(callout).children[0]; }
-        function link(callout) { return linkRow(callout).children[0]; }
+        function rowLinks(callout) { return Array.from(linkRow(callout).children).filter(child => child instanceof RowAction); }
+        function pageActions(callout) { return rowLinks(callout).slice(0, callout.message.actions.length); }
+        function link(callout) { return rowLinks(callout)[callout.message.actions.length]; }
         // Each of `links`, in order, past the Repeater that makes them.
-        function actions(callout) { return Array.from(linkRow(callout).children).filter(child => child instanceof RowAction && child !== link(callout)); }
+        function actions(callout) { return rowLinks(callout).slice(callout.message.actions.length + 1); }
         function dismissal(callout) { return footer(callout).children[1]; }
         function close(callout) { return callout.children[0].children[2]; }
         function colour(value) { return String(Qt.color(value)); }
@@ -256,14 +258,58 @@ Item {
         function test_the_change_link_starts_its_own_line() {
             const message = Reply.line("hyprland: SUPER+SPACE for vgs.launcher:toggle skipped: already bound by acme.other", [], () => ({ kind: "resolved", text: "Super+Space" }));
             const callout = make({ text: message });
-            const words = body(callout);
             for (const width of [800, 240]) {
                 callout.width = width;
-                tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
-                compare(words.links[0].page, "vgs.launcher");
-                compare(words.links[0].tab, "Settings/Keys");
-                compare(words.children[0].font.weight, Theme.text.body.weight);
+                tryVerify(() => pageActions(callout).length === 1 && footer(callout).visible);
+                const action = pageActions(callout)[0];
+                tryVerify(() => action.mapToItem(callout, 0, 0).y >= body(callout).mapToItem(callout, 0, body(callout).height).y + Theme.callout.gap,
+                    1000, "the change action stands below the body, in the action row");
+                compare(body(callout).links.length, 0, "the body no longer draws the action");
+                compare(action.contentItem.children[1].font.weight, Theme.text.body.weight);
+                const pages = [];
+                callout.pageActivated.connect((page, tab) => pages.push([page, tab]));
+                mouseClick(action, action.width / 2, action.height / 2);
+                compare(JSON.stringify(pages), JSON.stringify([["vgs.launcher", "Settings/Keys"]]));
             }
+            callout.destroy();
+        }
+
+        function test_moved_page_actions_share_the_footer_and_keep_their_routes_data() {
+            return [{ tag: "one row", width: 480, wrapped: false }, { tag: "wrapped row", width: 240, wrapped: true }];
+        }
+        function test_moved_page_actions_share_the_footer_and_keep_their_routes(data) {
+            const callout = make({ width: data.width, title: "Speech only", text: "A speech-only route.\n[Set Talk key](page:vgs.jarvis/Settings/Keys)",
+                linkText: "Voice settings", links: ["Show", "Stop"] });
+            tryVerify(() => pageActions(callout).length === 1 && actions(callout).length === 2);
+            const moved = pageActions(callout)[0];
+            const primary = link(callout);
+            if (data.wrapped) callout.width = 2 * Theme.callout.padding + icon(callout).width + Theme.callout.iconGap
+                + moved.width + Theme.rowAction.gap + primary.width + 1;
+            compare(body(callout).plain, "A speech-only route.");
+            compare(moved.parent, primary.parent, "moved and existing actions share the owner's action row");
+            tryVerify(() => moved.y === primary.y, 1000, "both first actions sit on the same row");
+            verify(moved.x + moved.width + Theme.rowAction.gap <= primary.x, "the moved action comes before the existing footer");
+            compare(linkRow(callout).placed.lines > 1, data.wrapped, "the same action row owns wrapping");
+            const pages = [];
+            const chosen = [];
+            let activated = 0;
+            callout.pageActivated.connect((page, tab) => pages.push([page, tab]));
+            callout.activated.connect(() => activated++);
+            callout.actionActivated.connect(index => chosen.push(index));
+            compare(callout.firstStop, moved);
+            moved.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Tab);
+            tryCompare(primary, "visualFocus", true);
+            keyClick(Qt.Key_Return);
+            for (const action of actions(callout)) {
+                keyClick(Qt.Key_Tab);
+                tryCompare(action, "visualFocus", true);
+                keyClick(Qt.Key_Return);
+            }
+            compare(JSON.stringify(pages), JSON.stringify([["vgs.jarvis", "Settings/Keys"]]));
+            compare(activated, 1, "the original footer keeps activated");
+            compare(JSON.stringify(chosen), JSON.stringify([0, 1]), "listed footer actions keep their original indices");
             callout.destroy();
         }
 
@@ -342,7 +388,7 @@ Item {
         // takes no stop for them.
         function test_a_plain_notice_draws_its_words_as_they_are() {
             compare(UnitTheme.override(root.themes[1].tokens), "ok");
-            const words = "Read the [guide](page:vgs.gallery) <b>now</b>.";
+            const words = "Read <b>now</b>.\n[Guide](page:vgs.gallery)";
             const callout = make({ plain: true, iconName: "info", title: "<b>A</b> title", text: words });
             compare(title(callout).textFormat, Text.PlainText, "the title draws its markup as characters");
             compare(body(callout).visible, false, "the linked text is not drawn");

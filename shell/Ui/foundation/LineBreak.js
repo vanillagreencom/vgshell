@@ -12,13 +12,9 @@
 // plain text.
 function atSpaces(text, width, metrics) {
     if (!(width > 0)) return text;
-    // A hard break also resets the measured row. Treating it as part of a
-    // word can push the next line's last word onto a third line.
-    return text.split("\n").map(line => {
-        const words = line.split(" ");
-        const lines = rows(words, width, metrics).map(row => words.slice(row.from, row.to).join(" "));
-        return lines.join("\n");
-    }).join("\n");
+    const words = text.split(" ");
+    const lines = rows(words, width, metrics).map(row => words.slice(row.from, row.to).join(" "));
+    return lines.join("\n");
 }
 
 // WORDS, a list of words, broken into rows no wider than WIDTH, each
