@@ -122,6 +122,46 @@ Scope {
                         if (OverlayState.grabs === 0) held = false;
                     }
 
+                    // The content's glass plates, when it lends them
+                    // (`plateLayer`), in a layer of their own under the
+                    // material namespace, so the compositor's layer glass
+                    // reaches the plates' faint Clear body and nothing else
+                    // the content draws, such as Jarvis's orb
+                    // (HyprlandLayer.MATERIAL_NAMESPACES). It maps only
+                    // while a plate shows (`platesShown`): Quickshell deletes
+                    // a layer's window on every hide and builds a new one on
+                    // every show (WlrLayershell::deleteOnInvisible), so the
+                    // plates' window lives only while they show. The plates
+                    // move here once, keep the content's coordinates, since
+                    // both layers cover the same box, and go back to the
+                    // content before it goes. Its input region is the
+                    // content's `plateInputItems`; `presented` reads as the
+                    // content's own layer's does.
+                    OverlaySurface {
+                        id: plates
+                        readonly property Item item: win.content !== null && win.content.plateLayer !== undefined ? win.content.plateLayer : null
+                        readonly property bool glassMaterial: true
+                        property bool framePresented: false
+                        readonly property bool presented: visible && backingWindowVisible && framePresented
+                        placement: "center"
+                        inset: 0
+                        screen: win.targetScreen
+                        visible: item !== null && win.visible && !win.hiding && win.content.platesShown === true
+                        inputItems: item !== null && win.content.plateInputItems !== undefined ? win.content.plateInputItems : []
+                        WlrLayershell.namespace: "vgs:layer-glass"
+                        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+                        onItemChanged: if (item !== null) item.parent = contentItem
+                        onVisibleChanged: framePresented = false
+                        onBackingWindowVisibleChanged: framePresented = false
+
+                        Connections {
+                            target: plates.item !== null ? plates.item.Window.window : null
+                            function onFrameSwapped() {
+                                if (plates.visible && plates.backingWindowVisible) plates.framePresented = true;
+                            }
+                        }
+                    }
+
                     function build() {
                         entry = Layers.entryOf(modelData);
                         if (entry === null) {
@@ -150,6 +190,9 @@ Scope {
                     function drop() {
                         if (content === null || entry === null) return;
                         const item = content;
+                        // The plates go back to their content, which
+                        // destroys them with it.
+                        if (plates.item !== null) plates.item.parent = item;
                         content = null;
                         if (entry.screens[builtOn] === item) delete entry.screens[builtOn];
                         builtOn = "";

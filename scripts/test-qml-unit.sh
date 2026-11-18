@@ -153,6 +153,8 @@ mutations=(
   "a Jarvis caption that changes an earlier word keeps its words|../plugins/vgs.jarvis/Words.qml|for (let i = 0; i < drawn.length - 1; i++) if (drawn[i] !== next[i]) return false;|void next;|tst_jarvis_words.qml"
   "a Jarvis caption that grows inside its last word starts over|../plugins/vgs.jarvis/Words.qml|next[drawn.length - 1].startsWith(drawn[drawn.length - 1])|next[drawn.length - 1] === drawn[drawn.length - 1]|tst_jarvis_words.qml"
   "Jarvis's approval question loses its semibold role|../plugins/vgs.jarvis/Bubble.qml|role: \"bodyStrong\"|role: \"body\"|tst_jarvis_prompt.qml"
+  "Jarvis acknowledges a held request on the orb's window|../plugins/vgs.jarvis/Bubble.qml|        target: root.plateWindow|        target: root.Window.window|tst_jarvis_prompt.qml|test_a_held_request_waits_for_the_plates_window"
+  "a move of Jarvis's plates keeps the last window's acknowledgement|../plugins/vgs.jarvis/Bubble.qml|        displayedHold = null;"$'\n'"    }|        void 0;"$'\n'"    }|tst_jarvis_prompt.qml|test_a_held_request_waits_for_the_plates_window"
   "Jarvis paints a bottom frame before the console answer|../plugins/vgs.jarvis/Bubble.qml|visible: shown && (hold === null ? true : placed)|visible: shown|tst_jarvis_plates.qml"
   "Jarvis's fault stays centred over Console|../plugins/vgs.jarvis/Bubble.qml|x: root.placementRoom.x + (root.placementRoom.width - width) / 2|x: (root.width - width) / 2|tst_jarvis_bubble.qml|test_fault_placement_tracks_console_without_a_hold"
   "a Jarvis fault title loses its semibold role|../plugins/vgs.jarvis/Bubble.qml|? \"bodyStrong\" : \"label\"|? \"label\" : \"label\"|tst_jarvis_prompt.qml"

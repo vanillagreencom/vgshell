@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
 import Quickshell
 import qs.Commons
@@ -48,6 +49,9 @@ Item {
 
     // The host window of a layer that has presented its first frame.
     QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
+    // A second window, where the host maps the plates' own layer
+    // (LayerHost.qml `plateLayer`).
+    Window { id: plateWindow; width: 480; height: 640; visible: false; color: "transparent" }
     // A Bubble on a layer of its own size, at the window's top left.
     Component {
         id: sizedBubble
@@ -219,6 +223,28 @@ Item {
         // On a layer narrower than the prompt's width the prompt reflows to
         // the overlay's width: the question and the path draw whole inside
         // the layer before the request is acknowledged.
+        // A held request is acknowledged on the frames of the window that
+        // draws the plates, never on the frames of the layer the orb draws
+        // in: with the plates in a window that shows no frame, the orb's
+        // window draws and nothing is acknowledged; once the plates' window
+        // shows, its frames acknowledge the request.
+        function test_a_held_request_waits_for_the_plates_window() {
+            QsWindow.window = presentedHost;
+            const layer = createTemporaryObject(sizedBubble, root, { width: plateWindow.width, height: plateWindow.height, screen: { name: "unit" }, service: service });
+            verify(layer !== null, "the sized overlay builds");
+            layer.plateLayer.parent = plateWindow.contentItem;
+            compare(layer.plateWindow, plateWindow, "the plates draw in their own window");
+            service.sessionState = root.held;
+            for (let frame = 0; frame < 5; frame++) verify(renderedFrame(root), "the orb's window draws");
+            verify(!acknowledgedOn(layer, "a"), "no frame of the orb's window acknowledges the request");
+            compare(layer.displayedHold, null, "nothing is displayed before the plates' window draws");
+            plateWindow.visible = true;
+            tryVerify(() => acknowledgedOn(layer, "a"), 2000, "the plates' window's frames acknowledge the request");
+            layer.plateLayer.parent = layer;
+            compare(layer.displayedHold, null, "a move of the plates to another window starts over");
+            plateWindow.visible = false;
+        }
+
         function test_a_narrow_layer_shows_the_whole_prompt_before_acknowledging() {
             const text = "Delete the quarterly planning notes for the design review?\n/home/fixture/projects/planning/2026/quarterly/design-review-notes.txt";
             const layer = presentedOn(360, root.height, root.session({ approval: { kind: "held", id: "n", gen: 1, digest: "d", purpose: "action",

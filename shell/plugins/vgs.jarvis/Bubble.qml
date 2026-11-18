@@ -67,6 +67,19 @@ Item {
     readonly property bool presented: wanted && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
         && overlay.width <= width && overlay.height + look.layout.margin <= height
+    // The window the plates draw in, the host's plate layer once it lends
+    // one (Quickshell 0.3.1, QsWindow attached), and whether it presented.
+    // A held request is acknowledged on this window's frames alone.
+    readonly property var plateHost: plateRoot.QsWindow.window
+    readonly property bool platesPresented: presented && plateHost !== null && plateHost.presented === true
+    readonly property var plateWindow: plateRoot.Window.window
+    // Frames another window drew prove nothing of this one: a move of the
+    // plates, a destroyed window or another output starts over.
+    onPlateWindowChanged: {
+        approvalFrames = [];
+        synchronizedHold = null;
+        displayedHold = null;
+    }
     // A capture shows only on an orb a pointer can use: one at least as
     // wide as one of its own icon buttons.
     readonly property bool capturePresented: presented && !hidden && orb.visible && orb.width >= icons.width
@@ -126,7 +139,7 @@ Item {
         && approvalText.height >= approvalText.implicitHeight
         && overlay.x + approvalText.x >= 0 && overlay.x + approvalText.x + approvalText.width <= width
         && overlay.y + approvalText.y >= 0 && overlay.y + approvalText.y + approvalText.height <= height
-    readonly property bool approvalPresented: presented && displayedHold !== null && hold !== null
+    readonly property bool approvalPresented: platesPresented && displayedHold !== null && hold !== null
         && displayedHold.id === hold.id && displayedHold.digest === hold.digest && displayedHold.gen === hold.gen
         && approvalWhole
     onHoldChanged: {
@@ -173,19 +186,19 @@ Item {
         const current = hold;
         const isCurrent = frame => frame !== null && current !== null && frame.id === current.id
             && frame.gen === current.gen && frame.digest === current.digest;
-        if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();
+        if (!isCurrent(drawn) && approvalFrames.some(isCurrent) && root.plateWindow !== null) root.plateWindow.update();
         if (drawn === null) return;
         // LayerHost observes this swap too. Its presented value must settle
         // before the service checks this frame's unchanged request identity.
         Qt.callLater(() => {
-            if (!root.presented || root.hold === null || root.hold.id !== drawn.id
+            if (!root.platesPresented || root.hold === null || root.hold.id !== drawn.id
                     || root.hold.gen !== drawn.gen || root.hold.digest !== drawn.digest) return;
             root.displayedHold = drawn;
             if (root.service !== null) root.service.shownApproval(root, drawn);
         });
     }
     Connections {
-        target: root.Window.window
+        target: root.plateWindow
         function onAfterAnimating() { root.approvalPolished(); }
         function onAfterSynchronizing() { root.approvalSynchronized(); }
         function onFrameSwapped() { root.approvalSwapped(); }
@@ -217,7 +230,7 @@ Item {
     readonly property string orbPhase: micMuted ? "muting" : phase
     readonly property bool active: state !== null && state.conversation.kind !== "ended"
         || ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
-    // The pointer rests on the shown name, the orb, the bridge or an icon;
+    // The pointer rests on the shown name, the orb, the bridge or the icon capsule;
     // the icons stay `icon.hold` after it leaves them all. Qt delivers a
     // hover only to the topmost item with a HoverHandler under the
     // pointer: a handler on an item stacked over a sibling takes the
@@ -226,7 +239,8 @@ Item {
     // So the orb's middle is a child of its hit square, each sibling laid
     // over the square, the name and the bridge, counts here itself, and
     // the shown name stands over the bridge, which its ends reach.
-    readonly property bool pointerOver: plateHover.hovered || orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
+    readonly property bool pointerOver: plateHover.hovered || orbHover.hovered || bridgeHover.hovered || pillHover.hovered
+        || mic.hovered || voice.hovered || stop.hovered
     onPointerOverChanged: if (pointerOver) iconHold.stop(); else iconHold.restart()
     readonly property bool iconsWanted: !hidden && active && (pointerOver || iconHold.running)
     property real iconOpacity: iconsWanted ? 1 : 0
@@ -242,15 +256,25 @@ Item {
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
     readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea]
-    readonly property var inputItems: !wanted || !visible ? [] : (active && !hidden ? [orbHit] : [])
-        .concat(active && iconsShown ? [bridge] : [])
+    // The input items in this layer, and those on the plates, which the
+    // host lends the plate layer (LayerHost.qml); while the plates still
+    // draw in this layer, its input holds theirs too.
+    readonly property var inputItems: (!wanted || !visible ? [] : (active && !hidden ? [orbHit] : [])
+        .concat(active && iconsShown ? [bridge] : []))
+        .concat(plateRoot.parent === root ? plateInputItems : [])
+    readonly property var plateInputItems: !wanted || !visible ? [] : (active && iconsShown ? [iconPill] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
         .concat(hold === null || !approvalText.visible ? [] : [cancel, confirm])
         // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
-    // Whether ITEM and every item over it up to the overlay show.
+    // The plates' layer the host maps under the material namespace, and
+    // whether a plate shows, which keeps that layer mapped.
+    readonly property Item plateLayer: plateRoot
+    readonly property bool platesShown: wordsCard.visible || iconPill.visible || textCard.visible
+    // Whether ITEM and every item over it up to the overlay or the plates'
+    // box show.
     function drawn(item) {
-        for (let at = item; at !== null && at !== overlay; at = at.parent)
+        for (let at = item; at !== null && at !== overlay && at !== plateBox; at = at.parent)
             if (!at.visible) return false;
         return true;
     }
@@ -509,41 +533,6 @@ Item {
             active: root.shown && visible
         }
 
-        // The words' card is as wide as the caption's column, so no word
-        // moves its sides, and as tall as the lines shown, the newest at
-        // its bottom: it follows a new line up as that line lifts the
-        // others.
-        GlassSurface {
-            id: wordsCard
-            objectName: "wordsCard"
-            visible: words.visible
-            x: Math.round(overlay.centre - width / 2)
-            y: words.y + words.height - words.shownHeight
-                + (words.lineCount <= words.window ? words.lift : 0) - overlay.card.paddingY
-            width: words.width + 2 * overlay.wordsInset
-            height: words.y + words.height + overlay.card.paddingY - y
-            surface: "jarvis"
-            paced: true
-            standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
-        }
-
-        Words {
-            id: words
-            window: root.look.words.lines
-            stepDuration: root.look.words.step
-            fadeDuration: root.look.words.fade
-            liftDuration: root.look.words.lift
-            newestInk: root.look.ink.words
-            olderInk: root.look.ink.words
-            newestOpacity: root.look.words.newest
-            middleOpacity: root.look.words.middle
-            oldestOpacity: root.look.words.oldest
-            x: overlay.centre - width / 2
-            y: overlay.card.paddingY
-            width: Math.min(root.look.layout.prompt, Math.max(0, overlay.width - 2 * overlay.wordsInset))
-            height: visible ? implicitHeight : 0
-            text: root.words
-        }
 
         // The orb's input square while the overlay is active.
         Item {
@@ -613,8 +602,10 @@ Item {
         }
 
         // The bridge follows the chosen edge from inside the hit square
-        // to the capsule's far edge. Both arrangements keep one connected
-        // pointer route, including when the hit square fits a narrow side.
+        // to the capsule's near edge, where the capsule takes the pointer in
+        // the plate layer, so the two layers' input regions never overlap.
+        // Both arrangements keep one connected pointer route, including when
+        // the hit square fits a narrow side.
         Item {
             id: bridge
             objectName: "iconBridge"
@@ -624,236 +615,14 @@ Item {
                 : overlay.orbMiddle + root.look.layout.bridge * orbHit.width / root.look.layout.hit
             y: overlay.capsuleBelow ? overlay.orbCentre + root.look.layout.bridge * orbHit.height / root.look.layout.hit
                 : iconPill.y
-            width: overlay.capsuleBelow ? iconPill.width : iconPill.x + iconPill.width - x
-            height: overlay.capsuleBelow ? iconPill.y + iconPill.height - y : iconPill.height
+            width: overlay.capsuleBelow ? iconPill.width : Math.max(0, iconPill.x - x)
+            height: overlay.capsuleBelow ? Math.max(0, iconPill.y - y) : iconPill.height
             HoverHandler { id: bridgeHover }
         }
 
         Timer { id: iconHold; interval: root.look.icon.hold }
 
-        // The capsule follows the group's chosen edge and fades with its icons.
-        GlassSurface {
-            id: iconPill
-            objectName: "iconPill"
-            readonly property var pad: root.look.plate.pill
-            readonly property real rest: orb.x + orb.width - overlay.orbInset + root.look.plate.gap
-            x: overlay.capsuleBelow ? Math.round(overlay.centre - width / 2) : rest
-            y: overlay.capsuleBelow ? overlay.orbEnd + root.look.plate.gap : Math.round(overlay.orbCentre - height / 2)
-            width: icons.width + 2 * pad.paddingX
-            height: icons.height + 2 * pad.paddingY
-            visible: icons.visible
-            opacity: root.iconOpacity
-            surface: "jarvis"
-            paced: true
-            standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
-        }
 
-        Column {
-            id: icons
-            x: iconPill.x + iconPill.pad.paddingX
-            y: iconPill.y + iconPill.pad.paddingY
-            opacity: root.iconOpacity
-            visible: root.iconsShown
-            RowButton {
-                id: voice
-                look: root.look
-                service: root.service
-                keys: root.shortcutKeys
-                entry: root.entryFor("voice-mute")
-                iconName: root.voiceMuted ? "volume-x" : "volume-2"
-                checked: root.voiceMuted
-            }
-            RowButton {
-                id: mic
-                look: root.look
-                service: root.service
-                keys: root.shortcutKeys
-                entry: root.entryFor("microphone-mute")
-                iconName: root.micMuted ? "mic-off" : "mic"
-                checked: root.micMuted
-            }
-            RowButton {
-                id: stop
-                look: root.look
-                service: root.service
-                keys: root.shortcutKeys
-                entry: root.entryFor("stop")
-                iconName: "square"
-            }
-        }
-
-        // The card under the orb hugs the state line, the fault's lines
-        // or the held request's column. A link's wrapped width is its
-        // column's.
-        GlassSurface {
-            objectName: "textCard"
-            readonly property Item column: root.hold !== null ? approvalText : stateBox
-            readonly property real lines: root.hold !== null ? approvalText.width
-                : Math.min(stateBox.width, Math.max(stateLine.contentWidth,
-                    silenceLine.visible ? silenceLine.implicitWidth : 0, faultAction.visible ? faultAction.implicitWidth : 0))
-            visible: column.visible
-            x: Math.round(overlay.centre - width / 2)
-            y: column.y - overlay.card.paddingY
-            width: 2 * Math.ceil(lines / 2) + 2 * (root.hold !== null ? overlay.card.paddingX : overlay.stateInset)
-            height: column.height + 2 * overlay.card.paddingY
-            surface: "jarvis"
-            paced: true
-            standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
-        }
-
-        Column {
-            id: stateBox
-            x: overlay.centre - width / 2
-            y: overlay.below
-            width: Math.min(root.look.layout.line, Math.max(0, overlay.width - 2 * overlay.stateInset))
-            visible: root.hold === null && (!root.hidden || root.fault !== null)
-                && (root.stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
-            spacing: root.look.layout.gap
-            Label {
-                id: stateLine
-                visible: text !== ""
-                width: parent.width
-                role: root.fault !== null ? "bodyStrong" : "label"
-                color: root.fault !== null ? root.look.ink.title : root.look.ink.state
-                text: root.stateText
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-            }
-            LinkText {
-                id: silenceLine
-                width: parent.width
-                visible: text !== ""
-                role: "body"
-                color: root.look.ink.action
-                linkColor: root.look.ink.link
-                text: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
-                    ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-                onPageActivated: (page, tab) => {
-                    if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
-                }
-            }
-            // The fault's action, its page reference drawn as a link that
-            // opens the page (design-system.md § Copy).
-            LinkText {
-                id: faultAction
-                width: parent.width
-                visible: root.fault !== null
-                role: "body"
-                color: root.look.ink.action
-                linkColor: root.look.ink.link
-                text: root.fault === null ? "" : root.fault.action
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-                onPageActivated: (page, tab) => {
-                    if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
-                }
-            }
-        }
-
-        Column {
-            id: approvalText
-            x: overlay.centre - width / 2
-            y: overlay.below
-            width: overlay.promptWidth
-            visible: root.hold !== null
-            spacing: root.look.layout.gap
-            readonly property var prompt: View.approvalPrompt(root.hold)
-            // Recombine the actual drawn labels for the existing frame
-            // identity check; a missing path or detail cannot acknowledge.
-            readonly property string text: question.text + (prompt !== null && prompt.filePrompt ? "\n" + (fullPath.visible ? fullPath.text : "")
-                + (prompt.detail ? "\n" + (payload.visible ? payload.text : "") : "") : "")
-            Label {
-                id: question
-                width: parent.width
-                role: "bodyStrong"
-                color: root.look.ink.question
-                text: approvalText.prompt === null ? "" : approvalText.prompt.question
-                textFormat: Text.PlainText
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-            }
-            Label {
-                id: fullPath
-                width: parent.width
-                visible: text !== ""
-                role: "hint"
-                color: root.look.ink.path
-                text: approvalText.prompt === null ? "" : approvalText.prompt.path
-                textFormat: Text.PlainText
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-            }
-            // The payload, whole while it fits the room the layer leaves it
-            // under the orb, beside the column's other lines and the answers,
-            // so a keyboard user, whom this passive layer gives no keys
-            // (D026), reads every line Confirm confirms. A payload past that
-            // room scrolls in the larger of the room and the look's
-            // `layout.payload`, keeping the answers on the screen; it takes
-            // the wheel and a touchpad swipe while the overlay takes the
-            // pointer. On a layer shorter than that floor the column leaves
-            // the layer, and `approvalWhole` holds the request unanswered.
-            ScrollArea {
-                id: payloadArea
-                // The column's other lines and gaps: Column lays out only an
-                // item that is visible and whose width and height are not 0, with
-                // one spacing between each two it lays out
-                // (https://doc.qt.io/qt-6/qml-qtquick-column.html). The
-                // overlay keeps the margin to the layer's edge at its bottom,
-                // or at its top over the console.
-                readonly property var others: [question, fullPath, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
-                readonly property real room: root.height - root.look.layout.margin - overlay.below - overlay.card.paddingY
-                    - others.reduce((sum, item) => sum + item.height + approvalText.spacing, 0)
-                width: parent.width
-                height: Math.min(payload.implicitHeight, Math.max(root.look.layout.payload, Math.floor(room)))
-                // The payload's own text, not its visible, which reads false
-                // while this area hides it
-                // (https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop).
-                visible: payload.text !== ""
-                Label {
-                    id: payload
-                    width: parent.width
-                    // The area keeps its bar's inset on the right; the same
-                    // inset on the left centres the lines on the column.
-                    leftPadding: payloadArea.rightInset
-                    visible: text !== ""
-                    role: "body"
-                    color: root.look.ink.payload
-                    text: approvalText.prompt === null ? "" : approvalText.prompt.payload
-                    textFormat: Text.PlainText
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                }
-            }
-            Row {
-                id: answerButtons
-                width: parent.width
-                topPadding: root.look.answer.gap
-                spacing: root.look.answer.gap
-                // keyboard-path: the effective Confirm and Stop shortcuts.
-                Answer {
-                    id: cancel
-                    look: root.look
-                    variant: "ghost"
-                    quiet: true
-                    width: (answerButtons.width - answerButtons.spacing) / 2
-                    text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
-                    onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
-                }
-                Answer {
-                    id: confirm
-                    look: root.look
-                    variant: "secondary"
-                    // A request that needs a press is the destructive kind,
-                    // whose confirming answer takes no tint.
-                    quiet: root.hold !== null && root.hold.physical
-                    width: (answerButtons.width - answerButtons.spacing) / 2
-                    text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
-                    onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
-                }
-            }
-        }
 
         // TapHandler's default DragThreshold policy takes a passive grab
         // (Qt Quick TapHandler gesturePolicy reference), and the answers and
@@ -911,6 +680,304 @@ Item {
                             onTriggered: root.runEntry(modelData)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // The plates and what stands on them, in a layer of their own that the
+    // host maps under the material namespace (LayerHost.qml `plateLayer`),
+    // so the compositor's layer glass reaches their faint Clear body and
+    // never the orb, which stays in this layer. The box mirrors `overlay`,
+    // so each plate keeps its place in either window. Until the host moves
+    // it, it draws in this layer. A held request is acknowledged on the
+    // frames of the window that draws it (approvalPolished).
+    Item {
+        id: plateRoot
+        objectName: "plateRoot"
+        width: root.width
+        height: root.height
+
+        Item {
+            id: plateBox
+            x: overlay.x
+            y: overlay.y
+            width: overlay.width
+            height: overlay.height
+
+            // The words' card is as wide as the caption's column, so no word
+            // moves its sides, and as tall as the lines shown, the newest at
+            // its bottom: it follows a new line up as that line lifts the
+            // others.
+            GlassSurface {
+                id: wordsCard
+                objectName: "wordsCard"
+                visible: words.visible
+                x: Math.round(overlay.centre - width / 2)
+                y: words.y + words.height - words.shownHeight
+                    + (words.lineCount <= words.window ? words.lift : 0) - overlay.card.paddingY
+                width: words.width + 2 * overlay.wordsInset
+                height: words.y + words.height + overlay.card.paddingY - y
+                surface: "jarvis"
+                paced: true
+                standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
+            }
+
+            Words {
+                id: words
+                window: root.look.words.lines
+                stepDuration: root.look.words.step
+                fadeDuration: root.look.words.fade
+                liftDuration: root.look.words.lift
+                newestInk: root.look.ink.words
+                olderInk: root.look.ink.words
+                newestOpacity: root.look.words.newest
+                middleOpacity: root.look.words.middle
+                oldestOpacity: root.look.words.oldest
+                x: overlay.centre - width / 2
+                y: overlay.card.paddingY
+                width: Math.min(root.look.layout.prompt, Math.max(0, overlay.width - 2 * overlay.wordsInset))
+                height: visible ? implicitHeight : 0
+                text: root.words
+            }
+
+            // The capsule follows the group's chosen edge and fades with its icons.
+            GlassSurface {
+                id: iconPill
+                objectName: "iconPill"
+                readonly property var pad: root.look.plate.pill
+                readonly property real rest: orb.x + orb.width - overlay.orbInset + root.look.plate.gap
+                x: overlay.capsuleBelow ? Math.round(overlay.centre - width / 2) : rest
+                y: overlay.capsuleBelow ? overlay.orbEnd + root.look.plate.gap : Math.round(overlay.orbCentre - height / 2)
+                width: icons.width + 2 * pad.paddingX
+                height: icons.height + 2 * pad.paddingY
+                visible: icons.visible
+                opacity: root.iconOpacity
+                surface: "jarvis"
+                paced: true
+                standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
+                // The pointer between two icons still rests on the row.
+                HoverHandler { id: pillHover }
+            }
+
+            Column {
+                id: icons
+                x: iconPill.x + iconPill.pad.paddingX
+                y: iconPill.y + iconPill.pad.paddingY
+                opacity: root.iconOpacity
+                visible: root.iconsShown
+                RowButton {
+                    id: voice
+                    look: root.look
+                    service: root.service
+                    keys: root.shortcutKeys
+                    entry: root.entryFor("voice-mute")
+                    iconName: root.voiceMuted ? "volume-x" : "volume-2"
+                    checked: root.voiceMuted
+                }
+                RowButton {
+                    id: mic
+                    look: root.look
+                    service: root.service
+                    keys: root.shortcutKeys
+                    entry: root.entryFor("microphone-mute")
+                    iconName: root.micMuted ? "mic-off" : "mic"
+                    checked: root.micMuted
+                }
+                RowButton {
+                    id: stop
+                    look: root.look
+                    service: root.service
+                    keys: root.shortcutKeys
+                    entry: root.entryFor("stop")
+                    iconName: "square"
+                }
+            }
+
+            // The card under the orb hugs the state line, the fault's lines
+            // or the held request's column. A link's wrapped width is its
+            // column's.
+            GlassSurface {
+                id: textCard
+                objectName: "textCard"
+                readonly property Item column: root.hold !== null ? approvalText : stateBox
+                readonly property real lines: root.hold !== null ? approvalText.width
+                    : Math.min(stateBox.width, Math.max(stateLine.contentWidth,
+                        silenceLine.visible ? silenceLine.implicitWidth : 0, faultAction.visible ? faultAction.implicitWidth : 0))
+                visible: column.visible
+                x: Math.round(overlay.centre - width / 2)
+                y: column.y - overlay.card.paddingY
+                width: 2 * Math.ceil(lines / 2) + 2 * (root.hold !== null ? overlay.card.paddingX : overlay.stateInset)
+                height: column.height + 2 * overlay.card.paddingY
+                surface: "jarvis"
+                paced: true
+                standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
+            }
+
+            Column {
+                id: stateBox
+                x: overlay.centre - width / 2
+                y: overlay.below
+                width: Math.min(root.look.layout.line, Math.max(0, overlay.width - 2 * overlay.stateInset))
+                visible: root.hold === null && (!root.hidden || root.fault !== null)
+                    && (root.stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
+                spacing: root.look.layout.gap
+                Label {
+                    id: stateLine
+                    visible: text !== ""
+                    width: parent.width
+                    role: root.fault !== null ? "bodyStrong" : "label"
+                    color: root.fault !== null ? root.look.ink.title : root.look.ink.state
+                    text: root.stateText
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                }
+                LinkText {
+                    id: silenceLine
+                    width: parent.width
+                    visible: text !== ""
+                    role: "body"
+                    color: root.look.ink.action
+                    linkColor: root.look.ink.link
+                    text: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
+                        ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    onPageActivated: (page, tab) => {
+                        if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
+                    }
+                }
+                // The fault's action, its page reference drawn as a link that
+                // opens the page (design-system.md § Copy).
+                LinkText {
+                    id: faultAction
+                    width: parent.width
+                    visible: root.fault !== null
+                    role: "body"
+                    color: root.look.ink.action
+                    linkColor: root.look.ink.link
+                    text: root.fault === null ? "" : root.fault.action
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    onPageActivated: (page, tab) => {
+                        if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
+                    }
+                }
+            }
+
+            Column {
+                id: approvalText
+                x: overlay.centre - width / 2
+                y: overlay.below
+                width: overlay.promptWidth
+                visible: root.hold !== null
+                spacing: root.look.layout.gap
+                readonly property var prompt: View.approvalPrompt(root.hold)
+                // Recombine the actual drawn labels for the existing frame
+                // identity check; a missing path or detail cannot acknowledge.
+                readonly property string text: question.text + (prompt !== null && prompt.filePrompt ? "\n" + (fullPath.visible ? fullPath.text : "")
+                    + (prompt.detail ? "\n" + (payload.visible ? payload.text : "") : "") : "")
+                Label {
+                    id: question
+                    width: parent.width
+                    role: "bodyStrong"
+                    color: root.look.ink.question
+                    text: approvalText.prompt === null ? "" : approvalText.prompt.question
+                    textFormat: Text.PlainText
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    id: fullPath
+                    width: parent.width
+                    visible: text !== ""
+                    role: "hint"
+                    color: root.look.ink.path
+                    text: approvalText.prompt === null ? "" : approvalText.prompt.path
+                    textFormat: Text.PlainText
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                }
+                // The payload, whole while it fits the room the layer leaves it
+                // under the orb, beside the column's other lines and the answers,
+                // so a keyboard user, whom this passive layer gives no keys
+                // (D026), reads every line Confirm confirms. A payload past that
+                // room scrolls in the larger of the room and the look's
+                // `layout.payload`, keeping the answers on the screen; it takes
+                // the wheel and a touchpad swipe while the overlay takes the
+                // pointer. On a layer shorter than that floor the column leaves
+                // the layer, and `approvalWhole` holds the request unanswered.
+                ScrollArea {
+                    id: payloadArea
+                    // The column's other lines and gaps: Column lays out only an
+                    // item that is visible and whose width and height are not 0, with
+                    // one spacing between each two it lays out
+                    // (https://doc.qt.io/qt-6/qml-qtquick-column.html). The
+                    // overlay keeps the margin to the layer's edge at its bottom,
+                    // or at its top over the console.
+                    readonly property var others: [question, fullPath, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
+                    readonly property real room: root.height - root.look.layout.margin - overlay.below - overlay.card.paddingY
+                        - others.reduce((sum, item) => sum + item.height + approvalText.spacing, 0)
+                    width: parent.width
+                    height: Math.min(payload.implicitHeight, Math.max(root.look.layout.payload, Math.floor(room)))
+                    // The payload's own text, not its visible, which reads false
+                    // while this area hides it
+                    // (https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop).
+                    visible: payload.text !== ""
+                    Label {
+                        id: payload
+                        width: parent.width
+                        // The area keeps its bar's inset on the right; the same
+                        // inset on the left centres the lines on the column.
+                        leftPadding: payloadArea.rightInset
+                        visible: text !== ""
+                        role: "body"
+                        color: root.look.ink.payload
+                        text: approvalText.prompt === null ? "" : approvalText.prompt.payload
+                        textFormat: Text.PlainText
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                    }
+                }
+                Row {
+                    id: answerButtons
+                    width: parent.width
+                    topPadding: root.look.answer.gap
+                    spacing: root.look.answer.gap
+                    // keyboard-path: the effective Confirm and Stop shortcuts.
+                    Answer {
+                        id: cancel
+                        look: root.look
+                        variant: "ghost"
+                        quiet: true
+                        width: (answerButtons.width - answerButtons.spacing) / 2
+                        text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
+                        onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
+                    }
+                    Answer {
+                        id: confirm
+                        look: root.look
+                        variant: "secondary"
+                        // A request that needs a press is the destructive kind,
+                        // whose confirming answer takes no tint.
+                        quiet: root.hold !== null && root.hold.physical
+                        width: (answerButtons.width - answerButtons.spacing) / 2
+                        text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
+                        onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
+                    }
+                }
+            }
+
+            // A right click on a plate opens the Jarvis menu, as one on the
+            // orb does; the box shares the overlay's coordinates.
+            // pointer-cursor-exempt: a right click on Jarvis's text, which shows no control
+            // keyboard-path: voice mute and Stop have shortcuts; the bar widget's menu holds the same system microphone action
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                enabled: root.active
+                onTapped: eventPoint => {
+                    menuUi.active = true;
+                    menuUi.item.openAt(eventPoint.position.x, eventPoint.position.y);
                 }
             }
         }
