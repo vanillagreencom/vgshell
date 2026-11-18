@@ -160,6 +160,11 @@ Scope {
         operation: { phase: layerGlassOperation.phase,
         reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent })
 
+    // Clear draws its faint body only while the compositor's layer glass
+    // shades it: requested, loaded and ready as last read (Theme
+    // layerGlassReady, ThemeLogic.glassFor).
+    Binding { target: Theme; property: "layerGlassInput"; value: root.layerGlassIntent && root.layerGlass.observed.kind === "eligible" }
+
     onLayerGlassHeldChanged: if (layerGlassHeld) refreshLayerGlass()
     onLayerGlassIntentChanged: {
         if (layerGlassOperation.phase !== "idle" && layerGlassOperation.phase !== "committing"

@@ -34,7 +34,6 @@ Item {
     property real edgeBoost: 1
     property bool edgeVisible: false
     property bool reportHover: true
-    property bool glassChoice: false
     // Whether the pointer is on the card: the card's own hover, unless the
     // surface hands the hover of the slot that holds the card.
     property bool hovered: card.hovered
@@ -91,30 +90,24 @@ Item {
         onCardClicked: face.cardClicked()
     }
 
+    // The card's glass: its edge light shows while the face asks, turns to
+    // the accent on a critical notification, and whirls and brightens as
+    // the card asks.
     GlassSurface {
         id: glass
         z: -1
-        optIn: face.glassChoice
+        surface: "notifications"
         follow: card
-        fill: face.look.card.fill
         radius: card.radius
-        elevation: "tight"
-        // The card morphs, so its shadow is not cached.
-        shadowCached: false
+        edgeShown: face.edgeVisible
+        lit: face.urgency === Logic.URGENCY.critical
+        edgeSpin: face.edgeSpin
+        edgeBoost: face.edgeBoost
 
         Orb {
             look: face.look
             radius: card.radius
             amount: glass.drawn ? face.orb : 0
         }
-    }
-
-    EdgeLight {
-        look: face.look
-        follow: card
-        visible: face.edgeVisible && glass.drawn
-        active: face.urgency === Logic.URGENCY.critical
-        spin: face.edgeSpin
-        boost: face.edgeBoost
     }
 }
