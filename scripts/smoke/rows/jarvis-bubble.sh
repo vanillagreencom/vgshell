@@ -47,15 +47,18 @@ esac
 jarvis_bubble_restore_probe() {
   expect "the bubble row restores its compositor fixture" ok ipc shell setPluginEnabled acme.probe "$jarvis_bubble_probe_before"
 }
-jarvis_bubble_close_client() {
+jarvis_bubble_close_client() { # [cleanup]
   [[ -n $jarvis_bubble_client ]] || return 0
-  close_toplevel "$jarvis_bubble_client" "the client below Jarvis exits" || return 1
+  close_toplevel "$jarvis_bubble_client" "the client below Jarvis exits" "${1:-}" || return 1
   jarvis_bubble_client=""
 }
 jarvis_bubble_abandon() {
   jarvis_key_talk_up
   jarvis_key_stop
-  jarvis_disable
+  # A fixture selection starts disabled. Abandonment restores that state,
+  # rather than requiring a launcher from a start the failed step never made.
+  expect "the bubble row disables Jarvis during abandonment" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect "abandonment drops the Jarvis service" absent ipc smoke jarvisProcess
   ipc shell hide window vgs.jarvis >/dev/null
   if [[ -f $jarvis_bubble_snapshots/focus ]]; then
     cp -- "$jarvis_bubble_snapshots/focus" "$home/.config/hypr/hyprland.lua"
@@ -73,7 +76,7 @@ jarvis_bubble_abandon() {
   expect "the bubble row reveals its temporarily hidden bar" ok ipc vgs.bar invoke reveal ''
   rescan "the bubble row rescans after its configuration cleanup"
   jarvis_enable
-  jarvis_bubble_close_client
+  jarvis_bubble_close_client cleanup
   if [[ -n $jarvis_bubble_row_focus ]]; then
     expect "the bubble row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$jarvis_bubble_row_focus\" })"
   fi
@@ -1558,9 +1561,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 s=p.read_text()
-needle='shown && visible && host !== null && host.presented === true'
+needle='wanted && visible && host !== null && host.presented === true'
 assert s.count(needle)==1
-changed=s.replace(needle, 'shown')
+changed=s.replace(needle, 'wanted')
 capture='presented && !hidden && orb.visible'
 assert s.count(capture)==1
 changed=changed.replace(capture, 'presented && !hidden')

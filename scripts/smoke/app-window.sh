@@ -8,9 +8,11 @@
 # open_toplevel LOG APP_ID TITLE: the toplevel helper mapped as a window
 # of class APP_ID, its pid left in toplevel_pid; 1, with its log on
 # stderr, when it does not map within 5 s. Its log holds `mapped`, then
-# each keyboard event it receives. close_toplevel PID LABEL: that helper
+# each keyboard event it receives. close_toplevel PID LABEL [cleanup]: that helper
 # stopped through its retained recorder pidfd, LABEL passing when it exits 0
-# on SIGTERM. A failed mapping closes the acquired helper before returning.
+# on SIGTERM. cleanup releases the same owner but reports any exit status:
+# smoke_row kills row-owned children before its abandonment callback.
+# A failed mapping closes the acquired helper before returning.
 toplevel_pid=""
 declare -A toplevel_owners=()
 acquire_toplevel() { # PID LOG: also used by custom native fixture launches
@@ -40,7 +42,7 @@ open_toplevel() { # LOG APP_ID TITLE
   toplevel_pid=""
   return 1
 }
-close_toplevel() { # PID LABEL
+close_toplevel() { # PID LABEL [cleanup]
   local status=0 token
   if [[ -z $1 ]]; then fail "$2: owner=unacquired"; return 1; fi
   token="${toplevel_owners[$1]-}"
@@ -53,7 +55,13 @@ close_toplevel() { # PID LABEL
   wait "$1" || status=$?
   [[ $toplevel_pid != "$1" ]] || toplevel_pid=""
   [[ $other_pid != "$1" ]] || other_pid=""
-  if [[ $status -eq 0 ]]; then ok "$2"; else fail "$2: exit=$status"; fi
+  if [[ ${3:-} == cleanup ]]; then
+    ok "$2: exit=$status"
+  elif [[ $status -eq 0 ]]; then
+    ok "$2"
+  else
+    fail "$2: exit=$status"
+  fi
 }
 
 # The toplevel helper beside a window, of a class no rule floats, so it

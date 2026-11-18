@@ -13,8 +13,13 @@ import "../../shell/plugins/vgs.jarvis/WidgetView.js" as View
 // the page through `shell.surfaces.openPage` (design-system.md § Copy).
 // The overlay beside the Console: its plates, text and pointer regions
 // clear the Console's box, and the judgement that moves it reads the
-// plates' own extent. The service is a stand-in that hands the card a
-// Session record.
+// plates' own extent. The orb alone shows the state: no state name draws
+// at rest, a name shows only after the pointer rests on the orb's middle,
+// and the orb keeps one place in every state, so the open and the close
+// each move it once, drawn whole, the close as one move down before the
+// overlay hides.
+// The Orb style setting reaches the orb at once. The service is a
+// stand-in that hands the card a Session record.
 Item {
     id: root
     width: 600
@@ -38,8 +43,11 @@ Item {
         property var heldKey: null
         property var effectiveKeys: null
         property var values: ({})
+        property string orbStyle: "glass-bead"
+        // A setting's change reaches the overlay as a new shell, as the
+        // core hands one.
         property var shell: ({
-            settings: { voiceProvider: "local" },
+            settings: { voiceProvider: "local", orbStyle: service.orbStyle },
             status: { values: service.values },
             surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
         })
@@ -71,6 +79,8 @@ Item {
             service.microphoneMute = { kind: "ready", muted: false };
             service.consoleBox = null;
             service.values = {};
+            service.orbStyle = "glass-bead";
+            service.bubbleWanted = true;
             service.focusedOutput = "SMOKE-1";
             bubble.screen = { name: "SMOKE-1" };
             root.width = 600;
@@ -91,6 +101,224 @@ Item {
             return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
         }
         function plates() { return collect(bubble, n => n.glassSurface === true && n.visible, []); }
+
+        // ITEM's opacity as drawn: its own times each item's over it.
+        function drawnOpacity(item) {
+            let opacity = 1;
+            for (let at = item; at !== null; at = at.parent) opacity *= at.opacity;
+            return opacity;
+        }
+        function orbOf() { return collect(bubble, item => item.phase !== undefined && item.capture !== undefined, [])[0]; }
+        // Every name a state ever drew under the orb or on its hover.
+        readonly property var stateWords: ["Ready to talk", "Ready", "Listening", "Thinking", "Working", "Speaking", "Waiting for you", "Stopping"]
+        function drawnStateWords() { return shownText().filter(text => stateWords.indexOf(text) !== -1); }
+        function conversation(over) {
+            return Object.assign(JSON.parse(JSON.stringify(Session.initial())),
+                { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } }, over);
+        }
+
+        // Each state the orb alone shows, with the name a deliberate hover
+        // over its middle shows, or none.
+        function stateRows() {
+            return [
+                { tag: "ready", over: {}, name: "Ready" },
+                { tag: "listening", over: { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, name: "Listening" },
+                { tag: "thinking", over: { turn: { kind: "thinking" } }, name: "Thinking" },
+                { tag: "acting", over: { action: { kind: "running" } }, name: "Thinking" },
+                { tag: "speaking", over: { playback: { kind: "playing" } }, name: "Speaking" },
+                { tag: "stopping", over: { gate: { kind: "down" } }, name: "" }
+            ];
+        }
+
+        // At rest no state name draws, no card stands under the orb and
+        // the orb keeps the place it has while listening.
+        function test_the_orb_alone_shows_the_state_data() { return stateRows(); }
+        function test_the_orb_alone_shows_the_state(data) {
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const orb = orbOf();
+            const resting = orb.mapToItem(bubble, 0, 0);
+            service.sessionState = conversation(data.over);
+            verify(renderedFrame(bubble));
+            compare(JSON.stringify(drawnStateWords()), "[]", "no state name draws at rest");
+            compare(findChild(bubble, "textCard").visible, false, "no card stands under the orb");
+            const at = orb.mapToItem(bubble, 0, 0);
+            compare([at.x, at.y], [resting.x, resting.y], "the orb rests where it rests while listening");
+        }
+
+        // One rested hover over the orb's middle, a real wait of the look's
+        // delay, names each state the overlay then shows, with no further
+        // wait: the name stands centred across the orb, clear of the middle
+        // square the pointer rests on, and moves nothing. The pointer may
+        // move onto the shown name, where it lies over the icon row's
+        // bridge, and keep it. The middle and the shown name are on the
+        // orb, so the icon row shows with the name and stays past its hold.
+        function test_a_rested_hover_names_each_state() {
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const orb = orbOf();
+            const overlay = findChild(bubble, "overlay");
+            const resting = orb.mapToItem(bubble, 0, 0);
+            const box = [overlay.x, overlay.y, overlay.width, overlay.height];
+            const middle = findChild(bubble, "orbMiddle");
+            const centre = middle.mapToItem(root, middle.width / 2, middle.height / 2);
+            const plate = findChild(bubble, "stateName");
+            const pill = findChild(bubble, "iconPill");
+            const rowShown = () => pill.visible && pill.opacity === 1;
+            mouseMove(root, centre.x, centre.y);
+            tryVerify(() => plate.visible && plate.opacity === 1, bubble.look.name.delay + 1000, "the name shows on a rested hover");
+            verify(rowShown(), "the icon row shows with the name");
+            for (const row of stateRows()) {
+                service.sessionState = conversation(row.over);
+                verify(renderedFrame(bubble));
+                compare(JSON.stringify(drawnStateWords()), JSON.stringify(row.name === "" ? [] : [row.name]), row.tag + " draws its name alone");
+                compare(plate.visible, row.name !== "", row.tag + (row.name === "" ? " shows no name" : " shows its name"));
+                if (row.name === "") continue;
+                const plateCentre = plate.mapToItem(bubble, plate.width / 2, plate.height / 2);
+                const orbCentre = orb.mapToItem(bubble, orb.width / 2, orb.height / 2);
+                verify(Math.abs(plateCentre.x - orbCentre.x) <= 0.5, row.tag + "'s name stands centred across the orb");
+                const plateTop = plate.mapToItem(bubble, 0, 0).y;
+                const middleBottom = middle.mapToItem(bubble, 0, middle.height).y;
+                verify(plateTop >= middleBottom - 0.5, row.tag + "'s name stands below the middle, clear of the pointer");
+                const radius = bubble.look.state[bubble.orbPhase].radius * orb.width / 2;
+                const half = plate.height / 2;
+                // The capsule's farthest outline point, a semicircle on
+                // either end of its centre line, stays inside the disc.
+                const reach = Math.hypot(plate.width / 2 - half, plateCentre.y - orbCentre.y) + half;
+                verify(reach <= radius, row.tag + "'s whole capsule stays inside the disc");
+                compare([overlay.x, overlay.y, overlay.width, overlay.height], box, row.tag + "'s name takes no room");
+                const after = orb.mapToItem(bubble, 0, 0);
+                compare([after.x, after.y], [resting.x, resting.y], row.tag + "'s name moves nothing");
+            }
+            service.sessionState = conversation({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } });
+            verify(renderedFrame(bubble));
+            verify(plate.visible, "the name shows again");
+            // Where the capsule lies over the bridge, laid under it.
+            const bridge = findChild(bubble, "iconBridge");
+            const plateBox = plate.mapToItem(root, 0, 0, plate.width, plate.height);
+            const bridgeBox = bridge.mapToItem(root, 0, 0, bridge.width, bridge.height);
+            const left = Math.max(plateBox.x, bridgeBox.x);
+            const right = Math.min(plateBox.x + plateBox.width, bridgeBox.x + bridgeBox.width);
+            const top = Math.max(plateBox.y, bridgeBox.y);
+            const bottom = Math.min(plateBox.y + plateBox.height, bridgeBox.y + bridgeBox.height);
+            verify(bridge.visible && right - left >= 2 && bottom - top >= 2, "the capsule lies over the bridge: " + JSON.stringify([left, top, right, bottom]));
+            const end = Qt.point((left + right) / 2, (top + bottom) / 2);
+            mouseMove(root, end.x, end.y);
+            verify(renderedFrame(bubble));
+            verify(plate.visible, "the name stays while the pointer is on it");
+            wait(bubble.look.icon.hold + 100);
+            verify(rowShown(), "the icon row stays past its hold while the pointer is on the name");
+            mouseMove(root, 1, 1);
+            tryCompare(plate, "visible", false, 100, "the name goes as the pointer leaves, with no fade at motion scale 0");
+            compare(JSON.stringify(drawnStateWords()), "[]");
+        }
+
+        // After the open's move the layer's input region over the orb is
+        // where the orb draws. The layer computes each region from the
+        // item's box as its window maps it, again whenever the item or one
+        // of its parents moves or resizes (OverlaySurface's regions); the
+        // test takes that reading on the same signals and on each change
+        // of the overlay's input items.
+        function test_the_input_region_follows_the_open() {
+            QsWindow.window = presentedHost;
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const hit = findChild(bubble, "orbHit");
+            service.bubbleWanted = false;
+            tryCompare(bubble, "shown", false, 100);
+            compare(UnitTheme.override({ motion: { scale: 1 } }), "ok");
+            let region = null;
+            const read = () => { region = hit.mapToItem(bubble, 0, 0, hit.width, hit.height); };
+            const lineage = [];
+            for (let item = hit; item !== null; item = item.parent) lineage.push(item);
+            const signals = [];
+            for (const item of lineage)
+                for (const name of ["xChanged", "yChanged", "widthChanged", "heightChanged"]) signals.push(item[name]);
+            signals.push(bubble.inputItemsChanged);
+            for (const changed of signals) changed.connect(read);
+            try {
+                service.bubbleWanted = true;
+                read();
+                tryCompare(bubble, "rest", 1, 2000, "the open's move ends");
+                verify(renderedFrame(bubble));
+                verify(bubble.inputItems.indexOf(hit) !== -1, "the orb takes the pointer");
+                const drawn = hit.mapToItem(bubble, 0, 0, hit.width, hit.height);
+                compare(JSON.stringify([region.x, region.y, region.width, region.height]), JSON.stringify([drawn.x, drawn.y, drawn.width, drawn.height]),
+                    "the region stands where the orb's hit square draws");
+            } finally {
+                for (const changed of signals) changed.disconnect(read);
+            }
+        }
+
+        // A pass over the orb away from its middle shows no name, however
+        // long the pointer stays.
+        function test_a_pass_over_the_orb_shows_no_name() {
+            listeningConversation();
+            verify(renderedFrame(bubble));
+            const hit = findChild(bubble, "orbHit");
+            const middle = findChild(bubble, "orbMiddle");
+            verify(middle.width < hit.width, "the middle lies inside the hit square");
+            const edge = hit.mapToItem(root, (hit.width - middle.width) / 4, hit.height / 2);
+            mouseMove(root, edge.x, edge.y);
+            tryCompare(bubble, "iconOpacity", 1, 1000, "the pointer is on the orb");
+            wait(bubble.look.name.delay + 100);
+            compare(findChild(bubble, "stateName").visible, false);
+        }
+
+        // The open and the close each move the overlay once, one way, with
+        // no state name on the way, even from a name a rested hover shows at
+        // its full fade. The close keeps it drawn while it moves down,
+        // presenting nothing and taking no pointer, and then hides it. Both
+        // draw the orb whole on every frame, so no window shows through
+        // its disc.
+        function test_the_open_and_the_close_move_the_overlay_once() {
+            QsWindow.window = presentedHost;
+            listeningConversation();
+            compare(UnitTheme.override({ motion: { scale: 1 } }), "ok");
+            verify(renderedFrame(bubble));
+            const middle = findChild(bubble, "orbMiddle");
+            const centre = middle.mapToItem(root, middle.width / 2, middle.height / 2);
+            const plate = findChild(bubble, "stateName");
+            mouseMove(root, centre.x, centre.y);
+            tryVerify(() => plate.visible && plate.opacity === 1, bubble.look.name.delay + 1000, "the name shows before the close");
+            const overlay = findChild(bubble, "overlay");
+            const restY = overlay.y;
+            // How far under its rest the overlay stands.
+            const lowered = () => overlay.y - restY;
+            verify(bubble.presented, "the open overlay presents");
+            for (const opening of [false, true]) {
+                service.bubbleWanted = opening;
+                compare(bubble.presented, opening, "only a wanted overlay presents");
+                if (!opening) compare(bubble.inputItems.length, 0, "a closing overlay takes no pointer");
+                let last = lowered();
+                let frames = 0;
+                do {
+                    verify(bubble.visible, "the overlay draws through its move");
+                    verify(opening ? lowered() <= last : lowered() >= last, "one move, one way: " + last + " to " + lowered());
+                    compare(drawnOpacity(orbOf()), 1, (opening ? "the open" : "the close") + " draws the orb whole");
+                    compare(JSON.stringify(drawnStateWords()), "[]", "no state name on the way");
+                    last = lowered();
+                    frames++;
+                    verify(renderedFrame(bubble));
+                } while (opening ? bubble.rest < 1 : bubble.rest > 0);
+                verify(frames > 2, "the move takes frames: " + frames);
+                fuzzyCompare(lowered(), opening ? 0 : bubble.look.orb.rise, 0.001);
+                compare(bubble.visible, opening, opening ? "the open overlay rests" : "the closed overlay hides");
+                compare(bubble.shown, opening, "the layer maps only a wanted or closing overlay");
+            }
+        }
+
+        // A changed Orb style reaches the orb with the shell it comes in.
+        function test_the_orb_style_setting_applies_at_once() {
+            listeningConversation();
+            const orb = orbOf();
+            const effect = orb.data.find(item => item.fragmentShader !== undefined);
+            for (const style of ["blades", "glass-bead"]) {
+                service.orbStyle = style;
+                compare(orb.style, style);
+                verify(String(effect.fragmentShader).endsWith("/shaders/" + style + ".frag.qsb"), "the orb draws " + style + ": " + effect.fragmentShader);
+            }
+        }
 
         function listeningConversation() {
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())), {
@@ -230,7 +458,9 @@ Item {
                 verify(left || right, "the whole overlay stands beside Console");
                 if (data.side !== "either") compare(left ? "left" : "right", data.side, "use the side with more measured room");
                 const drawn = plates();
-                verify(drawn.length >= (data.icons ? 2 : 1), "the side draws the card and the shown capsule: " + drawn.map(plate => plate.objectName));
+                const required = (data.tight ? [] : ["textCard"]).concat(data.icons ? ["iconPill"] : []);
+                for (const name of required)
+                    verify(drawn.some(plate => plate.objectName === name), "the side draws its required " + name);
                 for (const plate of drawn) {
                     const rect = plate.mapToItem(bubble, 0, 0, plate.width, plate.height);
                     verify(rect.width > 0 && rect.height > 0, "clearance cannot pass by collapsing " + plate.objectName);
@@ -354,7 +584,7 @@ Item {
         function test_the_console_judgement_reads_the_plates_extent_data() {
             const open = { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } };
             return [
-                { tag: "a state line", state: open },
+                { tag: "the orb at rest", state: open },
                 { tag: "a fault", state: Object.assign({ fault: { kind: "error", reason: "jarvis-test=unknown", category: "other" } }, open) },
                 { tag: "words over the orb", state: Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open),
                   caption: "The meeting moved to Thursday at three, and the room is the same as last week. I added it to your calendar and told Dana you will join a few minutes late." }

@@ -565,7 +565,7 @@ world(() => {
         const settings = { ...JSON.parse(fs.readFileSync(path.join(tree, "shell/plugins/vgs.jarvis/manifest.json"))).settings,
             sounds: false, voiceProvider: "local", dictation: "" };
         // The service keeps these settings; the daemon's hello holds none.
-        for (const kept of ["localTier", "startAtBoot", "bootSession"]) delete settings[kept];
+        for (const kept of ["localTier", "startAtBoot", "bootSession", "orbStyle"]) delete settings[kept];
         const hello = { v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
             directories: { state, data: state + "/data", runtime: state + "/run" },
             keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } };

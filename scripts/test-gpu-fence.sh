@@ -1645,8 +1645,10 @@ echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
 # entry FILE NAME ANSWER: FILE as scripts/NAME of a scratch tree whose
 # fence is the stand-in answering ANSWER, whose harness is a stand-in
 # that only says it was reached, and which holds the repository's smoke
-# row list, which qml-smoke.sh reads before the fence, and the stand-in
-# account judge. Leaves the calls in fence.log.
+# row list, which qml-smoke.sh reads before the fence, the repository's
+# shader judge and Jarvis manifest, through which measure-shader.sh reads
+# the orb styles before the fence, and the stand-in account judge. Leaves
+# the calls in fence.log.
 entry() {
   local file="$1" name="$2" tree="$TMP_ROOT/tree-$2"
   local invocation=()
@@ -1672,6 +1674,8 @@ PY
   git -C "$tree" init -q
   git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
+  cp -- "$repo/scripts/check-voiceorb-shader.py" "$tree/scripts/check-voiceorb-shader.py"
+  cp -- "$repo/shell/plugins/vgs.jarvis/manifest.json" "$tree/shell/plugins/vgs.jarvis/manifest.json"
   ln -s -- "$repo/config" "$tree/config"
   printf 'echo harness-reached\nexit 0\n' >"$tree/scripts/smoke/harness.sh"
   echo 'exports.use = () => {}; exports.accounts = () => ({ harness: () => ({ variable: "COPILOT_HOME" }) });' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"

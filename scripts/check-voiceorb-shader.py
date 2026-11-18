@@ -4,10 +4,14 @@
 qsb is a build/validation tool, not a runtime requirement. Find it on PATH
 or in Qt's Linux tool directories; QSB overrides the lookup for test copies.
 Exit 77 when it is absent. Exit 1 on unreadable, invalid, stale or forbidden
-source. SHADERS holds five shipped shaders, VoiceOrb's, RadialBackdrop's,
-GlassSurface's lens, vgs.voice's plasma and Jarvis's particle orb, each with
-its source and the rules that source keeps; the judge checks each, or the
-one --shader names.
+source, and on a Jarvis manifest whose orb styles cannot be read
+(`shader-judge: failed orb-styles=unread ...`) or are invalid
+(`shader-judge: failed orb-styles=invalid reason=...`). shaders() holds the
+shipped shaders, VoiceOrb's, RadialBackdrop's, GlassSurface's lens,
+vgs.voice's plasma and one jarvis-STYLE row for each orb style orb_styles()
+reads, each with its source and the rules that source keeps; the judge checks
+each, or the one --shader names. A source's rules are read over the text the
+compiler reads: the source with each file it includes in its place.
 It judges no other shader. --write
 regenerates the pack. --source, with --shader, selects a disposable copy.
 The qsb --qt6 targets and --qsbversion 64 are the reproducible build contract.
@@ -15,9 +19,11 @@ A pack is fresh when it holds the shader a fresh compile holds. A pack is
 qCompress output, a 4-byte big-endian length and a zlib stream, and two zlib
 builds deflate one shader to different bytes (zlib 1.3.2 on Arch, zlib-ng
 2.3.3 on CachyOS), so the pack is compared decompressed. check() is the one
-judge of a shipped pack; scripts/measure-shader.sh reads its compiler.
+judge of a shipped pack; scripts/measure-shader.sh reads its compiler and
+its orb styles.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -33,19 +39,61 @@ PATTERNS = {
     "loop": r"\b(?:for|while|do)\b",
     "texture": r"\b(?:sampler\w*|texture\w*|texelFetch\w*)\b",
 }
-# The five shaders this judge holds, each with its source and the rules it
-# keeps; another shipped shader is not judged here. VoiceOrb, RadialBackdrop
-# and GlassSurface's lens are analytic and need no iteration. Voice's plasma is a short volumetric
-# raymarch and Jarvis's orb tests a bounded set of shells, faces and
-# lattice dots per pixel, so each may loop, every loop to a constant
-# bound. None samples a texture.
-SHADERS = {
+# The shaders this judge holds, each with its source and the rules it keeps;
+# another shipped shader is not judged here. VoiceOrb, RadialBackdrop and
+# GlassSurface's lens are analytic and need no iteration. Voice's plasma is
+# a short volumetric raymarch and each style of Jarvis's orb draws a bounded
+# set of shells, bands, blades or strands per pixel, so each may loop, every
+# loop to a constant bound. None samples a texture.
+FIXED = {
     "voiceorb": (ROOT / "shell/Ui/feedback/shaders/voiceorb.frag", ("loop", "texture")),
     "radial-backdrop": (ROOT / "shell/Ui/feedback/shaders/radialbackdrop.frag", ("loop", "texture")),
     "glass-lens": (ROOT / "shell/Ui/foundation/shaders/glasslens.frag", ("loop", "texture")),
     "plasma": (ROOT / "shell/plugins/vgs.voice/shaders/plasma.frag", ("loop-bound", "texture")),
-    "jarvis-orb": (ROOT / "shell/plugins/vgs.jarvis/shaders/particleorb.frag", ("loop-bound", "texture")),
 }
+ORB_RULES = ("loop-bound", "texture")
+JARVIS = ROOT / "shell/plugins/vgs.jarvis"
+INCLUDE = re.compile(r'^[ \t]*#[ \t]*include[ \t]+"([^"]+)"[ \t]*$', re.M)
+
+
+class OrbStylesRefused(ValueError):
+    """The Jarvis manifest's orb styles cannot be used; the message leads
+    with its stable key."""
+
+
+def orb_styles(manifest=JARVIS / "manifest.json"):
+    """The default and the options of the Jarvis manifest's Orb style
+    setting, the one list of orb styles; each value names its style's
+    shader under the plugin's shaders folder."""
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise OrbStylesRefused(f"orb-styles=unread manifest={manifest} cause={error}") from error
+    try:
+        styles = tuple(option["value"] for option in data["schema"]["orbStyle"]["options"])
+        default = data["settings"]["orbStyle"]
+    except (KeyError, TypeError) as error:
+        raise OrbStylesRefused(f"orb-styles=invalid reason=no-setting missing={error}") from error
+    if not styles:
+        raise OrbStylesRefused("orb-styles=invalid reason=no-options")
+    if default not in styles:
+        raise OrbStylesRefused(f"orb-styles=invalid reason=default-not-an-option default={default}")
+    return default, styles
+
+
+def shaders():
+    """The judge's table: the fixed shaders and one row per orb style."""
+    _, styles = orb_styles()
+    return {**FIXED, **{f"jarvis-{style}": (JARVIS / "shaders" / f"{style}.frag", ORB_RULES) for style in styles}}
+
+
+def expanded(source, seen=()):
+    """SOURCE's text with each file it includes, by a path relative to the
+    including file as qsb resolves it, read in its place."""
+    if source in seen:
+        raise OSError(f"include cycle at {source}")
+    text = source.read_text(encoding="utf-8")
+    return INCLUDE.sub(lambda found: expanded(source.parent / found[1], seen + (source,)), text)
 
 
 def breaks(rule, code):
@@ -90,8 +138,7 @@ def check(source, write, rules, label):
         print(f"{label}: status=not-measured missing=qsb")
         return 77
     try:
-        text = source.read_text(encoding="utf-8")
-        code = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
+        code = re.sub(r"/\*.*?\*/|//[^\n]*", "", expanded(source), flags=re.S)
         for rule in rules:
             if breaks(rule, code):
                 print(f"{label}: refused rule={rule} source={source}")
@@ -121,16 +168,21 @@ def check(source, write, rules, label):
 
 
 def main():
+    try:
+        table = shaders()
+    except OrbStylesRefused as error:
+        print(f"shader-judge: failed {error}")
+        return 1
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--shader", choices=list(SHADERS))
+    parser.add_argument("--shader", choices=list(table))
     parser.add_argument("--source", type=Path)
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     if args.source is not None and args.shader is None:
         parser.error("--source needs --shader")
     status = 0
-    for name in [args.shader] if args.shader is not None else list(SHADERS):
-        default, rules = SHADERS[name]
+    for name in [args.shader] if args.shader is not None else list(table):
+        default, rules = table[name]
         result = check(args.source or default, args.write, rules, name + "-shader")
         if result == 77:
             return 77

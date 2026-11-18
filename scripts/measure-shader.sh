@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Measure each passive shader layer on a real GPU in the nested sandbox:
-# VoiceOrb, Voice's plasma orb and Jarvis's particle orb in its full and
-# reduced looks, the shared RadialBackdrop as the disc behind Voice's
-# plasma orb, and GlassSurface's lens as the largest plate of Jarvis's
-# overlay.
+# VoiceOrb, Voice's plasma orb, Jarvis's orb in each style of its Orb
+# style setting and in the reduced look of the setting's default style,
+# the shared RadialBackdrop as the disc behind Voice's plasma orb, and
+# GlassSurface's lens as the largest plate of Jarvis's overlay.
 # Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
 # Default: check every shader against its record in
 # scripts/shader/ceilings.json and prove its 256-step control. --shader
-# measures one, voiceorb, plasma, jarvis-orb, jarvis-orb-reduced,
-# radial-backdrop or glass-lens.
+# measures one, voiceorb, plasma, jarvis-orb-STYLE for each option of the
+# Jarvis manifest's Orb style setting, jarvis-orb-reduced, radial-backdrop
+# or glass-lens.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
 # scale, floored at each stream's instrument resolution, written in FILE with
@@ -34,8 +35,46 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)" || exit 1
 choice=(--check "$repo/scripts/shader/ceilings.json")
 keep=false
 runs=""
+# shader_judge JUDGE ASK: what scripts/check-voiceorb-shader.py at JUDGE
+# owns, one word a line: `compiler`, its qsb path (empty when absent) and
+# options; `orb-styles`, the Jarvis manifest's default orb style and then
+# each style. A refused orb style list prints its key and fails. The
+# judge's filename is hyphenated, so it is imported through its path.
+shader_judge() {
+  python3 - "$1" "$2" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("shader", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+if sys.argv[2] == "compiler":
+    print(module.qsb_tool() or "")
+    print(*module.OPTIONS, sep="\n")
+else:
+    try:
+        default, styles = module.orb_styles()
+    except module.OrbStylesRefused as error:
+        print(f"shader-cost: failed {error}")
+        sys.exit(1)
+    print(default, *styles, sep="\n")
+PY
+}
+orb="$(shader_judge "$repo/scripts/check-voiceorb-shader.py" orb-styles)" || { printf '%s\n' "$orb"; exit 1; }
+mapfile -t orb_styles <<<"$orb"
+orb_default="${orb_styles[0]}"
+orb_styles=("${orb_styles[@]:1}")
 # Every scene Scene.qml draws; --shader names one of them.
-scenes=(voiceorb plasma jarvis-orb jarvis-orb-reduced radial-backdrop glass-lens)
+scenes=(voiceorb plasma "${orb_styles[@]/#/jarvis-orb-}" jarvis-orb-reduced radial-backdrop glass-lens)
+# orb_scene SHADER: sets orb_style and orb_reduced, which
+# scripts/shader/measure-scene.sh hands the scene: the style a
+# jarvis-orb-STYLE scene names, the default style in the reduced look for
+# jarvis-orb-reduced, and no style for any other scene.
+orb_scene() {
+  orb_style="" orb_reduced=0
+  case "$1" in
+    jarvis-orb-reduced) orb_style="$orb_default" orb_reduced=1 ;;
+    jarvis-orb-*) orb_style="${1#jarvis-orb-}" ;;
+  esac
+}
 shaders=("${scenes[@]}")
 argv=("$@")
 while (($#)); do
@@ -90,35 +129,31 @@ shader_pressure_gate() {
   }
 }
 shader_pressure_gate setup
-# The compiler owner has a hyphenated filename; import through its path.
-compiler="$(python3 - "$source_repo/scripts/check-voiceorb-shader.py" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("shader", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-print(module.qsb_tool() or "")
-print(*module.OPTIONS, sep="\n")
-PY
-)" || exit 1
+compiler="$(shader_judge "$source_repo/scripts/check-voiceorb-shader.py" compiler)" || exit 1
 mapfile -t compiler_words <<<"$compiler"
 [[ -n ${compiler_words[0]} ]] || { echo 'shader-cost: status=not-measured missing=qsb'; exit 77; }
 cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
 # Each shader's costly copy adds a 256-step dependent loop before its
 # output, each step made of that shader's own work: VoiceOrb's,
 # RadialBackdrop's and the lens's trigonometry,
-# two of the plasma's four-octave noises, and three of the particle orb's
-# value noises: at the orb's 255 px canvas two read 0.1573 ms at scale 1
-# against the 0.1572 ms ceiling twice its scale-2 reading sets (run
+# two of the plasma's four-octave noises, and three of orb.glsl's value
+# noises in every orb style. On the orb's one shader before its styles,
+# at its 255 px canvas, two noises read 0.1573 ms at scale 1 against the
+# 0.1572 ms ceiling twice its scale-2 reading sets (run
 # 1793675342-2/run-3, cachy, 2026-11-03). On host cachy on 2026-10-05
 # the trigonometric loop added 0.026 ms of GPU cost to the plasma's
 # 0.127 ms at scale 1, under the plasma's 0.548 ms ceiling (run
 # shader-cost-1791193446-3856419), and one noise a step read 0.642 ms
 # against a 0.513 ms ceiling (run shader-cost-1791193734-224301).
+# Every orb style includes orb.glsl, which qsb resolves beside the
+# including source, so it goes beside the costly copies.
+cp -- "$repo/shell/plugins/vgs.jarvis/shaders/orb.glsl" "$sandbox/orb.glsl"
 for shader in "${shaders[@]}"; do
-  python3 - "$shader" "$repo" "$sandbox/costly-$shader.frag" <<'PY'
+  orb_scene "$shader"
+  python3 - "$shader" "$repo" "$sandbox/costly-$shader.frag" "$orb_style" <<'PY'
 from pathlib import Path
 import sys
-shader, repo, output = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+shader, repo, output, orb_style = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
 costly = {
     "voiceorb": ("shell/Ui/feedback/shaders/voiceorb.frag",
                  "fragColor = ink * max(ring, arcs) * qt_Opacity;", "angle + phase",
@@ -132,17 +167,21 @@ costly = {
                         "fragColor = vec4(rgb, a) * qt_Opacity;", "p.x * 0.01 + uJoin.x",
                         "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + p.y * 0.01) + atan(cost, 0.71)",
                         "fragColor = vec4(rgb, a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
-    "jarvis-orb": ("shell/plugins/vgs.jarvis/shaders/particleorb.frag",
-                   "fragColor = vec4(min(col, vec3(a)), a + (1.0 - a) * dark) * qt_Opacity;", "r + uFlow",
-                   "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21)) + vnoise(vec3(uv * 5.0, cost * 0.5 + float(i) * 0.13))",
-                   "fragColor = vec4(min(col, vec3(a)), a + (1.0 - a) * dark) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
     "glass-lens": ("shell/Ui/foundation/shaders/glasslens.frag",
                    "fragColor = (vec4(colour, alpha) * cover + vec4(0.0, 0.0, 0.0, outer)) * qt_Opacity;", "p.x * 0.01 + uRadius",
                    "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + p.y * 0.01) + atan(cost, 0.71)",
                    "fragColor = (vec4(colour, alpha) * cover + vec4(0.0, 0.0, 0.0, outer)) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
 }
-# The reduced look uses the same shader with uniforms the scene sets.
-costly["jarvis-orb-reduced"] = costly["jarvis-orb"]
+if orb_style:
+    # Each style's shader ends main with its one output line, with uv, r,
+    # uFlow and orb.glsl's vnoise in scope.
+    source = f"shell/plugins/vgs.jarvis/shaders/{orb_style}.frag"
+    outputs = [line.strip() for line in (repo / source).read_text().splitlines()
+               if line.strip().startswith("fragColor = ")]
+    assert len(outputs) == 1, "costly shader: one output line"
+    costly[shader] = (source, outputs[0], "r + uFlow",
+                      "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21)) + vnoise(vec3(uv * 5.0, cost * 0.5 + float(i) * 0.13))",
+                      outputs[0].removesuffix(";") + " * (0.99 + 0.01 * sin(cost));")
 source, needle, seed, step, scaled = costly[shader]
 text = (repo / source).read_text()
 assert text.count(needle) == 1, "costly shader: output must match once"
@@ -177,6 +216,7 @@ for ((run = 1; run <= runs; run++)); do
     hold_mode "shader scale $scale" "$output" "$target_mode" "$scale"
     [[ ${#mode_hold[@]} -gt 0 ]] || { echo 'shader-cost: failed output=not-held'; exit 1; }
     for shader in "${shaders[@]}"; do
+      orb_scene "$shader"
       mkdir -p -- "$pass/$shader"
       for scene in off on costly; do
         shader_pressure_gate "run-$run/$shader/scale-$scale-$scene"

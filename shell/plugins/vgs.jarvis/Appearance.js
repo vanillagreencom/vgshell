@@ -2,10 +2,10 @@
 
 // The Jarvis overlay's own look, the table the manifest's `appearance`
 // names and ThemeLogic.acceptAppearance judges (D023, scoped to the files
-// that bind it: D119). The overlay is the particle orb at the bottom of the
-// screen, its state line, its icon row and Jarvis's words; it must look the
-// same under every theme, as vgs.voice's plasma does. The console, the bar
-// widget and the power card bind no look and follow the theme.
+// that bind it: D119). The overlay is the orb at the bottom of the screen,
+// its icon row, the line or request under it and Jarvis's words; it must
+// look the same under every theme, as vgs.voice's plasma does. The console,
+// the bar widget and the power card bind no look and follow the theme.
 //
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
@@ -13,14 +13,16 @@
 // and every line stand on the same neutral glass in both modes (`plate`).
 // Its black tint dims the blurred backdrop without adding a colour, and
 // each light ink reads against its brightest ground, the tint over white.
-// Nothing stands behind the orb: each point carries a thin dark edge, so one
-// recipe reads on a light, a dark and a busy wallpaper in both modes. Text
-// takes its family and size from its qs.Ui Label role; this table hands it
-// its colour.
+// Nothing stands behind the orb: each style draws its own dark disc in its
+// shader, with a glow that shows on a dark ground and a shadow that shows on
+// a light one, so one recipe reads on a light, a dark and a busy wallpaper
+// in both modes. Text takes its family and size from its qs.Ui Label role;
+// this table hands it its colour.
 //
-// Each state is one set of the orb shader's inputs (shaders/particleorb.frag).
-// Palette stops run top, upper, lower, bottom over the orb's height; `core`
-// tints the interior's centre and `hot` is the spark colour.
+// Each state is one set of the inputs every orb style's shader reads
+// (shaders/orb.glsl). Palette stops run top, upper, lower, bottom over the
+// orb's height; `core` tints the interior's centre and `hot` is the spark
+// colour.
 //
 // The motion model (owner: "no state should be completely still. its only
 // the rate of movement that should change"): every state moves at its own
@@ -126,10 +128,11 @@ var STATES = {
         palette: { top: "#9a8cff", upper: "#5a46e8", lower: "#2ab7c8", bottom: "#3f58d8", core: "#162a6a", hot: "#d9f3ff" },
         amp: 0.13, scatter: 0.7, flow: 0.12, quarterTurn: 1750, sparks: 0.02
     },
-    // Working on an action: thinking's family, turning faster, with
-    // amber sparks.
+    // Working on an action, turning faster: Gold teal, a warm gold top over
+    // teal, sky blue and a deep cobalt base, with pale gold sparks, a
+    // pairing no other state uses (owner's pick, VGS-2593).
     acting: {
-        palette: { top: "#9a8cff", upper: "#5a46e8", lower: "#2ab7c8", bottom: "#d8a040", core: "#162a6a", hot: "#ffc35a" },
+        palette: { top: "#ffd46a", upper: "#2cd6c2", lower: "#1f96d8", bottom: "#2c4ed2", core: "#0b3a5a", hot: "#fff0c0" },
         amp: 0.14, scatter: 0.8, flow: 0.2, quarterTurn: 1125, sparks: 0.045
     },
     // The voice's level swells the orb and its band.
@@ -203,25 +206,20 @@ var TOKENS = {
         // 5); the icon row, the hit square and the shader instrument's
         // scene follow it.
         size: length(255),
-        // Cells per cube edge, full and reduced (the reduced look draws no
-        // inner rim strand and the rim's front faces alone).
+        // Glass bead's cells per cube edge, full and reduced (the reduced
+        // look draws no inner rim strand and the rim's front faces alone).
         cells: number(40, 8, 64),
         reducedCells: number(34, 8, 64),
         // A dot's radius as a share of the canvas half-width: 0.61 px at
         // the 255 px canvas.
         dot: number(0.0048, 0, 0.05),
-        // The point edge, the one value that sets it: how dark the thin
-        // edge round a point of the front face draws at full brightness.
-        // On a light ground a point reads by its edge, on a dark one by
-        // its core; 0 draws none. The shader scales it by the state's
-        // brightness, throb included, and sets its width from `dot`
-        // (shaders/particleorb.frag).
-        edge: share(0.66),
         // The share of the canvas half-width the plates stand outside. It
-        // holds the orb's band in every state: the outermost strand rests
-        // at 1.095 of a state's radius (shaders/particleorb.frag), 0.78
-        // of the half-width at the widest, speaking at its loudest. Past
-        // it the shader draws only the thin spray, to 1.3 of the radius.
+        // holds Glass bead's band in every state: the outermost strand
+        // rests at 1.095 of a state's radius (shaders/glass-bead.frag),
+        // 0.78 of the half-width at the widest, speaking at its loudest.
+        // Past it a style draws only faint light and shade: Glass bead's
+        // thin spray, to 1.3 of the radius, and each style's soft disc
+        // edge, glow and shadow.
         reach: share(0.84),
         frequency: number(2.4, 0, 8),
         warp: share(0.22),
@@ -237,7 +235,25 @@ var TOKENS = {
         // One state's change to the next, and the level's rise and fall.
         transition: duration(400),
         attack: duration(70),
-        release: duration(250)
+        release: duration(250),
+        // The open and the close, one move each: the overlay rises `rise`
+        // into its place as it opens and sinks back as it closes, drawn
+        // whole on every frame, and hides at the end.
+        rise: length(28),
+        move: duration(280),
+        moveEasing: easing("outCubic")
+    },
+    // The state's name, on a deliberate hover over the orb's middle: the
+    // pointer rests `delay` milliseconds inside the `middle` square over
+    // the orb's centre, and the name fades in over `fade` on a small capsule
+    // below that square, inside the disc and clear of the pointer. The
+    // delay is a wait, not motion, so the motion scale leaves it.
+    name: {
+        middle: length(72),
+        paddingX: length(12),
+        paddingY: length(4),
+        delay: number(600, 0, 2000),
+        fade: duration(150)
     },
     state: states(),
     // The icon row's glyphs: at rest, under the pointer or pressed, and the

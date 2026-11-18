@@ -44,7 +44,7 @@ A private control or literal drawing value creates a second style system that th
 - Pass the look's own values to composed controls, except the shared system key hint. Draw a look's own button through `Button` with the look's values, never a private control. Review holds supplied values; `scripts/qml-tests/tst_button.qml` checks the inputs.
 - Draw Jarvis's overlay on lens-form glass plates in its look's `plate` values, each card in one plain ink, with no text shadow and nothing behind the orb. `scripts/qml-tests/tst_jarvis_plates.qml` checks the plates and `scripts/check-theme-contrast.js` holds every ink on its plate; rendered UI review judges the orb.
 - Pad Jarvis's words' card by the look's side padding; on a narrow side it gives up only what its widest word needs, so lines break only at spaces. Review holds the words' card; `scripts/qml-tests/tst_jarvis_bubble.qml` checks the state card.
-- Change the glass tint's strength only in `plate.tint` and the orb's point edge only in `orb.edge`, both in `shell/plugins/vgs.jarvis/Appearance.js`, and derive every other value from them. `scripts/qml-tests/tst_jarvis_plates.qml` and `tst_jarvis_orb.qml` check each has one source.
+- Change the glass tint's strength only in `plate.tint` in `shell/plugins/vgs.jarvis/Appearance.js`, and derive every other glass value from it. `scripts/qml-tests/tst_jarvis_plates.qml` checks it has one source.
 - Draw a held request's answers as two equal capsules, the declining answer first, the confirming one in the accent, except on a request that needs a press, where both draw quiet (Jarvis decision for the owner, 2026-11-12). `scripts/qml-tests/tst_jarvis_prompt.qml` checks the answers.
 
 ### Glass plates over wallpaper

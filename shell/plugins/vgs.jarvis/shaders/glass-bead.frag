@@ -1,8 +1,13 @@
 #version 440
+#extension GL_GOOGLE_include_directive : require
+#include "orb.glsl"
 
-// The Jarvis particle orb in one fragment pass (ParticleOrb.qml).
+// Glass bead, the default orb style: the particle orb's points inside a
+// dark, soft-edged glass disc that moves with the orb, so the points always
+// have a dark ground behind them. A thin glass rim and a glow carry the
+// disc on a dark wallpaper and a soft shadow seats it on a light one.
 //
-// The orb is four concentric shells of dots. Shell 0 is the lattice the
+// The points are four concentric shells of dots. Shell 0 is the lattice the
 // interior shows; shells 1-3 draw only near the silhouette, where their
 // noise-displaced outlines stack into the warped bright band and the spray
 // beyond it. Each shell is hit twice (front and back of the sphere), each
@@ -11,70 +16,11 @@
 // Work per pixel is constant and bounded: 4 shells x 2 faces x (2 noise
 // octaves + 3 lattice-warp noises + 4 dot tests), plus one fold noise on
 // shell 0's front; a rim shell stops after its 2 octaves where it is not
-// near its silhouette. Pixels past the spray's reach return at once.
-// The reduced look (uReduce above 0.5) skips the inner rim shell and the
-// rim shells' back faces: 2 rim hits a pixel instead of 6. Every loop
+// near its silhouette. The disc adds one noise read. Past the spray's reach
+// only the disc's glow and shadow draw, and past those the pixel returns at
+// once. The reduced look (uReduce above 0.5) skips the inner rim shell and
+// the rim shells' back faces: 2 rim hits a pixel instead of 6. Every loop
 // bound stays a constant either way.
-//
-// Each dot of a front face carries a thin dark edge: coverage with no
-// colour out to EDGE dot radii past its own, which shows the dot on a
-// light ground and is lost on a dark one. A back-face dot and a dot the
-// state's presence leaves out carry none, and the state's brightness, its
-// throb included, scales every edge, so the sphere keeps its depth and a
-// dim state stays dim on a light ground. The edge's radius is held to the
-// reach of the 2x2 cell test where a cell shows at its full width; toward
-// the limb a cell foreshortens under any dot's radius, the dot's own
-// included, and neighbouring dots cover the cut.
-//
-// The default Qt Quick vertex shader shares this uniform buffer, so
-// qt_Matrix and qt_Opacity stay first. Output is premultiplied.
-layout(location = 0) in vec2 qt_TexCoord0;
-layout(location = 0) out vec4 fragColor;
-layout(std140, binding = 0) uniform buf {
-    mat4 qt_Matrix;
-    float qt_Opacity;
-    float uTime;   // spark twinkle clock, seconds
-    float uFlow;   // noise-field clock
-    float uSwirl;  // lattice turn about the vertical axis, radians
-    vec4 uTop;     // rim palette, top to bottom
-    vec4 uUpper;
-    vec4 uLower;
-    vec4 uBottom;
-    vec4 uCore;    // interior centre tint
-    vec4 uHot;     // spark colour
-    vec4 uShape;   // radius share, cells per cube edge, dot radius share, displacement
-    vec4 uField;   // noise frequency, lattice warp, scatter, spark share
-    vec4 uTone;    // interior gain, rim gain, saturation, presence
-    vec4 uExtra;   // brightness, tilt, fold depth, lattice period in cells
-    float uReduce; // above 0.5: the reduced look
-    float uEdge;   // the dark edge of a front dot at full brightness, 0 to 1
-};
-
-const float PI = 3.14159265;
-// How far a dot's dark edge reaches past the dot, in the look's dot radii.
-const float EDGE = 1.25;
-
-float hash13(vec3 p) {
-    p = fract(p * 0.3183099 + 0.1);
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-
-// Value noise on a lattice that repeats every uExtra.w cells on each axis,
-// so the flow clock wraps at a whole number of periods with no jump
-// (ParticleOrb.qml `flowTurn`), and the hash reads small coordinates.
-float vnoise(vec3 x) {
-    vec3 i = floor(x);
-    vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    vec3 i0 = mod(i, uExtra.w);
-    vec3 i1 = mod(i + 1.0, uExtra.w);
-    float a = mix(hash13(i0), hash13(vec3(i1.x, i0.y, i0.z)), f.x);
-    float b = mix(hash13(vec3(i0.x, i1.y, i0.z)), hash13(vec3(i1.x, i1.y, i0.z)), f.x);
-    float c = mix(hash13(vec3(i0.x, i0.y, i1.z)), hash13(vec3(i1.x, i0.y, i1.z)), f.x);
-    float d = mix(hash13(vec3(i0.x, i1.y, i1.z)), hash13(i1), f.x);
-    return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
-}
 
 // The radius field: a low octave every shell shares, so the band's lobes
 // stay one band, and a rough octave each shell takes at its own phase.
@@ -83,12 +29,6 @@ float field(vec3 o, float k, float rough) {
     float n = (1.0 - rough) * vnoise(q)
             + rough * vnoise(q * 2.3 + vec3(3.1 + k * 4.3, -uFlow * 0.7, 1.7 + k * 2.9));
     return n - 0.5;
-}
-
-vec3 ramp(float h, vec3 top, vec3 upper, vec3 lower, vec3 bottom) {
-    if (h > 0.35) return mix(upper, top, clamp((h - 0.35) / 0.65, 0.0, 1.0));
-    if (h > -0.25) return mix(lower, upper, clamp((h + 0.25) / 0.60, 0.0, 1.0));
-    return mix(bottom, lower, clamp((h + 0.80) / 0.55, 0.0, 1.0));
 }
 
 // The interior's deeper palette: each stop pulled toward its own square,
@@ -101,20 +41,40 @@ void main() {
     float px = fwidth(uv.x);
     float r = length(uv);
     float R = uShape.x;
-    if (r > R * 1.3) { fragColor = vec4(0.0); return; }
+    if (r > R * 1.55) { fragColor = vec4(0.0); return; }
+    float b = clamp(uExtra.x, 0.0, 1.5);
 
-    float cy = cos(uSwirl), sy = sin(uSwirl);
-    float cx = cos(uExtra.y), sx = sin(uExtra.y);
-    // Object from view: a turn about y after a fixed tilt about x.
-    mat3 M = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy)
-           * mat3(1.0, 0.0, 0.0, 0.0, cx, sx, 0.0, -sx, cx);
+    // The disc: deep ink tinted by the palette, its edge wavering with the
+    // field and swelling with the level. The shift along y of 0.8 flow
+    // units a unit is eight lattice periods a flow turn, so the field
+    // closes as the flow clock wraps.
+    // The unit direction from the centre, the cosine and sine of the angle
+    // of uv. The centre has no angle and takes the direction of angle 0;
+    // any finite direction draws the same pixel there, since the edge Re
+    // it moves reaches no term at r = 0, and the rim light it sets is
+    // scaled by a rim band that is 0 near the centre.
+    vec2 dir = r > 0.0 ? uv / r : vec2(1.0, 0.0);
+    vec3 rimDir = vec3(dir, 0.3);
+    float wob = (vnoise(rimDir * 1.7 + vec3(0.0, uFlow * 0.8, 0.0)) - 0.5) * (0.05 + 0.08 * uLevel) * R;
+    float Re = R * (1.07 + 0.04 * uLevel) + wob;
+    vec3 tint = palette(uv.y / R * 0.95 + uv.x / R * 0.1);
+    float body = 1.0 - smoothstep(Re - 0.16 * R, Re + 0.10 * R, r);
+    float discA = body;
+    vec3 disc = ink(clamp(1.0 - r / Re, 0.0, 1.0), tint) * discA;
+    // A thin glass rim, brighter toward the upper left.
+    float rimBand = core(r - Re * 0.955, 0.02 * R);
+    float rimLight = 0.35 + 0.65 * clamp(dot(dir, normalize(vec2(-0.55, 0.85))), 0.0, 1.0);
+    disc += tint * rimBand * rimLight * 0.45 * b;
+    disc += tint * glow(r, Re, 0.92, 0.8, 0.11) * 0.30 * b;
+    discA += (1.0 - discA) * shadow(uv, Re);
+    if (r > R * 1.3) { fragColor = vec4(disc, discA) * qt_Opacity; return; }
+
+    mat3 M = orbMatrix();
     mat3 MT = transpose(M);
 
     vec3 top = uTop.rgb, upper = uUpper.rgb, lower = uLower.rgb, bottom = uBottom.rgb;
     vec3 col = vec3(0.0);
     float alpha = 0.0;
-    // The front dots' dark edges: coverage alone, with no colour.
-    float edge = 0.0;
     float rr = max(r, 1e-6);
 
     for (int k = 0; k < 4; k++) {
@@ -134,7 +94,7 @@ void main() {
         float out_ = k == 0 ? 0.00  : k == 1 ? 0.00  : k == 2 ? 0.02  : 0.05;
         float Rk = R * rs;
         // The centre is a round sphere of moving dots. Only the outer
-        // strands displace their radius; no solid disc fills the centre.
+        // strands displace their radius.
         float amp = k == 0 ? 0.0 : min(uShape.w * amps * (k == 3 ? uField.z : 1.0), 0.45);
         float N = uShape.y * lat;
 
@@ -208,27 +168,18 @@ void main() {
                 vec2 pc = dc.xy * Rp * (1.0 + out_ * uField.z * h5 * h5);
                 float dist = length(uv - pc);
                 float size = uShape.z * dsc * (0.7 + 0.6 * h4);
-                // A dot this far from the pixel's cell is still one of
-                // the four tested: half a cell and the dot's own jitter
-                // short of a whole cell.
-                float reach = (1.0 - 0.5 * jit) * (PI * 0.5 / N) * Rp;
-                float rim = clamp((max(size, min(size + EDGE * uShape.z, reach)) - dist) / px + 0.5, 0.0, 1.0);
-                if (rim <= 0.0) continue;
-                // An edge shows whole from a quarter of its dot's weight,
-                // so the band's faint inner dots keep theirs.
-                if (fi == 0) edge = max(edge, rim * clamp(wface * 4.0, 0.0, 1.0));
                 float cov = clamp((size - dist) / px + 0.5, 0.0, 1.0);
                 if (cov <= 0.0) continue;
 
                 vec2 hp = pc / R;
                 float hh = hp.y * 0.92 + hp.x * 0.12 + hue;
-                vec3 base = ramp(clamp(hh, -1.0, 1.0), top, upper, lower, bottom);
-                float b;
+                vec3 base = ramp(hh, top, upper, lower, bottom);
+                float bright;
                 if (k > 0) {
-                    b = (0.75 + 0.45 * pow(clamp(abs(hh), 0.0, 1.0), 1.5)) * uTone.y;
+                    bright = (0.75 + 0.45 * pow(clamp(abs(hh), 0.0, 1.0), 1.5)) * uTone.y;
                 } else {
-                    b = uTone.x * (0.45 + 0.55 * nz) * fold;
-                    vec3 dp = ramp(clamp(hh, -1.0, 1.0), deep(top), deep(upper), deep(lower), deep(bottom));
+                    bright = uTone.x * (0.45 + 0.55 * nz) * fold;
+                    vec3 dp = ramp(hh, deep(top), deep(upper), deep(lower), deep(bottom));
                     base = mix(dp, base, graze * graze);
                     float cw = fi == 0 ? nz * nz * nz : 0.0;
                     base = mix(base, uCore.rgb, cw * 0.8);
@@ -236,7 +187,7 @@ void main() {
                 float spark = step(1.0 - uField.w, h4);
                 float tw = 0.6 + 0.4 * sin(uTime * 3.0 + h2 * 40.0);
                 vec3 cc = mix(base, (vec3(0.5) + uHot.rgb * 0.5) * 1.8 * tw, spark);
-                float w = cov * mix(b, 1.0, spark) * wface;
+                float w = cov * mix(bright, 1.0, spark) * wface;
                 col += cc * w;
                 alpha += w;
             }
@@ -246,9 +197,9 @@ void main() {
     col = 1.0 - exp(-col * 1.5);
     float luma = dot(col, vec3(0.299, 0.587, 0.114));
     col = clamp(mix(vec3(luma), col, uTone.z), 0.0, 1.0);
-    float a = clamp(alpha * uExtra.x, 0.0, 1.0);
-    // Premultiplied: colour never exceeds its coverage. The edge lies
-    // under the dots and adds coverage alone.
-    float dark = edge * uEdge * clamp(uExtra.x, 0.0, 1.0);
-    fragColor = vec4(min(col, vec3(a)), a + (1.0 - a) * dark) * qt_Opacity;
+    float pointA = clamp(alpha * uExtra.x, 0.0, 1.0);
+    // Premultiplied: colour never exceeds its coverage. The points lie over
+    // the disc.
+    vec3 points = min(col, vec3(pointA));
+    fragColor = vec4(points + disc * (1.0 - pointA), pointA + discA * (1.0 - pointA)) * qt_Opacity;
 }

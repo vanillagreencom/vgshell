@@ -562,6 +562,8 @@ Item {
         // SessionStart owns the boot session's two settings.
         delete settings.startAtBoot;
         delete settings.bootSession;
+        // The overlay alone draws the orb's style.
+        delete settings.orbStyle;
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
             // The one place a voice is chosen for a user who chose none, and

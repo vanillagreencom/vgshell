@@ -692,7 +692,8 @@ function approvalFrames(source) {
         return result.effects;
     };
     const later = [];
-    const root = { shown: true, visible: true, presented: true, placed: true, displayedHold: null,
+    // An open, placed overlay: `wanted` is Bubble's open state.
+    const root = { wanted: true, visible: true, presented: true, placed: true, displayedHold: null,
         approvalFrames: [], synchronizedHold: null,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });

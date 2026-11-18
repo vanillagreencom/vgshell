@@ -19,8 +19,11 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // which draws the shaders: a plate's body is its fill over the wallpaper,
 // the ground scripts/check-theme-contrast.js judges every ink against, at
 // the look's one tint, above the compositor's blur thresholds; its band is
-// under them; the same material draws in both modes; and the orb's points
-// read on white by their edge. The window is
+// under them; and the same material draws in both modes. Each orb style's
+// motion is continuous across its clocks' wraps, read from drawn frames,
+// with a planted wrap the reading must refuse. Each style's disc draws
+// whole inside its edge, read over white and over black, so no window
+// shows through it. The window is
 // transparent, as the shell's layers are, since glass draws only there
 // (GlassSurface.drawn). A held request paints no frame before its console
 // answer.
@@ -42,7 +45,7 @@ Item {
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var values: ({})
-        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: service.values }, surfaces: { openPage: () => "ok" } })
+        property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: service.values }, surfaces: { openPage: () => "ok" } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
@@ -59,18 +62,18 @@ Item {
     Bubble { id: bubble; width: root.layerWidth; height: root.height; screen: ({ name: "unit" }); service: service }
     QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
 
-    // Two orbs over white, shown for the point edge's test alone: the
-    // look's orb, and the same orb in a copy of the look with no edge.
-    readonly property var noEdge: Object.assign({}, look, { orb: Object.assign({}, look.orb, { edge: 0 }) })
+    // One orb over a mid grey, where a style's light and its shadow both
+    // show, shown for the wrap test alone. Its canvas is half the look's,
+    // which keeps the software renderer's frames quick; at motion scale 0
+    // its clocks stay where the test sets them.
     Item {
-        id: edgeStage
+        id: wrapStage
         visible: false
         z: 1
-        width: edged.width + bare.width
-        height: edged.height
-        Rectangle { anchors.fill: parent; color: "#ffffff" }
-        ParticleOrb { id: edged; look: root.look; phase: "listening" }
-        ParticleOrb { id: bare; x: edged.width; look: root.noEdge; phase: "listening" }
+        width: wrapOrb.width
+        height: wrapOrb.height
+        Rectangle { id: wrapGround; anchors.fill: parent; color: "#808080" }
+        ParticleOrb { id: wrapOrb; width: 128; height: 128; look: root.look; style: "glass-bead"; phase: "listening" }
     }
 
     function session(over) {
@@ -125,7 +128,7 @@ Item {
         }
 
         function test_a_late_console_answer_gates_the_first_painted_frame(data) {
-            if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
+            if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" }, motion: { scale: 0 } }), "ok");
             QsWindow.window = presentedHost;
             service.bubbleWanted = false;
             verify(renderedFrame(root));
@@ -174,10 +177,10 @@ Item {
             const widest = "Move 3 files to Documents?\n~/Downloads/invoices-october/\ninvoice-1031.pdf, invoice-1017.pdf, invoice-1003.pdf";
             return [
                 { tag: "words", caption: caption, state: root.session(Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open)),
-                  plates: ["textCard", "wordsCard"] },
+                  plates: ["wordsCard"] },
                 { tag: "one line of words under the pointer", caption: "Done.", hover: true,
                   state: root.session(Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open)),
-                  plates: ["iconPill", "textCard", "wordsCard"] },
+                  plates: ["iconPill", "wordsCard"] },
                 { tag: "listening under the pointer", hover: true, state: root.session(Object.assign({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, open)),
                   plates: ["iconPill"] },
                 { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "brain=stream-error", category: "other" } }), plates: ["textCard"] },
@@ -198,8 +201,11 @@ Item {
             service.sessionState = data.state;
             if (data.hover) {
                 verify(renderedFrame(root), "the orb lays out");
-                const centre = orb().mapToItem(root, orb().width / 2, orb().height / 2);
-                mouseMove(root, centre.x, centre.y);
+                // On the orb but off its middle, where a resting pointer
+                // would show the state's name over the orb.
+                const away = (root.look.layout.hit + root.look.name.middle) / 4;
+                const point = orb().mapToItem(root, orb().width / 2 + away, orb().height / 2);
+                mouseMove(root, point.x, point.y);
                 tryCompare(bubble, "iconOpacity", 1, 500);
             } else {
                 // The icon row stays the look's hold after the pointer
@@ -298,7 +304,7 @@ Item {
             }
             // Nothing stands behind the orb. The box the plates keep clear
             // holds every state's outermost strand, 1.095 of the state's
-            // radius at rest (shaders/particleorb.frag `rs`), at its
+            // radius at rest (shaders/glass-bead.frag `rs`), at its
             // loudest.
             const drawn = orbBox();
             const canvas = orb().width;
@@ -358,8 +364,11 @@ Item {
         // the line where it meets the body, and the outer line a pixel
         // outside.
         function test_the_body_takes_the_tint_and_the_band_stays_under_the_blur_data() {
-            const pose = poses()[1];
-            return [Object.assign({}, pose, { tag: "dark plates", light: false }), Object.assign({}, pose, { tag: "light plates", light: true })];
+            const rows = [];
+            for (const light of [false, true])
+                for (const pose of [poses()[1], poses()[3]])
+                    rows.push(Object.assign({}, pose, { tag: (light ? "light " : "dark ") + pose.tag, light: light }));
+            return rows;
         }
         function test_the_body_takes_the_tint_and_the_band_stays_under_the_blur(data) {
             put(data);
@@ -379,7 +388,8 @@ Item {
                 const want = [fill.r, fill.g, fill.b].map(channel => 255 * (channel * fill.a + wall * (1 - fill.a)));
                 verify(got.every((channel, i) => Math.abs(channel - want[i]) <= 4), name + "'s body reads " + got + " at " + [x, y] + ", its fill over the wallpaper is " + want);
             };
-            for (const name of ["wordsCard", "textCard", "iconPill"]) {
+            for (const name of data.plates) {
+                verify(shown[name] !== undefined, name + " draws in this pose");
                 const box = shown[name].box;
                 const y = Math.round(box.y + box.height / 2);
                 const inBody = box.x + (name === "iconPill" ? 6 : 8);
@@ -394,28 +404,115 @@ Item {
             }
         }
 
-        // Each point of the orb carries a dark edge, which shows it on a
-        // light wallpaper: over white the look's orb reads darker across
-        // its face than the same orb with no edge. Motion scale 0 holds
-        // both on one frame.
-        function test_the_orbs_points_read_on_white_by_their_edge() {
-            edgeStage.visible = true;
+        // The wrap orb's frame with its clocks at CLOCKS.
+        function frameAt(clocks) {
+            const held = wrapOrb.data.find(item => item.reset !== undefined && item.flow !== undefined);
+            for (const name in clocks) held[name] = clocks[name];
+            verify(renderedFrame(wrapStage), "the wrap orb draws");
+            return grabImage(wrapStage);
+        }
+        // The mean difference of two frames over every second pixel, in
+        // 8-bit steps a channel.
+        function difference(a, b) {
+            let sum = 0;
+            let count = 0;
+            for (let y = 0; y < wrapOrb.height; y += 2)
+                for (let x = 0; x < wrapOrb.width; x += 2) {
+                    sum += Math.abs(a.red(x, y) - b.red(x, y)) + Math.abs(a.green(x, y) - b.green(x, y)) + Math.abs(a.blue(x, y) - b.blue(x, y));
+                    count += 3;
+                }
+            return sum / count;
+        }
+        // Each clock's step between two frames: a little motion that every
+        // style draws, under any wrap's jump.
+        readonly property var steps: ({ time: 0.02, flow: 0.004, swirl: 0.004 })
+        // Whether the frames across the clocks' wraps at TURNS differ no
+        // more than the two frames before them, the same step apart: every
+        // clock steps from three steps short of its turn to one short, and
+        // then past its turn to one step after it.
+        function crossing(turns) {
+            const at = offset => {
+                const clocks = {};
+                for (const name in steps) clocks[name] = ((turns[name] + offset * steps[name]) % turns[name] + turns[name]) % turns[name];
+                return frameAt(clocks);
+            };
+            const early = at(-3);
+            const late = at(-1);
+            const past = at(1);
+            const before = difference(early, late);
+            const across = difference(late, past);
+            return { continuous: across <= 2 * before + 0.25, before: before, across: across };
+        }
+        // One row per option of the Orb style setting, the one list of
+        // styles. A wrap's jump comes from the multiple of a clock a
+        // shader reads, which no state changes; acting turns on every part
+        // that reads a clock, its sparks' twinkle included.
+        function test_each_style_moves_continuously_across_the_wraps_data() {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.jarvis/manifest.json"), false);
+            request.send();
+            return JSON.parse(request.responseText).schema.orbStyle.options.map(option => ({ tag: option.value, style: option.value }));
+        }
+        function test_each_style_moves_continuously_across_the_wraps(data) {
+            verify(root.look.state.acting.sparks > 0, "acting twinkles");
+            wrapStage.visible = true;
             try {
-                verify(renderedFrame(root), "the two orbs draw");
-                const image = grabImage(edgeStage);
-                const face = 40;
-                const mean = left => {
-                    let sum = 0;
-                    for (let y = edged.height / 2 - face; y < edged.height / 2 + face; y++)
-                        for (let x = left + edged.width / 2 - face; x < left + edged.width / 2 + face; x++)
-                            sum += image.red(Math.floor(x), Math.floor(y)) + image.green(Math.floor(x), Math.floor(y)) + image.blue(Math.floor(x), Math.floor(y));
-                    return sum / (3 * 4 * face * face);
-                };
-                const withEdge = mean(0);
-                const without = mean(edged.width);
-                verify(without - withEdge >= 15, "the edged orb's face reads " + withEdge + " over white, the orb with no edge " + without);
+                wrapOrb.style = data.style;
+                wrapOrb.phase = "acting";
+                const read = crossing({ time: wrapOrb.twinkleTurn, flow: wrapOrb.flowTurn, swirl: wrapOrb.swirlTurn });
+                verify(read.continuous, "the frames across the wraps differ by " + read.across + ", the frames before them by " + read.before);
             } finally {
-                edgeStage.visible = false;
+                wrapStage.visible = false;
+            }
+        }
+
+        // Each style draws its disc whole inside its edge: over white and
+        // over black the core reads the same, so its alpha is 1 and no
+        // window shows through, which over a half-light window would read
+        // as two halves. The core read is the middle fifth of the canvas
+        // across, inside every style's disc at the radius of any state.
+        function test_each_style_draws_its_disc_whole_data() { return test_each_style_moves_continuously_across_the_wraps_data(); }
+        function test_each_style_draws_its_disc_whole(data) {
+            wrapStage.visible = true;
+            try {
+                wrapOrb.style = data.style;
+                wrapOrb.phase = "idle";
+                const over = wall => {
+                    wrapGround.color = wall;
+                    verify(renderedFrame(wrapStage), data.style + " draws over " + wall);
+                    return grabImage(wrapStage);
+                };
+                const white = over("#ffffff");
+                const black = over("#000000");
+                const centre = wrapOrb.width / 2;
+                const reach = wrapOrb.width / 10;
+                let least = 1;
+                let at = null;
+                for (let y = Math.ceil(centre - reach); y <= centre + reach; y += 2)
+                    for (let x = Math.ceil(centre - reach); x <= centre + reach; x += 2) {
+                        if ((x - centre) * (x - centre) + (y - centre) * (y - centre) > reach * reach) continue;
+                        const alpha = 1 - Math.max(white.red(x, y) - black.red(x, y), white.green(x, y) - black.green(x, y), white.blue(x, y) - black.blue(x, y)) / 255;
+                        if (alpha < least) { least = alpha; at = [x, y]; }
+                    }
+                verify(least >= 1 - 1 / 255, data.style + "'s disc lets the window through at " + at + ": alpha " + least);
+            } finally {
+                wrapGround.color = "#808080";
+                wrapStage.visible = false;
+            }
+        }
+
+        // The planted control: Blades read across a swirl wrap at one turn,
+        // where its petals, its flare and its rim light, turning at shares
+        // of the swirl, jump.
+        function test_a_wrap_where_the_motion_jumps_is_refused() {
+            wrapStage.visible = true;
+            try {
+                wrapOrb.style = "blades";
+                wrapOrb.phase = "thinking";
+                const read = crossing({ time: wrapOrb.twinkleTurn, flow: wrapOrb.flowTurn, swirl: 2 * Math.PI });
+                verify(!read.continuous, "the jump reads as one: the frames across the wraps differ by " + read.across + ", the frames before them by " + read.before);
+            } finally {
+                wrapStage.visible = false;
             }
         }
 

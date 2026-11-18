@@ -7,14 +7,19 @@ import "Session.js" as Session
 import "WidgetView.js" as View
 import "AccountProviders.js" as Providers
 
-// Jarvis's overlay at the bottom centre of the focused screen: the particle
-// orb in the look of the Session's phase, its icon row beside the orb,
-// the state line or the fault under it, the held request in place
-// of that line, and Jarvis's words above the orb while its voice is muted.
-// It draws in the plugin's own look (Appearance.js). Nothing stands
-// behind the orb: its points read on any wallpaper by their own edge. The
-// icon row stands on a capsule beside it, and the words and the line or
-// the held request each on a card that hugs its lines. Each is a plate of
+// Jarvis's overlay at the bottom centre of the focused screen: the orb in
+// the style the Orb style setting names and the look of the Session's
+// phase, its icon row beside the orb, a fault or the microphone's mute
+// under it, the held request in place of that line, and Jarvis's words
+// above the orb while its voice is muted. The orb alone shows the state:
+// no state name stands under it, and its name shows only on a deliberate
+// hover over the orb's middle, on a capsule over the orb that takes no
+// room. Opening moves the overlay once, up into its place, and closing
+// once, back down, drawn whole, before it hides. It draws in the plugin's
+// own look (Appearance.js). Nothing stands behind the orb: each style
+// draws its own disc. The icon row stands on a capsule beside it, and the
+// words and the line or the held request each on a card that hugs its
+// lines. Each is a plate of
 // the shared glass (qs.Ui GlassSurface) in the lens form, in the look's
 // `plate` values, with no drop shadow. No plate's box enters another's:
 // the look's `plate.gap` parts them, so each draws as glass
@@ -37,14 +42,29 @@ Item {
     property var service: null
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     readonly property var host: QsWindow.window
+    // The Orb style setting, the name of the orb's shader; "" before the
+    // service has a shell, when the overlay is not shown.
+    readonly property string orbStyle: service === null || service.shell === null ? "" : service.shell.settings.orbStyle
     readonly property var state: service === null ? null : service.sessionState
     readonly property string phase: state === null ? "down" : Session.phaseOf(state)
     readonly property bool hidden: state !== null && state.visibility.kind === "hidden"
-    // The menu holds the overlay shown: qs.Ui's Menu closes when the item
-    // it opened from hides.
-    readonly property bool shown: service !== null && screen !== null
+    // The service wants the overlay on this screen. The menu holds it: qs.Ui's
+    // Menu closes when the item it opened from hides.
+    readonly property bool wanted: service !== null && screen !== null
         && (menuOpened || service.bubbleWanted && screen.name === service.focusedOutput)
-    readonly property bool presented: shown && visible && host !== null && host.presented === true
+    // The open and the close: 1 at rest, 0 the look's `orb.rise` under it.
+    // It follows `wanted` over the look's `orb.move`. While it falls after a
+    // close the overlay still draws whole as it sinks, but presents nothing
+    // and takes no pointer; it hides at 0. The open and the close draw the
+    // orb whole on every frame: a fading orb lets the window show through
+    // its disc, which then reads as two halves over a half-light window.
+    property real rest: wanted ? 1 : 0
+    Behavior on rest { NumberAnimation { duration: root.look.orb.move; easing.type: root.look.orb.moveEasing } }
+    readonly property bool closing: !wanted && rest > 0
+    // Whether the layer maps the overlay (LayerHost reads `shown`): while
+    // it is wanted and while it closes.
+    readonly property bool shown: wanted || closing
+    readonly property bool presented: wanted && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
         && overlay.width <= width && overlay.height + look.layout.margin <= height
     // A capture shows only on an orb a pointer can use: one at least as
@@ -136,7 +156,7 @@ Item {
     // draws the current hold.
     // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
     function approvalPolished() {
-        approvalFrames.push(shown && visible && placed && approvalWhole ? hold : null);
+        approvalFrames.push(wanted && visible && placed && approvalWhole ? hold : null);
     }
     function approvalSynchronized() {
         synchronizedHold = approvalFrames.length === 0 ? null : approvalFrames.shift();
@@ -178,9 +198,10 @@ Item {
     readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind,
         service.shell === null ? null : Providers.cloudVoice(service.shell.settings.voiceProvider))
         : state === null || hidden ? null : View.restartLine(state.restart, state.conversation.kind !== "ended")
+    // The line under the orb: what keeps Jarvis from hearing or answering,
+    // never the state's name.
     readonly property string stateText: state === null ? "" : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
-        : fault !== null ? fault.title
-        : (stateWords[phase] || "")
+        : fault !== null ? fault.title : ""
     readonly property var levels: service === null || service.shell === null ? {}
         : service.shell.status.values.level || {}
     readonly property var caption: service === null || service.shell === null ? null
@@ -196,9 +217,16 @@ Item {
     readonly property string orbPhase: micMuted ? "muting" : phase
     readonly property bool active: state !== null && state.conversation.kind !== "ended"
         || ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
-    // The pointer rests on the orb, the bridge or an icon; the icons stay
-    // `icon.hold` after it leaves all three.
-    readonly property bool pointerOver: orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
+    // The pointer rests on the shown name, the orb, the bridge or an icon;
+    // the icons stay `icon.hold` after it leaves them all. Qt delivers a
+    // hover only to the topmost item with a HoverHandler under the
+    // pointer: a handler on an item stacked over a sibling takes the
+    // hover from the sibling's, whatever its `blocking`, while one on a
+    // child leaves its parent's hovered (qmltestrunner run, Qt 6.12.0).
+    // So the orb's middle is a child of its hit square, each sibling laid
+    // over the square, the name and the bridge, counts here itself, and
+    // the shown name stands over the bridge, which its ends reach.
+    readonly property bool pointerOver: plateHover.hovered || orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
     onPointerOverChanged: if (pointerOver) iconHold.stop(); else iconHold.restart()
     readonly property bool iconsWanted: !hidden && active && (pointerOver || iconHold.running)
     property real iconOpacity: iconsWanted ? 1 : 0
@@ -214,7 +242,7 @@ Item {
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
     readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea]
-    readonly property var inputItems: !shown || !visible ? [] : (active && !hidden ? [orbHit] : [])
+    readonly property var inputItems: !wanted || !visible ? [] : (active && !hidden ? [orbHit] : [])
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
         .concat(hold === null || !approvalText.visible ? [] : [cancel, confirm])
@@ -233,10 +261,39 @@ Item {
         if (entry.intent !== undefined) service.intent(entry.intent);
         else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
     }
-    readonly property var stateWords: ({
-        idle: "Ready to talk", thinking: "Thinking",
-        acting: "Working", speaking: "Speaking", confirming: "Waiting for you", error: "", down: "Stopping"
-    })
+    // The state's name on a deliberate hover over the orb's middle: one of
+    // the four names of the approved design (VGS-2593), acting reading as
+    // thinking. Another look shows a line of its own, a fault, the
+    // microphone's mute or a held request, or nothing.
+    readonly property var stateNames: ({ idle: "Ready", listening: "Listening", thinking: "Thinking", acting: "Thinking", speaking: "Speaking" })
+    readonly property string stateName: stateNames[orbPhase] || ""
+    // The pointer is on the orb's middle, or on the shown name, which it
+    // may move onto without the name going (WCAG 2.2 SC 1.4.13); a hidden
+    // capsule takes no hover.
+    readonly property bool nameHovered: middleHover.hovered || plateHover.hovered
+    // The pointer rested the look's `name.delay` there since it came and
+    // since the overlay last opened or closed.
+    property bool nameRested: false
+    onNameHoveredChanged: {
+        if (!nameHovered) {
+            nameRested = false;
+            nameDelay.stop();
+        } else if (!nameRested) {
+            nameDelay.restart();
+        }
+    }
+    onWantedChanged: {
+        nameRested = false;
+        nameDelay.stop();
+    }
+    // Where the name may stand: the overlay at rest, not hidden, in a
+    // state with a name. Outside it the shown name goes at once, with no
+    // fade, so an open or a close starts with no label and the capsule
+    // never draws a name the person did not rest on (VGS-2593 design).
+    readonly property bool nameAllowed: wanted && rest === 1 && !hidden && stateName !== ""
+    readonly property bool nameWanted: nameAllowed && nameHovered && nameRested
+    property real nameOpacity: nameWanted ? 1 : 0
+    Behavior on nameOpacity { NumberAnimation { duration: root.look.name.fade } }
 
     // One button of the icon row: the look's glyph and ring colours, and
     // its Jarvis menu entry, whose intent it sends and whose label it
@@ -418,9 +475,14 @@ Item {
         // words on a side too narrow for their natural size.
         // https://doc.qt.io/qt-6/qml-qtquick-item.html#clip-prop
         clip: root.besideConsole
+        // The open's and the close's one move, in the margin of whichever
+        // edge holds the box: a change of its y, which the layer's input
+        // mask follows (OverlaySurface's regions watch each item's x, y,
+        // width and height up its parents; a transform moves none of them
+        // and would leave the mask where the move began).
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: root.look.layout.margin
-        anchors.topMargin: root.look.layout.margin
+        anchors.bottomMargin: root.look.layout.margin - (1 - root.rest) * root.look.orb.rise
+        anchors.topMargin: root.look.layout.margin + (1 - root.rest) * root.look.orb.rise
         // AnchorChanges releases the bottom anchor as it sets the top one,
         // where two bindings could hold both for a moment and stretch the
         // overlay: https://doc.qt.io/qt-6/qml-qtquick-anchorchanges.html
@@ -440,6 +502,7 @@ Item {
             width: root.besideConsole ? Math.min(root.look.orb.size, overlay.orbRoom) : root.look.orb.size
             height: width
             phase: root.orbPhase
+            style: root.orbStyle
             capture: root.levels.capture || 0
             playback: root.levels.playback || 0
             visible: !root.hidden
@@ -494,6 +557,61 @@ Item {
             x: overlay.orbMiddle - width / 2
             y: overlay.orbCentre - height / 2
             HoverHandler { id: orbHover }
+
+            // The orb's middle: a pointer that rests there the look's
+            // `name.delay` shows the state's name. As a child it leaves
+            // the square's hover, and so the icon row, to the orb.
+            Item {
+                id: orbMiddle
+                objectName: "orbMiddle"
+                width: Math.min(root.look.name.middle, orbHit.width)
+                height: width
+                anchors.centerIn: parent
+                HoverHandler { id: middleHover }
+            }
+        }
+
+        Timer {
+            id: nameDelay
+            interval: root.look.name.delay
+            onTriggered: root.nameRested = true
+        }
+
+        // The state's name on a capsule of the plates' glass over the orb,
+        // centred across it and standing below the middle square,
+        // so the pointer resting on the middle, whose arrow hangs below its
+        // tip, does not cover it. It lies over the overlay, so it moves
+        // nothing. The orb draws
+        // under it in this window, so it draws solid, never a tint the
+        // orb would show through unblurred (GlassSurface.solidOnly). It
+        // fades as the icon capsule does.
+        GlassSurface {
+            id: namePlate
+            objectName: "stateName"
+            // Over the bridge, so the pointer on the name's ends keeps it.
+            z: 1
+            x: Math.round(overlay.orbMiddle - width / 2)
+            y: Math.round(overlay.orbCentre + orbMiddle.height / 2)
+            width: nameLine.implicitWidth + 2 * root.look.name.paddingX
+            height: nameLine.implicitHeight + 2 * root.look.name.paddingY
+            visible: root.nameAllowed && root.nameOpacity > 0
+            opacity: root.nameOpacity
+            optIn: true
+            solidOnly: true
+            elevation: "none"
+            lens: root.look.plate.lens
+            fill: overlay.card.fill
+            standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
+            HoverHandler { id: plateHover }
+            Label {
+                id: nameLine
+                x: root.look.name.paddingX
+                y: root.look.name.paddingY
+                role: "label"
+                color: root.look.ink.state
+                text: root.stateName
+                textFormat: Text.PlainText
+            }
         }
 
         // The bridge follows the chosen edge from inside the hit square

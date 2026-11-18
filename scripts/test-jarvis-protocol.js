@@ -36,8 +36,9 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 // the Local voice choice is a download request the service keeps
 // (LocalTier.qml), and the daemon loads the tier setup left ready. The
 // service also keeps the two Start Jarvis at boot settings
-// (SessionStart.qml): the daemon reads no session.
-const kept = ["localTier", "startAtBoot", "bootSession"];
+// (SessionStart.qml): the daemon reads no session. The overlay alone reads
+// the orb's style.
+const kept = ["localTier", "startAtBoot", "bootSession", "orbStyle"];
 for (const weeklyOpenaiCap of [0, 25, 10000])
     assert.equal(Protocol.accept(JSON.stringify({ ...hello, settings: { ...hello.settings, weeklyOpenaiCap } }), "shell").settings.weeklyOpenaiCap, weeklyOpenaiCap);
 for (const weeklyOpenaiCap of [-1, 10001, "25", null])

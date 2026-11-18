@@ -22,9 +22,27 @@ ROOT = Path(__file__).resolve().parent
 READER = ROOT / "shader/readings.py"
 RUNNER = ROOT / "measure-shader.sh"
 BASH = shutil.which("bash")
+JARVIS = ROOT.parent / "shell/plugins/vgs.jarvis"
+# The manifest a runner copy reads, unless a test plants another.
+JARVIS_MANIFEST = json.loads((JARVIS / "manifest.json").read_text())
 spec = importlib.util.spec_from_file_location("readings", READER)
 reader = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader)
+spec = importlib.util.spec_from_file_location("shader_judge", ROOT / "check-voiceorb-shader.py")
+judge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(judge)
+# The runner draws one orb scene per orb style the shader judge reads, and
+# one in the reduced look of the default style.
+ORB_DEFAULT, ORB_STYLES = judge.orb_styles()
+SCENES = ("voiceorb", "plasma", *(f"jarvis-orb-{style}" for style in ORB_STYLES), "jarvis-orb-reduced",
+          "radial-backdrop", "glass-lens")
+
+
+def orb_words(shader):
+    """The orb style and reduced flag the runner hands SHADER's scene."""
+    if shader == "jarvis-orb-reduced":
+        return ORB_DEFAULT, 1
+    return shader.removeprefix("jarvis-orb-") if shader.startswith("jarvis-orb-") else "", 0
 
 DEVICE = "Physical device 0: 'Test GPU' 1.2.3 (api 1.3.0 vendor 0x1 device 0x2 type 2)\nDEBUG qt.rhi.general:     using this physical device"
 HEADER = DEVICE + "\nCreating QRhi with backend Vulkan for window 0x1234 (wflags 0x1)\nSwap interval is 0, attempting to disable vsync when presenting.\n"
@@ -415,8 +433,14 @@ class ShaderReadings(unittest.TestCase):
         source = READER.read_text()
         suite = Path(__file__).read_text()
         with tempfile.TemporaryDirectory() as scratch:
-            root = Path(scratch)
-            (root / "shader").mkdir()
+            # A checkout the copied suite imports from: its scripts folder,
+            # with the shader judge, and the Jarvis manifest the judge reads
+            # the orb styles from.
+            root = Path(scratch) / "scripts"
+            (root / "shader").mkdir(parents=True)
+            shutil.copyfile(ROOT / "check-voiceorb-shader.py", root / "check-voiceorb-shader.py")
+            (Path(scratch) / "shell/plugins/vgs.jarvis").mkdir(parents=True)
+            shutil.copyfile(JARVIS / "manifest.json", Path(scratch) / "shell/plugins/vgs.jarvis/manifest.json")
             for name, old, new, test in plants:
                 with self.subTest(name=name):
                     self.assertEqual(source.count(old), 1)
@@ -512,7 +536,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
                 with self.assertRaises(AssertionError):
                     self.assert_held_case(changed, case)
 
-    def runner_copy(self, root, harness, text, args=(), scene=None, readings=None):
+    def runner_copy(self, root, harness, text, args=(), scene=None, readings=None, manifest=None):
         scripts = root / "scripts"
         (scripts / "smoke").mkdir(parents=True)
         (scripts / "shader").mkdir()
@@ -536,8 +560,11 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             (scripts / "shader/measure-scene.sh").write_text(scene)
         if readings is not None:
             (scripts / "shader/readings.py").write_text(readings)
-        for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/Ui/foundation/shaders/glasslens.frag", "shell/plugins/vgs.voice/shaders/plasma.frag", "shell/plugins/vgs.jarvis/shaders/particleorb.frag"):
+        for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/Ui/foundation/shaders/glasslens.frag", "shell/plugins/vgs.voice/shaders/plasma.frag"):
             shutil.copyfile(ROOT.parent / shader, root / shader)
+        for source in (*(JARVIS / "shaders").glob("*.frag"), JARVIS / "shaders/orb.glsl"):
+            shutil.copyfile(source, root / "shell/plugins/vgs.jarvis/shaders" / source.name)
+        (root / "shell/plugins/vgs.jarvis/manifest.json").write_text(json.dumps(JARVIS_MANIFEST if manifest is None else manifest))
         (scripts / "smoke/harness.sh").write_text('''
 world_pressure_file="$HOME/pressure"
 printf 'some avg10=7.30 avg60=0.00 avg300=0.00 total=0\\n' >"$world_pressure_file"
@@ -644,7 +671,7 @@ measure_held_scene() {
                         self.assertEqual(result.returncode, 77 if index == 0 else 0, result.stdout + result.stderr)
                         measured = root / "home/scenes"
                         self.assertEqual(len(measured.read_text().splitlines()) if measured.exists() else 0,
-                                         count if index == 0 else 36)
+                                         count if index == 0 else 6 * len(SCENES))
                         if index == 0:
                             self.assertIn("status=not-measured reason=cpu-pressure", result.stdout)
                             self.assertIn("scene=run-1/voiceorb/scale-1-on" if count else "scene=setup", result.stdout)
@@ -665,8 +692,8 @@ hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
 release_mode() { mode_hold=(); }
 """
         scene = """
-measure_held_scene() { printf 'held %s %s %s\\n' "$1" "$2" "${3#"$logs"/}" >>"$home/scenes"; }
-measure_scene() { printf 'bare %s %s %s\\n' "$1" "$2" "${3#"$logs"/}" >>"$home/scenes"; }
+measure_held_scene() { printf 'held %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"; }
+measure_scene() { printf 'bare %s %s %s style=%s reduced=%s\\n' "$1" "$2" "${3#"$logs"/}" "$orb_style" "$orb_reduced" >>"$home/scenes"; }
 """
         readings = """import json, pathlib, sys
 with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
@@ -678,9 +705,10 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
             ('measure_held_scene "$scale" "$scene"', 'measure_scene "$scale" "$scene"'),
             ("run <= runs;", "run <= 1;"),
             ('"${passes[@]/%//$shader}"', '"${passes[0]}/$shader"'),
-            ('    for shader in "${shaders[@]}"; do\n      mkdir', '    for shader in "${shaders[@]:0:1}"; do\n      mkdir'),
+            ('    for shader in "${shaders[@]}"; do\n      orb_scene', '    for shader in "${shaders[@]:0:1}"; do\n      orb_scene'),
             ('"$pass/$shader/scale-$scale-$scene"', '"$pass/scale-$scale-$scene"'),
             ('--shader "$shader" "${choice[@]}"', '--shader voiceorb "${choice[@]}"'),
+            ('      orb_scene "$shader"\n      mkdir -p -- "$pass/$shader"', '      mkdir -p -- "$pass/$shader"'),
         )
         sources = [text]
         for old, new in plants:
@@ -689,8 +717,8 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
             self.assertNotEqual(sources[-1], text)
         with tempfile.TemporaryDirectory() as scratch:
             for chosen in ((), ("plasma",)):
-                shaders = chosen or ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens")
-                want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode}"
+                shaders = chosen or SCENES
+                want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode} style=%s reduced=%s" % orb_words(shader)
                         for run in range(1, passes + 1) for scale in (1, 2) for shader in shaders
                         for mode in ("off", "on", "costly")]
                 for index, source in enumerate(sources):
@@ -708,8 +736,9 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
                             [f"{logs[0]}/run-{run}/{shader}" for run in range(1, passes + 1)]
                             + ["--shader", shader, "--calibrate", "out.json", "--cpu-pressure-limit", "7.3"] for shader in shaders])
                         # The fourth plant drops every shader but the first,
-                        # which one chosen shader cannot see.
-                        self.assertEqual(held, index == 0 or (chosen != () and index == 4),
+                        # and the seventh leaves each scene the orb words the
+                        # costly loop set last, which one chosen shader cannot see.
+                        self.assertEqual(held, index == 0 or (chosen != () and index in (4, 7)),
                                          f"scenes={scenes} readings={calls}")
 
     def test_verdict_over_shaders(self):
@@ -732,7 +761,7 @@ shader = sys.argv[sys.argv.index("--shader") + 1]
 with open(pathlib.Path(__file__).with_name("judged"), "a") as judged:
     judged.write(shader + "\\n")
 # The run directory, run-<voiceorb exit>-<plasma exit>, names each exit;
-# the particle orb passes in both looks.
+# every orb scene passes.
 sys.exit(0 if shader.startswith("jarvis-orb") else int(pathlib.Path(os.environ["HOME"]).parent.name.split("-")[1 if shader == "voiceorb" else 2]))
 """
         rows = (("0", "0", 0), ("77", "0", 77), ("0", "77", 77), ("77", "1", 1), ("1", "77", 1), ("2", "1", 2))
@@ -746,7 +775,7 @@ sys.exit(0 if shader.startswith("jarvis-orb") else int(pathlib.Path(os.environ["
                     root = Path(scratch) / f"run-{orb}-{plasma}"
                     result = self.runner_copy(root, harness, text, [], scene, readings)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens"])
+                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), list(SCENES))
             root = Path(scratch) / "mutant-1-77"
             self.assertEqual(self.runner_copy(root, harness, last, [], scene, readings).returncode, 77)
 
@@ -776,7 +805,7 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                         self.assertEqual(args[:2], ["--test-owner-option", "--test option with spaces"])
                     calls = [json.loads(line) for line in (root / "home/compiler-calls").read_text().splitlines()]
                     self.assertEqual([call[-3:-1] for call in calls], [
-                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens")])
+                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in SCENES])
 
     def test_costly_copy_of_each_shader(self):
         # Each costly source is its own shader with the 256-step loop added
@@ -789,14 +818,17 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
 """
         rows = (("voiceorb", "shell/Ui/feedback/shaders/voiceorb.frag", "cost = angle + phase;"),
                 ("plasma", "shell/plugins/vgs.voice/shaders/plasma.frag", "cost = ang + uTime;"),
-                ("jarvis-orb", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
-                ("jarvis-orb-reduced", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
+                *((f"jarvis-orb-{style}", f"shell/plugins/vgs.jarvis/shaders/{style}.frag", "cost = r + uFlow;")
+                  for style in ORB_STYLES),
+                ("jarvis-orb-reduced", f"shell/plugins/vgs.jarvis/shaders/{ORB_DEFAULT}.frag", "cost = r + uFlow;"),
                 ("radial-backdrop", "shell/Ui/feedback/shaders/radialbackdrop.frag", "cost = p.x * 0.01 + uJoin.x;"),
                 ("glass-lens", "shell/Ui/foundation/shaders/glasslens.frag", "cost = p.x * 0.01 + uRadius;"))
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             result = self.runner_copy(root, harness, RUNNER.read_text())
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            # qsb resolves each orb style's include beside the source it compiles.
+            self.assertEqual((root / "home/sandbox/orb.glsl").read_text(), (JARVIS / "shaders/orb.glsl").read_text())
             for shader, source, seed in rows:
                 with self.subTest(shader=shader):
                     costly = (root / f"home/sandbox/costly-{shader}.frag").read_text()
@@ -806,6 +838,45 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                     self.assertNotIn("for (int i = 0; i < 256; ++i)", original)
                     # Everything before the planted loop is the shader's own source.
                     self.assertTrue(original.startswith(costly[:costly.index("float cost =")].rstrip()))
+
+    def test_orb_scenes_follow_manifest(self):
+        # The orb scenes come from the Jarvis manifest's Orb style setting: a
+        # planted list and default change which costly copies build and
+        # which scene --shader accepts, and an empty list refuses with the
+        # judge's key before the harness.
+        harness = """
+home="$HOME"; sandbox="$HOME/sandbox"
+shell_env=(env -i PATH=/usr/bin:/bin HOME="$HOME")
+mkdir -p -- "$sandbox"
+first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
+"""
+
+        def planted(styles, default):
+            manifest = json.loads(json.dumps(JARVIS_MANIFEST))
+            manifest["schema"]["orbStyle"]["options"] = [{"value": style, "label": style} for style in styles]
+            manifest["settings"]["orbStyle"] = default
+            return manifest
+
+        text = RUNNER.read_text()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "planted"
+            result = self.runner_copy(root, harness, text, manifest=planted(["bubble", "ribbons"], "ribbons"))
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            calls = [json.loads(line) for line in (root / "home/compiler-calls").read_text().splitlines()]
+            self.assertEqual([call[-2] for call in calls], [f"{root}/shell/costly-{shader}.frag.qsb" for shader in (
+                "voiceorb", "plasma", "jarvis-orb-bubble", "jarvis-orb-ribbons", "jarvis-orb-reduced",
+                "radial-backdrop", "glass-lens")])
+            reduced = (root / "home/sandbox/costly-jarvis-orb-reduced.frag").read_text()
+            self.assertTrue((JARVIS / "shaders/ribbons.frag").read_text().startswith(
+                reduced[:reduced.index("float cost =")].rstrip()))
+            result = self.runner_copy(Path(scratch) / "unlisted", harness, text, ["--shader", "jarvis-orb-glass-bead"],
+                                      manifest=planted(["bubble"], "bubble"))
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "shader-cost: refused argument=--shader value=jarvis-orb-glass-bead\n")
+            result = self.runner_copy(Path(scratch) / "empty", harness, text, manifest=planted([], "glass-bead"))
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "shader-cost: failed orb-styles=invalid reason=no-options\n")
+            self.assertFalse((Path(scratch) / "empty/home/compiler-calls").exists())
 
 
 if __name__ == "__main__":

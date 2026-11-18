@@ -1,10 +1,15 @@
 import QtQuick
 import Quickshell
 
-// Jarvis's particle orb, drawn by shaders/particleorb.frag: one look per
+// Jarvis's orb, drawn in the style its bubble hands it: one look per
 // Session phase from the plugin's own table (Appearance.js `state`), in
 // the look its bubble hands it. It draws only; the bubble owns its
-// surface, screen and phase.
+// surface, screen, phase and style.
+//
+// A style is one shader, shaders/<style>.frag, and one option of the
+// manifest's Orb style setting, whose value names that shader; every style
+// takes the same uniforms (shaders/orb.glsl), so a new style needs no
+// change here. A changed style draws from the next frame.
 //
 // A phase change eases every drawn value to the next look over the look's
 // transition, with Qt animations that end on their own. The clocks, the
@@ -22,12 +27,16 @@ Item {
 
     // A key of the look's `state` group.
     property string phase: "idle"
+    // An option of the manifest's Orb style setting, the name of its
+    // shader; an orb handed none draws nothing.
+    required property string style
     property real capture: 0
     property real playback: 0
     property bool active: false
-    // The reduced look, a lighter pass with no inner rim strand. Nothing
-    // selects it: the full look draws on every device (overseer answer
-    // 1793749461-1774370-11999), and the shader instrument measures both.
+    // The reduced look, Glass bead's lighter pass with no inner rim strand;
+    // the other styles have one pass. Nothing selects it: the full look
+    // draws on every device (overseer answer 1793749461-1774370-11999), and
+    // the shader instrument measures both.
     property bool reduced: false
     required property var look
     readonly property var tone: look.state[phase]
@@ -42,18 +51,23 @@ Item {
                                    && root.host !== null && root.host.visible
     // The eased level while the clocks move, the target while they stand.
     readonly property real driven: moving ? clock.level : target
-    // The clocks wrap where the drawn motion repeats, so a look shown for
-    // days keeps float32 precision in the shader's uniforms with no visible
-    // jump. The noise lattice repeats every `latticePeriod` cells on each
-    // axis (shaders/particleorb.frag reads it as uExtra.w). The flow moves
-    // the noise by 1, 1.6 and 0.5 times itself along y and by 0.6 and 0.4
-    // times itself along x and z, so after `flowTurn`, ten periods, every
-    // move is a whole number of periods and the field is the same. The
-    // twinkle, sin(3 t), repeats every 2π/3 of `time`, and 2π is three of
-    // those.
+    // The clocks wrap where every style's drawn motion repeats, so a look
+    // shown for days keeps float32 precision in the shader's uniforms with
+    // no visible jump (shaders/orb.glsl). The noise lattice repeats every
+    // `latticePeriod` cells on each axis (uExtra.w). Glass bead moves the
+    // noise by 1, 1.6, 0.8 and 0.5 times the flow along y and by 0.6 and
+    // 0.4 times it along x and z, so after `flowTurn`, ten periods, every
+    // move is a whole number of periods and the field is the same; a wave
+    // of another style runs whole cycles a flow turn (orb.glsl flowPhase).
+    // The twinkles, sin(2 t) and sin(3 t), repeat within 2π of `time`. A
+    // style reads the swirl at whole multiples of a twentieth of it, so
+    // every turn it draws closes at `swirlTurn`, twenty turns; a wrap at
+    // one turn would jump each part read at a share of it, such as Blades'
+    // petals at nine twentieths.
     readonly property real latticePeriod: 32
     readonly property real flowTurn: 10 * latticePeriod
     readonly property real twinkleTurn: 2 * Math.PI
+    readonly property real swirlTurn: 20 * 2 * Math.PI
 
     // The look's input curve, (1 - e^(-k x)) / (1 - e^(-k)): 0 at 0, 1 at 1,
     // continuous and rising.
@@ -103,7 +117,7 @@ Item {
             time = (time + dt / scale) % root.twinkleTurn;
             flow = (flow + dt * (root.tone.flow * (1 + level) + root.tone.levelFlow * level) / scale) % root.flowTurn;
             if (root.tone.quarterTurn > 0)
-                swirl = (swirl + dt * 500 * Math.PI / root.tone.quarterTurn) % (2 * Math.PI);
+                swirl = (swirl + dt * 500 * Math.PI / root.tone.quarterTurn) % root.swirlTurn;
             if (root.tone.throb > 0)
                 throb = (throb + dt * 2000 * Math.PI / root.tone.throb) % (2 * Math.PI);
         }
@@ -180,8 +194,9 @@ Item {
         property vector4d uExtra: Qt.vector4d(eased.brightness + eased.driveBright * root.driven
             + eased.throbDepth * Math.sin(clock.throb), root.look.orb.tilt, eased.fold, root.latticePeriod)
         property real uReduce: root.reduced ? 1 : 0
-        property real uEdge: root.look.orb.edge
-        fragmentShader: Qt.resolvedUrl("shaders/particleorb.frag.qsb")
+        property real uLevel: root.driven
+        visible: root.style !== ""
+        fragmentShader: root.style === "" ? "" : Qt.resolvedUrl("shaders/" + root.style + ".frag.qsb")
     }
 
     // How a window presents at a look's rate (Qt 6.12.0, qtdeclarative v6.12.0

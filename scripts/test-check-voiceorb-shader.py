@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Real compiler controls for check-voiceorb-shader.py: each shader of its
-table, judged under its own rules, passes clean and refuses a stale pack, a
-texture and the loop its rules refuse; the pack contract's rows and the
-judge's reading of a loop bound are proved once."""
+"""Real compiler controls for check-voiceorb-shader.py: a shader for each
+rule set of its table, judged under its own rules, passes clean and refuses
+a stale pack, a texture and the loop its rules refuse; the pack contract's
+rows, the judge's reading of a loop bound, its reading of an included file
+and its reading of the orb styles are proved once."""
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -22,6 +24,8 @@ if TOOL is None:
     print("test-voiceorb-shader: status=not-measured missing=qsb")
     raise SystemExit(77)
 TEXTURE = "\nlayout(binding=1) uniform sampler2D source;\n"
+SHADERS = checker.shaders()
+MANIFEST = json.loads((checker.JARVIS / "manifest.json").read_text())
 
 
 def once(text, old, new):
@@ -32,7 +36,8 @@ def once(text, old, new):
 
 # Per shader: an edit that changes its compiled shader, and a loop its
 # rules refuse: any loop in an analytic shader, a uniform-bound loop
-# elsewhere.
+# elsewhere. Every rule set of the table has a shader here; Glass bead also
+# holds the orb rule set over a source that includes the orb head.
 EDITS = {
     "voiceorb": (("max(ring, arcs)", "min(ring, arcs)"),
                  ("float ring =", "for (int i = 0; i < 5; ++i) { radius += pixel; }\n    float ring ="), "loop"),
@@ -42,15 +47,38 @@ EDITS = {
                    ("float depth =", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float depth ="), "loop"),
     "plasma": (("clamp(a, 0.0, 1.0)) * qt_Opacity;", "clamp(a, 0.0, 0.9)) * qt_Opacity;"),
                ("for (int i = 0; i < 16; i++)", "for (int i = 0; i < int(uAmp * 8.0); i++)"), "loop-bound"),
-    "jarvis-orb": (("* dark) * qt_Opacity;", "* dark * 0.9) * qt_Opacity;"),
-                   ("for (int q = 0; q < 4; q++)", "for (int q = 0; q < int(uField.w * 8.0); q++)"), "loop-bound"),
+    "jarvis-glass-bead": (("discA += (1.0 - discA) * shadow(uv, Re);", "discA += (1.0 - discA) * shadow(uv, Re) * 0.9;"),
+                          ("for (int q = 0; q < 4; q++)", "for (int q = 0; q < int(uField.w * 8.0); q++)"), "loop-bound"),
 }
+# The file every orb style includes, and a style that includes it.
+HEAD = "orb.glsl"
+INCLUDER = "jarvis-blades"
+
+
+def copy_heads(shipped, folder):
+    """Copy the files SHIPPED's folder holds for inclusion into FOLDER, where
+    qsb and the judge resolve a copy's includes."""
+    for included in shipped.parent.glob("*.glsl"):
+        shutil.copyfile(included, Path(folder) / included.name)
+
+
+def checkout(folder, script_text, manifest):
+    """FOLDER as a checkout holding SCRIPT_TEXT as the judge and MANIFEST as
+    the Jarvis manifest, from which the judge's table reads its orb styles.
+    Returns the judge's path."""
+    script = Path(folder) / "scripts" / SCRIPT.name
+    script.parent.mkdir(parents=True)
+    script.write_text(script_text)
+    jarvis = Path(folder) / "shell/plugins/vgs.jarvis"
+    (jarvis / "shaders").mkdir(parents=True)
+    (jarvis / "manifest.json").write_text(json.dumps(manifest))
+    return script
 
 
 def rows(name):
     """The table rows of shader NAME: name, source text or None for the
     shipped one, exit and the output's start."""
-    original = checker.SHADERS[name][0].read_text()
+    original = SHADERS[name][0].read_text()
     changed, loop, rule = EDITS[name]
     label = name + "-shader"
     return (
@@ -70,11 +98,16 @@ class ShaderControls(unittest.TestCase):
         return subprocess.run(cmd, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "QSB": tool},
                               capture_output=True, text=True, check=False)
 
-    def judge(self, name, row, text, script=SCRIPT, tool=TOOL):
+    def judge(self, name, row, text, script=SCRIPT, tool=TOOL, head=None):
         """Check a disposable copy of shader NAME's shipped source and pack,
-        with the source replaced by TEXT and the defect ROW planted."""
-        shipped = checker.SHADERS[name][0]
+        beside copies of the files its folder holds for inclusion, with the
+        source replaced by TEXT, the included head by HEAD and the defect ROW
+        planted."""
+        shipped = SHADERS[name][0]
         with tempfile.TemporaryDirectory() as scratch:
+            copy_heads(shipped, scratch)
+            if head is not None:
+                (Path(scratch) / HEAD).write_text(head)
             source = Path(scratch) / shipped.name
             source.write_text(shipped.read_text() if text is None else text)
             pack = source.with_suffix(".frag.qsb")
@@ -97,15 +130,17 @@ class ShaderControls(unittest.TestCase):
         self.assertEqual(result.returncode, status, result.stdout + result.stderr)
         self.assertTrue(result.stdout.startswith(key), result.stdout)
 
-    def test_every_shader_keeps_its_rules(self):
-        self.assertEqual(set(EDITS), set(checker.SHADERS), "every shader of the table has its rows")
-        for name in checker.SHADERS:
+    def test_every_rule_set_keeps_its_rules(self):
+        self.assertLessEqual(set(EDITS), set(SHADERS))
+        self.assertLessEqual({rules for _, rules in SHADERS.values()}, {SHADERS[name][1] for name in EDITS},
+                             "every rule set of the table has its rows")
+        for name in EDITS:
             for row, text, status, key in rows(name):
                 with self.subTest(shader=name, row=row):
                     self.assert_row(self.judge(name, row, text), status, key)
 
     def test_the_pack_contract(self):
-        original = checker.SHADERS["voiceorb"][0].read_text()
+        original = SHADERS["voiceorb"][0].read_text()
         for row, text, status, key in (
             ("invalid", "not glsl;", 1, "voiceorb-shader: compile-failed"),
             ("pack-recompressed", None, 0, "voiceorb-shader: ok"),
@@ -121,7 +156,7 @@ class ShaderControls(unittest.TestCase):
     def test_the_judge_reads_a_loop_bound(self):
         # Plasma holds a constant-bound raymarch, so these rows reach the
         # bound's reading, not the plain loop rule.
-        original = checker.SHADERS["plasma"][0].read_text()
+        original = SHADERS["plasma"][0].read_text()
         bound = {
             "uniform-bound": once(original, *EDITS["plasma"][1]),
             "variable-bound": once(original, "const int STEPS = 34;", "int STEPS = int(uAmp * 34.0);"),
@@ -131,13 +166,35 @@ class ShaderControls(unittest.TestCase):
             with self.subTest(row=row):
                 self.assert_row(self.judge("plasma", row, text), 1, "plasma-shader: refused rule=loop-bound")
 
+    def test_the_judge_reads_an_included_file(self):
+        # A rule broken in the head the style includes is broken by the
+        # style; a head that is missing leaves the style unreadable.
+        shipped = SHADERS[INCLUDER][0]
+        head = (shipped.parent / HEAD).read_text()
+        self.assertEqual(shipped.read_text().count(f'#include "{HEAD}"'), 1)
+        for row, planted, status, key in (
+            ("texture", head + TEXTURE, 1, f"{INCLUDER}-shader: refused rule=texture"),
+            ("loop", head + "\nfloat spin(float x) { while (x > 1.0) x -= 1.0; return x; }\n", 1, f"{INCLUDER}-shader: refused rule=loop-bound"),
+        ):
+            with self.subTest(row=row):
+                self.assert_row(self.judge(INCLUDER, row, None, head=planted), status, key)
+        with tempfile.TemporaryDirectory() as scratch:
+            source = Path(scratch) / shipped.name
+            source.write_text(shipped.read_text())
+            shutil.copyfile(shipped.with_suffix(".frag.qsb"), source.with_suffix(".frag.qsb"))
+            self.assert_row(self.run_check(INCLUDER, source), 1, f"{INCLUDER}-shader: unreadable")
+
     def test_rule_controls(self):
-        # Each plant changes one shader's rules in the table, the judge's
-        # pack read or its bound reading; the row it names must turn red.
+        # Each plant changes one rule set in the table, the judge's pack
+        # read or its bound reading; the row it names must turn red. The orb
+        # rule set is planted in the one line every style's row takes.
         source = SCRIPT.read_text()
         plants = []
-        for name, (_, rules) in checker.SHADERS.items():
-            line = next(line for line in source.splitlines() if line.startswith(f'    "{name}": ('))
+        orb = next(name for name in EDITS if name.startswith("jarvis-"))
+        for name, rules in (*((name, checker.FIXED[name][1]) for name in EDITS if name in checker.FIXED),
+                            (orb, checker.ORB_RULES)):
+            prefix = "ORB_RULES = (" if name == orb else f'    "{name}": ('
+            line = next(line for line in source.splitlines() if line.startswith(prefix))
             listed = repr(rules).replace("'", '"')
             self.assertEqual(line.count(listed), 1, line)
             loop = rules[0]
@@ -151,28 +208,34 @@ class ShaderControls(unittest.TestCase):
             ("any bound taken", "if bound is None or not (bound[1].isdigit() or bound[1] in constants):", "if False:", "plasma", "loop"),
             ("a variable bound taken", "bound[1] in constants", "bound[1].isidentifier()", "plasma", "variable-bound"),
             ("while taken", 'if re.search(r"\\b(?:while|do)\\b", code):', "if False:", "plasma", "while"),
+            ("the included head unread", "expanded(source), flags=re.S)", 'source.read_text(encoding="utf-8"), flags=re.S)', INCLUDER, "head-texture"),
         ]
-        variable = once(checker.SHADERS["plasma"][0].read_text(), "const int STEPS = 34;", "int STEPS = int(uAmp * 34.0);")
-        whiled = once(checker.SHADERS["plasma"][0].read_text(), "float pclock = t + uSwirl * 0.6;", "float pclock = t + uSwirl * 0.6;\n    while (pclock < uAmp) pclock += 0.1;")
+        variable = once(SHADERS["plasma"][0].read_text(), "const int STEPS = 34;", "int STEPS = int(uAmp * 34.0);")
+        whiled = once(SHADERS["plasma"][0].read_text(), "float pclock = t + uSwirl * 0.6;", "float pclock = t + uSwirl * 0.6;\n    while (pclock < uAmp) pclock += 0.1;")
         with tempfile.TemporaryDirectory() as scratch:
-            script = Path(scratch) / SCRIPT.name
+            script = checkout(scratch, source, MANIFEST)
             for label, old, new, name, row in plants:
                 with self.subTest(plant=label):
                     script.write_text(once(source, old, new))
+                    head = None
                     if row == "variable-bound":
                         text, status, key = variable, 1, "plasma-shader: refused rule=loop-bound"
                     elif row == "while":
                         text, status, key = whiled, 1, "plasma-shader: refused rule=loop-bound"
+                    elif row == "head-texture":
+                        text, status, key = None, 1, f"{name}-shader: refused rule=texture"
+                        head = (SHADERS[name][0].parent / HEAD).read_text() + TEXTURE
                     else:
                         _, text, status, key = next(r for r in rows(name) if r[0] == row)
-                    result = self.judge(name, row, text, script)
+                    result = self.judge(name, row, text, script, head=head)
                     self.assertFalse(result.returncode == status and result.stdout.startswith(key),
                                      label + ": " + result.stdout + result.stderr)
 
     def test_write_refreshes_a_stale_pack(self):
-        name = "jarvis-orb"
-        shipped = checker.SHADERS[name][0]
+        name = "jarvis-glass-bead"
+        shipped = SHADERS[name][0]
         with tempfile.TemporaryDirectory() as scratch:
+            copy_heads(shipped, scratch)
             source = Path(scratch) / shipped.name
             source.write_text(once(shipped.read_text(), *EDITS[name][0]))
             shutil.copyfile(shipped.with_suffix(".frag.qsb"), source.with_suffix(".frag.qsb"))
@@ -187,7 +250,56 @@ class ShaderControls(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([line.split(":")[0] for line in result.stdout.splitlines()],
-                         [name + "-shader" for name in checker.SHADERS])
+                         [name + "-shader" for name in SHADERS])
+
+    def test_an_orb_style_is_judged_from_the_manifest(self):
+        # A style the manifest lists is a row of the table under the orb
+        # rules: a planted option's shader with a texture is refused by
+        # name. A hand-kept table would refuse the name itself, exit 2.
+        shipped = SHADERS["jarvis-glass-bead"][0]
+        manifest = json.loads(json.dumps(MANIFEST))
+        manifest["schema"]["orbStyle"]["options"].append({"value": "probe", "label": "Probe"})
+        with tempfile.TemporaryDirectory() as scratch:
+            script = checkout(scratch, SCRIPT.read_text(), manifest)
+            shaders = script.parents[1] / "shell/plugins/vgs.jarvis/shaders"
+            copy_heads(shipped, shaders)
+            (shaders / "probe.frag").write_text(shipped.read_text() + TEXTURE)
+            result = subprocess.run([sys.executable, str(script), "--shader", "jarvis-probe"],
+                                    env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "QSB": TOOL},
+                                    capture_output=True, text=True, check=False)
+            self.assert_row(result, 1, "jarvis-probe-shader: refused rule=texture")
+
+    def test_the_orb_styles_refuse_by_key(self):
+        # The one reader of the orb styles refuses an unreadable manifest
+        # apart from one whose list it cannot use, and the judge fails with
+        # that key before it judges anything.
+        def planted(change):
+            manifest = json.loads(json.dumps(MANIFEST))
+            change(manifest)
+            return json.dumps(manifest)
+        cases = (
+            ("missing", None, "orb-styles=unread "),
+            ("not json", "{", "orb-styles=unread "),
+            ("no setting", planted(lambda m: m["schema"].pop("orbStyle")), "orb-styles=invalid reason=no-setting "),
+            ("no options", planted(lambda m: m["schema"]["orbStyle"].update(options=[])), "orb-styles=invalid reason=no-options"),
+            ("default not an option", planted(lambda m: m["settings"].update(orbStyle="absent")),
+             "orb-styles=invalid reason=default-not-an-option "),
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            script = checkout(scratch, SCRIPT.read_text(), MANIFEST)
+            manifest = script.parents[1] / "shell/plugins/vgs.jarvis/manifest.json"
+            for name, text, key in cases:
+                with self.subTest(case=name):
+                    if text is None:
+                        manifest.unlink(missing_ok=True)
+                    else:
+                        manifest.write_text(text)
+                    with self.assertRaises(checker.OrbStylesRefused) as refused:
+                        checker.orb_styles(manifest)
+                    self.assertTrue(str(refused.exception).startswith(key), refused.exception)
+                    result = subprocess.run([sys.executable, str(script)], env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "QSB": TOOL},
+                                            capture_output=True, text=True, check=False)
+                    self.assert_row(result, 1, "shader-judge: failed " + key)
 
 
 if __name__ == "__main__":

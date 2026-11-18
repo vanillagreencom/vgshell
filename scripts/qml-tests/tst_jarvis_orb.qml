@@ -12,8 +12,11 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // continuous and rising from 0 to 1. A state that can show all day draws
 // at most its look's frame rate and the others every frame. Motion scale 0
 // stills every state, the clocks wrap at their turns, and they reset when
-// the orb goes inactive. The shader's point edge is the look's one value;
-// what it draws over white is scripts/qml-tests/tst_jarvis_plates.qml's.
+// the orb goes inactive. The Orb style setting lists five styles, Glass
+// bead first and the default, and the orb draws the shader the chosen
+// style names from the moment it is handed it; acting hands the shader
+// the Gold teal palette. What each style draws across its clocks' wraps is
+// scripts/qml-tests/tst_jarvis_plates.qml's.
 // The offscreen renderer draws no shader, so a
 // drawn frame here is a change of the shader's clock uniform, counted
 // against this test's own FrameAnimation, one tick a frame; the frames a
@@ -23,7 +26,7 @@ Item {
     width: 320
     height: 320
 
-    ParticleOrb { id: orb; active: true; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
+    ParticleOrb { id: orb; active: true; style: "glass-bead"; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
     FrameAnimation { id: frames }
 
     TestCase {
@@ -36,6 +39,7 @@ Item {
             orb.capture = 0;
             orb.playback = 0;
             orb.active = true;
+            orb.style = "glass-bead";
         }
         function cleanup() { QsWindow.window = null; }
         function shader() { return orb.data.find(item => item.fragmentShader !== undefined); }
@@ -174,7 +178,8 @@ Item {
         // repeats, so the shader's float32 uniforms keep their precision:
         // one just short of its turn passes it and starts again near 0.
         function test_a_long_running_clock_stays_within_its_turn_data() {
-            return [{ tag: "the flow", clock: "flow", turn: "flowTurn" }, { tag: "the twinkle", clock: "time", turn: "twinkleTurn" }];
+            return [{ tag: "the flow", clock: "flow", turn: "flowTurn" }, { tag: "the twinkle", clock: "time", turn: "twinkleTurn" },
+                { tag: "the swirl", clock: "swirl", turn: "swirlTurn" }];
         }
 
         function test_a_long_running_clock_stays_within_its_turn(data) {
@@ -187,18 +192,55 @@ Item {
             verify(held[data.clock] >= 0, "the clock stays at or above 0: " + held[data.clock]);
         }
 
-        // The point edge the shader draws is the look's one value: the orb
-        // in a look that states another edge hands the shader that one.
-        function test_the_point_edge_is_the_looks_one_value() {
-            const look = orb.look;
-            verify(look.orb.edge > 0 && look.orb.edge <= 1, "the look states an edge: " + look.orb.edge);
-            compare(shader().uEdge, look.orb.edge);
-            orb.look = Object.assign({}, look, { orb: Object.assign({}, look.orb, { edge: 0.25 }) });
-            try {
-                compare(shader().uEdge, 0.25);
-            } finally {
-                orb.look = Qt.binding(() => Theme.appearance(Appearance.TOKENS, Appearance.LIGHT));
+        function read(path) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.jarvis/" + path), false);
+            request.send();
+            return request;
+        }
+
+        // The setting's one list: the owner's five styles in his order,
+        // Glass bead first and the default, each value naming a shader the
+        // plugin ships.
+        function test_the_orb_style_setting_lists_five_styles() {
+            const manifest = JSON.parse(read("manifest.json").responseText);
+            const entry = manifest.schema.orbStyle;
+            compare(entry.type, "enum");
+            compare(JSON.stringify(entry.options.map(option => option.value)),
+                JSON.stringify(["glass-bead", "bubble", "eclipse", "blades", "ribbons"]));
+            compare(manifest.settings.orbStyle, entry.options[0].value, "Glass bead is the default");
+            for (const option of entry.options) {
+                const pack = read("shaders/" + option.value + ".frag.qsb");
+                verify(pack.status === 200 || pack.status === 0 && pack.responseText.length > 0,
+                    option.value + " ships its shader: status " + pack.status);
             }
+        }
+
+        // Each style the setting offers draws its own shader from the
+        // moment the orb is handed it, with no wait.
+        function test_the_style_selects_its_shader_at_once() {
+            const manifest = JSON.parse(read("manifest.json").responseText);
+            const target = shader();
+            for (const option of manifest.schema.orbStyle.options.slice().reverse()) {
+                orb.style = option.value;
+                verify(String(target.fragmentShader).endsWith("/shaders/" + option.value + ".frag.qsb"),
+                    option.value + " draws its shader: " + target.fragmentShader);
+                verify(target.visible, option.value + " draws");
+            }
+        }
+
+        // Acting hands the shader the Gold teal palette: a warm gold top,
+        // teal, sky blue and a deep cobalt base, a dark teal core and pale
+        // gold sparks. The palette uniforms come from the look's state
+        // alone, so every style draws them.
+        function test_acting_draws_gold_teal() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            orb.phase = "acting";
+            const target = shader();
+            const gold = { uTop: "#ffd46a", uUpper: "#2cd6c2", uLower: "#1f96d8", uBottom: "#2c4ed2", uCore: "#0b3a5a", uHot: "#fff0c0" };
+            for (const name in gold)
+                tryVerify(() => Qt.colorEqual(target[name], gold[name]), orb.look.orb.transition + 1000,
+                    name + " draws " + gold[name] + ", not " + target[name]);
         }
 
         function test_an_inactive_orb_resets_its_clocks() {

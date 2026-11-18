@@ -34,7 +34,7 @@ Item {
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var values: ({})
-        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: service.values }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
+        property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: service.values }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) { root.intents = root.intents.concat([name]); }
@@ -317,10 +317,12 @@ Item {
             mouseClick(line, line.width / 2, line.height / 2, Qt.RightButton);
             tryCompare(bubble, "menuOpened", true);
             service.bubbleWanted = false;
+            compare(bubble.wanted, true, "the menu keeps the overlay open, not just drawing its closing frames");
             compare(bubble.shown, true);
             menu().close();
             tryCompare(bubble, "menuOpened", false);
-            compare(bubble.shown, false);
+            compare(bubble.wanted, false);
+            tryCompare(bubble, "shown", false, 2000, "the overlay hides once its close ends");
             service.bubbleWanted = true;
         }
 

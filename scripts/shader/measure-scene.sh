@@ -2,10 +2,13 @@
 # scripts/smoke/verdict.sh; measures one scene of the shader instrument
 # under the nested output's held mode. It reads the harness's sandbox, its
 # spawn and its process-group leases, the hold's readers, and the runner's
-# `shader`, the shader the scene draws.
+# `shader`, the shader the scene draws, with `orb_style` and `orb_reduced`,
+# the orb style and look a jarvis-orb scene draws (empty and 0 for any other
+# scene).
 
 # measure_scene SCALE SCENE STEM: one standalone layer, VGS_SHADER_MODE
-# SCENE and VGS_SHADER_NAME shader, until its result reads complete or
+# SCENE, VGS_SHADER_NAME shader, VGS_ORB_STYLE orb_style and VGS_ORB_REDUCED
+# orb_reduced, until its result reads complete or
 # timeout_s passes. Writes STEM.launch.log, the instance log as STEM.log,
 # the result as STEM.json and cpu_some_pct of the scene's window as
 # STEM.cpu, which scripts/shader/readings.py records with a calibration,
@@ -18,6 +21,7 @@ measure_scene() {
   start_us="$(cpu_some_us)"
   start_ms="$(now_ms)"
   spawn_display "$stem.launch.log" "${shell_env[@]}" "${bundled_fonts[@]}" VGS_SHADER_MODE="$scene" VGS_SHADER_NAME="$shader" \
+    VGS_ORB_STYLE="$orb_style" VGS_ORB_REDUCED="$orb_reduced" \
     QSG_RHI_BACKEND=vulkan QSG_RHI_PROFILE=1 QSG_NO_VSYNC=1 \
     QT_LOGGING_RULES='qt.scenegraph.time.renderloop.debug=true;qt.scenegraph.general=true;qt.rhi.general=true' \
     -- qs -p "$repo/shell/ShaderScene.qml" || return 1

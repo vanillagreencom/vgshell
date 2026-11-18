@@ -12,17 +12,21 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 
 // One layer, no shell or plugin services, drawing the shader
 // VGS_SHADER_NAME names: VoiceOrb, Voice's plasma orb fed a steady level
-// as the bridge's frames would feed it, or Jarvis's particle orb speaking
-// at playback level 1, in its full look (jarvis-orb) or its reduced look,
-// which nothing selects yet (jarvis-orb-reduced): speaking is the one look
+// as the bridge's frames would feed it, or Jarvis's orb speaking at
+// playback level 1 at its shipped canvas, in the style and look the
+// runner hands it as VGS_ORB_STYLE and VGS_ORB_REDUCED: one scene per
+// option of the manifest's Orb style setting (jarvis-orb-<value>), and the
+// reduced look of the setting's default style, which nothing selects yet
+// (jarvis-orb-reduced). scripts/measure-shader.sh reads the list and sets
+// both. Speaking is the one look
 // whose level widens the orb's radius (Appearance.js `driveRadius`), and
-// the shader returns at once past 1.3 radii, so it draws the largest area:
-// the stress case. The shader's other exits depend on its noise, so it
-// bounds no other state's cost. radial-backdrop is qs.Ui's RadialBackdrop
-// as its one shipped caller draws it: the disc behind Voice's plasma orb,
-// with the plasma's own shader hidden in every scene, since the disc's
-// cost is far under the plasma's frame-to-frame spread and a reading
-// taken beside it is that spread. glass-lens is qs.Ui's GlassSurface in
+// each style's shader returns at once past its reach, so it draws the
+// largest area: the stress case. A style's other exits depend on its
+// state, so a scene bounds no other state's cost. radial-backdrop is
+// qs.Ui's RadialBackdrop as its one shipped caller draws it: the disc
+// behind Voice's plasma orb, with the plasma's own shader hidden in every
+// scene, since the disc's cost is far under the plasma's frame-to-frame
+// spread and a reading taken beside it is that spread. glass-lens is qs.Ui's GlassSurface in
 // the lens form as the largest plate Jarvis's overlay draws: the card of a
 // held request whose payload fills the room this output leaves under the
 // orb, in the overlay's look. The pass's cost grows with the plate's area,
@@ -40,14 +44,18 @@ ShellRoot {
     readonly property string shader: Quickshell.env("VGS_SHADER_NAME")
     readonly property bool complete: frames >= 730
 
-    readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb",
-                                    "jarvis-orb-reduced": "particleorb.frag.qsb",
+    readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb",
                                     "radial-backdrop": "radialbackdrop.frag.qsb", "glass-lens": "glasslens.frag.qsb" })
+    // The orb style and look a jarvis-orb scene draws, as the runner hands
+    // them: empty and "0" for any other scene.
+    readonly property string orbStyle: Quickshell.env("VGS_ORB_STYLE")
+    readonly property bool orbReduced: Quickshell.env("VGS_ORB_REDUCED") === "1"
+    readonly property string pack: orbStyle === "" ? packs[shader] || "" : orbStyle + ".frag.qsb"
 
     function plant(item) {
         // A GlassSurface builds its lens pass in a Loader.
         const effects = item.children.map(child => child instanceof Loader ? child.item : child).filter(child => child instanceof ShaderEffect);
-        const effect = effects.find(child => String(child.fragmentShader).endsWith("/" + root.packs[root.shader]));
+        const effect = effects.find(child => String(child.fragmentShader).endsWith("/" + root.pack));
         if (root.shader === "radial-backdrop") effects.filter(child => child !== effect).forEach(child => { child.visible = false; });
         if (root.mode === "off") effect.visible = false;
         if (root.mode === "costly") effect.fragmentShader = Qt.resolvedUrl("costly-" + root.shader + ".frag.qsb");
@@ -67,7 +75,7 @@ ShellRoot {
             id: visual
             anchors.fill: parent
             sourceComponent: root.shader === "plasma" || root.shader === "radial-backdrop" ? plasma
-                : root.shader.startsWith("jarvis-orb") ? particle : root.shader === "glass-lens" ? plate : orb
+                : root.orbStyle !== "" ? particle : root.shader === "glass-lens" ? plate : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -116,7 +124,8 @@ ShellRoot {
             look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
             phase: "speaking"
             playback: 1
-            reduced: root.shader === "jarvis-orb-reduced"
+            style: root.orbStyle
+            reduced: root.orbReduced
         }
     }
     Component {

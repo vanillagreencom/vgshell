@@ -33,7 +33,7 @@ Item {
         property string consoleKey: ""
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
-        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: {} }, surfaces: { openPage: () => {} } })
+        property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
@@ -108,6 +108,7 @@ Item {
             service.sessionState = null;
             service.acknowledged = [];
             service.confirmed = null;
+            service.microphoneMute = { kind: "ready", muted: false };
             mouseMove(root, root.width - 1, 0);
         }
         function cleanup() { QsWindow.window = null; }
@@ -138,11 +139,12 @@ Item {
             return [
                 { tag: "the approval question", state: root.held, text: "Delete draft.txt?", role: "bodyStrong" },
                 { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }), title: true, role: "bodyStrong" },
-                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk", role: "label" }
+                { tag: "the microphone's line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), muted: true, text: "Microphone muted", role: "label" }
             ];
         }
 
         function test_main_text_is_body_strong(data) {
+            if (data.muted) service.microphoneMute = { kind: "ready", muted: true };
             service.sessionState = data.state;
             const text = data.title ? bubble.fault.title : data.text;
             verify(text !== "", "the line has words");
@@ -209,8 +211,9 @@ Item {
             compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.quiet.ink)));
             put(root.asked);
             compare(String(answer("Yes").foreground), String(Qt.color(root.look.answer.tinted.ink)));
+            service.microphoneMute = { kind: "ready", muted: true };
             put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
-            compare(String(labelOf("Ready to talk").color), String(Qt.color(root.look.ink.state)));
+            compare(String(labelOf("Microphone muted").color), String(Qt.color(root.look.ink.state)));
         }
 
         // On a layer narrower than the prompt's width the prompt reflows to
