@@ -131,7 +131,7 @@ ShellRoot {
     Component {
         id: plate
         GlassSurface {
-            readonly property var look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
+            readonly property var look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT, { surface: "jarvis", clear: JarvisLook.CLEAR })
             // The request card's width, and the output's height less the
             // overlay's two margins, what the orb draws and the plates' gap.
             // The output is read from Quickshell: inside an Item `layer`
@@ -140,11 +140,8 @@ ShellRoot {
             // (https://quickshell.org/docs/v0.3.1/types/Quickshell/ShellScreen/).
             implicitWidth: look.layout.prompt + 2 * look.plate.card.paddingX
             implicitHeight: Quickshell.screens[0].height - 2 * look.layout.margin - Math.round(look.orb.reach * look.orb.size) - look.plate.gap
-            optIn: true
-            fill: look.plate.card.fill
+            surface: "jarvis"
             standard: ({ background: look.plate.card.base, border: look.plate.card.border, radius: look.plate.card.radius })
-            elevation: "none"
-            lens: look.plate.lens
         }
     }
     IpcHandler {

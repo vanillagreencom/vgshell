@@ -352,7 +352,7 @@ Item {
             const normal = PluginLogic.validateManifest(m, "").manifest;
             const manifests = {};
             manifests[id] = normal;
-            const idle = PluginLogic.idleSettingFields(manifests, [id], { version: 6, plugins: [] }, []);
+            const idle = PluginLogic.idleSettingFields(manifests, [id], { version: 7, plugins: [] }, []);
             const settings = {};
             // A bounded number with no default draws its slider at its minimum.
             for (const key of Object.keys(m.schema)) settings[key] = m.schema[key].default !== undefined ? m.schema[key].default : m.schema[key].min;
