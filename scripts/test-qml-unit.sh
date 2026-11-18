@@ -1231,6 +1231,7 @@ mutations=(
   "a themed row takes the page's style|foundation/GlassSurface.qml|decision.style === Theme.glassStyle ? Theme.glass : Theme.themeGlass|Theme.glass|tst_glasssurface.qml|test_the_body_follows_the_style_on_a_styled_row"
   "glass draws its standard border with glass on|foundation/GlassSurface.qml|        visible: !glass.on|        visible: true|tst_glasssurface.qml|test_drawn_glass_draws_one_pass_and_no_standard_border"
   "glass builds its pass with glass off|foundation/GlassSurface.qml|        active: glass.on|        active: true|tst_glasssurface.qml|test_without_glass_the_standard_surface"
+  "glass leaves its pass off with glass on|foundation/GlassSurface.qml|        active: glass.on|        active: false|tst_glasssurface.qml|test_the_pass_paints_the_body"
   "a surface without glass ignores its standard fill|foundation/GlassSurface.qml|color: glass.on ? \"transparent\" : glass.standard.background|color: glass.on ? \"transparent\" : glass.raised.background|tst_glasssurface.qml|test_without_glass_the_standard_surface"
   "a surface without glass ignores its standard border|foundation/GlassSurface.qml|border.color: glass.standard.border|border.color: glass.raised.border|tst_glasssurface.qml|test_without_glass_the_standard_surface"
   "glass over content draws its fill translucent|foundation/GlassSurface.qml|solid ? Theme.glassSolid(fill, look)|solid ? fill|tst_glasssurface.qml|test_glass_over_its_window_draws_solid"
