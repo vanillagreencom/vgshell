@@ -1004,6 +1004,15 @@ Scope {
         return found;
     }
 
+    function layerContents(id) {
+        const items = [];
+        for (const entry of Layers.entries)
+            if (entry.pluginId === id)
+                for (const name of Object.keys(entry.screens))
+                    items.push(entry.screens[name]);
+        return items;
+    }
+
     // The shown Status and Setup sections of a plugin page, in drawn
     // order: the Setup group's headline and its steps, keys and screens.
     function setupSections(item) {
@@ -1892,9 +1901,7 @@ Scope {
         // Withdraw the host that actually admitted the capture, not the
         // other per-screen copies, which may have no backing window.
         function withdrawPresentedLayer(id: string, property: string): string {
-            const windows = Layers.entries.filter(entry => entry.pluginId === id)
-                .flatMap(entry => Object.values(entry.screens))
-                .map(item => item.QsWindow.window)
+            const windows = root.layerContents(id).map(item => item.QsWindow.window)
                 .filter(win => win !== null && win.presented);
             if (windows.length !== 1) return "presented-windows=" + windows.length;
             if (property === "screen") windows[0].targetScreen = null;
@@ -2040,26 +2047,27 @@ Scope {
         // pending, saved or unsaved, and the path, for the last grab.
         function grabbed(): string { return IpcPages.answer(root.grab); }
         // Check the effect on the shown card, not whether this instance
-        // compiled the shared program. Qt can leave a later instance
-        // Uncompiled while it draws (nested reading, 2026-09-28).
+        // prepared the bytecode. Qt 6.12's QQuickShaderEffectPrivate::
+        // updateShader does not change the manager's status on a cache hit.
         // The GL render case in tst_glasssurface proves the shader paints.
         function glassPass(hostKey: string, id: string, surface: string): string {
-            const items = [];
-            if (hostKey === "layer") {
-                for (const entry of Layers.entries.filter(e => e.pluginId === id))
-                    items.push(...Object.values(entry.screens));
-            } else {
-                const item = root.instance(hostKey, id);
-                if (item !== null) items.push(item);
+            const items = hostKey === "layer" ? root.layerContents(id) : [root.instance(hostKey, id)];
+            let bound = false;
+            for (const item of items) {
+                if (item === null) continue;
+                for (const card of root.descendants(item)) {
+                    if (!(card instanceof Ui.GlassSurface) || card.surface !== surface || !card.visible) continue;
+                    const window = card.Window.window;
+                    if (window === null || !window.visible) continue;
+                    for (const effect of root.descendants(card)) {
+                        if (!(effect instanceof ShaderEffect) || !effect.visible || effect.width <= 0 || effect.height <= 0
+                                || !String(effect.fragmentShader).endsWith("/foundation/shaders/glasslens.frag.qsb")) continue;
+                        if (effect.status === ShaderEffect.Error) return "shader-error";
+                        bound = true;
+                    }
+                }
             }
-            const effects = items.flatMap(item => root.descendants(item))
-                .filter(item => item instanceof Ui.GlassSurface && item.surface === surface && item.visible
-                    && item.Window.window !== null && item.Window.window.visible)
-                .flatMap(item => root.descendants(item))
-                .filter(item => item instanceof ShaderEffect && item.visible && item.width > 0 && item.height > 0
-                    && String(item.fragmentShader).endsWith("/foundation/shaders/glasslens.frag.qsb"));
-            if (effects.some(item => item.status === ShaderEffect.Error)) return "shader-error";
-            return effects.length > 0 ? "bound" : "absent";
+            return bound ? "bound" : "absent";
         }
         // A service's ListModel property as a list of rows, each the roles
         // named in the comma list.
