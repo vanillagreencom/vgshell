@@ -782,7 +782,6 @@ FocusScope {
             Callout {
                 id: reachNotice
                 objectName: "mainReachNotice"
-                level: "raised"
                 readonly property var reach: root.values.mainReach
                 readonly property bool warns: reach !== undefined && reach !== null
                     && (reach.kind === "unavailable" || reach.kind === "satellite" && reach.cause !== "")
@@ -972,7 +971,6 @@ FocusScope {
                 }
                 Callout {
                     visible: root.asksState.kind === "unavailable"
-                    level: "raised"
                     tone: "warning"
                     iconName: "triangle-alert"
                     plain: true
@@ -982,7 +980,6 @@ FocusScope {
                 }
                 Callout {
                     visible: text !== ""
-                    level: "raised"
                     tone: "danger"
                     iconName: "circle-alert"
                     plain: true
@@ -992,7 +989,6 @@ FocusScope {
                 // is sending, with Retry while it waits for the person.
                 Callout {
                     visible: root.editingAsk === null && root.askRecoveryText !== ""
-                    level: "raised"
                     tone: root.askUnconfirmed ? "warning" : "info"
                     iconName: root.askUnconfirmed ? "triangle-alert" : "info"
                     plain: true
@@ -1100,7 +1096,7 @@ FocusScope {
             contentItem: Section {
                 id: taskColumn
                 title: "Coding tasks"
-                Callout { visible: root.problem !== ""; level: "raised"; tone: "danger"; iconName: "circle-alert"; plain: true; text: root.problem }
+                Callout { visible: root.problem !== ""; tone: "danger"; iconName: "circle-alert"; plain: true; text: root.problem }
                 GroupList {
                     id: taskGroups
                     width: parent.width
@@ -1175,7 +1171,6 @@ FocusScope {
                 Callout {
                     id: speechNotice
                     visible: root.speechOnly
-                    level: "raised"
                     tone: "info"
                     iconName: "info"
                     text: root.speechOnlyText
@@ -1186,7 +1181,6 @@ FocusScope {
                 // What the last message, Stop or memory answer could not do.
                 Callout {
                     visible: root.problem !== ""
-                    level: "raised"
                     tone: "danger"
                     iconName: "circle-alert"
                     plain: true

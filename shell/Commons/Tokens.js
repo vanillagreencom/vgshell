@@ -496,29 +496,33 @@ var TOKENS = {
     // A callout, the notice banner, stands out from a page's rows to say
     // one thing a reader needs before them: its lines `gap` apart beside
     // its icon, `iconGap` from them, and links at the bottom.
-    // `padding` clears its neutral surface fill, one step above its
-    // container, and `radius` rounds its corner. Each tone holds only the
+    // `padding` clears its neutral fill and `radius` rounds its corner. Each tone holds only the
     // icon's foreground: danger and warning keep the badge's ink; info
     // keeps neutral ink with no hue. Title, text, opt-out and link inks
     // start from normal text, muted text and each accent state. contrastMix
     // keeps each readable ink unchanged, otherwise taking the nearest
     // mix toward the contrasting endpoint that holds 4.5:1 at its drawn
-    // weight on surfaceHover, the harder window fill; the same ink holds
-    // on surfaceRaised, the panel fill. Solve opaque bytes even from a
+    // weight on the blend over surfaceHover, beyond the darkest/lightest
+    // resting grounds. Solve opaque bytes even from a
     // translucent preference; the judge still reads each actual fill.
     // No theme-wide colour changes.
     callout: {
+        // Eight percent toward contrast separates the banner on its real
+        // ground: lighter in dark, darker in light, since white cannot be
+        // lightened. A single translucent fill keeps that gap on panels,
+        // pages and cards; inks solve against its hardest resting ground.
+        background: color("alpha(contrast({palette.background}), 0.08)"),
         radius: length("{radius.md}"),
         padding: length("{space.lg}"),
         gap: length("{row.lineGap}"),
         iconGap: length("{space.md}"),
-        title: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.text}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.bodyStrong.weight})"),
-        text: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.textMuted}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
-        dismiss: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.textMuted}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.calloutDismiss.weight})"),
+        title: color("contrastMix(contrast({palette.background}), alpha({color.text}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.bodyStrong.weight})"),
+        text: color("contrastMix(contrast({palette.background}), alpha({color.textMuted}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.body.weight})"),
+        dismiss: color("contrastMix(contrast({palette.background}), alpha({color.textMuted}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.calloutDismiss.weight})"),
         link: {
-            foreground: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accent}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
-            hover: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accentHover}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})"),
-            pressed: color("contrastMix(contrast(alpha({color.surfaceHover}, 1)), alpha({color.accentPressed}, 1), alpha({color.surfaceHover}, 1), 4.5, {text.body.weight})")
+            foreground: color("contrastMix(contrast({palette.background}), alpha({color.accent}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.body.weight})"),
+            hover: color("contrastMix(contrast({palette.background}), alpha({color.accentHover}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.body.weight})"),
+            pressed: color("contrastMix(contrast({palette.background}), alpha({color.accentPressed}, 1), over({callout.background}, alpha({color.surfaceHover}, 1)), 4.5, {text.body.weight})")
         },
         tone: {
             info: { icon: { type: "choice", value: "info", options: ["info", "triangle-alert", "circle-alert"] }, foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") },

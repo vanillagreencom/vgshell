@@ -334,7 +334,6 @@ FocusScope {
         Callout {
             id: blocked
             objectName: "vpn-blocked"
-            level: root.expanded ? "raised" : "base"
             visible: root.notice !== null && root.listed
             tone: "danger"
             text: root.notice === null ? "" : root.notice.text
@@ -347,7 +346,6 @@ FocusScope {
         }
         Callout {
             objectName: "vpn-problem"
-            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== "" && !root.prompting && !nordSection.opened && root.profiles.state !== "no-answer"
             tone: "danger"

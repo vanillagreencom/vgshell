@@ -600,7 +600,6 @@ FocusScope {
                         model: page.row === null ? [] : page.row.errors
                         Callout {
                             required property string modelData
-                            level: "raised"
                             text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutText)
                             tone: Steps.problemTone([modelData])
                             width: body.width
@@ -611,7 +610,6 @@ FocusScope {
                         model: page.row === null ? [] : page.panel.headReplies(page.row.id)
                         Callout {
                             required property string modelData
-                            level: "raised"
                             tone: "danger"
                             text: modelData
                             width: body.width
@@ -959,7 +957,6 @@ FocusScope {
                     // (press), and the steps draw none (Steps.stepAction).
                     // An always-on plugin is never off.
                     Callout {
-                        level: "raised"
                         width: body.width
                         visible: !page.plugin.enabled && page.hasSetup
                         iconName: "power"
@@ -974,7 +971,6 @@ FocusScope {
                     // (PluginLogic.setupGuideRow); a plugin with no README
                     // to open draws it with no link.
                     Callout {
-                        level: "raised"
                         readonly property var guide: page.hasSetup && page.row !== null ? page.row.guide : null
                         width: body.width
                         visible: guide !== null

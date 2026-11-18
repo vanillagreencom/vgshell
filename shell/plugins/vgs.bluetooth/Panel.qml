@@ -73,7 +73,6 @@ Item {
 
         Callout {
             objectName: "bluetooth-power-problem"
-            level: "base"
             width: layout.contentWidth
             visible: text !== ""
             tone: "danger"

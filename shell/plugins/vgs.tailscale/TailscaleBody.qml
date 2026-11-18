@@ -434,7 +434,6 @@ FocusScope {
         }
         Callout {
             objectName: "tailscale-problem"
-            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== ""
             tone: root.tailscale.state === "unavailable" ? "warning" : "danger"

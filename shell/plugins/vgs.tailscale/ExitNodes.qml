@@ -116,7 +116,6 @@ FocusScope {
 
         Callout {
             objectName: "tailscale-exit-problem"
-            level: root.inlineCountries ? "raised" : "base"
             width: parent.width
             visible: text !== ""
             tone: "danger"

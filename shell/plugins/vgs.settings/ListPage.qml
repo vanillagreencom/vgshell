@@ -130,7 +130,6 @@ FocusScope {
 
                 Callout {
                     objectName: "plugins-notice"
-                    level: "raised"
                     text: page.panel.notice
                     visible: text !== ""
                     tone: "danger"

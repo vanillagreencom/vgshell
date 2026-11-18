@@ -282,7 +282,7 @@ function verifyCallers(logic, source, page) {
     assert.equal(ctx.openTui("plugin", "accounts"), "ok");
     assert.equal(ctx.replyOf("plugin", ctx.tuiKey("accounts")), "", "an opened screen clears its refusal");
 
-    const bindings = [...page.matchAll(/Callout \{\s+required property string modelData\n\s+level: "raised"\n\s+text: ([^\n]+)/g)];
+    const bindings = [...page.matchAll(/Callout \{\s+required property string modelData\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
     for (const [modelData] of [
         ...CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:")),

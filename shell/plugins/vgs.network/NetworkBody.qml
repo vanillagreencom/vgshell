@@ -350,7 +350,6 @@ FocusScope {
         }
         Callout {
             objectName: "network-problem"
-            level: root.expanded ? "raised" : "base"
             width: parent.width
             visible: text !== "" && !root.prompting
             tone: root.network.state === "unavailable" ? "warning" : "danger"

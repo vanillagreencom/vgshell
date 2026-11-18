@@ -51,6 +51,7 @@ var REFERENCE_PATTERN = /^\{([A-Za-z0-9.]*)\}$/;
 // token the expression is written for.
 var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
+    over: { args: ["color", "color"], result: "color" },
     // A fifth argument judges the mix at the drawn text role's weight.
     contrastMix: { args: ["color", "color", "color", "number", "weight"], minArgs: 4, result: "color" },
     // contrastMix, but COLOR itself where no mix meets RATIO: a margin over
@@ -446,18 +447,12 @@ var READABILITY_PAIRS = [
     ["badge.unread.tone.normal.foreground", "badge.unread.tone.normal.background"],
     ["badge.unread.tone.warning.foreground", "badge.unread.tone.warning.background"],
     ["badge.unread.tone.danger.foreground", "badge.unread.tone.danger.background"],
-    ["callout.title", "color.surfaceRaised"],
-    ["callout.text", "color.surfaceRaised"],
-    ["callout.dismiss", "color.surfaceRaised"],
-    ["callout.link.foreground", "color.surfaceRaised"],
-    ["callout.link.hover", "color.surfaceRaised"],
-    ["callout.link.pressed", "color.surfaceRaised"],
-    ["callout.title", "color.surfaceHover"],
-    ["callout.text", "color.surfaceHover"],
-    ["callout.dismiss", "color.surfaceHover"],
-    ["callout.link.foreground", "color.surfaceHover"],
-    ["callout.link.hover", "color.surfaceHover"],
-    ["callout.link.pressed", "color.surfaceHover"],
+    ["callout.title", "callout.background"],
+    ["callout.text", "callout.background"],
+    ["callout.dismiss", "callout.background"],
+    ["callout.link.foreground", "callout.background"],
+    ["callout.link.hover", "callout.background"],
+    ["callout.link.pressed", "callout.background"],
     ["screensaver.foreground", "screensaver.background"],
     ["screensaver.gradientStart", "screensaver.background"],
     ["screensaver.gradientEnd", "screensaver.background"]
@@ -483,12 +478,9 @@ var BOUNDARY_PAIRS = [
     ["checkbox.mark", "checkbox.checked"],
     ["segmented.indicatorColor", "segmented.selected"],
     ["segmented.indicatorColor", "segmented.background"],
-    ["callout.tone.info.foreground", "color.surfaceRaised"],
-    ["callout.tone.warning.foreground", "color.surfaceRaised"],
-    ["callout.tone.danger.foreground", "color.surfaceRaised"],
-    ["callout.tone.info.foreground", "color.surfaceHover"],
-    ["callout.tone.warning.foreground", "color.surfaceHover"],
-    ["callout.tone.danger.foreground", "color.surfaceHover"]
+    ["callout.tone.info.foreground", "callout.background"],
+    ["callout.tone.warning.foreground", "callout.background"],
+    ["callout.tone.danger.foreground", "callout.background"]
 ];
 var BOUNDARY_FLOOR = 3;
 // A modal card shows over the scrim, which dims the page under it. On each
@@ -554,6 +546,7 @@ var READABILITY_NAMES = {
     "callout.tone.info.foreground": "Information notice icon",
     "callout.tone.warning.foreground": "Warning notice icon",
     "callout.tone.danger.foreground": "Error notice icon",
+    "callout.background": "notice backgrounds",
     "callout.title": "Notice title",
     "callout.text": "Notice text",
     "callout.dismiss": "Notice opt-out",
@@ -632,8 +625,14 @@ function readabilityShortfalls(values, glass) {
     for (var k = 0; k < BOUNDARY_ROLES.length; k++)
         for (var m = 0; m < READABILITY_SURFACES.length; m++)
             pairs.push([BOUNDARY_ROLES[k], READABILITY_SURFACES[m], BOUNDARY_FLOOR]);
-    for (var n = 0; n < BOUNDARY_PAIRS.length; n++)
-        pairs.push([BOUNDARY_PAIRS[n][0], BOUNDARY_PAIRS[n][1], BOUNDARY_FLOOR]);
+    for (var n = 0; n < BOUNDARY_PAIRS.length; n++) {
+        var boundaryFill = parseColor(valueAt(values, BOUNDARY_PAIRS[n][1]));
+        if (boundaryFill === null || boundaryFill.a === 1)
+            pairs.push([BOUNDARY_PAIRS[n][0], BOUNDARY_PAIRS[n][1], BOUNDARY_FLOOR]);
+        else
+            for (var b = 0; b < READABILITY_SURFACES.length; b++)
+                pairs.push([BOUNDARY_PAIRS[n][0], BOUNDARY_PAIRS[n][1], BOUNDARY_FLOOR, READABILITY_SURFACES[b]]);
+    }
     for (var s = 0; s < READABILITY_SURFACES.length; s++) {
         pairs.push([MODAL_BORDER, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s]]);
         pairs.push([MODAL_FILL, MODAL_SCRIM, BOUNDARY_FLOOR, READABILITY_SURFACES[s], true]);
@@ -876,6 +875,10 @@ function resolve(tokens, overrides) {
             args.push(arg);
         }
         switch (tree.name) {
+        case "over":
+            if (args[1].a < 1)
+                return fail("translucent-ground", token, "function=over colour=" + formatColor(args[1]));
+            return overlay(args[0], args[1]);
         case "contrastMix":
         case "reachMix":
             if (args[3] < 1 || args[3] > 21)
