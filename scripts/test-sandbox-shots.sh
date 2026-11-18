@@ -2278,6 +2278,8 @@ scene_cases=(
   "a checkout with the Settings plugin takes the plugin-pages scene" 77 "qml-smoke: status=not-measured" plugin-pages
   "a revision before the Settings plugin refuses the plugin-pages scene" 2 "sandbox-shots: refused: scene=plugin-pages tree=$old_rev" --rev "$old_rev" plugin-pages
   "a scale other than 1 or 2 is refused" 2 "sandbox-shots: refused: scale=3" --scale 3 settings
+  "a ground other than light, dark or busy is refused" 2 "sandbox-shots: refused: ground=grey" --ground grey launcher
+  "a busy ground is taken" 77 "qml-smoke: status=not-measured" --ground busy launcher
   "scale 2 is taken" 77 "qml-smoke: status=not-measured" --scale 2 settings
   "a theme card that is no catalog name is refused" 2 "sandbox-shots: refused: theme-card=../x" --theme-card ../x settings
   "a theme card the catalog lacks is refused" 2 "sandbox-shots: refused: theme-card=nosuch tree=checkout" --theme-card nosuch theme-browser

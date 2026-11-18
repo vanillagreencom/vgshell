@@ -5,6 +5,7 @@
 #                                 [--size WxH] [--scale N]
 #                                 [--theme-card NAME]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
+#                                 [--ground light|dark|busy]
 #                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
 #                                 [--info LIST] [--click PANE]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
@@ -386,6 +387,14 @@
 # --dotfiles, a stow tree holding tmux/ and nvim/, with the Neovim plugins
 # and tmux plugin of this user's home copied in. A catalog package's
 # wallpaper is the file its --preview-wallpaper NAME=PATH names
+# (scripts/theme-previews.sh passes them). --ground sets the desktop every
+# scene draws over, with vgs.themes on to draw it: `dark` the vgs theme's
+# black image, the default; `light` a pale gradient from #fbfbfb to
+# #d9dde4; `busy` the smoke's photograph fixture,
+# scripts/smoke/fixtures/theme-image.jpg; both made at 2560x1600 by
+# ImageMagick from the same inputs on every run, so a before and an after
+# set stand over the same ground. Without --ground a scene keeps its own
+# desktop choice
 # (scripts/theme-previews.sh passes them). A scene argument that is missing
 # or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
 # The screensaver-lock scene runs the screensaver from its idle watch and
@@ -646,6 +655,7 @@ shot_size=""
 theme_card="frankenstein"
 preview_themes=()
 declare -A preview_wallpaper=()
+ground=""
 preview_dotfiles=""
 page_ids=()
 info_entries=()
@@ -666,6 +676,7 @@ while [[ $# -gt 0 ]]; do
     --theme-card) theme_card="$2"; shift 2 ;;
     --preview-themes) IFS=, read -r -a preview_themes <<<"$2"; shift 2 ;;
     --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
+    --ground) ground="$2"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
     --info) IFS=, read -r -a info_entries <<<"$2"; shift 2 ;;
@@ -942,6 +953,10 @@ for scene in "${scenes[@]}"; do
     printf 'sandbox-shots: refused: scene=%s tree=%s\n' "$scene" "${rev:-checkout}" >&2
     exit 2
   fi
+  case $ground in
+    ""|light|dark|busy) ;;
+    *) printf 'sandbox-shots: refused: ground=%s\n' "$ground" >&2; exit 2 ;;
+  esac
   if [[ $scene == theme-previews ]]; then
     [[ ${#preview_themes[@]} -gt 0 ]] || { printf 'sandbox-shots: refused: preview-themes=\n' >&2; exit 2; }
     for name in "${preview_themes[@]}"; do
@@ -1335,19 +1350,35 @@ capture_theme_check() { # MODE ACTUAL
 
 # Sample before opening the scene: a modal scrim changes the displayed
 # pixel, so its colour cannot identify the desktop behind it.
+# The desktop image --ground names, made once per run in the sandbox.
+ground_image() {
+  case $ground in
+    ""|dark) printf '%s\n' "$repo/themes/vgs/backgrounds/black.png" ;;
+    light|busy)
+      if [[ ! -f $sandbox/ground-$ground.png ]]; then
+        if [[ $ground == light ]]; then "$imagemagick" -size 2560x1600 gradient:'#fbfbfb-#d9dde4' "$sandbox/ground-$ground.png" || return 1
+        else "$imagemagick" "$repo/scripts/smoke/fixtures/theme-image.jpg" -resize '2560x1600!' "$sandbox/ground-$ground.png" || return 1; fi
+      fi
+      printf '%s\n' "$sandbox/ground-$ground.png" ;;
+  esac
+}
 scene_desktop() { # SCENE MODE
-  local sample enabled
-  bg_state_names "$repo/themes/vgs/backgrounds/black.png" || return 1
+  local sample enabled image
+  image="$(ground_image)" || return 1
+  bg_state_names "$image" || return 1
+  if [[ -n $ground && "$(plugin_enabled vgs.themes)" == False ]]; then
+    expect "the $1 $2 ground's background owner enables" ok ipc shell setPluginEnabled vgs.themes true
+  fi
   enabled="$(plugin_enabled vgs.themes)" || return 1
   case $enabled in
     True)
-      expect_poll "the $1 $2 desktop image is ready" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
-      expect_poll "the $1 $2 desktop draws black" 000000 pixel 100 100 ;;
+      expect_poll "the $1 $2 desktop image is ready" "$image ready" background_image_on "$main_name"
+      if [[ $ground != light && $ground != busy ]]; then expect_poll "the $1 $2 desktop draws black" 000000 pixel 100 100; fi ;;
     False) expect_poll "the $1 $2 desktop has no Themes background" False record_exists vgs.themes ;;
     *) fail "the $1 $2 background owner's enablement is unreadable: $enabled"; return 1 ;;
   esac
   sample="$(pixel 100 100)" || return 1
-  [[ $sample =~ ^[0-9a-f]{6}$ && ( $enabled == False || $sample == 000000 ) ]] || { fail "the $1 $2 desktop sample is $sample"; return 1; }
+  [[ $sample =~ ^[0-9a-f]{6}$ && ( $enabled == False || $sample == 000000 || $ground == light || $ground == busy ) ]] || { fail "the $1 $2 desktop sample is $sample"; return 1; }
   printf '%s\t%s\t%s\t100\t100\t%s\n' "$1" "$2" "$capture_source" "$sample" >>"$SHOT_DIR/desktop.tsv"
   printf 'sandbox-shots: desktop scene=%s mode=%s source=%s sample=100,100 rgb=%s\n' "$1" "$2" "$capture_source" "$sample"
 }
