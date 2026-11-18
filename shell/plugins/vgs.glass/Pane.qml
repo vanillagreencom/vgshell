@@ -34,9 +34,11 @@ FocusScope {
     readonly property string offReason: glassOn ? "" : "Turn on Glass first."
     readonly property Item initialFocus: mainSwitch
 
-    // The styles, in the order the select lists them: unset, Auto, first.
+    // The styles, in the order the select lists them. Auto is the unset
+    // key; it has a value of its own so the select can match it, and that
+    // value is never written.
     readonly property var styles: [
-        { label: "Auto", value: undefined },
+        { label: "Auto", value: "auto" },
         { label: "Light", value: "light" },
         { label: "Dark", value: "dark" },
         { label: "Clear", value: "clear" }
@@ -55,6 +57,7 @@ FocusScope {
         { id: "indicators", label: "On-screen indicators", on: false, info: "On-screen indicators include the volume and brightness levels and the display messages." },
         { id: "clipboard", label: "Clipboard", on: false, info: "" }
     ]
+    readonly property string styleShown: typeof values.glassStyle === "string" ? values.glassStyle : "auto"
     readonly property bool clearWaits: glassOn && Theme.glassStyle === "clear" && !Theme.layerGlassReady
 
     function open(payloadJson) {}
@@ -148,11 +151,11 @@ FocusScope {
                     disabledReason: root.offReason
                     model: root.styles
                     textRole: "label"
-                    currentIndex: root.styles.findIndex(style => style.value === root.values.glassStyle)
+                    currentIndex: root.styles.findIndex(style => style.value === root.styleShown)
                     onActivated: index => {
                         const wanted = root.styles[index].value;
-                        currentIndex = Qt.binding(() => root.styles.findIndex(style => style.value === root.values.glassStyle));
-                        root.answer(root.write("glassStyle", wanted));
+                        currentIndex = Qt.binding(() => root.styles.findIndex(style => style.value === root.styleShown));
+                        root.answer(root.write("glassStyle", wanted === "auto" ? undefined : wanted));
                     }
                 }
             }

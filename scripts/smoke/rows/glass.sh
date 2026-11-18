@@ -15,6 +15,7 @@ cp -- "$glass_file" "$glass_saved_copy"
 
 glass_saved() { python3 -c 'import json,sys; print(json.dumps((json.load(open(sys.argv[1])).get("appearance") or {}).get("glassSurfaces")))' "$glass_file"; }
 glass_switch() { ipc smoke readMatchingDescendant window vgs.system Switch objectName "glass-$1" checked; }
+glass_style() { ipc smoke readMatchingDescendant window vgs.system Select objectName glassStyle currentText; }
 glass_open() {
   expect "System Settings opens Glass" ok ipc shell summon window vgs.system '{"pane":"vgs.glass"}'
   expect_poll "Glass mounts in System Settings" '["vgs.glass"]' window_panes
@@ -26,6 +27,7 @@ glass_click_launcher() {
 
 expect "Glass enables" ok ipc shell setPluginEnabled vgs.glass true
 glass_open
+expect_poll "the Style select shows Auto while no style is saved" '"Auto"' glass_style
 expect_poll "the Launcher row reads glass on by default" true glass_switch launcher
 expect "nothing is saved before a choice" null glass_saved
 glass_click_launcher
