@@ -212,7 +212,8 @@ Item {
             compare(holderOf(styled).active, false, "no pass is built");
             verify(edgeOf(handed).visible);
             compare([String(bodyOf(handed).color), String(edgeOf(handed).border.color), bodyOf(handed).radius], ["#203040", "#506070", 7]);
-            compare([String(bodyOf(themed).color), bodyOf(themed).radius], [String(Theme.surface.level.raised.background), Theme.surface.radius]);
+            verify(Qt.colorEqual(bodyOf(themed).color, Theme.surface.level.raised.background));
+            compare(bodyOf(themed).radius, Theme.surface.radius);
         }
 
         function test_glass_over_its_window_draws_solid() {

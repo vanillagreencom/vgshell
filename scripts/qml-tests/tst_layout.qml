@@ -488,11 +488,11 @@ Item {
         // expected-log: Surface: no level named "floating" -- the test names an unknown level on purpose
         function test_surface_draws_its_level() {
             // The drawn body and edge of the GlassSurface it is, glass off.
-            compare(String(surface.children[1].color), String(Qt.color(Theme.surface.level.raised.background)));
-            compare(String(surface.children[2].border.color), String(Qt.color(Theme.surface.level.raised.border)));
-            compare(surface.children[1].radius, Theme.surface.radius);
+            verify(Qt.colorEqual(surface.effectiveFill, Theme.surface.level.raised.background));
+            verify(Qt.colorEqual(surface.children[1].border.color, Theme.surface.level.raised.border));
+            compare(surface.corner, Theme.surface.radius);
             const odd = Qt.createQmlObject("import qs.Ui\nSurface { level: \"floating\" }", root);
-            compare(String(odd.children[1].color), String(Qt.color(Theme.surface.level.base.background)));
+            verify(Qt.colorEqual(odd.effectiveFill, Theme.surface.level.base.background));
             odd.destroy();
         }
 
@@ -504,7 +504,7 @@ Item {
             tryVerify(() => Math.abs(headingSpace(section, beforeSection) - 48) <= 1, 1000, "the heading moves with the token");
             compare(section.children[1].spacing, 9);
             compare(divider.height, 3);
-            compare(surface.children[1].radius, 9);
+            compare(surface.corner, 9);
         }
     }
 }

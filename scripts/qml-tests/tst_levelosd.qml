@@ -26,10 +26,9 @@ Item {
         name: "levelosd"
         when: windowShown
 
-        // The row sits in the body of the GlassSurface the card is, after
-        // its sheen; the edge above it draws the border.
-        function bodyOf(item) { return item.children[1]; }
-        function partsOf(item) { return bodyOf(item).children[1].children; }
+        function bodyOf(item) { return item.children[0]; }
+        function rowOf(item) { return bodyOf(item).children.find(child => child instanceof Row); }
+        function partsOf(item) { return rowOf(item).children; }
         function iconOf(item) { return partsOf(item)[0]; }
         function barOf(item) { return partsOf(item)[1]; }
         function labelOf(item) { return partsOf(item)[2].children[1]; }
@@ -48,13 +47,13 @@ Item {
             compare(bar.width, Theme.osd.barWidth);
             compare(xIn(column, osd), xIn(bar, osd) + bar.width + Theme.osd.gap);
             compare(osd.width, xIn(column, osd) + column.width + Theme.osd.padding);
-            const row = bodyOf(osd).children[1];
+            const row = rowOf(osd);
             fuzzyCompare(row.y + Theme.inkAbove(row), Theme.osd.padding, 1);
             fuzzyCompare(osd.height - row.y - row.height + Theme.inkBelow(row), Theme.osd.padding, 1);
             for (const part of [icon, bar])
                 fuzzyCompare(part.mapToItem(row, 0, part.height / 2).y, row.height / 2, 1);
             compare(String(bodyOf(osd).color), String(Qt.color(Theme.osd.background)));
-            compare(String(osd.children[2].border.color), String(Qt.color(Theme.osd.border)));
+            verify(Qt.colorEqual(osd.children[1].border.color, Theme.osd.border));
             compare(bodyOf(osd).radius, Theme.osd.radius);
         }
 

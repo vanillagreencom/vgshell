@@ -262,14 +262,13 @@ Item {
             menu.openAt(100, 100);
             const surface = surfaceOf(menu);
             compare([surface.on, surface.solid], [true, true]);
-            const body = surface.children[1];
             // A Column sizes itself on its next polish.
             tryVerify(() => surface.height >= 32, 1000, "the flyout is taller than two glass corners");
-            compare([String(body.color), body.radius], ["#212121", 16], "dark");
+            compare([String(surface.effectiveFill), surface.corner], ["#212121", 16], "dark");
             compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
-            compare([String(body.color), body.radius], ["#f1f1f1", 16], "light");
+            compare([String(surface.effectiveFill), surface.corner], ["#f1f1f1", 16], "light");
             compare(UnitTheme.override({ radius: { md: 8 } }), "ok");
-            compare(body.radius, 16, "a rounded theme leaves the launcher's own look");
+            compare(surface.corner, 16, "a rounded theme leaves the launcher's own look");
             menu.close();
         }
     }

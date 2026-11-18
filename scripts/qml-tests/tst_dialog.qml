@@ -114,8 +114,8 @@ Item {
 
         // The card's GlassSurface: its body draws the fill, its edge the
         // border.
-        function card(of) { return of.children[0].children[1]; }
-        function edge(of) { return of.children[0].children[2]; }
+        function card(of) { return of.children[0].children[0]; }
+        function edge(of) { return of.children[0].children[1]; }
         function pane(of) { return of.children[1]; }
         function titleLabel(of) { return pane(of).children[0].children[0]; }
         function messageLabel(of) { return pane(of).children[0].children[4].contentItem.children[0]; }

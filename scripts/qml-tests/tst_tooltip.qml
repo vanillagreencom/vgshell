@@ -92,9 +92,8 @@ Item {
             opened(item);
         }
 
-        // The fill the tooltip draws, read from its surface's body, as
-        // tst_glasssurface.qml reads it.
-        function drawnFill(tip) { return named(tip, "tooltipSurface")[0].children[1].color; }
+        // The fill the shared pass draws, before compositing.
+        function drawnFill(tip) { return named(tip, "tooltipSurface")[0].effectiveFill; }
 
         // With the user's glass on, the tooltip draws its glass solid, the
         // fill check-theme-contrast.js judges its text on, though its
