@@ -93,7 +93,7 @@ Rectangle {
             sourceEnd = text.lastIndexOf(reference.reference, sourceEnd - reference.reference.length);
             plainEnd = line;
         }
-        return { body: actions.length > 0 ? text.slice(0, sourceEnd).trimEnd() : text, actions };
+        return { body: actions.length > 0 ? text.slice(0, sourceEnd).replace(/\s+$/, "") : text, actions };
     }
 
     function toneOf(name) {
