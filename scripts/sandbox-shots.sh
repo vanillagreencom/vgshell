@@ -398,10 +398,10 @@
 # desktop choice. --glass-style writes the Glass page's style,
 # shell.json `appearance.glassStyle`, before the first scene. --hyprglass
 # names a hyprglass module built for this host's Hyprland; it turns layer
-# glass on, `appearance.layerGlass`, and a block put before the nested
-# compositor's own configuration hands the shell's load of the managed
-# module (HyprlandLayer.layerGlassPath) that file instead, so the module
-# loads into the nested compositor alone, through the shell's own lines.
+# glass on, `appearance.layerGlass`, and loads that file into the nested
+# compositor alone with `hyprctl plugin load`, then reloads it so the
+# shell's own layer glass lines configure it. The shell's load of the
+# managed module (HyprlandLayer.layerGlassPath) finds no file there.
 # The first scene waits for the shell to read layer glass as ready, and
 # every shot keeps the nested compositor's `hyprglass status`, `layers`
 # and `configerrors` replies beside it under hyprglass/ in the output. A
@@ -1063,21 +1063,29 @@ APPS
 fi
 # The style and layer glass the shell draws every scene in, written before
 # the first scene; the shell reads shell.json as it changes.
+# material_ns NAMESPACE: the namespace the launcher's and the notifications'
+# surfaces map under in the style --glass-style chose: the material one
+# while Clear is chosen (HyprlandLayer.MATERIAL_NAMESPACES).
+material_ns() { if [[ $glass_style == clear ]]; then echo "$1-glass"; else echo "$1"; fi; }
+# glass_readings NAME: the nested compositor's plugin list, hyprglass
+# status, layers and configuration errors as shot NAME was taken, under
+# hyprglass/.
+glass_readings() {
+  local name words
+  mkdir -p -- "$SHOT_DIR/hyprglass" || { fail "shot $1: the hyprglass readings have no directory"; return; }
+  for name in plugins status layers configerrors; do
+    case $name in
+      plugins) words=(plugin list) ;;
+      status) words=(hyprglass status) ;;
+      *) words=("$name") ;;
+    esac
+    hypr -j "${words[@]}" >"$SHOT_DIR/hyprglass/$1.$name.json" || fail "shot $1: hyprctl ${words[*]} is unreadable"
+  done
+}
 if [[ -n $hyprglass ]]; then
-  {
-    cat <<EOF
-do
-    local managed = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "/var/cache/hyprpm/$(id -un)/HyprGlass/hyprglass.so")
-    local built = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$hyprglass")
-    local load = hl.plugin.load
-    hl.plugin.load = function(path)
-        if path == managed then return load(built) end
-        return load(path)
-    end
-end
-EOF
-    cat -- "$home/.config/hypr/hyprland.lua"
-  } >"$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua" || exit 1
+  # The core reads layer glass again after a compositor reload only while
+  # a plugin holds `hyprland` (Capabilities.hyprland.active); Glass does.
+  expect "Glass, which reads layer glass, enables" ok ipc shell setPluginEnabled vgs.glass true
 fi
 if [[ -n $glass_style || -n $hyprglass ]]; then
   user_config_write python3 - "$home/.config/vgshell/shell.json" "$glass_style" "${hyprglass:+on}" <<'PYGLASS' || exit 1
@@ -1094,8 +1102,10 @@ PYGLASS
     expect_poll "the shell draws glass in $glass_style" "\"$glass_style\"" ipc smoke themeValue glassStyle
   fi
   if [[ -n $hyprglass ]]; then
+    expect "the nested compositor loads the hyprglass module" ok hypr plugin load "$hyprglass"
+    expect "the nested compositor reloads its configuration" ok hypr reload config-only
     expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
-    glass_readings start
+    glass_readings ready
   fi
 fi
 source "$checkout/scripts/smoke/power-fakes.sh"
@@ -1223,16 +1233,6 @@ clean_shot_chrome() {
   return 1
 }
 # take_raw NAME: one shot.
-# glass_readings NAME: the nested compositor's hyprglass status, layers and
-# configuration errors as shot NAME was taken, under hyprglass/.
-glass_readings() {
-  local kind
-  mkdir -p -- "$SHOT_DIR/hyprglass" || { fail "shot $1: the hyprglass readings have no directory"; return; }
-  for kind in "hyprglass status" layers configerrors; do
-    # shellcheck disable=SC2086 # the kind is the reply's words
-    hypr -j $kind >"$SHOT_DIR/hyprglass/$1.${kind##* }.json" || fail "shot $1: hyprctl $kind is unreadable"
-  done
-}
 take_raw() { # NAME
   [[ -z $hyprglass ]] || glass_readings "$1"
   if shot "$1"; then
@@ -3280,7 +3280,7 @@ scene_launcher() { # MODE
     expect_poll "the Dev Tools provider is gone" False record_exists vgs.devtools
   fi
   expect "the launcher summons" ok ipc vgs.launcher invoke summon '{}'
-  expect_poll "the launcher maps its overlay" 1 layer_count vgs:overlay
+  expect_poll "the launcher maps its overlay" 1 layer_count "$(material_ns vgs:overlay)"
   expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
   take "launcher-$1-open"
   # The orbiting edge light: frames a moment apart, each proved to differ
@@ -3332,7 +3332,7 @@ PYLAUNCHER
   fi
   park_pointer
   type_keys -k Escape -k Escape -k Escape || fail "sending Escape failed"
-  expect_poll "the launcher closes" 0 layer_count vgs:overlay
+  expect_poll "the launcher closes" 0 layer_count "$(material_ns vgs:overlay)"
   if [[ $devtools == True ]]; then
     expect "Dev Tools is restored after the launcher fixture" ok ipc shell setPluginEnabled vgs.devtools true
     expect_poll "Dev Tools is built again" True record_exists vgs.devtools
@@ -3355,7 +3355,7 @@ slack_badges() { ipc smoke layerItems vgs.notifications NotificationCard showsBa
 # header's box on the output recorded for a crop.
 notification_header_box() {
   local layer
-  layer="$(surface_box vgs:panel)" || return 1
+  layer="$(surface_box "$(material_ns vgs:panel)")" || return 1
   ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
 t = sys.stdin.read().strip()
 rows = json.loads(t) if t.startswith("[") else []
@@ -3584,7 +3584,7 @@ print(json.dumps([x0, top + y0, x1 - x0, y1 - y0]))' "$bar_reserved"
 }
 nl_panel_box() {
   local layer
-  layer="$(surface_box vgs:panel)" || return 1
+  layer="$(surface_box "$(material_ns vgs:panel)")" || return 1
   ipc smoke instanceGeometry panel vgs.notifications | py_reply 'import json,sys
 box = json.load(sys.stdin); layer = json.loads(sys.argv[1])
 print(json.dumps([layer[0] + box[0], layer[1] + box[1], box[2], box[3]]) if box[2] > 0 and box[3] > 0 else "absent")' "$layer"
@@ -3616,7 +3616,7 @@ nl_view_place() { ipc smoke notificationViewHolding panel vgs.notifications | py
 # wheel there hovers no card.
 nl_wheel_point() {
   local layer
-  layer="$(surface_box vgs:panel)" || return 1
+  layer="$(surface_box "$(material_ns vgs:panel)")" || return 1
   ipc smoke notificationViewHolding panel vgs.notifications | py_reply 'import json,sys
 box = json.load(sys.stdin)["box"]; layer = json.loads(sys.argv[1])
 print("%d %d" % (layer[0] + box[0] + 12, layer[1] + box[1] + box[3] / 2))' "$layer"
@@ -3625,7 +3625,7 @@ print("%d %d" % (layer[0] + box[0] + 12, layer[1] + box[1] + box[3] / 2))' "$lay
 # card titled SUMMARY, or `absent`.
 nl_arrow_point() {
   local layer
-  layer="$(surface_box vgs:panel)" || return 1
+  layer="$(surface_box "$(material_ns vgs:panel)")" || return 1
   ipc smoke descendantGeometry panel vgs.notifications | py_reply 'import json,sys
 rows = json.load(sys.stdin); layer = json.loads(sys.argv[2])
 card = next((i for i, r in enumerate(rows) if r["type"] == "NotificationCard" and r["text"] == sys.argv[1] and r["visible"]), None)
@@ -3737,7 +3737,7 @@ nl_action_hint_shot() { # MODE
   expect_poll "the Capture card holds still for its action hint" same nl_settled ipc smoke readMatchingDescendant panel vgs.notifications NotificationCard summary "Recording saved" height
   rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "Recording saved" PillButton Open)" || return
   [[ $rect == \[* ]] || { fail "the Capture Open action has no box: $rect"; return; }
-  read -r x y < <(at_centre vgs:panel "$rect") || return
+  read -r x y < <(at_centre "$(material_ns vgs:panel)" "$rect") || return
   hover "$x" "$y" || { fail "the Capture Open action hover failed"; return; }
   expect_poll "the Capture Open action tooltip is shown" True nl_action_hint_opened
   nl_panel_shot "notification-limits-$1-action-hint" take_posed
@@ -3767,7 +3767,7 @@ nl_boundary_shots() { # MODE
     nl_panel_shot "notification-limits-$mode-boundary-$lines-closed" take
     if (( lines == 12 )); then
       box="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
-      layer="$(surface_box vgs:panel)" || return
+      layer="$(surface_box "$(material_ns vgs:panel)")" || return
       at="$(python3 -c 'import json,sys
 rows=json.loads(sys.argv[1]); layer=json.loads(sys.argv[2]); title=sys.argv[3]
 card=next((r for r in rows if r["type"] == "NotificationCard" and r["text"] == title and r["visible"]), None)
@@ -4445,7 +4445,7 @@ PY
       index=$((index + 1))
       [[ $label != Edit ]] && program=viewer || program=editor
       expected="$(capture_notice_expect_call "$expected" "$program" "$path")"
-      click_item vgs:layer vgs.notifications PillButton text "$label" || { fail "the $label pill was not clicked"; break; }
+      click_item "$(material_ns vgs:layer)" vgs.notifications PillButton text "$label" || { fail "the $label pill was not clicked"; break; }
       expect_poll "$sequence $index: exactly one ordered $label argv is delivered" "$expected" capture_notice_calls
       result="$(capture_notice_pair)"
       capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-$index-$label" "$result" "$(capture_notice_pills)" "$(capture_notice_calls)"
@@ -4468,7 +4468,7 @@ PY
       fi
     done
     if [[ -z $rev ]]; then
-      click_item vgs:layer vgs.notifications PillButton text Dismiss || fail "Dismiss was not clicked"
+      click_item "$(material_ns vgs:layer)" vgs.notifications PillButton text Dismiss || fail "Dismiss was not clicked"
       expect_poll "Dismiss removes the screenshot's live identity" null capture_notice_pair
       expect "Dismiss launches no viewer or editor" "$expected" capture_notice_calls
       expect_poll "Dismiss closes the original sender id once" 1 capture_notice_closed_count
