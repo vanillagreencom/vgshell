@@ -8,7 +8,9 @@
 
 **Research**: [VGS-2594](https://linear.app/vanillagreen/issue/VGS-2594), approved design (comments f52e1291, fb4e4753 and 015d8e66), the owner's word through Jarvis on 2026-11-18.
 
-**Supersedes**: [D132](D132-look-owned-glass-inputs.md). Refines [D023](D023-plugin-owned-appearance.md) and [D119](D119-plugin-look-binds-per-surface.md): a file that binds a look may also read `Theme.glassFor`.
+**Supersedes**: [D132](D132-look-owned-glass-inputs.md).
+
+**Refines**: [D023](D023-plugin-owned-appearance.md) and [D119](D119-plugin-look-binds-per-surface.md): a file that binds a look may also read `Theme.glassFor`.
 
 **Decision**: `GlassSurface` is the one glass component and `shell/Commons/Glass.js` the one material table, with Dark as its base and Light and Clear as overrides. A surface names its Glass page row. `ThemeLogic.glassFor` alone decides whether glass is on for that row, its style and whether its window may show the backdrop. A surface whose inks follow a plugin-owned look takes the page's style; every other surface takes the theme's mode and the theme's raised hue. A plugin-owned look on glass picks its overrides by that style and takes the drawn glass's ground and body as inputs. A plugin hands no fill, rim, elevation or lens. Clear's faint body draws only on a material layer while the compositor's layer glass shades it; elsewhere it takes an opaque reading ground.
 
