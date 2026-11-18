@@ -20,7 +20,8 @@ function groundUnder(item, win, painted) {
         var at = child.parent;
         if (painted) {
             var children = at.children;
-            var index = Array.prototype.indexOf.call(children, child);
+            var index = 0;
+            while (index < children.length && children[index] !== child) index++;
             var found = null;
             for (var i = 0; i < children.length; i++) {
                 var candidate = children[i];

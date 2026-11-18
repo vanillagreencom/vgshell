@@ -46,7 +46,7 @@ Item {
             text: fixtureRoot.words
             color: "#101010"
             width: measure.implicitWidth + 24 + Theme.icon.size.md + Theme.callout.iconGap
-            Label { id: measure; visible: false; role: "bodyStrong"; text: fixtureRoot.words }
+            Label { id: measure; visible: false; role: "body"; text: fixtureRoot.words }
         }
     }
     Component {

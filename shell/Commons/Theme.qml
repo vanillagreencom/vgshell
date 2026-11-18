@@ -174,6 +174,11 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
     }
 
+    // The same composition the token judge's over() expression reads.
+    function composite(fill, ground) {
+        return toColor(ThemeLogic.formatColor(ThemeLogic.overlay(Qt.color(fill), Qt.color(ground))));
+    }
+
     // The ink of PART of the shared key hint, `word`, `key` or `value`, on
     // the composed ground CONTEXT hands, or its default ink for null
     // (ThemeLogic.keyHintInk).

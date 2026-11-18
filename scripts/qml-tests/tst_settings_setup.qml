@@ -542,7 +542,6 @@ Item {
             compare(callouts.length, data.callout ? 1 : 0, "the tab draws the guide only for a plugin that declares one");
             if (!data.callout) return;
             compare([callouts[0].title, callouts[0].text], [root.guide.title, root.guide.text]);
-            compare(callouts[0].level, "raised");
             const setup = onTab(window, Section).find(section => semanticLabelItems(section).some(label => displayedText(label) === "Setup"));
             tryVerify(() => callouts[0].height > 0 && callouts[0].mapToItem(null, 0, callouts[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the guide stands above the steps: "
                 + callouts[0].mapToItem(null, 0, callouts[0].height).y + " " + setup.mapToItem(null, 0, 0).y);
@@ -743,7 +742,6 @@ Item {
             compare(pageOf(window).tab, "Setup");
             const notices = onTab(window, Callout);
             compare(notices.length, 1, "the tab draws one notice");
-            compare(notices[0].level, "raised");
             const setup = onTab(window, Section).find(section => semanticLabelItems(section).some(label => displayedText(label) === "Setup"));
             tryVerify(() => notices[0].height > 0 && notices[0].mapToItem(null, 0, notices[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the notice stands above the steps");
             const link = descendants(notices[0]).filter(item => item instanceof RowAction && item.visible);

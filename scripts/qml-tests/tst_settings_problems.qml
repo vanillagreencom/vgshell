@@ -181,7 +181,7 @@ Item {
             const words = Reply.line(shortcut, [{ id: "vgs.jarvis", name: "Jarvis" }], ShortcutLabels.shortcutText);
             // The help is a delivered product result, including the page
             // reference that the source-owned keyboard path consumes.
-            compare(words, "Jarvis already uses this shortcut. Change this shortcut in [Settings/Keys](page:vgs.system/Settings/Keys).");
+            compare(words, "Jarvis already uses this shortcut.\n[Change shortcut](page:vgs.system/Settings/Keys)");
             test_badge_help_and_link_are_reachable({
                 keyboard: true, shortcut: shortcut, displayed: "this shortcut",
                 pluginId: "vgs.system", holderId: "vgs.jarvis", holderName: "Jarvis"
