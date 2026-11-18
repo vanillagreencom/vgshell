@@ -43,15 +43,5 @@ The audio services read configuration at their own start. The plugin does not re
 
 ## Look
 
-[Appearance.js](Appearance.js) owns the plugin's values under the shared [appearance contract](../../../docs/architecture/design-system.md#appearance). Toasts draw in the passive layer; the summoned panel takes the keyboard. The manifest declares blur for both layers.
+[Appearance.js](Appearance.js) owns the plugin's values under the shared [appearance contract](../../../docs/architecture/design-system.md#appearance). Toasts draw in the passive layer and the summoned panel takes the keyboard, both under the glass material namespace the manifest's `glassMaterial` asks for. The cards are the shared `GlassSurface`, which draws the edge light. The manifest declares blur for both layers.
 
-After changing [the edge shader](shaders/edgelight.frag), regenerate its compiled asset from this plugin directory.
-
-<details>
-<summary>Show command</summary>
-
-```text
-/usr/lib/qt6/bin/qsb --glsl "100es,120,150" --hlsl 50 --msl 12 -o shaders/edgelight.frag.qsb shaders/edgelight.frag
-```
-
-</details>

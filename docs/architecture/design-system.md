@@ -31,31 +31,31 @@ A private control or literal drawing value creates a second style system that th
 ### Appearance values
 
 - Resolve user Appearance values only through `ThemeLogic.withAppearance`. `scripts/test-theme-logic.js` checks resolution.
-- Use `radius.glass` for a zero-radius popup, menu, dialog or OSD only while glass is on. Preserve a positive theme or user radius and leave attached panels' `surface.radius` alone.
+- Use `radius.glass` for a zero-radius popup, menu, dialog or OSD only while its Glass page row takes glass. Preserve a positive theme or user radius and leave attached panels' `surface.radius` alone.
 - Apply interface fonts only to sans and caps families. Accept no colour Appearance value ([D025](../decisions/D025-no-theme-override-layer.md)).
 - Draw Hyprland-mapped values through `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)).
 
 ### Appearance
 
 - Load a plugin-owned look only from its declared appearance file. Bind once through `Theme.appearance`, use `look` paths and draw nothing on a null look. `PluginLogic.validateManifest` and `scripts/check-design-tokens.py` judge declarations and paths.
-- Bind a look per surface: only files that bind `Theme.appearance` or read a `look` path their owner passes draw with the look, and they read no other Theme member ([D119](../decisions/D119-plugin-look-binds-per-surface.md)). Keep look text above the shell's smallest text-role floor, except the hint-only key-name role and the owner-requested calendar weekday and path chip roles. `scripts/check-design-tokens.py` and `scripts/test-check-design-tokens.py` check these boundaries.
-- Keep launcher detail at least 4.5:1 against its fill and 1.25:1 apart from its resting title as drawn. `scripts/test-theme-logic.js` holds it.
+- Bind a look per surface: only files that bind `Theme.appearance` or read a `look` path their owner passes draw with the look, and they read no other Theme member but `Theme.glassFor` ([D119](../decisions/D119-plugin-look-binds-per-surface.md), [D139](../decisions/D139-one-glass-material-decided-per-surface.md)). Keep look text above the shell's smallest text-role floor, except the hint-only key-name role and the owner-requested calendar weekday and path chip roles. `scripts/check-design-tokens.py` and `scripts/test-check-design-tokens.py` check these boundaries.
+- Keep launcher detail at least 4.5:1 against its fill and 1.25:1 apart from its resting title as drawn, except on Clear, where size and weight carry that step. `scripts/test-theme-logic.js` holds it.
 - Use shadows only to lift light ink from dark glass; draw none for dark ink on light cards. `scripts/test-notifications-logic.js` checks notification shadows.
 - Pass the look's own values to composed controls, except the shared system key hint. Draw a look's own button through `Button` with the look's values, never a private control. Review holds supplied values; `scripts/qml-tests/tst_button.qml` checks the inputs.
-- Draw Jarvis's overlay on lens-form glass plates in its look's `plate` values, each card in one plain ink, with no text shadow and nothing behind the orb. `scripts/qml-tests/tst_jarvis_plates.qml` checks the plates and `scripts/check-theme-contrast.js` holds every ink on its plate; rendered UI review judges the orb.
+- Draw Jarvis's overlay on the shared glass, each card in one plain ink, with no text shadow and nothing behind the orb. Keep the plates in the layer the host lends them (`plateLayer`) and acknowledge a held request on that layer's frames. `scripts/qml-tests/tst_jarvis_plates.qml` and `tst_jarvis_prompt.qml` check the plates and `scripts/check-theme-contrast.js` holds every ink on its plate in each style; rendered UI review judges the orb.
 - Pad Jarvis's words' card by the look's side padding; on a narrow side it gives up only what its widest word needs, so lines break only at spaces. Review holds the words' card; `scripts/qml-tests/tst_jarvis_bubble.qml` checks the state card.
-- Change the glass tint's strength only in `plate.tint` in `shell/plugins/vgs.jarvis/Appearance.js`, and derive every other glass value from it. `scripts/qml-tests/tst_jarvis_plates.qml` checks it has one source.
 - Draw a held request's answers as two equal capsules, the declining answer first, the confirming one in the accent, except on a request that needs a press, where both draw quiet (Jarvis decision for the owner, 2026-11-12). `scripts/qml-tests/tst_jarvis_prompt.qml` checks the answers.
 
 ### Glass plates over wallpaper
 
+- Draw glass only through `GlassSurface`, naming the surface's Glass page row in `surface`; `ThemeLogic.glassFor` alone decides whether glass is on, its style and whether the window may show the backdrop ([D139](../decisions/D139-one-glass-material-decided-per-surface.md)). A new kind of surface is one `GLASS_SURFACES` entry. `scripts/test-theme-logic.js` checks the decision; `scripts/qml-tests/tst_glasssurface.qml` checks the component.
+- Keep a style to values in `shell/Commons/Glass.js`: Dark is its base, Light and Clear override it. The launcher, notifications and Jarvis follow the page's style through their looks' LIGHT and CLEAR overrides and the `glass.ground` and `glass.base` inputs; every other surface draws the theme's mode in the theme's raised hue. Auto is the theme's mode and never Clear. `scripts/test-theme-logic.js` checks the table.
 - Give text, icons and fine drawing over the wallpaper a `GlassSurface` plate as their ground, in new work and when a surface is next redrawn. A fading field or a shadow does not bound content.
-- Keep Jarvis's material and light inks the same in both modes, chosen against the brightest ground ([D132](../decisions/D132-look-owned-glass-inputs.md)). `scripts/qml-tests/tst_jarvis_plates.qml` checks both modes.
-- Choose each ink against its plate's worst ground: the fill over white for a dark plate, over black for a light plate. Judge a label on a filled control on that fill over the plate. `scripts/check-theme-contrast.js` holds 4.5:1 for the looks it judges.
-- Hand each plate `lens`, `elevation: "none"` and `standard` from the look. `scripts/qml-tests/tst_glasssurface.qml` checks the form.
-- Ask the compositor for blur through a layer rule in the plugin's manifest, with `ignoreAlpha` under every plate's body alpha and over its band's, and keep the body's alpha above the core rule's 0.7. The fill alone carries the contrast, since blur can be off. `scripts/qml-tests/tst_jarvis_plates.qml` reads both alphas.
-- Pad content that stands beside a plate past its band. `scripts/qml-tests/tst_glasssurface.qml` checks `contentInset`.
-- The lens form is the material. The notification card and inbox header, the launcher card, `Menu`, `Popover`, `Tooltip`, `Select`, the floating `Card`, `ModalDialog`, the level OSD and the display trial banner still draw the flat form; move each in its own item. The last one deletes the sheen, the hairline and their `Theme.glass` tokens, and gives `lens` a `Theme.glass` default.
+- Choose each ink against its style's worst ground, `glass.ground`: the body over white for Dark, over black for Light, and for Clear the body over a white window as the compositor's layer glass tones it. Judge a label on a filled control on that fill over the plate. On Clear only full white holds 4.5:1, so secondary text uses size and weight and a link its underline. `scripts/check-theme-contrast.js` holds 4.5:1 in every style over white, black and busy grounds.
+- Draw the rim as one thin line with no bevel and the edge light on it, in the one pass. A surface that can stay up all day sets `paced`. `scripts/qml-tests/tst_glasssurface.qml` checks the pass.
+- Draw Clear's faint body only on a material layer, a plugin whose manifest sets `glassMaterial` or a plate layer its host lends, while the compositor's layer glass is ready; elsewhere Clear draws its opaque reading ground. Nothing but glass cards draws on a material layer. `scripts/test-hyprland-layer.js` checks the namespaces.
+- Ask the compositor for blur through a layer rule in the plugin's manifest, with `ignoreAlpha` under the Light and Dark bodies' alpha. The fill alone carries the contrast in Light and Dark, since blur can be off.
+- Pad content that stands beside a plate past its rim. `scripts/qml-tests/tst_glasssurface.qml` checks `contentInset`.
 - Keep each plate's box clear of every other plate's, and never fade a plate's own opacity; fade its content.
 
 ### Components

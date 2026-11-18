@@ -33,17 +33,7 @@ TUI rows resolve against the core's listed entries. An unavailable entry hides i
 
 The overlay's key handlers and `navigate` implement list navigation. The [Hyprland key contract](../../../docs/architecture/hyprland.md#keys) owns delivery of the user's directional focus keys.
 
-## Appearance and shader
+## Appearance
 
-[Appearance.js](Appearance.js) owns the plugin's appearance values. The [appearance contract](../../../docs/architecture/design-system.md#appearance) defines the theme inputs. The shared glass component consumes the plugin's fill and rounding; the manifest declares blur for the overlay layer.
+[Appearance.js](Appearance.js) owns the plugin's appearance values. The [appearance contract](../../../docs/architecture/design-system.md#appearance) defines the theme inputs. The card is the shared `GlassSurface`, which draws the glass and the edge light; the plugin hands it rounding and padding. The manifest's `glassMaterial` maps the overlay under the material namespace and declares blur for it.
 
-After changing [the edge shader](shaders/edgelight.frag), regenerate its adjacent compiled asset from this plugin directory.
-
-<details>
-<summary>Show command</summary>
-
-```text
-/usr/lib/qt6/bin/qsb --glsl "100es,120,150" --hlsl 50 --msl 12 -o shaders/edgelight.frag.qsb shaders/edgelight.frag
-```
-
-</details>

@@ -22,9 +22,10 @@ Notifications shows application notifications on each screen and keeps them in a
 
 ## Setup
 
+Notifications draw as glass. Turn it off, or choose its style, in System Settings → Appearance → Glass.
+
 | Setting | What it changes |
 | --- | --- |
-| VGlass | Whether notifications draw as frosted glass. Off, they draw as plain panels. VGlass on the Windows page can turn glass on or off for every glass surface, and then this setting has no effect. |
 | Notification duration | The minimum time a normal notification stays on screen. A critical one stays until you close it. |
 | Position | Where notifications show on each screen. |
 | Slack photos | Whether sender photos load from Slack workspaces. |

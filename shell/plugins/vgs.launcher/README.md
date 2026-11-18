@@ -21,6 +21,6 @@ Launcher finds and opens apps, files and system actions from one search field. I
 
 ## Setup
 
-VGlass draws the launcher as frosted glass with a moving edge light. Turn it off on the plugin's Settings page for a plain panel. This choice applies while VGlass in System Settings → Appearance → Windows is set to Each surface decides.
+The launcher draws as glass with a moving edge light. Turn it off, or choose its style, in System Settings → Appearance → Glass.
 
 The key is under Keys on the plugin's Settings page.

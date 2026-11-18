@@ -4,7 +4,7 @@
 
 **Date**: 2026-11-12
 
-**Status**: Active
+**Status**: Superseded by [D139](D139-one-glass-material-decided-per-surface.md)
 
 **Research**: [VGS-2433, owner-approved glass design](https://linear.app/vanillagreen/issue/VGS-2433#comment-4fac1c00-6264-4cd7-a2a4-627099428840)
 

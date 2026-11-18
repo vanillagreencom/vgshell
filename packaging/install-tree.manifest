@@ -419,6 +419,9 @@ f share/vgshell/shell/plugins/vgs.fonts/manifest.json
 f share/vgshell/shell/plugins/vgs.gallery/Gallery.qml
 f share/vgshell/shell/plugins/vgs.gallery/manifest.json
 f share/vgshell/shell/plugins/vgs.gallery/sample-emoji.png
+f share/vgshell/shell/plugins/vgs.glass/Pane.qml
+f share/vgshell/shell/plugins/vgs.glass/manifest.json
+f share/vgshell/shell/plugins/vgs.glass/tui/layer-glass.sh
 f share/vgshell/shell/plugins/vgs.google-drive/GoogleDriveLogic.js
 f share/vgshell/shell/plugins/vgs.google-drive/Panel.qml
 f share/vgshell/shell/plugins/vgs.google-drive/RunnerClient.qml
@@ -615,7 +618,6 @@ f share/vgshell/shell/plugins/vgs.launcher/Appearance.js
 f share/vgshell/shell/plugins/vgs.launcher/Caret.qml
 f share/vgshell/shell/plugins/vgs.launcher/ChevronGlyph.qml
 f share/vgshell/shell/plugins/vgs.launcher/ContextMenu.qml
-f share/vgshell/shell/plugins/vgs.launcher/EdgeLight.qml
 f share/vgshell/shell/plugins/vgs.launcher/FileSearch.qml
 f share/vgshell/shell/plugins/vgs.launcher/Highlight.qml
 f share/vgshell/shell/plugins/vgs.launcher/IconButton.qml
@@ -631,8 +633,6 @@ f share/vgshell/shell/plugins/vgs.launcher/Widget.qml
 f share/vgshell/shell/plugins/vgs.launcher/file-search.sh
 f share/vgshell/shell/plugins/vgs.launcher/manifest.json
 f share/vgshell/shell/plugins/vgs.launcher/menu.json
-f share/vgshell/shell/plugins/vgs.launcher/shaders/edgelight.frag
-f share/vgshell/shell/plugins/vgs.launcher/shaders/edgelight.frag.qsb
 f share/vgshell/shell/plugins/vgs.local-sync/Panel.qml
 f share/vgshell/shell/plugins/vgs.local-sync/PathChip.qml
 f share/vgshell/shell/plugins/vgs.local-sync/Service.qml
@@ -673,7 +673,6 @@ f share/vgshell/shell/plugins/vgs.notifications/CardFace.qml
 f share/vgshell/shell/plugins/vgs.notifications/CardScroll.qml
 f share/vgshell/shell/plugins/vgs.notifications/CardSlot.qml
 f share/vgshell/shell/plugins/vgs.notifications/ColorAnim.qml
-f share/vgshell/shell/plugins/vgs.notifications/EdgeLight.qml
 f share/vgshell/shell/plugins/vgs.notifications/InboxHeader.qml
 f share/vgshell/shell/plugins/vgs.notifications/MediaSlot.qml
 f share/vgshell/shell/plugins/vgs.notifications/NotificationCard.qml
@@ -691,8 +690,6 @@ f share/vgshell/shell/plugins/vgs.notifications/Supervised.qml
 f share/vgshell/shell/plugins/vgs.notifications/WorkspaceIcons.qml
 f share/vgshell/shell/plugins/vgs.notifications/images.sh
 f share/vgshell/shell/plugins/vgs.notifications/manifest.json
-f share/vgshell/shell/plugins/vgs.notifications/shaders/edgelight.frag
-f share/vgshell/shell/plugins/vgs.notifications/shaders/edgelight.frag.qsb
 f share/vgshell/shell/plugins/vgs.notifications/slack-app.json
 f share/vgshell/shell/plugins/vgs.notifications/slack-cache.js
 f share/vgshell/shell/plugins/vgs.notifications/slack-emoji.js
@@ -881,7 +878,6 @@ f share/vgshell/shell/plugins/vgs.webapps/manifest.json
 f share/vgshell/shell/plugins/vgs.windows/Pane.qml
 f share/vgshell/shell/plugins/vgs.windows/Service.qml
 f share/vgshell/shell/plugins/vgs.windows/manifest.json
-f share/vgshell/shell/plugins/vgs.windows/tui/layer-glass.sh
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md
