@@ -2582,7 +2582,6 @@ for spec in \
   'relative|internal ContentRow layout/ContentRow.qml' \
   'implicit|internal ContentRow layout/ContentRow.qml' \
   'js-resource|js' \
-  'prior-reader|internal ContentRow layout/ContentRow.qml' \
   'module-wide|prefer :/changed/' \
   'unknown|unrecognized entry' \
   'unreadable|unreadable' \
@@ -2622,9 +2621,6 @@ path.write_text(text.replace(old, new + '\n' if new else ''))
 PYENTRY
        ;;
   esac
-  if [[ $name == prior-reader ]]; then
-    printf 'import qs.Ui\nOther {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml"
-  fi
   module_plan() {
     local output
     output="$(cd -- "$d" && "${base_env[@]}" "$BASH" scripts/validate qml --changed HEAD --list 2>"$tmp/module-entry-$name.err")" || return
@@ -2727,7 +2723,7 @@ done
 # A provider change reaches a declared plugin consumer, not every source
 # that imports Capabilities. The real hub, provider and manifest judge run
 # through validate's --list operation; no fixture reimplements selection.
-for provider_case in provider nested direct unknown-table unreadable-manifest control; do
+for provider_case in provider nested direct unknown-table unreadable-manifest module-entry control; do
   d="$tmp/capability-provider-$provider_case"
   smoke_fixture "$d"
   mkdir -p "$d/bin/lib" "$d/shell/plugins/vgs.power"
@@ -2763,8 +2759,35 @@ PROVIDERLIBRARIES
     printf '# inputs: shell/plugins/vgs.capture/Service.qml\n' >"$d/scripts/smoke/rows/capture.sh"
     printf 'capture\n' >>"$d/scripts/smoke/rows.list"
   fi
+  if [[ $provider_case == module-entry ]]; then
+    mkdir -p "$d/shell/Commons" "$d/shell/plugins/vgs.lock"
+    cp -- "$repo/shell/Commons/qmldir" "$repo/shell/Commons/SessionLockState.js" "$d/shell/Commons/"
+    cp -- "$repo/shell/plugins/vgs.lock/Service.qml" "$repo/shell/plugins/vgs.lock/manifest.json" "$d/shell/plugins/vgs.lock/"
+    printf '# inputs: shell/plugins/vgs.lock/Service.qml\n' >"$d/scripts/smoke/rows/lock.sh"
+    # Keep the shipped idle/ipc observer and its real input line. In
+    # particular it reads Capabilities, but neither SessionLockState user.
+    python3 - "$repo" "$d" <<'MODULEPROVIDER'
+import fnmatch, pathlib, re, shutil, subprocess, sys
+repo, target = map(pathlib.Path, sys.argv[1:])
+source = (repo / 'scripts/smoke/rows/stay-awake.sh').read_text()
+inputs = re.findall(r'^# inputs: (.+)$', source, re.M)
+assert len(inputs) == 1
+tracked = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z']).decode().split('\0')
+for pattern in inputs[0].split():
+    matches = [path for path in tracked if path and fnmatch.fnmatchcase(path, pattern)]
+    assert matches, pattern
+    for path in matches:
+        destination = target / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(repo / path, destination)
+(target / 'scripts/smoke/rows/stay-awake.sh').write_text('# inputs: ' + inputs[0] + '\n')
+MODULEPROVIDER
+    printf 'lock\nstay-awake\n' >>"$d/scripts/smoke/rows.list"
+  fi
   commit "$d" provider-fixture
-  if [[ $provider_case == nested ]]; then
+  if [[ $provider_case == module-entry ]]; then
+    plant "$d/shell/Commons/qmldir" 'SessionLockState 1.0 SessionLockState.js' 'SessionLockState 1.1 SessionLockState.js'
+  elif [[ $provider_case == nested ]]; then
     plant "$d/shell/Core/ScreencopyPreview.qml" 'live: visible && captureSource !== null' 'live: visible && captureSource != null'
   else
     plant "$d/shell/Core/SessionLock.qml" 'get covered() { return root.covers.placement === "secure"; }' 'get covered() { return root.covers.placement !== "empty"; }'
@@ -2777,6 +2800,7 @@ PROVIDERLIBRARIES
     direct) row_re "direct provider inputs retain their row" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other.*power' ;;
     unknown-table) row_re "an unattributable table retains the ordinary hub importer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other' ;;
     unreadable-manifest) row "an unreadable manifest selects every row" "$d" 0 "" 'scripts/qml-smoke.sh' ;;
+    module-entry) row_re "a SessionLockState entry retains lock consumers without the idle-only stay-awake hub observer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power,lock' '!,stay-awake' '!,other,' ;;
     control)
       row "the provider control reaches no declared consumer on readable inputs" "$d" 0 "" "$smoke_none"
       if (failures=0; row_re "provider consumer guarantee" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power'; ((failures == 0))) >"$tmp/provider-consumer-control.log"; then

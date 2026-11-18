@@ -642,7 +642,7 @@ rows=(
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
   # Product boot is proved by the nested smoke core rows.
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/rows/* kendex.settings.toml README.md scripts/test-keyboard-logic.js scripts/check-plugin-boundary.py scripts/smoke/reap.sh scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/plugins/vgs.keyboard/Service.qml shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md shell/plugins/vgs.screensaver/logo.txt shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Commons/TuiArguments.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js shell/plugins/vgs.agent-warden/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Popover.qml shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Core/Pads.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/SettingValues.js shell/Ui/qmldir shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py shell/Core/Capabilities.qml shell/Core/SessionLock.qml shell/Core/ScreencopyPreview.qml shell/Core/qmldir shell/plugins/vgs.power/manifest.json shell/plugins/vgs.capture/manifest.json"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/smoke/rows/* kendex.settings.toml README.md scripts/test-keyboard-logic.js scripts/check-plugin-boundary.py scripts/smoke/reap.sh scripts/smoke/teardown.sh scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows.list scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/plugins/vgs.keyboard/Service.qml shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/README.md shell/plugins/vgs.screensaver/logo.txt shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Commons/TuiArguments.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js shell/plugins/vgs.agent-warden/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Popover.qml shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Core/Pads.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/SettingValues.js shell/Ui/qmldir shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py shell/Core/Capabilities.qml shell/Core/SessionLock.qml shell/Core/ScreencopyPreview.qml shell/Core/qmldir shell/plugins/vgs.power/manifest.json shell/plugins/vgs.capture/manifest.json shell/Commons/SessionLockState.js shell/plugins/vgs.lock/Service.qml shell/plugins/vgs.lock/manifest.json shell/Core/IdleRegistry.qml shell/Core/Lifetime.js shell/Core/Plugins.qml"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Commons/TuiArguments.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/plugins/vgs.bluetooth/PairLine.qml shell/Commons/* shell/Core/Config.qml shell/Core/PluginStatus.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.updates/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.local-sync/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Words.qml shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/Panel.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml shell/Core/HandoffRegistry.qml scripts/smoke/fixtures/plugins/acme.handoff/* scripts/smoke/fixtures/plugins/acme.handoff-sender/* shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/plugins/vgs.jarvis/Composer.js shell/plugins/vgs.power/Panel.qml shell/plugins/vgs.power/Pane.qml shell/plugins/vgs.power/StayAwake.qml shell/plugins/vgs.power/PowerLogic.js shell/plugins/vgs.polkit/Prompt.qml shell/plugins/vgs.polkit/PolkitModel.js shell/Hosts/SummonHost.qml"
@@ -1335,8 +1335,8 @@ PY
 # run time, such as a Loader source built in code, is not read; the row's
 # input line names it. Optional BASE PATH narrows that file's first loader
 # edges in smoke_observed: explicit JS imports by changed functions, or
-# qmldir imports by changed entry names on both sides. Historical module
-# loads stay local to that traversal. Unknown JS use keeps whole-file reach.
+# qmldir imports by changed entry names on both sides. Changed loader files
+# retain ordinary file reach. Unknown JS use keeps whole-file reach.
 # The reading cannot read sets smoke_read_fault to `qml-loads-unreadable
 # path=<path>`, and a reading that fails sets it to `qml-loads-failed`,
 # with the failed operation and its cause.
@@ -1345,7 +1345,7 @@ smoke_loads_read() { # [BASE PATH]
   smoke_observed=whole
   # -B: the reading writes no bytecode into the tree it reads.
   if out="$(python3 -I -B - "$@" 2>&1 <<'PY'
-import io, json, os, re, shlex, subprocess, sys, tarfile
+import json, os, re, shlex, subprocess, sys
 
 sys.path.insert(0, "scripts")
 from qml_controls import OBJECT_ID, blocks, qmldir_exports
@@ -1600,22 +1600,22 @@ try:
         except (KeyError, ValueError):
             providers, consumers = {}, {}
 
-    def source_loads(sources, lookup):
-        for path, text in sources.items():
+    def source_loads():
+        for path, text in code.items():
             here = os.path.dirname(path)
             # Stateless/importing JS resources inherit no QML imports, so a
             # diagnostic naming their QML sibling is no implicit type load:
             # https://doc.qt.io/qt-6/qtqml-javascript-imports.html
             # (Imports Within JavaScript Resources).
             isolated_js = path.endswith(".js") and re.search(r"^\s*\.(?:pragma\s+library|import)\b", text, re.M)
-            seen, loads = ([] if isolated_js else [lookup(here)]), set()
+            seen, loads = ([] if isolated_js else [named(here)]), set()
             aliases = set()
             for relative, module, alias in IMPORT.findall(text):
                 target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
                 if alias:
                     aliases.add(alias)
-                if (os.path.isdir(target) if sources is code else target in old_directories):
-                    seen.append(lookup(target))
+                if os.path.isdir(target):
+                    seen.append(named(target))
                 elif not module:
                     loads.add(target)
             # A JS namespace is not the same-named QML type in this directory.
@@ -1626,10 +1626,9 @@ try:
                 loads |= consulted
                 for name in words.intersection(table):
                     loads |= table[name]
-            if sources is code:
-                if path == hub:
-                    loads -= providers.keys()
-                loads |= consumers.get(path, set())
+            if path == hub:
+                loads -= providers.keys()
+            loads |= consumers.get(path, set())
             loads.discard(path)
             yield path, loads, words
     # REVISIT(D138): A module import makes entries available; only named
@@ -1661,49 +1660,18 @@ try:
         if not hunk:
             raise OSError("module-diff has no attributable hunk: " + changed)
         if not wide:
-            operation = "module-base-sources"
-            archive = subprocess.check_output(["git", "archive", base, "--", "shell", "scripts/smoke"],
-                                              stderr=subprocess.PIPE)
-            old_code, old_modules = {}, {}
-            with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
-                for item in tree:
-                    if not item.isfile() or not (item.name.endswith((".qml", ".js")) or os.path.basename(item.name) == "qmldir"):
-                        continue
-                    text = tree.extractfile(item).read().decode("utf-8-sig")
-                    if os.path.basename(item.name) == "qmldir":
-                        old_modules[item.name] = text
-                    else:
-                        old_code[item.name] = blank_comments(text)
-            old_directories = {os.path.dirname(path) for path in (*old_code, *old_modules)}
-            old_files = {}
-            for path in old_code:
-                folder, name = os.path.split(path)
-                if name.endswith(".qml") and name[:1].isupper():
-                    old_files.setdefault(folder, {}).setdefault(name[:-4], set()).add(path)
-            def prior_named(folder):
-                table = {name: set(paths) for name, paths in old_files.get(folder, {}).items()}
-                module = os.path.join(folder, "qmldir")
-                for line in old_modules.get(module, "").splitlines():
-                    match = entry.fullmatch(line.split("#", 1)[0].strip())
-                    if match:
-                        table.setdefault(match[1] or match[3], set()).add(os.path.normpath(os.path.join(folder, match[2] or match[4])))
-                return table, {module} if module in old_modules else set()
             print("local")
-            for sources, lookup, fact in ((code, named, "load"), (old_code, prior_named, "prior")):
-                for path, loads, words in source_loads(sources, lookup):
-                    if changed in loads and words & names:
-                        print("observe", path)
-                    if fact == "prior":
-                        for target in sorted(loads):
-                            print(fact, path, target)
+            for path, loads, words in source_loads():
+                if changed in loads and words & names:
+                    print("observe", path)
             sys.exit()
-    for path, loads, _ in source_loads(code, named):
+    for path, loads, _ in source_loads():
         for target in sorted(loads):
             print("load", path, target)
 except subprocess.CalledProcessError as exc:
     print("failed", f"operation={operation}", f"status={exc.returncode}", f"cause={shlex.quote(exc.stderr.decode() if isinstance(exc.stderr, bytes) else exc.stderr)}")
-except (UnicodeError, tarfile.TarError) as exc:
-    print("failed operation=module-base-sources", f"cause={shlex.quote(str(exc))}")
+except UnicodeError as exc:
+    print("failed operation=source-read", f"cause={shlex.quote(str(exc))}")
 except Unreadable as exc:
     print("unreadable", f"path={shlex.quote(exc.path)}", f"cause={shlex.quote(exc.strerror)}")
 except OSError as exc:
@@ -1722,7 +1690,6 @@ PY
       local) smoke_observed="" ;;
       observe) smoke_observed+=" $loader" ;;
       load) smoke_loaded_by[$loaded]+=" $loader" ;;
-      prior) smoke_prior_loaded_by[$loaded]+=" $loader" ;;
       unreadable|failed) smoke_read_fault="qml-loads-$fact $loader${loaded:+ $loaded}"; return 0 ;;
       *) printf -v smoke_read_fault 'qml-loads-failed operation=read-facts cause=%q' "$fact $loader $loaded"; return 0 ;;
     esac
@@ -1865,14 +1832,14 @@ smoke_path_reach() { # BASE PATH
 smoke_load_reach() { # PATH BASE
   local at=0 loader row smoke_observed=whole
   local -a queue=("$1") loaders
-  local -A seen=([$1]=1) added=() smoke_prior_loaded_by=()
+  local -A seen=([$1]=1) added=()
   # Explicit row inputs still observe the whole file. Only the import
   # edges of an attributable JS or module-entry hunk narrow; after an
   # observing importer ordinary file reach remains conservative.
   if [[ ( $1 == shell/*.js || ${1##*/} == qmldir ) && -f $1 ]]; then smoke_loads_read "$2" "$1"; fi
   for row in $smoke_reach; do added[$row]=1; done
   while ((at < ${#queue[@]})); do
-    read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-} ${smoke_prior_loaded_by[${queue[at]}]-}"
+    read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-}"
     at=$((at + 1))
     for loader in "${loaders[@]}"; do
       if [[ ${queue[at-1]} == "$1" && $smoke_observed != whole && " $smoke_observed " != *" $loader "* ]]; then continue; fi
