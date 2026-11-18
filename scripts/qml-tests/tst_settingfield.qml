@@ -176,8 +176,8 @@ Item {
         }
     }
 
-    // A label that needs more words carries a tooltip; a label wraps and
-    // never elides; `probe` takes the labels whose drawn lines the
+    // Schema tooltip metadata joins the label's click-open help. A label
+    // wraps and never elides; `probe` takes the labels whose drawn lines the
     // manifest judge's line count must match.
     Column {
         id: labelRows
@@ -191,7 +191,6 @@ Item {
         SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both"; onApply: value => root.applied.push(value) }
     }
 
-    Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
     Component {
         id: committingField
         SettingField {
@@ -893,89 +892,37 @@ Item {
             return descendants(owner).find(child => child.objectName === "fieldLabel" && child.visible);
         }
 
-        // Whether the setting's explainer, opened under its row over the
-        // description, takes more than one line, which the row hands to its
-        // info dialog. The room under a
-        // description's top holds a band of one line and no more. The row
-        // is as wide as a Settings page: the window less its panel inset.
-        function explainerWraps(key, spec) {
-            const made = createTemporaryObject(shippedField, root, { width: Theme.size.window.width - 2 * Theme.surface.padding, key: key, spec: spec, value: spec.default });
-            const row = descendants(made).find(child => child.objectName === "fieldRow");
-            if (row.explainInDialog) return true;
-            if (row.explainBeside) return false;
-            const tip = descendants(labelOf(made)).find(child => String(child).indexOf("Tooltip") === 0);
-            compare(tip.text, spec.tooltip);
-            tip.shown = true;
-            try {
-                // A tooltip made in this turn builds its window on the next
-                // (stand-ins/LazyLoader.qml).
-                tryVerify(() => tip.opened, 1000, "the explainer opens its own surface");
-                const title = descendants(tip.tracker.popup.contentItem).find(child => child.objectName === "tooltipTitle");
-                return title.lineCount > 1;
-            } finally {
-                tip.shown = false;
-            }
-        }
-
-        // Capture ships the settings that carry both an explainer and a
-        // description; a plugin that adds one adds its manifest here.
-        function test_a_shipped_explainer_over_a_description_keeps_one_line() {
-            const request = new XMLHttpRequest();
-            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.capture/manifest.json"), false);
-            request.send();
-            const schema = JSON.parse(request.responseText).schema;
-            const keys = Object.keys(schema).filter(key => schema[key].tooltip !== undefined && schema[key].description !== undefined);
-            verify(keys.length > 0, "the manifest holds no explained setting with a description");
-            for (const key of keys)
-                verify(!explainerWraps(key, schema[key]), key + ": the explainer wraps over its description: " + schema[key].tooltip);
-            const planted = Object.assign({}, schema[keys[0]], { tooltip: "Records every frame at the same interval, even when nothing on the screen moves, for as long as the recording runs." });
-            verify(explainerWraps(keys[0], planted), "control: a planted long explainer wraps");
-        }
-
-        function test_a_label_tooltip_opens_on_hover_and_keyboard_focus() {
-            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+        function test_schema_tooltip_metadata_opens_as_label_help() {
             const label = labelOf(explained);
-            const tip = descendants(label).find(child => String(child).indexOf("Tooltip") === 0);
-            compare(tip.text, explained.spec.tooltip, "the label's tooltip reads the schema's tooltip");
-            mouseMove(root, root.width - 1, root.height - 1);
-            mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true, 2000, "hover opens the tooltip");
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
-            root.Window.window.requestActivate();
-            tryCompare(root.Window.window, "active", true);
-            const labelControl = label.children.find(child => child.visualFocus !== undefined);
-            verify(labelControl.activeFocusOnTab, "the label is a Tab stop");
-            const shown = [];
-            const record = () => { if (tip.opened) shown.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                labelControl.forceActiveFocus(Qt.TabFocusReason);
-                tryVerify(() => shown.length > 0, 2000, "keyboard focus opens the tooltip");
-            } finally {
-                tip.openedChanged.disconnect(record);
-            }
-            compare(shown[0], explained.spec.tooltip);
-            const plain = labelOf(unexplained).children.find(child => child.visualFocus !== undefined);
-            verify(!plain.activeFocusOnTab, "a label without a tooltip is no Tab stop");
+            verify(label instanceof InfoButton);
+            compare(label.info, explained.spec.tooltip);
+            verify(!descendants(label).some(child => String(child).indexOf("Tooltip") === 0));
+            compare(label.activeFocusOnTab, true);
+            label.forceActiveFocus(Qt.TabFocusReason);
+            compare(label.infoOpen, false, "focus does not open help");
+            keyClick(Qt.Key_Return);
+            compare(label.infoOpen, true);
+            compare(explained.value, true, "opening help leaves the setting unchanged");
+            label.closeInfo();
+            compare(labelOf(unexplained).activeFocusOnTab, false);
         }
 
         function test_a_long_label_wraps_and_never_elides() {
             const label = labelOf(longLabel);
             verify(label.lineCount > 2, "the label wraps past two lines");
-            compare(label.truncated, false, "the label elides");
+            compare(label.labelItem.truncated, false, "the label elides");
             // The row box, which a row stood under another by ink may
             // overlap, holds the label.
             verify(label.parent.objectName === "fieldRow" && label.parent.height >= label.implicitHeight, "the row holds every line");
         }
 
-        // The manifest judge's characters a line, with and without an info
-        // mark, are the drawn label's at the default theme: that many of the
+        // The manifest judge's characters a line, with and without help,
+        // are the drawn label's at the default theme: that many of the
         // widest capital fill one line, and one more wraps.
         function test_the_judge_line_counts_fill_one_drawn_line_data() {
             return [
                 { tag: "plain", info: false, characters: PluginLogic.LABEL_LINE_CHARACTERS },
-                { tag: "beside an info mark", info: true, characters: PluginLogic.INFO_LABEL_LINE_CHARACTERS }
+                { tag: "with dotted help", info: true, characters: PluginLogic.LABEL_LINE_CHARACTERS }
             ];
         }
 
@@ -995,7 +942,7 @@ Item {
                 { tag: "one line", label: "Include pointer" },
                 { tag: "a space break", label: "Click to select a window or display" },
                 { tag: "a hyphen break", label: "Review third-party packages" },
-                { tag: "a hyphen break beside an info mark", label: "Use third-party keys", info: true },
+                { tag: "a hyphen break with dotted help", label: "Use third-party keys", info: true },
                 { tag: "a hyphen before a digit keeps its word", label: "Aaaa bbbbbbbbbbb-10 ccccccccccccc" },
                 { tag: "three lines", label: "Trim and level finished recordings" }
             ];

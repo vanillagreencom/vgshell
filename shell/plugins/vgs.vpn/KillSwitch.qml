@@ -35,7 +35,7 @@ Section {
         width: parent.width
         inline: true
         label: "Enabled"
-        info: "If a VPN started in VGS drops, traffic stays blocked until it reconnects or you turn it off in VGS.\nTurning the VPN off elsewhere keeps the block.\nThe block stays active when VGS closes and after a restart.\nIt also works with WireGuard.\nTurn on Allow local network to use containers and virtual machines."
+        info: "If a VPN started in VGS drops, traffic stays blocked until it reconnects or you turn it off in VGS.\nTurning the VPN off elsewhere keeps the block.\nThe block stays active when VGS closes and after a restart.\nIt works only with WireGuard profiles.\nTurn on Allow local network to use containers and virtual machines."
             + (root.view.countInfo === "" ? "" : "\n" + root.view.countInfo)
         hint: root.view.tone === "" ? root.view.hint : ""
         error: root.view.tone === "danger" ? root.view.hint : ""

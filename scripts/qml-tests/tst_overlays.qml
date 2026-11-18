@@ -240,6 +240,8 @@ Item {
             else keyClick(Qt.Key_Enter);
             tryCompare(label, "infoOpen", true);
             tryCompare(helpMenu, "opened", false);
+            const modal = descendants(label).find(item => item.body !== undefined && item.shown !== undefined);
+            compare(modal.screenOwner, host);
             label.closeInfo();
             tryCompare(host, "activeFocus", true);
         }

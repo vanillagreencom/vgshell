@@ -93,7 +93,6 @@ Item {
     property string info: ""
     property string labelTooltip: ""
     property bool labelColumn: true
-    property bool textBelow: false
     property Item placed: root
     // Whether a row with no label stands under the row above it as a
     // key/value row does: a line of its own on the value column in a row's

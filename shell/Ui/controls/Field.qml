@@ -160,7 +160,6 @@ Column {
         info: root.info
         labelTooltip: root.labelTooltip
         labelColumn: root.inline
-        textBelow: root.inline && root.subText
         standsWithoutLabel: root.standsWithoutLabel
         placed: root
         Component.onCompleted: infoPageActivated.connect(root.infoPageActivated)

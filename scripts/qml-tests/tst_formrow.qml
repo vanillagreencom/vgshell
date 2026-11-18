@@ -78,6 +78,7 @@ Item {
         width: 420
         label: "Shortcut"
         labelTooltip: "Change its keyboard shortcut."
+        info: "See [its settings](page:acme.keys/Settings)."
         Label { role: "value"; text: "Available" }
     }
 
@@ -202,7 +203,7 @@ Item {
         function test_label_help_is_one_independent_target() {
             const help = labelOf(explainedLabel);
             verify(help instanceof InfoButton);
-            compare(help.info, explainedLabel.labelTooltip);
+            compare(help.info, explainedLabel.labelTooltip + "\n" + explainedLabel.info);
             compare(help.activeFocusOnTab, true);
             help.forceActiveFocus(Qt.TabFocusReason);
             compare(help.visualFocus, true);

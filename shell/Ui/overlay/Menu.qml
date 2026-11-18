@@ -218,7 +218,9 @@ Item {
         delegate: Connections {
             required property var modelData
             target: modelData
-            function onTriggered() { if (!modelData.keepsOpen) root.close(true); }
+            // Help takes the keyboard in its own dialog and restores the
+            // opener on close; activating the window here would steal it.
+            function onTriggered() { if (!modelData.keepsOpen) root.close(modelData.info === ""); }
         }
     }
 

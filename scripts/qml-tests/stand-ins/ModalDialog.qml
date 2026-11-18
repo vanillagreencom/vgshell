@@ -10,6 +10,7 @@ Item {
     property var actions: []
     property bool busy: false
     property Component body: null
+    property Item screenOwner: null
     property bool dismissOnOutside: false
     signal accepted()
     signal rejected()

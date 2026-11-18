@@ -379,41 +379,22 @@ Item {
             }
         }
 
-        function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
-            const field = disposableKey.createObject(root, { width: 420, z: 1,
+        function test_settings_bind_explanation_uses_the_shared_label_help() {
+            const field = createTemporaryObject(disposableKey, root, { width: 420, z: 1,
                 bind: { shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare", info: "Open the window." } });
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            verify(field !== null);
             const label = descendants(field).find(item => item.objectName === "fieldLabel");
-            const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
-            verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0 && item.info !== ""));
-            compare(tip.text, "Open the window.");
-            mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true);
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
-            root.Window.window.requestActivate();
-            tryCompare(root.Window.window, "active", true);
-            wait(0);
-            const focused = [];
-            const record = () => { if (tip.opened) focused.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                const control = label.children.find(item => item.visualFocus !== undefined);
-                control.forceActiveFocus(Qt.OtherFocusReason);
-                keyClick(Qt.Key_Tab);
-                keyClick(Qt.Key_Backtab);
-                compare(control.activeFocus, true);
-                compare(control.visualFocus, true);
-                tryVerify(() => focused.length > 0, 2000);
-                compare(root.Window.window.active, true);
-                compare(control.activeFocus, true);
-            } finally {
-                tip.openedChanged.disconnect(record);
-            }
-            compare(focused[0], tip.text);
-            elsewhere.forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", false);
-            field.destroy();
+            verify(label instanceof InfoButton);
+            compare(label.info, field.bind.info);
+            verify(!descendants(label).some(item => String(item).indexOf("Tooltip") === 0));
+            label.forceActiveFocus(Qt.TabFocusReason);
+            compare(label.infoOpen, false);
+            keyClick(Qt.Key_Enter);
+            compare(label.infoOpen, true);
+            compare(field.shortcutField.capturing, false, "label help does not start shortcut capture");
+            label.closeInfo();
+            tryCompare(label, "activeFocus", true);
+            compare(label.visualFocus, true);
         }
 
         function test_a_typed_text_waits_and_joins_the_set() {

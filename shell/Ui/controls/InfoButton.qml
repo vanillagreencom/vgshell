@@ -48,6 +48,7 @@ LinkText {
     ModalDialog {
         id: dialog
         title: root.title
+        screenOwner: root.returnFocus
         dismissOnOutside: true
         actions: [{ label: "Close", role: "cancel", focused: true }]
         onRejected: root.closeInfo()

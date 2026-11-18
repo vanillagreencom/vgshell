@@ -1193,7 +1193,7 @@ Scope {
     function scopedItem(hostKey, id, scopeType, scopeText, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const draws = node => root.descendants(node).some(child => child instanceof Text && child.visible && child.text === scopeText);
+        const draws = node => root.descendants(node).some(child => root.visibleInTree(child) && root.displayedText(child) === scopeText);
         const scope = root.descendants(item).find(child => root.matchesType(child, scopeType) && child.visible && draws(child));
         if (scope === undefined) return null;
         const found = root.descendants(scope).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && child.enabled);
@@ -1218,7 +1218,7 @@ Scope {
     function popupItem(hostKey, id, scopeType, scopeText, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const draws = node => root.descendants(node).some(child => child instanceof Text && root.visibleInTree(child) && child.text === scopeText);
+        const draws = node => root.descendants(node).some(child => root.visibleInTree(child) && root.displayedText(child) === scopeText);
         for (const owner of root.descendants(item)) {
             const popup = root.popupOf(owner);
             if (popup === null || popup === undefined || !popup.visible) continue;
@@ -1234,11 +1234,16 @@ Scope {
         return null;
     }
 
-    // Whether an item reads `text`: its `text`, its `name` for an icon,
-    // its `label` for an icon button, or its `currentText` for a Select,
-    // which draws its choice and holds no text of its own.
+    // Plain displayed text belongs to the link control; its child Text
+    // contains styling markup. Scope discovery and target reads share it.
+    function displayedText(child) {
+        return child instanceof Ui.LinkText ? child.plain : child instanceof Text ? child.text : undefined;
+    }
+
+    // Whether an item reads `text`: its display text, icon name, button
+    // label, or a Select's current choice.
     function reads(child, text) {
-        return child.text === text || child.name === text || child.label === text || child.currentText === text;
+        return root.displayedText(child) === text || child.text === text || child.name === text || child.label === text || child.currentText === text;
     }
 
     // The window box of the first visible item named `type` under an

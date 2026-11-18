@@ -307,7 +307,7 @@ Item {
                 made.text = data.text;
                 made.size = data.size;
             }
-            const label = data.kind === "badge" ? badgeLabel(made) : data.kind === "button" ? made.contentItem.children.find(child => child.role === "button") : made.children.find(child => child.objectName === "fieldLabel");
+            const label = data.kind === "badge" ? badgeLabel(made) : data.kind === "button" ? made.contentItem.children.find(child => child.role === "button") : made.children.find(child => child.objectName === "fieldLabel").labelItem;
             const ratio = label.Screen.devicePixelRatio;
             compare(ratio, data.scale, "the window draws at its screen's scale");
             // A button's label is anchored, so the controls move the drawn

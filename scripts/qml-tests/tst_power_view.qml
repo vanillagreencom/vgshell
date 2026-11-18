@@ -88,7 +88,7 @@ Item {
             compare(icons[0].y, text.topForLeadingIcon(icons[0].height));
             if (data.battery.present) {
                 const row = field.children.find(item => item instanceof FormRow);
-                const key = row.children.find(item => item.objectName === "fieldLabel");
+                const key = row.children.find(item => item.objectName === "fieldLabel").labelItem;
                 const level = field.control[0].children.find(item => item instanceof Label);
                 const keyCentre = key.mapToItem(view, 0, (key.baselineOffset + key.capTop()) / 2).y;
                 const levelCentre = level.mapToItem(view, 0, (level.baselineOffset + level.capTop()) / 2).y;

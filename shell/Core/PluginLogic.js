@@ -61,9 +61,8 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // places the field only while that entry reads present; `problem` names a
 // `text` status entry whose value draws as the field's error; `link`
 // makes part of the description open an https address or another plugin's
-// page; `tooltip` is the few words a label that is not plain needs, shown
-// on hover and keyboard focus of the label. Pads.js judges a
-// `list`.
+// page; `tooltip` is the short explanation joined to the label's
+// click-open help. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
 var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "addChoice", "preview"];
 // A status-fed select's last entry, which opens the plugin's own screen
@@ -195,16 +194,14 @@ var STATUS_HINT_MAX = 200;
 var STATUS_TEXT_MAX = 200;
 // An info dialog is the longer help a row keeps out of the page.
 var INFO_MAX = 400;
-// A label's tooltip is one short sentence: longer help goes in `info`.
+// Tooltip metadata is one source line: longer help goes in `info`.
 var TOOLTIP_MAX = 120;
 // A setting's label draws in the label column in the `label` role and wraps
 // there, never elided (FormRow). At the default theme a line of that column
-// holds LABEL_LINE_CHARACTERS characters, and INFO_LABEL_LINE_CHARACTERS
-// beside an info mark, which takes an `sm` icon button and `space.xs` of
-// it; a label holds at most LABEL_LINES lines. tst_settingfield.qml holds
-// both counts and labelLines to the drawn label.
+// holds LABEL_LINE_CHARACTERS characters, with or without dotted help;
+// a label holds at most LABEL_LINES lines. tst_settingfield.qml holds
+// this count and labelLines to the drawn label.
 var LABEL_LINE_CHARACTERS = 17;
-var INFO_LABEL_LINE_CHARACTERS = 13;
 var LABEL_LINES = 2;
 // The ceiling on one plugin's published values: the UTF-8 bytes of their
 // JSON. A write that would pass it is refused and the values stay.
@@ -495,9 +492,8 @@ function schemaError(schema, settings, status) {
             if (!isPrintableLine(entry.tooltip, TOOLTIP_MAX))
                 return at + ".tooltip must be a printable line of 1 to " + TOOLTIP_MAX + " characters when present";
         }
-        var lineCharacters = entry.info === undefined ? LABEL_LINE_CHARACTERS : INFO_LABEL_LINE_CHARACTERS;
-        if (entry.type !== "list" && labelLines(entry.label, lineCharacters) > LABEL_LINES)
-            return at + ".label must fit " + LABEL_LINES + " lines of " + lineCharacters + " characters";
+        if (entry.type !== "list" && labelLines(entry.label, LABEL_LINE_CHARACTERS) > LABEL_LINES)
+            return at + ".label must fit " + LABEL_LINES + " lines of " + LABEL_LINE_CHARACTERS + " characters";
         var schemaLink = linkError(entry, at, "description");
         if (schemaLink !== "")
             return schemaLink;

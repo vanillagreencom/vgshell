@@ -402,7 +402,7 @@ Item {
             verify(renderedFrame(keyed));
             function labels(item) {
                 let out = [];
-                for (const child of item.children) out = out.concat(child instanceof Label ? [child] : [], labels(child));
+                for (const child of item.children) out = out.concat(child instanceof Label || child instanceof InfoButton ? [child] : [], labels(child));
                 return out;
             }
             const key = labels(keyed).find(item => item.objectName === "fieldLabel");

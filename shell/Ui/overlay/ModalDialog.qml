@@ -19,10 +19,14 @@ Item {
     property var actions: []
     property bool busy: false
     property Component body: null
+    // A menu detaches its content from the backing window when it hides
+    // (Menu.qml, Quickshell 0.3.1 deleteOnInvisible). Help opened there
+    // belongs to the durable opener's output instead of that popup.
+    property Item screenOwner: root
     // Confirmations keep their held background; informational help may
     // dismiss through the same scrim without accepting an action.
     property bool dismissOnOutside: false
-    readonly property var screen: OverlayState.outputOf(root)
+    readonly property var screen: OverlayState.outputOf(screenOwner)
     visible: surfaceLoader.item !== null && surfaceLoader.item.visible && surfaceLoader.item.backingWindowVisible
     property bool counted: false
     function share(open) {

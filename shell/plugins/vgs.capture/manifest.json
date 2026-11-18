@@ -32,7 +32,7 @@
     "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
     "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f", "browser": "nautilus --select %f" },
   "schema": {
-    "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "Click to capture the window or display under the pointer.\nDrag to capture an area.", "group": "Screenshots"},
+    "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "Click to capture the window or display under the pointer. Drag to capture an area.", "group": "Screenshots"},
     "cursor": {"type": "boolean", "label": "Include pointer", "group": "Screenshots"},
     "processing": {"type": "enum", "label": "After capture", "options": [{"value": "save-copy", "label": "Save and copy"}, {"value": "copy", "label": "Copy only"}, {"value": "save", "label": "Save only"}], "group": "Screenshots"},
     "folder": {"type": "string", "label": "Screenshot folder", "presets": [{"value": "", "label": "Pictures / Screenshots"}], "allowCustom": true, "group": "Folders"},
