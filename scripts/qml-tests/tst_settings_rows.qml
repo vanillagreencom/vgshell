@@ -176,6 +176,20 @@ Item {
             compare(onTab(window, LinkText).map(text => text.text).filter(text => text === root.pairsEntry.hint).length, 1, "the hint reads under the list");
         }
 
+        function test_a_last_hovered_folder_row_keeps_its_plate_box() {
+            fakeManager.plugins = [root.pluginRow("acme.rows", root.pairsEntry, { pairs: root.pairs.slice(0, 2) }, {})];
+            const window = opened("acme.rows", "Settings");
+            const drawn = lines(window);
+            const last = drawn[drawn.length - 1];
+            verify(last.cursor !== null);
+            mouseMove(last, last.leftPadding + 1, last.height / 2);
+            mouseMove(last, last.leftPadding + 2, last.height / 2);
+            tryVerify(() => last.cursor.placed === last);
+            const groups = descendants(listOf(window)).find(item => item instanceof GroupList);
+            verify(groups.mapToItem(null, 0, groups.height).y >= last.mapToItem(null, 0, last.height).y,
+                "the list's box includes the last hovered plate");
+        }
+
         // Name, state, folders and button stand one ink gap apart, and the
         // row's box holds its padding above the first ink and below the last.
         function test_a_rows_lines_stand_one_ink_gap_apart() {

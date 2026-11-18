@@ -332,9 +332,8 @@ var START_FILES = {
 };
 function startTextInfo(layers, causes, home) {
     var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
-    var reason = over.length > 0 ? budgetInfo(over, home)
-        : "Tokens are small pieces of words. These counts are estimates.\n" + START_REASON;
-    return reason + "\nOpen:\n" + layers.map(function (layer) {
+    var reason = over.length > 0 ? budgetInfo(over, home) : START_REASON;
+    return "Tokens are small pieces of words. These counts are estimates.\n" + reason + "\nOpen:\n" + layers.map(function (layer) {
         var file = START_FILES[layer.layer];
         return homeReference(file.name, home, HOME_FILES[file.action]);
     }).join("\n") + ".";
