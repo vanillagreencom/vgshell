@@ -238,8 +238,11 @@ Item {
             const callout = make({ text: "Change the shortcut in [Settings/Keys](page:vgs.launcher/Settings/Keys)." });
             const words = body(callout);
             linkMeasure.font = words.children[0].font;
-            linkMeasure.text = words.layout.text.slice(0, words.layout.links[0].start) + "Settings/";
-            const narrow = 2 * Theme.callout.padding + icon(callout).width + Theme.callout.iconGap + linkMeasure.advanceWidth;
+            const prefix = words.layout.text.slice(0, words.layout.links[0].start);
+            linkMeasure.text = prefix + "Settings/";
+            const partial = linkMeasure.advanceWidth;
+            linkMeasure.text = prefix + "Settings/Keys";
+            const narrow = 2 * Theme.callout.padding + icon(callout).width + Theme.callout.iconGap + (partial + linkMeasure.advanceWidth) / 2;
             callout.width = narrow;
             tryVerify(() => words.underlined.length === 1 && words.underlined[0].line > 0);
             compare(words.plain, "Change the shortcut in Settings/Keys.");
