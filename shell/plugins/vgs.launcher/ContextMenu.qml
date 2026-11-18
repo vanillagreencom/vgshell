@@ -12,8 +12,6 @@ Item {
 
     required property var look
     required property var motion
-    // Whether the flyout draws glass: the launcher card's effective state.
-    property bool glass: false
     property var items: []
     readonly property bool opened: state === "open"
     property int hovered: -1
@@ -101,16 +99,13 @@ Item {
         onPressed: menu.close()
     }
 
+    // The launcher's glass: solid over the card, it keeps the card's hue.
     GlassSurface {
         id: panel
-        optIn: menu.glass
-        // The card's fill: solid over the card, the flyout draws it
-        // opaque, so it keeps the card's hue.
-        fill: menu.look.card.fill
+        surface: "launcher"
         width: menu.look.flyout.width
         height: implicitHeight
         implicitHeight: column.implicitHeight + 2 * menu.look.flyout.padding
-        elevation: "tight"
         opacity: menu.opened ? 1 : 0
         scale: menu.opened ? 1 : menu.look.flyout.openScale
         Behavior on opacity {

@@ -21,6 +21,7 @@ Item {
 
     Surface {
         anchors.centerIn: parent
+        surface: "indicators"
         level: "raised"
         width: card.implicitWidth + 2 * Theme.osd.padding
         height: card.implicitHeight + 2 * Theme.osd.padding

@@ -8,7 +8,6 @@ Item {
 
     required property var look
     required property Item settingsHost
-    property bool glassChoice: false
     property string mode: "inbox"
     property string subtitle: ""
     // Whether a notification that shows may play the shell's sound, and
@@ -38,11 +37,8 @@ Item {
 
     GlassSurface {
         anchors.fill: parent
-        optIn: header.glassChoice
-        fill: header.look.card.fill
+        surface: "notifications"
         radius: header.look.radius.full
-        elevation: "tight"
-        shadowCached: false
     }
 
     Column {

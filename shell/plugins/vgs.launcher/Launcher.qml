@@ -15,16 +15,14 @@ import "Motion.js" as Motion
 // with `mode` `select` or `input` turns it into a picker that answers
 // through two files (README). Closed, it holds no surface: the host builds
 // it on summon and destroys it on hide. Every value it draws with is `look`,
-// its own table resolved against the theme's mode and accent alone.
+// its own table resolved against the Glass page's style and the theme's
+// accent alone.
 Item {
     id: root
 
     // The core assigns the plugin's scoped shell object after creation.
     property var shell: null
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
-    // The launcher's own VGlass choice, its `glass` setting; the card's
-    // `on` is the effective state the edge light and the flyout follow.
-    readonly property bool glassChoice: shell !== null && shell.settings.glass === true
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "launcher", clear: Appearance.CLEAR })
 
     // ------------------------------------------------------------ lifecycle
 
@@ -1003,17 +1001,17 @@ Item {
         onClicked: root.cancel()
     }
 
+    // The card's edge light turns to the accent while a search runs.
     Ui.GlassSurface {
         id: card
-        optIn: root.glassChoice
-        fill: root.look.card.fill
+        surface: "launcher"
+        lit: root.searching
         width: root.cardWidth
         height: Math.min(root.cardHeight, root.height - root.look.card.margin - root.effectiveCardTop)
         radius: Math.min(height / 2, root.look.card.radius)
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.effectiveCardTop + lift
         padding: root.look.card.padding
-        shadowCached: false
         transformOrigin: Item.Top
         opacity: 0
         property real lift: 0
@@ -1292,20 +1290,9 @@ Item {
         }
     }
 
-    // The moving edge reflection is the launcher's own glass treatment,
-    // drawn only while the card draws glass.
-    EdgeLight {
-        id: edgeLight
-        look: root.look
-        follow: card
-        visible: card.drawn
-        active: root.searching
-    }
-
     ContextMenu {
         id: fileFlyout
         look: root.look
-        glass: card.on
         motion: root.listMotion
         property string targetPath: ""
         function dismiss() {

@@ -11,7 +11,7 @@ Item {
 
     property var screen: null
     required property var service
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "notifications", clear: Appearance.CLEAR })
     readonly property bool inputAll: false
     // The open inbox lists every toast, so the stack draws none and takes
     // no input under it; its cards stay built and show again as they were

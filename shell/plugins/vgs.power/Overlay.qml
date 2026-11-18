@@ -210,6 +210,7 @@ Item {
 
     Surface {
         id: card
+        surface: "indicators"
         anchors.centerIn: parent
         width: Math.min(Math.max(list.implicitWidth, hints.implicitWidth, message.visible ? message.implicitWidth : 0) + 2 * pane.contentInset, root.width - 2 * Theme.size.window.gutter)
         height: pane.implicitHeight

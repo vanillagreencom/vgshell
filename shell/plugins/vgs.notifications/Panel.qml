@@ -14,10 +14,7 @@ FocusScope {
 
     property var shell: null
     readonly property int statusRevision: shell === null ? 0 : shell.status.revision
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
-    // The notifications' own VGlass choice, the `glass` setting, which the
-    // header and every card hand their glass.
-    readonly property bool glassChoice: shell !== null && shell.settings.glass === true
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "notifications", clear: Appearance.CLEAR })
     property string mode: "inbox"
     property string subtitle: ""
     property bool sound: true
@@ -455,7 +452,6 @@ FocusScope {
                 soundChosen: root.soundChosen
                 dnd: root.silenced
                 textColumn: listScroll.textColumn
-                glassChoice: root.glassChoice
                 shown: true
                 width: implicitWidth
                 x: (parent.width - width) / 2
@@ -625,7 +621,6 @@ FocusScope {
                                     showActions: (slot.selected || hovered) && actions.length > 0
                                     actionIndex: slot.selected ? root.actionIndex : -1
                                     keyboardActions: true
-                                    glassChoice: root.glassChoice
                                     edgeVisible: slot.hover > 0
                                     edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
                                     onHoverRequested: (key, on) => root.setHover(key, on)

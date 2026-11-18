@@ -41,10 +41,36 @@ Singleton {
     // sources, hyprland } (ThemeLogic.withAppearance). The groups below
     // already hold the resolved values.
     readonly property var appearanceState: source.appearance
-    // VGlass, the one shared glass look (Glass.js), resolved as a plugin's
-    // own look is: it follows the theme's five look inputs alone.
-    // GlassSurface of qs.Ui draws it.
-    readonly property var glass: appearance(Glass.TOKENS, Glass.LIGHT)
+    // Whether the compositor's layer glass is loaded and ready, which Clear
+    // needs (ThemeLogic.glassFor). The core's Hyprland state alone binds it.
+    property bool layerGlassReady: false
+    // The style glass draws in: Light, Dark or Clear, Auto being the
+    // theme's mode (ThemeLogic.glassStyle).
+    readonly property string glassStyle: ThemeLogic.glassStyle(appearanceState.values, scheme.mode)
+    // Glass, the one shared glass material (Glass.js), in glassStyle,
+    // resolved as a plugin's own look is. GlassSurface of qs.Ui draws it.
+    readonly property var glass: converted(Glass.TOKENS, glassValues(glassStyle))
+    // Glass in the theme's own mode, which windows draw: an application's
+    // text follows the theme, never the Glass page's style.
+    readonly property var windowGlass: converted(Glass.TOKENS, glassValues(scheme.mode === "light" ? "light" : "dark"))
+
+    // Glass.js resolved in STYLE, unconverted: what a look on glass takes
+    // its glass inputs from (ThemeLogic.GLASS_INPUTS).
+    function glassValues(style) {
+        const accepted = ThemeLogic.acceptAppearance(Glass.TOKENS, Glass.LIGHT, source.values, { style: style, clear: Glass.CLEAR });
+        if (!accepted.ok) {
+            console.error("glass: refused: " + ThemeLogic.refusalLine(accepted).replace(/^theme: refused: /, ""));
+            return null;
+        }
+        return accepted.values;
+    }
+
+    // Whether and how glass draws on SURFACE, a Glass page id or "controls",
+    // in a window that is MATERIAL or not (ThemeLogic.glassFor): { on,
+    // style, drawable }.
+    function glassFor(surface, material) {
+        return ThemeLogic.glassFor(appearanceState.values, surface, { mode: scheme.mode, layerGlass: layerGlassReady, material: material === true });
+    }
 
     // What a glass surface whose fill is the colour `fill` draws while
     // solid: that fill made opaque and lifted toward white by
@@ -59,12 +85,6 @@ Singleton {
     function faded(color) {
         const c = typeof color === "string" ? Qt.color(color) : color;
         return toColor(ThemeLogic.formatColor({ r: c.r, g: c.g, b: c.b, a: c.a * opacity.disabled }));
-    }
-
-    // Whether a surface whose own VGlass choice is OPTIN draws glass under
-    // the user's Appearance values (ThemeLogic.glassOn).
-    function glassOn(optIn) {
-        return ThemeLogic.glassOn(appearanceState.values, optIn);
     }
 
     readonly property var scheme: published.scheme
@@ -514,17 +534,31 @@ Singleton {
     // else of it, converted as the shell's groups are. A binding on it
     // follows the theme and answers the same values for any theme with
     // those five.
+    // A look drawn on glass hands GLASS, { surface, its Glass page id;
+    // clear, its Clear overrides }: while that surface takes glass the look
+    // follows glassStyle and takes the drawn glass's ground and body, and
+    // while it does not, the theme's mode and the glass of that mode, the
+    // ground its standard look stands in for.
     // A refusal is logged and answers null, so the caller fails loudly
     // instead of drawing a look the judge did not accept. A family is drawn
     // as the judge resolved it and is never substituted.
-    function appearance(table, light) {
-        const accepted = ThemeLogic.acceptAppearance(table, light, source.values);
+    function appearance(table, light, glass) {
+        let style;
+        if (glass !== undefined)
+            style = glassFor(glass.surface).on ? glassStyle : scheme.mode === "light" ? "light" : "dark";
+        const accepted = ThemeLogic.acceptAppearance(table, light, source.values,
+            glass === undefined ? undefined : { style: style, clear: glass.clear, values: glassValues(style) });
         if (!accepted.ok) {
             console.error("appearance: refused: " + ThemeLogic.refusalLine(accepted).replace(/^theme: refused: /, ""));
             return null;
         }
-        const converted = convertTree(table, accepted.values, accepted.values, []);
-        return convertBodyLines(table, converted, bodyLineBox);
+        return converted(table, accepted.values);
+    }
+
+    // TABLE's resolved VALUES as QML values, or null for none.
+    function converted(table, values) {
+        if (values === null) return null;
+        return convertBodyLines(table, convertTree(table, values, values, []), bodyLineBox);
     }
 
     // A bundled font, loaded from the file the environment variable

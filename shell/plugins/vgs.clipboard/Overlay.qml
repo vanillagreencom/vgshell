@@ -155,6 +155,7 @@ FocusScope {
 
     Surface {
         id: card
+        surface: "clipboard"
         level: "raised"
         anchors.centerIn: parent
         width: Math.min(2 * Theme.size.panel.lg, root.width - 2 * Theme.inset.overlay)

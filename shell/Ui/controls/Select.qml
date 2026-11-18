@@ -255,8 +255,8 @@ T.AbstractButton {
 
             GlassSurface {
                 anchors.fill: parent
+                surface: "menus"
                 standard: Theme.menu
-                elevation: "tight"
             }
 
             ListView {

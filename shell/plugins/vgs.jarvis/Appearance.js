@@ -10,13 +10,13 @@
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
 // duration here (0 stills the orb and shows the words whole). The icon row
-// and every line stand on the same neutral glass in both modes (`plate`).
-// Its black tint dims the blurred backdrop without adding a colour, and
-// each light ink reads against its brightest ground, the tint over white.
-// Nothing stands behind the orb: each style draws its own dark disc in its
-// shader, with a glow that shows on a dark ground and a shadow that shows on
-// a light one, so one recipe reads on a light, a dark and a busy wallpaper
-// in both modes. Text takes its family and size from its qs.Ui Label role;
+// and every line stand on the shared glass (qs.Ui GlassSurface, the Glass
+// page's Jarvis row), whose style picks this table's overrides: TOKENS for
+// Dark, LIGHT for Light and CLEAR for Clear (ThemeLogic.acceptAppearance).
+// The glass hands it `glass.ground`, the plate over its worst backdrop, and
+// each ink reads at 4.5:1 there. Nothing stands behind the orb: each style
+// draws its own disc, with a glow on dark ground and a shadow on light
+// ground. Text takes its family and size from its qs.Ui Label role;
 // this table hands it its colour.
 //
 // Each state is one set of the inputs every orb style's shader reads
@@ -269,7 +269,7 @@ var TOKENS = {
     icon: {
         rest: color("#dcdee4"),
         active: color("#ffffff"),
-        on: color("readable({palette.accent}, {plate.card.nearInk}, readable(mix({palette.accent}, {icon.active}, 0.5), {plate.card.nearInk}, {icon.active}))"),
+        on: color("readable({palette.accent}, {glass.ground}, readable(mix({palette.accent}, {icon.active}, 0.5), {glass.ground}, {icon.active}))"),
         ring: color("#f4f5f8"),
         fade: duration(400),
         easing: easing("inOutQuad"),
@@ -315,49 +315,27 @@ var TOKENS = {
             ink: color("contrast({palette.accent})")
         }
     },
-    // The plates the overlay stands on, each one qs.Ui GlassSurface in the
-    // lens form with no drop shadow: the compositor blurs the backdrop
-    // under a plate's body where a layer rule asks, the body's fill alone
-    // holds every ink's contrast where it does not, and the rim's band is
-    // clear. A plate without glass draws its `base` opaque inside
-    // `border`. `gap` parts two plates.
+    // What the shared glass hands the look (ThemeLogic.GLASS_INPUTS): the
+    // plate over its worst backdrop, which every ink here is judged on,
+    // and the plate's body colour. These defaults are the Dark style's.
+    glass: {
+        ground: color("#404040"),
+        base: color("#101010")
+    },
+    // The plates the overlay stands on, each one qs.Ui GlassSurface, which
+    // draws the shared glass in the Glass page's style. A plate without
+    // glass draws its `base` opaque inside `border`. `gap` parts two
+    // plates.
     plate: {
         gap: length(8),
         // Larger than any side, so a plate rounds to a capsule.
         full: length(4096),
-        // The glass tint's strength, the one value that sets it: the
-        // alpha of every plate's fill in both modes. The band's tint, the
-        // ground each ink is judged on and the shader's body all derive
-        // from it. It stays above the blur thresholds, the manifest
-        // rule's 0.6 and the core rule's 0.7, and above the floor one
-        // plain ink needs on the opposite ground, about 0.6
-        // (tst_jarvis_plates.qml, scripts/check-theme-contrast.js).
-        tint: share(0.71),
-        // The lens (qs.Ui shaders/glasslens.frag): the bezel band's
-        // width; the share of the tint the band loses, which takes it
-        // under the blur threshold; the glint on the rim and the glow
-        // inside it; the share of that light the far wall takes; the dark
-        // line outside the rim; and the line where the band meets the
-        // body.
-        lens: {
-            bezel: length(3),
-            clarity: share(0.4),
-            glint: share(0.85),
-            glow: share(0.2),
-            exit: share(0.8),
-            outline: share(0.3),
-            seam: share(0.1)
-        },
         // The card under the words, and under the state line, the fault or
         // the held request: it holds the lines it shows inside its
-        // padding, which is wider than the bezel. One line of the state
+        // padding, which is wider than the rim. One line of the state
         // rounds to a capsule.
         card: {
             base: color("#000000"),
-            fill: color("alpha({plate.card.base}, {plate.tint})"),
-            // The card over its brightest wallpaper, white in both modes.
-            // An ink that reads at 4.5:1 on it reads so over any wallpaper.
-            nearInk: color("mix(#ffffff, {plate.card.base}, {plate.tint})"),
             border: color("#34343a"),
             radius: length(26),
             paddingX: length(18),
@@ -386,6 +364,69 @@ var TOKENS = {
     }
 };
 
-// acceptAppearance takes a light-mode override object; this material has
-// no mode-dependent values.
-var LIGHT = {};
+// Light: dark inks on the pale glass, judged on its ground, the plate over
+// black, and the glass-off plate pale in the theme's light mode.
+var LIGHT = {
+    icon: {
+        rest: "#3a3c42",
+        active: "#141518",
+        ring: "#141518"
+    },
+    ink: {
+        state: "#141518",
+        title: "#141518",
+        action: "#141518",
+        link: "#1d4f9e",
+        words: "#141518",
+        question: "#000000",
+        path: "#141518",
+        payload: "#141518"
+    },
+    answer: {
+        quiet: {
+            fill: "alpha(#000000, 0.08)",
+            hoverFill: "alpha(#000000, 0.11)",
+            pressedFill: "alpha(#000000, 0.05)",
+            ink: "#000000"
+        }
+    },
+    plate: {
+        card: {
+            base: "#f2f2f2",
+            border: "#c8c8cc"
+        }
+    }
+};
+
+// Clear: white inks over the faint glass, judged on its ground, the
+// compositor's shading over a white window, where only full white holds
+// 4.5:1: every settled line of the words draws whole, and a link is told
+// by its underline alone.
+var CLEAR = {
+    icon: {
+        rest: "#ffffff",
+        active: "#ffffff",
+        ring: "#ffffff"
+    },
+    ink: {
+        state: "#ffffff",
+        title: "#ffffff",
+        action: "#ffffff",
+        link: "#ffffff",
+        words: "#ffffff",
+        path: "#ffffff",
+        payload: "#ffffff"
+    },
+    answer: {
+        // The quiet answer darkens the plate under its white ink.
+        quiet: {
+            fill: "alpha(#000000, 0.28)",
+            hoverFill: "alpha(#000000, 0.34)",
+            pressedFill: "alpha(#000000, 0.22)"
+        }
+    },
+    words: {
+        middle: 1,
+        oldest: 1
+    }
+};

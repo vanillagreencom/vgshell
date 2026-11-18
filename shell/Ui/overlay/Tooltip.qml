@@ -502,9 +502,8 @@ Item {
             GlassSurface {
                 objectName: "tooltipSurface"
                 anchors.fill: parent
+                surface: "tooltips"
                 standard: root.side === "belowStart" ? root.band : Theme.tooltip
-                elevation: "tight"
-                solidOnly: true
             }
 
             // The whole popup, its padding too, holds a tooltip with a

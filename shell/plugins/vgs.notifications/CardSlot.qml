@@ -147,7 +147,6 @@ Item {
         hintIcon: slot.hintIcon
         hintTone: slot.hintTone
         hintPage: slot.hintPage
-        glassChoice: slot.service !== null && slot.service.glassChoice
         workspace: slot.service !== null ? slot.service.workspaceOf(face.card.enrichment) : ""
         workspaceIcon: slot.service !== null && face.card.enrichment !== null ? slot.service.workspaceIcon(face.card.enrichment.rule, face.card.workspace) : ""
         faceImages: slot.service !== null && face.card.enrichment !== null ? slot.service.faceImages(face.card.enrichment, slot.image, face.card.workspace) : []

@@ -19,9 +19,9 @@ import "AccountProviders.js" as Providers
 // own look (Appearance.js). Nothing stands behind the orb: each style
 // draws its own disc. The icon row stands on a capsule beside it, and the
 // words and the line or the held request each on a card that hugs its
-// lines. Each is a plate of
-// the shared glass (qs.Ui GlassSurface) in the lens form, in the look's
-// `plate` values, with no drop shadow. No plate's box enters another's:
+// lines. Each is a plate of the shared glass (the Glass page's Jarvis row), its
+// edge light paced, since a fault can stay up all day. No plate's box
+// enters another's:
 // the look's `plate.gap` parts them, so each draws as glass
 // (GlassSurface.overContent). A passive layer takes clicks only on
 // `inputItems` (D026).
@@ -40,7 +40,7 @@ Item {
     id: root
     property var screen: null
     property var service: null
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "jarvis", clear: Appearance.CLEAR })
     readonly property var host: QsWindow.window
     // The Orb style setting, the name of the orb's shader; "" before the
     // service has a shell, when the overlay is not shown.
@@ -84,12 +84,12 @@ Item {
     // A card's side inset on a side BOX_WIDTH wide whose widest word is
     // WIDEST: the look's padding where that word fits inside it, so the
     // lines break only at spaces; on a narrower side, as much less as the
-    // word needs, down to the lens band plus what the rounded rim takes
-    // from the first line's edge, past which the text would meet the rim
-    // (design-system.md § Glass plates over wallpaper).
+    // word needs, down to the glass's rim plus what the rounded corner
+    // takes from the first line's edge, past which the text would meet the
+    // rim (design-system.md § Glass plates over wallpaper).
     readonly property real cardInsetFloor: {
         const r = look.plate.card.radius, rise = Math.max(0, r - look.plate.card.paddingY);
-        return Math.ceil(look.plate.lens.bezel + r - Math.sqrt(r * r - rise * rise));
+        return Math.ceil(wordsCard.rim + r - Math.sqrt(r * r - rise * rise));
     }
     function cardInset(boxWidth, widest) {
         return Math.max(cardInsetFloor, Math.min(look.plate.card.paddingX, Math.floor((boxWidth - widest) / 2)));
@@ -418,8 +418,8 @@ Item {
         readonly property real centre: width / 2
         readonly property real orbMiddle: orb.x + orb.width / 2
         readonly property real orbCentre: orb.y + orb.height / 2
-        // REVISIT(D132): change these grounds only if the look no longer
-        // owns the plates' lens values and glass-off standard surface.
+        // The plates' layout and glass-off standard surface; the glass
+        // itself is the shared material's.
         readonly property var card: root.look.plate.card
         // Where what the orb draws starts: the top, or the plates' gap under
         // the words' card.
@@ -522,11 +522,9 @@ Item {
                 + (words.lineCount <= words.window ? words.lift : 0) - overlay.card.paddingY
             width: words.width + 2 * overlay.wordsInset
             height: words.y + words.height + overlay.card.paddingY - y
-            optIn: true
-            fill: overlay.card.fill
+            surface: "jarvis"
+            paced: true
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
-            elevation: "none"
-            lens: root.look.plate.lens
         }
 
         Words {
@@ -645,11 +643,9 @@ Item {
             height: icons.height + 2 * pad.paddingY
             visible: icons.visible
             opacity: root.iconOpacity
-            optIn: true
-            fill: overlay.card.fill
+            surface: "jarvis"
+            paced: true
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
-            elevation: "none"
-            lens: root.look.plate.lens
         }
 
         Column {
@@ -700,11 +696,9 @@ Item {
             y: column.y - overlay.card.paddingY
             width: 2 * Math.ceil(lines / 2) + 2 * (root.hold !== null ? overlay.card.paddingX : overlay.stateInset)
             height: column.height + 2 * overlay.card.paddingY
-            optIn: true
-            fill: overlay.card.fill
+            surface: "jarvis"
+            paced: true
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
-            elevation: "none"
-            lens: root.look.plate.lens
         }
 
         Column {

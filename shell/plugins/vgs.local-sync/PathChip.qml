@@ -38,6 +38,7 @@ T.AbstractButton {
     Keys.onEnterPressed: clicked()
 
     background: Surface {
+        surface: "controls"
         standard: ({
             background: chip.hovered ? Theme.pathChip.hoverBackground : Theme.pathChip.background,
             border: chip.hovered ? Theme.pathChip.hoverBackground : Theme.pathChip.background,

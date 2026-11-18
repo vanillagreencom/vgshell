@@ -1,25 +1,21 @@
 #version 440
 
-// The lens form of qs.Ui's GlassSurface in one analytic pass: no texture
-// and no loop. A rounded box's signed distance gives each pixel its depth
-// inside the rim. The pass draws what a lens shows without reading the
-// backdrop, which a layer surface cannot:
-// - the body's tint, whole from the bezel's inner end inward, so the
-//   compositor's blur always lies under it;
-// - the bezel band, where the tint steps down under the layer rule's blur
-//   threshold within one pixel, so the band shows the backdrop sharp, with
-//   a faint line drawn on the step;
-// - the glint, a bright line on the rim along the light's diagonal: the
-//   wall facing the light and, weaker, the wall the light leaves by, with
-//   the walls beside them dark, and a glow inside those two walls;
-// - a dark line just outside the rim, which parts a light plate from a
-//   light ground. The item is `uMargin` larger than the plate for it.
-// The compositor draws the blur under the body. Nothing is drawn inside
-// the bezel's inner end but the tint, so an ink's ground is the tint alone.
+// qs.Ui's GlassSurface in one analytic pass: no image read and no loop. A
+// rounded box's signed distance gives each pixel its depth inside the
+// edge. The pass draws what a layer surface can without reading its
+// backdrop, which the compositor blurs under the body:
+// - the body's tint, whole to the edge, so an ink's ground is the tint;
+// - the rim, one thin line at the edge with no bevel, lit along the
+//   light's diagonal from the upper left: brightest on the wall facing it,
+//   weaker on the wall it leaves by, and the `ambient` share elsewhere;
+// - the edge light, two point lights that orbit outside the surface: the
+//   rim catches each where its normal faces it, and a faint glow reaches a
+//   few pixels into the body. Only the lights move.
+// The rim and the edge light take one colour, the neutral light blended
+// to the accent by `uLit`.
 //
 // Output is valid premultiplied colour, rgb never above alpha: light is
-// white at an alpha and shade is black at an alpha, since a compositor may
-// un-premultiply a surface.
+// its colour at an alpha, since a compositor may un-premultiply a surface.
 //
 // The default Qt Quick vertex shader shares this uniform buffer, so
 // qt_Matrix and qt_Opacity stay first.
@@ -28,20 +24,28 @@ layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
-    vec2 uSize;    // the plate, in pixels
-    float uRadius; // its corner
-    float uMargin; // the item's reach past the plate on every side
-    vec4 uTint;    // the body's fill, premultiplied, as Qt hands a colour
-    vec4 uLens;    // the band's width, 1 or more; the share of the tint it loses; glint; glow
-    vec4 uLight;   // the far wall's share of the light, the outer line, the step's line
+    vec2 uSize;     // the surface, in pixels
+    float uRadius;  // its corner
+    float uMargin;  // the item's reach past the surface on every side, for the edge's antialiasing
+    float uRim;     // the rim's width
+    vec4 uTint;     // the body's fill, premultiplied, as Qt hands a colour
+    vec4 uRimLight; // the glint, the ambient share, the far wall's share, the glow's share
+    vec2 uLightA;   // the edge lights, in pixels from the surface's centre
+    vec2 uLightB;
+    vec4 uEdge;     // the two lights' strengths, their reach in pixels, and 1 while they show
+    vec4 uNeutral;  // the light at rest, straight alpha
+    vec4 uAccent;   // the light while lit, straight alpha
+    float uLit;     // 0 at rest, 1 lit
 };
 
 // Toward the light, y down: the upper left.
 const vec2 LIGHT = vec2(-0.451219, -0.892413);
 
-float smoother(float a, float b, float x) {
-    float t = clamp((x - a) / max(b - a, 0.0001), 0.0, 1.0);
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+float shine(vec2 p, vec2 n, vec2 light, float power) {
+    vec2 v = light - p;
+    float d = length(v);
+    float facing = max(dot(n, v / max(d, 0.001)), 0.0);
+    return power * pow(facing, 3.0) * exp(-(d * d) / max(uEdge.z * uEdge.z, 0.0001));
 }
 
 void main() {
@@ -53,34 +57,26 @@ void main() {
     vec2 corner = max(q, 0.0);
     vec2 outward = corner.x > 0.0 || corner.y > 0.0 ? normalize(corner) * sign(p)
                  : q.x > q.y ? vec2(sign(p.x), 0.0) : vec2(0.0, sign(p.y));
+    float cover = clamp(0.5 - sdf, 0.0, 1.0);
+    float depth = max(-sdf, 0.0);
+
     float lit = dot(outward, LIGHT);
     float toward = max(lit, 0.0);
     float away = max(-lit, 0.0);
     // 1 on the two walls of the light's diagonal, 0 on the walls beside.
-    float diagonal = min(toward * toward + uLight.x * away * away, 1.0);
+    float diagonal = min(toward * toward + uRimLight.z * away * away, 1.0);
+    float rim = 1.0 - smoothstep(uRim - 0.5, uRim + 0.5, depth);
+    float light = uRimLight.x * (uRimLight.y + (1.0 - uRimLight.y) * diagonal) * rim;
 
-    // Outside the plate: the dark line alone, strongest off the diagonal.
-    float cover = clamp(0.5 - sdf, 0.0, 1.0);
-    float outer = uLight.y * (1.0 - smoothstep(0.0, 1.5, sdf)) * (1.0 - 0.6 * diagonal) * (1.0 - cover);
+    // The edge lights reach only a band at the edge; the body skips them.
+    if (uEdge.w > 0.0 && depth < 14.0) {
+        float lights = shine(p, outward, uLightA, uEdge.x) + shine(p, outward, uLightB, uEdge.y);
+        light += lights * (rim + uRimLight.w * exp(-depth / 5.0));
+    }
 
-    float depth = max(-sdf, 0.0);
-    float bezel = uLens.x;
-    // The tint: thin across the band, whole from the bezel's inner end.
-    float body = smoothstep(bezel - 0.5, bezel + 0.5, depth);
-    float alpha = uTint.a * (1.0 - uLens.y * (1.0 - body));
-    vec3 colour = uTint.rgb / max(uTint.a, 0.0001) * alpha;
-
-    // Light: the glint on the rim, the glow inside the lit walls, falling
-    // off across the band, and the line on the step.
-    float fall = 1.0 - smoother(0.0, 1.0, depth / bezel);
-    float glint = 1.0 - smoothstep(0.0, 1.2, depth);
-    float step_ = 1.0 - smoothstep(0.0, 1.0, abs(depth - bezel));
-    float light = uLens.z * glint * (0.06 + 0.94 * diagonal)
-                + uLens.w * fall * fall * diagonal * (1.0 - body)
-                + uLight.z * step_ * (0.35 + 0.65 * diagonal);
-    light = clamp(light, 0.0, 1.0);
-    colour = colour * (1.0 - light) + vec3(light);
-    alpha += (1.0 - alpha) * light;
-
-    fragColor = (vec4(colour, alpha) * cover + vec4(0.0, 0.0, 0.0, outer)) * qt_Opacity;
+    vec4 shade = mix(uNeutral, uAccent, uLit);
+    float strength = clamp(light, 0.0, 1.0) * shade.a;
+    vec4 body = uTint;
+    vec4 colour = vec4(body.rgb * (1.0 - strength) + shade.rgb * strength, body.a + (1.0 - body.a) * strength);
+    fragColor = colour * cover * qt_Opacity;
 }

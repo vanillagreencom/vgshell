@@ -35,8 +35,8 @@ Rectangle {
         z: -1
         anchors.fill: parent
         sourceComponent: GlassSurface {
+            surface: "flyouts"
             standard: Theme.popover
-            elevation: "tight"
             solidOnly: true
         }
     }

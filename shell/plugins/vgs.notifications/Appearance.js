@@ -3,7 +3,10 @@
 // This plugin owns its layout and colours; ThemeLogic.acceptAppearance
 // judges the table named by the manifest's appearance declaration.
 // Only palette.accent, motion.scale and font.family.sans reach this table
-// from the theme; scheme.mode selects LIGHT without replacing its layout.
+// from the theme. The cards are the shared glass (qs.Ui GlassSurface, the
+// Glass page's Notifications row), whose style picks the overrides, LIGHT
+// for Light and CLEAR for Clear, without replacing the layout, and hands
+// the glass inputs `glass.ground` and `glass.base`.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -20,8 +23,8 @@ function curve(x1, y1, x2, y2) { return { x1: share(x1), y1: share(y1), x2: shar
 function ink(alpha) { return color("alpha({text.foreground}, " + alpha + ")"); }
 
 var TOKENS = {
-    // The theme's accent replaces this default. It lights the edge
-    // reflection of a critical notification.
+    // The theme's accent replaces this default. It colours a notice's page
+    // link.
     palette: {
         accent: color("#ff5a36")
     },
@@ -124,14 +127,17 @@ var TOKENS = {
         far: length(12)
     },
 
+    // What the shared glass hands the look (ThemeLogic.GLASS_INPUTS): the
+    // card over the backdrop nearest its text's ink, which text that reads
+    // at 4.5:1 on reads so over any backdrop, and the card's body colour,
+    // which the faces mix into. The defaults are the Dark style's.
+    glass: {
+        ground: color("#404040"),
+        base: color("#101010")
+    },
+
     card: {
-        base: color("#101010"),
-        opacity: share(0.8),
-        fill: color("alpha({card.base}, {card.opacity})"),
-        // The card as drawn over the wallpaper nearest its text's ink:
-        // white under the dark card, black under the light one. Text that
-        // reads at 4.5:1 on it reads so over any wallpaper.
-        nearInk: color("mix(#ffffff, {card.base}, {card.opacity})"),
+        nearInk: color("{glass.ground}"),
         width: length(420),
         gap: length(8),
         dot: length(34),
@@ -187,23 +193,23 @@ var TOKENS = {
 
     face: {
         share: share(0.6),
-        ring: color("{card.base}"),
+        ring: color("{glass.base}"),
         ringWidth: length(2),
         // Every face is opaque, so a face over another cuts it out rather
         // than showing it through. A person's face takes one tint, picked
         // by NotificationLogic.faceTint from the name; the chip is neutral.
         // Each is mixed into the glass, so light mode lightens it and the
         // foreground stays readable on it.
-        chip: color("mix({card.base}, {text.foreground}, 0.26)"),
+        chip: color("mix({glass.base}, {text.foreground}, 0.26)"),
         tint: {
-            coral: color("mix({card.base}, #e8715a, 0.6)"),
-            amber: color("mix({card.base}, #e0a23a, 0.6)"),
-            green: color("mix({card.base}, #5fb36b, 0.6)"),
-            blue: color("mix({card.base}, #4aa3c7, 0.6)"),
-            indigo: color("mix({card.base}, #7a7ee0, 0.6)"),
-            magenta: color("mix({card.base}, #c46fb4, 0.6)"),
-            teal: color("mix({card.base}, #3fb8a6, 0.6)"),
-            rose: color("mix({card.base}, #e06a8c, 0.6)")
+            coral: color("mix({glass.base}, #e8715a, 0.6)"),
+            amber: color("mix({glass.base}, #e0a23a, 0.6)"),
+            green: color("mix({glass.base}, #5fb36b, 0.6)"),
+            blue: color("mix({glass.base}, #4aa3c7, 0.6)"),
+            indigo: color("mix({glass.base}, #7a7ee0, 0.6)"),
+            magenta: color("mix({glass.base}, #c46fb4, 0.6)"),
+            teal: color("mix({glass.base}, #3fb8a6, 0.6)"),
+            rose: color("mix({glass.base}, #e06a8c, 0.6)")
         },
         initials: share(0.42),
         initialsWeight: weight(600)
@@ -289,17 +295,10 @@ var TOKENS = {
         active: share(0.45)
     },
 
+    // The glass's edge light on a card: while a toast is a dot its lights
+    // whirl and glow brighter, and a hover brightens them: extra orbits per
+    // second, and the boosts.
     edge: {
-        neutral: color("#fbfbfb"),
-        thickness: number(1.25, 0, 16),
-        reach: number(125, 0, 2000),
-        lift: number(18, 0, 512),
-        speed: number(95, 0, 2000),
-        strengthA: number(1.25, 0, 8),
-        strengthB: number(0.7, 0, 8),
-        base: share(0.1),
-        // While a toast is a dot its lights whirl and glow brighter, and a
-        // hover brightens them: extra orbits per second, and the boosts.
         spin: number(2.4, 0, 16),
         orbBoost: number(0.9, 0, 8),
         hoverBoost: number(0.45, 0, 8)
@@ -310,16 +309,6 @@ var LIGHT = {
     text: {
         foreground: "#2a2a2a"
     },
-    card: {
-        base: "#f2f2f2",
-        opacity: 0.85,
-        nearInk: "mix(#000000, {card.base}, {card.opacity})"
-    },
-    // Keep the reflection brighter than the pale glass; a dark reflection
-    // reads as a mark on the card.
-    edge: {
-        neutral: "#ffffff"
-    },
     // Each dark tone darkened along its own hue, not mixed toward the grey
     // foreground, which drains the hue at icon size; success turns from the
     // dark tone's yellow-green to a green so it does not read olive.
@@ -328,5 +317,22 @@ var LIGHT = {
         warning: "#936500",
         danger: "#c42a44",
         info: "#2f6bc8"
+    }
+};
+
+// Clear: white ink over the faint glass, judged on its ground, the
+// compositor's shading over a white window, where only full white holds
+// 4.5:1, so the message draws whole and size carries the hierarchy; each
+// tone lightened along its own hue to hold 3:1 there.
+var CLEAR = {
+    text: {
+        foreground: "#ffffff",
+        body: { color: "{text.foreground}" }
+    },
+    tone: {
+        success: "#e2f2b0",
+        warning: "#ffe0a0",
+        danger: "#ffc6cf",
+        info: "#d2e2ff"
     }
 };

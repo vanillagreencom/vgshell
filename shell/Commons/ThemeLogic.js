@@ -1085,6 +1085,14 @@ var APPEARANCE_INPUTS = ["palette.accent", MOTION_SCALE, INTERFACE_FAMILY, RAISE
 // The token whose value picks the plugin's light overrides.
 var SCHEME_MODE = "scheme.mode";
 
+// The glass styles a look's overrides follow (glassStyle), and the tokens a
+// look on glass takes from the drawn style's table (Glass.js) at the path
+// both hold them at: the ground its inks are judged on, the body over its
+// brightest backdrop for a dark body and its darkest for a light one, and
+// the body's colour, which a look mixes its own fills into.
+var GLASS_STYLES = ["light", "dark", "clear"];
+var GLASS_INPUTS = ["glass.ground", "glass.base"];
+
 // Judge and resolve a plugin's own token table. `table` is in Tokens.js
 // leaf format; `light` is an overrides tree in document shape, applied when
 // the theme's `scheme.mode` is `light` and judged in both modes, so a defect
@@ -1094,9 +1102,15 @@ var SCHEME_MODE = "scheme.mode";
 // `font.family.sans` the table holds is a `family`, and `light` sets no
 // input, so no other theme value reaches the plugin and the plugin cannot
 // shadow what the theme gives it. An input reaches only a table that holds
-// its path. Answers { ok: true, values } or
+// its path. A look on glass hands GLASS, { style, a GLASS_STYLES name;
+// clear, its Clear overrides tree; values, the drawn style's resolved
+// Glass.js values, or none for the glass table itself }: the style, not the
+// theme's mode, then picks the overrides, `light` for Light, `clear` for
+// Clear and none for Dark, both trees judged whichever applies, neither may
+// set an input, and each GLASS_INPUTS path the table holds takes the drawn
+// style's value. Answers { ok: true, values } or
 // one refusal whose reason starts `appearance-` or is the resolver's own.
-function acceptAppearance(table, light, theme) {
+function acceptAppearance(table, light, theme, glass) {
     var defect = tableError(table);
     if (defect !== "")
         return refusal("appearance-table", "", defect);
@@ -1109,16 +1123,44 @@ function acceptAppearance(table, light, theme) {
         return refusal("appearance-font", INTERFACE_FAMILY, "want=family");
     if (!isPlainObject(light))
         return refusal("appearance-light", "", "got=" + JSON.stringify(light));
+    // The glass inputs are inputs only to a look that takes them; the glass
+    // table, which hands no values, owns them.
+    var inputs = glass !== undefined && isPlainObject(glass) && glass.values !== undefined ? APPEARANCE_INPUTS.concat(GLASS_INPUTS) : APPEARANCE_INPUTS;
+    var setsInput = function (overrides) {
+        for (var i = 0; i < inputs.length; i++)
+            if (hasOwn(overrides, inputs[i])) return inputs[i];
+        return "";
+    };
     var stated = overridesOf(table, light);
     if (!stated.ok)
         return stated;
-    for (var i = 0; i < APPEARANCE_INPUTS.length; i++)
-        if (hasOwn(stated.overrides, APPEARANCE_INPUTS[i]))
-            return refusal("appearance-input", APPEARANCE_INPUTS[i], "light sets an input");
+    if (setsInput(stated.overrides) !== "")
+        return refusal("appearance-input", setsInput(stated.overrides), "light sets an input");
     var mode = valueAt(theme, SCHEME_MODE);
     if (typeof mode !== "string")
         return refusal("appearance-theme", SCHEME_MODE, "got=" + JSON.stringify(mode));
     var overrides = mode === "light" ? stated.overrides : {};
+    if (glass !== undefined) {
+        if (!isPlainObject(glass) || GLASS_STYLES.indexOf(glass.style) === -1)
+            return refusal("appearance-glass", "", "style=" + JSON.stringify(isPlainObject(glass) ? glass.style : glass));
+        if (!isPlainObject(glass.clear))
+            return refusal("appearance-clear", "", "got=" + JSON.stringify(glass.clear));
+        var clear = overridesOf(table, glass.clear);
+        if (!clear.ok)
+            return clear;
+        if (setsInput(clear.overrides) !== "")
+            return refusal("appearance-input", setsInput(clear.overrides), "clear sets an input");
+        overrides = glass.style === "light" ? stated.overrides : glass.style === "clear" ? clear.overrides : {};
+        if (glass.values !== undefined) {
+            for (var g = 0; g < GLASS_INPUTS.length; g++) {
+                if (!isLeaf(nodeAt(table, GLASS_INPUTS[g]))) continue;
+                var drawn = valueAt(glass.values, GLASS_INPUTS[g]);
+                if (drawn === undefined)
+                    return refusal("appearance-glass", GLASS_INPUTS[g], "got=undefined");
+                overrides[GLASS_INPUTS[g]] = drawn;
+            }
+        }
+    }
     for (var j = 0; j < APPEARANCE_INPUTS.length; j++) {
         var value = valueAt(theme, APPEARANCE_INPUTS[j]);
         if (value === undefined)
@@ -1519,32 +1561,93 @@ var APPEARANCE = {
     windowAnimations: { type: "flag", only: true, hyprland: "motion", unset: "hyprland" },
     interfaceFont: { type: "family", theme: "font.family.sans", targets: [["font.family.sans"], ["font.family.caps"]] },
     terminalFont: { type: "family" },
-    // VGlass on every surface or on none; unset, each surface's own choice
-    // decides (glassOn).
-    glass: { type: "choice", options: ["on", "off"], unset: "surface" },
-    // Hyprland's own windows as one surface's choice: unset leaves window
-    // decoration to the user's Hyprland config.
-    windowGlass: { type: "flag", only: true, hyprland: "glass", unset: "hyprland" },
+    // The Glass page (glassFor): the main switch, unset on; the style,
+    // unset Auto; each surface's choice by GLASS_SURFACES id, unset its
+    // default; and the choices the version 7 conversion kept from under the
+    // old switch that turned glass on everywhere (ConfigLogic.migrateGlassV7),
+    // which the page offers to restore. Window glass, the layer's `glass`
+    // group, is written while the windows row draws glass and is otherwise
+    // left to the user's Hyprland config (withAppearance).
+    glassEnabled: { type: "flag" },
+    glassStyle: { type: "choice", options: ["auto", "light", "dark", "clear"] },
+    glassSurfaces: { type: "surfaces" },
+    glassRememberedChoices: { type: "surfaces" },
     // A glow inside the focused window while window glass is on; unset
     // leaves the glow to the user's Hyprland config.
     windowGlow: { type: "flag", only: true, hyprland: "glow", unset: "hyprland" },
-    // Compositor layer glass is an explicit install choice, independent of
-    // VGlass and window decoration. No theme can turn it on.
+    // Compositor layer glass is an explicit install choice, behind the
+    // Glass page's main switch. No theme can turn it on.
     layerGlass: { type: "flag", only: true }
 };
 
-// The roles VGlass rounds while every surface draws glass, and the token
-// that holds their corner then. A panel keeps `surface.radius`, the square
-// edge of the bar it is attached to, and a tooltip its own small corner.
-var GLASS_CORNERS = ["menu.radius", "dialog.radius", "popover.radius", "osd.radius"];
+// The surfaces the Glass page names, as a user knows them, by the id their
+// GlassSurface hands (`surface`) and shell.json `appearance.glassSurfaces`
+// saves: `on`, whether glass is the default, which keeps the reach glass had
+// before the page (the launcher, notifications and Jarvis); `opaque`, a
+// surface whose text must read over any backdrop, which draws its glass
+// finish solid wherever it lies (a tooltip). Controls are no row: a button,
+// a field or a chip draws its standard look and follows the card it lies
+// on. Windows is Hyprland's own windows (`hyprland.glass`).
+var GLASS_SURFACES = {
+    windows: { on: false },
+    tooltips: { on: false, opaque: true },
+    flyouts: { on: false },
+    menus: { on: false },
+    launcher: { on: true },
+    notifications: { on: true },
+    jarvis: { on: true },
+    dialogs: { on: false },
+    indicators: { on: false },
+    clipboard: { on: false }
+};
+var GLASS_CONTROLS = "controls";
+var GLASS_CHOICES = ["on", "off"];
+
+// The roles that round while their surface draws glass, by GLASS_SURFACES
+// id, and the token that holds their corner then. A panel keeps
+// `surface.radius`, the square edge of the bar it is attached to, and a
+// tooltip its own small corner.
+var GLASS_CORNERS = { "menu.radius": "menus", "dialog.radius": "dialogs", "popover.radius": "flyouts", "osd.radius": "indicators" };
 var GLASS_RADIUS = "radius.glass";
 
-// Whether a surface whose own VGlass choice is OPTIN draws glass under
-// VALUES, the accepted Appearance values: `glass` "on" or "off" decides for
-// every surface, and unset leaves it to OPTIN. The shared GlassSurface and
-// the layer's window glass both ask this, so the two cannot differ.
-function glassOn(values, optIn) {
-    return values.glass === "on" || (values.glass !== "off" && optIn === true);
+// The surfaces whose glass shows through the compositor's blur on the
+// shell's shared layer namespaces (HyprlandLayer.SURFACE_BLUR). The
+// launcher, notifications and Jarvis ask for their own blur in their
+// manifests; windows are Hyprland's.
+var GLASS_SHARED_BLUR = ["flyouts", "menus", "dialogs", "indicators", "clipboard", "tooltips"];
+
+// The style glass draws in under VALUES, the accepted Appearance values, and
+// MODE, the theme's `scheme.mode`: the user's Light, Dark or Clear, and Auto,
+// unset, the theme's mode, never Clear.
+function glassStyle(values, mode) {
+    var chosen = values.glassStyle;
+    if (chosen === "light" || chosen === "dark" || chosen === "clear") return chosen;
+    return mode === "light" ? "light" : "dark";
+}
+
+// The one place that decides whether and how glass draws on SURFACE, a
+// GLASS_SURFACES id or GLASS_CONTROLS, under VALUES and CONTEXT:
+// { mode, the theme's scheme.mode; layerGlass, whether the compositor's
+// layer glass is loaded and ready; material, whether the surface's window
+// is one the compositor's layer glass reaches at the Clear body's alpha }.
+// Answers { on, the surface takes the glass finish; style, glassStyle's;
+// drawable, its window may show the backdrop through it }. Glass is on where
+// the main switch is on and the surface's saved choice, else its default,
+// is on. Clear's faint body reads only over the compositor's adaptive
+// shading, so Clear is drawable only on a material window while layer glass
+// is ready; elsewhere it takes an opaque reading ground. An opaque surface
+// is never drawable. An unknown surface throws: a caller that names none is
+// a programming error, not a choice.
+function glassFor(values, surface, context) {
+    var style = glassStyle(values, context.mode);
+    if (surface === GLASS_CONTROLS) return { on: false, style: style, drawable: false };
+    if (!hasOwn(GLASS_SURFACES, surface))
+        throw new Error("theme: glass surface " + JSON.stringify(surface) + " unknown");
+    var entry = GLASS_SURFACES[surface];
+    var saved = isPlainObject(values.glassSurfaces) && hasOwn(values.glassSurfaces, surface) ? values.glassSurfaces[surface] : undefined;
+    var on = values.glassEnabled !== false && (saved === undefined ? entry.on : saved === "on");
+    var drawable = on && entry.opaque !== true && (style !== "clear" || (context.layerGlass === true && context.material === true));
+    return { on: on, style: style, drawable: drawable };
 }
 
 // Why VALUE cannot be the user's KEY of APPEARANCE, as a keyed line, or "".
@@ -1578,6 +1681,11 @@ function appearanceRefusal(key, value) {
             return "";
         want = "family";
         break;
+    case "surfaces":
+        if (isPlainObject(value) && Object.keys(value).every(function (id) { return hasOwn(GLASS_SURFACES, id) && GLASS_CHOICES.indexOf(value[id]) !== -1; }))
+            return "";
+        want = "{" + Object.keys(GLASS_SURFACES).join("|") + ": on|off}";
+        break;
     default:
         throw new Error("theme: appearance member " + key + " has unknown type " + member.type);
     }
@@ -1590,13 +1698,13 @@ function appearanceRefusal(key, value) {
 // { key, line }, so it shows as Set by theme. The user's values join the
 // theme's overrides, the user's winning, and resolve once, so every token
 // that references a changed token follows it; with no user token the
-// theme's own values answer unchanged. While the user's `glass` is on,
-// each corner of GLASS_CORNERS that would be 0, by the user's corner radius
-// or else by the theme, takes the theme's GLASS_RADIUS, and one above 0
+// theme's own values answer unchanged. While a surface of GLASS_CORNERS
+// takes glass, its corner, if it would be 0 by the user's corner radius or
+// else by the theme, takes the theme's GLASS_RADIUS, and one above 0
 // stands. A user's 0 is rounded too: nothing tells it from a square
 // theme's. `appearance` is { values, the accepted members; theme, what each
-// member shows while the user sets none; sources, `theme`, `user`,
-// `hyprland` or `surface` per member; hyprland, whether the layer writes
+// member shows while the user sets none; sources, `theme`, `user` or
+// `hyprland` per member; hyprland, whether the layer writes
 // each group a member decides }.
 function withAppearance(tokens, theme, user) {
     var given = isPlainObject(user) ? user : {};
@@ -1628,21 +1736,23 @@ function withAppearance(tokens, theme, user) {
         if (member.targets !== undefined && sources[key] === "user")
             member.targets.forEach(function (target) { stated[target[0]] = member.type === "family" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]]; });
     });
-    if (glassOn(values, false))
-        GLASS_CORNERS.forEach(function (path) {
-            if ((hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)
-                stated[path] = valueAt(theme.values, GLASS_RADIUS);
-        });
-    // Window glass is Hyprland's windows taking glass as a surface does,
-    // their own choice being `windowGlass`.
-    hyprland.glass = glassOn(values, values.windowGlass === true);
+    // Corners and the compositor read only whether glass is on, which no
+    // style or window changes.
+    var glassContext = { mode: valueAt(theme.values, SCHEME_MODE), layerGlass: false, material: false };
+    Object.keys(GLASS_CORNERS).forEach(function (path) {
+        if (glassFor(values, GLASS_CORNERS[path], glassContext).on
+                && (hasOwn(stated, path) ? stated[path] : valueAt(theme.values, path)) === 0)
+            stated[path] = valueAt(theme.values, GLASS_RADIUS);
+    });
+    // Window glass is Hyprland's windows taking glass as the windows row
+    // says.
+    hyprland.glass = glassFor(values, "windows", glassContext).on;
     // Glow follows window glass: off whenever window glass is off.
     hyprland.glow = hyprland.glass && values.windowGlow === true;
-    // The shell's own layers and popups take the compositor's blur while
-    // every surface draws glass, their own choice being none: the blur a
-    // GlassSurface shows through is the compositor's. Written with window
-    // glass, which is on whenever this is.
-    hyprland.surfaceBlur = glassOn(values, false);
+    // The shell's own layers and popups take the compositor's blur while a
+    // surface they host draws glass: the blur a GlassSurface shows through is
+    // the compositor's.
+    hyprland.surfaceBlur = GLASS_SHARED_BLUR.some(function (surface) { return glassFor(values, surface, glassContext).on; });
     var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
     if (!moving && hasOwn(values, "motion"))
         stated[MOTION_SCALE] = 0;

@@ -4,7 +4,6 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Notifications
 import qs.Commons
-import qs.Ui
 import "Appearance.js" as Appearance
 import "NotificationLogic.js" as Logic
 
@@ -25,13 +24,10 @@ Item {
     // The boxes bar widgets draw below their bar, such as Jarvis's reply
     // card under its J, which a top stack stands clear of (Stack.qml).
     readonly property var barCovers: shell === null ? [] : shell.layers.barCovers
-    // The notifications' own VGlass choice, the `glass` setting, which every
-    // toast hands its glass, and the state it comes to under the user's
-    // Appearance values, which every toast's motion and the timers below
-    // follow.
-    readonly property bool glassChoice: shell !== null && shell.settings.glass === true
-    readonly property bool glassOn: glassState.on
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    // Whether notifications take glass, as the Glass page's Notifications
+    // row decides: every toast's motion and the timers below follow it.
+    readonly property bool glassOn: Theme.glassFor("notifications").on
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "notifications", clear: Appearance.CLEAR })
     property bool registered: false
     property var layerRelease: null
 
@@ -105,12 +101,6 @@ Item {
     readonly property var toastMotion: look === null ? null : Logic.toastMotion(look.motion.duration, glassOn)
     readonly property int exitTime: toastMotion === null ? 0 : toastMotion.exit
     readonly property int enterTime: toastMotion === null ? 0 : toastMotion.enter
-
-    GlassSurface {
-        id: glassState
-        visible: false
-        optIn: root.glassChoice
-    }
 
     // The layer exists while there is something to draw: a row or the
     // caption-only toast. A layer on screen stays while the inbox is open,

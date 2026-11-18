@@ -864,6 +864,7 @@ FocusScope {
                     required property var modelData
                     required property int index
                     property alias confirmButton: confirmButton
+                    surface: "controls"
                     width: layout.contentWidth
                     height: card.implicitHeight + 2 * Theme.stack.group
                     level: "raised"

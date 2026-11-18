@@ -9,8 +9,10 @@
 // sizes are the Style.font steps at the 12 px base (caption 10, bodySmall
 // 11, body 12, heading 16). The active theme reaches this table through
 // three inputs alone, `palette.accent`, `motion.scale` and
-// `font.family.sans`, plus its `scheme.mode`, which applies LIGHT; no
-// other theme value can.
+// `font.family.sans`; no other theme value can. The card is the shared
+// glass (qs.Ui GlassSurface, the Glass page's Launcher row), whose style
+// picks the overrides, LIGHT for Light and CLEAR for Clear, and hands
+// `glass.ground`, the card over its worst backdrop.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -29,8 +31,8 @@ function curve(x1, y1, x2, y2) { return { x1: share(x1), y1: share(y1), x2: shar
 function ink(alpha) { return color("alpha({text.foreground}, " + alpha + ")"); }
 
 var TOKENS = {
-    // The theme's accent replaces this default; it lights the moving edge
-    // reflection and the caret while a search runs.
+    // The theme's accent replaces this default; it lights the caret while a
+    // search runs.
     palette: {
         accent: color("#ff5a36")
     },
@@ -83,7 +85,7 @@ var TOKENS = {
         // at 4.5:1 as drawn on the card over any wallpaper. The fade is the
         // colour's alpha, which leaves a link in it at full strength.
         detail: { size: length(13), color: color("alpha({text.foreground}, 0.84)") },
-        // The fill a link's colour is picked on: the card nearest the ink,
+        // The fill a link's colour is picked on: the card under the ink,
         // moved toward it by the share of that fill a regular stroke lets
         // through, 1 - 0.966 (TEXT_STROKE_COVERAGE of
         // shell/Commons/ThemeLogic.js), so the pick reads at 4.5:1 as drawn.
@@ -105,18 +107,17 @@ var TOKENS = {
         full: length(4096)
     },
 
+    // What the shared glass hands the look (ThemeLogic.GLASS_INPUTS): the
+    // card over its worst backdrop. The default is the Dark style's.
+    glass: {
+        ground: color("#404040")
+    },
     card: {
-        // The card's glass fill, handed to GlassSurface of qs.Ui, which
-        // draws the rest of the glass (Theme.glass).
-        base: color("#151515"),
-        opacity: share(0.78),
-        fill: color("alpha({card.base}, {card.opacity})"),
-        // The card as drawn under a row's text nearest that text's ink:
-        // over a white wallpaper under the dark card and a black one under
-        // the light card, with the cursor's plate on it and without that
+        // The card as drawn under a row's text nearest that text's ink: the
+        // glass's ground, with the cursor's plate on it and without that
         // plate's top sheen. A row's detail line that reads at 4.5:1 on it
-        // reads so over any wallpaper, with the cursor on the row or off it.
-        nearInk: color("mix(mix(#ffffff, {card.base}, {card.opacity}), {text.foreground}, {highlight.strength})"),
+        // reads so over any backdrop, with the cursor on the row or off it.
+        nearInk: color("mix({glass.ground}, {text.foreground}, {highlight.strength})"),
         width: length(640),
         // Half the header plus the padding, 17 + 18: the bare search field
         // is a pill.
@@ -252,33 +253,14 @@ var TOKENS = {
         detailGap: length(6),
         margin: length(8),
         openScale: share(0.94)
-    },
-
-    // Two point lights orbit just outside the card and its edge reflects
-    // them. The neutral is the reference's grey, the foreground's luminance
-    // times 1.08: 0.9098 * 1.08 = 0.9826 of white, #fbfbfb.
-    edge: {
-        neutral: color("#fbfbfb"),
-        thickness: number(1.25, 0, 16),
-        reach: number(170, 0, 2000),
-        lift: number(26, 0, 512),
-        speed: number(95, 0, 2000),
-        strengthA: number(1.25, 0, 8),
-        strengthB: number(0.7, 0, 8),
-        base: share(0.1)
     }
 };
 
-// Light mode: the hook's light glass fill, and the reference's light alphas.
+// Light: the reference's dark ink and light alphas on the pale glass.
 var LIGHT = {
     text: {
         foreground: "#2a2a2a",
         shadow: "alpha(#000000, 0.08)"
-    },
-    card: {
-        base: "#efefef",
-        opacity: 0.8,
-        nearInk: "mix(mix(#000000, {card.base}, {card.opacity}), {text.foreground}, {highlight.strength})"
     },
     row: {
         divider: "alpha({text.foreground}, 0.08)"
@@ -291,11 +273,23 @@ var LIGHT = {
     },
     highlight: {
         strength: 0.08
+    }
+};
+
+// Clear: white ink over the faint glass, judged on its ground, the
+// compositor's shading over a white window, where only full white holds
+// 4.5:1, so a row's detail draws whole and size carries the hierarchy. The
+// cursor's plate darkens the card under the ink, so the ground alone is
+// the worst a row's text stands on.
+var CLEAR = {
+    text: {
+        foreground: "#ffffff",
+        detail: { color: "{text.foreground}" }
     },
-    // The edge light is white, brighter than the card's #efefef fill, so the
-    // edge catches light as it does in dark mode. The reference's grey for
-    // light mode, #2d2d2d, draws dark streaks that read as dirt on the card.
-    edge: {
-        neutral: "#ffffff"
+    card: {
+        nearInk: "{glass.ground}"
+    },
+    highlight: {
+        plate: "alpha(#000000, 0.22)"
     }
 };

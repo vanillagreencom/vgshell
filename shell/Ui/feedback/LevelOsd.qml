@@ -23,8 +23,8 @@ GlassSurface {
 
     implicitWidth: 2 * Theme.osd.padding + content.width
     implicitHeight: inset.topPadding + content.height + inset.bottomPadding
+    surface: "indicators"
     standard: Theme.osd
-    elevation: "tight"
     Accessible.role: Accessible.ProgressBar
     Accessible.name: text
 

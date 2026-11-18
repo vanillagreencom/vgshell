@@ -94,8 +94,8 @@ Item {
 
             GlassSurface {
                 anchors.fill: parent
+                surface: "flyouts"
                 standard: Theme.popover
-                elevation: "tight"
             }
 
             Pane {

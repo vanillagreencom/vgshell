@@ -248,6 +248,7 @@ FocusScope {
     GlassSurface {
         id: card
         anchors.fill: parent
+        surface: "dialogs"
         standard: Theme.dialog
 
         // pointer-cursor-exempt: the card's empty space, not a control

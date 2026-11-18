@@ -1,51 +1,57 @@
 import QtQuick
-import QtQuick.Effects
+import Quickshell
 import qs.Commons
 
-// VGlass, the one shared glass look, or the standard surface. The
-// material is the lens form, which a surface that hands `lens` draws: the
-// tinted body over the compositor's blur and a clear rim band with its
-// light, in one pass (shaders/glasslens.frag). A surface that hands none
-// still draws the flat form while `drawn`: a soft drop shadow, a
-// translucent fill, a faint top-down sheen and a hairline inner edge.
-// Every value is from `Theme.glass` or what the surface hands: its own
-// `fill`, `radius`, `elevation` and `lens`. Every layer
-// takes the surface's whole geometry and `radius`, so all of them round to
-// the same corner: `clip` cuts only to the bounding box, and a layer of
-// another size rounds to another corner that shows past the surface's
-// curve. The compositor blurs what is behind it when a layer rule asks it
-// to, which reaches only what lies under the surface's own window: glass
-// is `drawn` where it is `on` and nothing its window draws lies under it.
-// Glass that is `on` but not drawn is `solid`: the same fill made opaque
-// and lifted (Theme.glassSolid), at the same corner under the hairline,
-// with no shadow or sheen, so it hides the content under it and keeps the
-// surface's hue and shape. While glass is off, it draws `standard`, the
-// surface's own look without glass: a token group's `background` and
-// `border` at its `radius`, the raised surface's unless the surface hands
-// its own, such as `Theme.popover`, with no shadow, sheen or hairline.
-// `optIn` is the surface's own VGlass choice; the user's Appearance values
-// decide `on` from it (ThemeLogic.glassOn). `follow` lays it under another
-// item, taking that item's geometry, opacity, scale and transform origin.
-// Children go into the clipped body, above the sheen and below the
-// hairline.
+// Glass, the one shared glass material, or the standard surface. A surface
+// names its Glass page row, `surface` (ThemeLogic.GLASS_SURFACES, or
+// "controls" for a control that follows its card), and the one deciding
+// place answers whether glass is on for it and in which style
+// (Theme.glassFor); no surface reads a glass setting of its own. While glass
+// is on, one pass (shaders/glasslens.frag) draws the body's tint in the
+// style's values (`Theme.glass`), the rim, one thin line at the edge, and
+// the edge light, two lights that orbit the surface and catch on the rim.
+// Every layer takes the surface's whole geometry and `radius`, so all of
+// them round to the same corner: `clip` cuts only to the bounding box, and
+// a layer of another size rounds to another corner that shows past the
+// surface's curve. The compositor blurs what is behind it when a layer
+// rule asks it to, which reaches only what lies under the surface's own
+// window: glass is `drawn` where it is on, its style may show the backdrop
+// in this window (Clear needs a material window and the compositor's layer
+// glass, ThemeLogic.glassFor) and nothing its window draws lies under it.
+// Glass that is on but not drawn is `solid`: the body made opaque and
+// lifted (Theme.glassSolid), at the same corner under the rim, with no
+// moving light, so it hides the content under it and keeps the style's hue
+// and shape. While glass is off, it draws `standard`, the surface's own
+// look without glass: a token group's `background` and `border` at its
+// `radius`, the raised surface's unless the surface hands its own, such as
+// `Theme.popover`. `follow` lays it under another item, taking that item's
+// geometry, opacity, scale and transform origin. Children go into the
+// clipped body, above the tint and the rim.
 Item {
     id: glass
 
-    property bool optIn: false
-    readonly property bool on: Theme.glassOn(optIn)
-    // A surface whose text must read over any backdrop, such as a tooltip,
-    // hands true: it never draws translucent glass, and draws solid while
-    // glass is on wherever it lies.
+    required property string surface
+    // The window's own answer to whether the compositor's layer glass
+    // reaches it at the Clear body's alpha: a host that offers it sets
+    // `glassMaterial` (LayerHost.qml, SummonLayer.qml). Quickshell's
+    // QsWindow attached object names the item's Quickshell window, null in a
+    // plain Qt window (Quickshell 0.3.1, QsWindow attached).
+    readonly property bool material: QsWindow.window !== null && QsWindow.window.glassMaterial === true
+    readonly property var decision: Theme.glassFor(surface, material)
+    readonly property bool on: decision.on
+    // A surface whose text must read over any backdrop, such as a floating
+    // card, hands true: it never draws translucent glass, and draws solid
+    // while glass is on wherever it lies.
     property bool solidOnly: false
-    // Whether glass is drawn: `on`, not `solidOnly`, in a window whose own
-    // colour is transparent, as every VGS layer and popup is, and over
-    // nothing that window draws (overContent). Under a surface drawn over
-    // its window's own content, a dialog inline in a page, a menu over a
-    // glass card or a card in an application window, that content would
-    // show through unblurred.
+    // Whether glass is drawn: on, drawable in this window, not `solidOnly`,
+    // in a window whose own colour is transparent, as every VGS layer and
+    // popup is, and over nothing that window draws (overContent). Under a
+    // surface drawn over its window's own content, a dialog inline in a
+    // page, a menu over a glass card or a card in an application window,
+    // that content would show through unblurred.
     // `on` comes first, so a surface without glass reads none of its
     // window's items.
-    readonly property bool drawn: on && !solidOnly && Window.window !== null && Window.window.color.a === 0 && !overContent()
+    readonly property bool drawn: on && decision.drawable && !solidOnly && Window.window !== null && Window.window.color.a === 0 && !overContent()
     // Glass that is on but not drawn: its fill made opaque hides the
     // content under it.
     readonly property bool solid: on && !drawn
@@ -53,7 +59,7 @@ Item {
     // under another, and Scrim.qml has its own `scrim`.
     readonly property bool glassSurface: true
     default property alias content: body.data
-    property color fill: Theme.glass.glass.fill
+    readonly property color fill: Theme.glass.glass.fill
     // The body fill before a translucent window meets its backdrop.
     readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill) : standard.background
     // The ground a shared key hint inside this surface reads on, published
@@ -70,39 +76,33 @@ Item {
     // property answers the object its binding answered, so `===` tells the
     // look no surface handed (a run under qmltestrunner, Qt 6.11.2).
     property real radius: standard === raised ? Theme.radius.glass : standard.radius
-    // `wide` for a large card, `tight` for a small transient surface: a
-    // group of `Theme.glass.shadow`. One the table lacks is logged and
-    // drawn as wide. `none` draws no shadow, for a plate whose rim alone
-    // marks its edge on the wallpaper.
-    property string elevation: "wide"
-    readonly property var shadow: elevation === "none" ? null : shadowOf(elevation)
-    // Cache the shadow only for a surface that keeps its size; a resizing
-    // or morphing surface would rebuild the cache every frame.
-    property bool shadowCached: true
     property Item follow: null
     property real padding: 0
-    // The lens form: a surface that hands its look's lens values draws the
-    // lens pass (shaders/glasslens.frag) in place of the sheen and the
-    // hairline while glass is on: `bezel`, the rim band's width;
-    // `clarity`, the share of the tint the band loses, which takes it
-    // under the layer rule's blur threshold; `glint` and `glow`, the light
-    // on the rim and inside it; `exit`, the share of that light the far
-    // wall takes; `outline`, the dark line outside the rim; and `seam`,
-    // the line where the band meets the body. Solid glass draws the same
-    // pass over its opaque fill with no clear band. While glass is off no
-    // pass draws.
-    property var lens: null
-    readonly property bool lensed: on && lens !== null
-    // The band's drawn width: the handed bezel, held to the corner and to
-    // a quarter of the surface's short side, and never under a pixel.
-    readonly property real bezel: lensed ? Math.max(1, Math.min(lens.bezel, corner, Math.min(width, height) / 4)) : 0
-    // Where content starts: inside the band, where the pass draws the fill
+    // The edge light's state, which the surface owns: `lit` blends it to
+    // the theme's accent, as a critical notification is; `edgeBoost`
+    // multiplies both lights and `edgeSpin` adds orbits a second;
+    // `edgeShown` false hides it. A surface that can stay up all day sets
+    // `paced`, and the light moves at most `Theme.glass.edge.frameRate`
+    // frames a second.
+    property bool lit: false
+    property real edgeBoost: 1
+    property real edgeSpin: 0
+    property bool edgeShown: true
+    property bool paced: false
+    // The rim's drawn width while glass is on, held to a quarter of the
+    // surface's short side.
+    readonly property real rim: on ? Math.min(Theme.glass.rim.width, Math.min(width, height) / 4) : 0
+    // Where content starts: inside the rim, where the pass draws the fill
     // alone, so an ink's ground is that fill.
-    readonly property real contentInset: Math.max(padding, bezel)
+    readonly property real contentInset: Math.max(padding, rim)
     // The corner the body rounds to while glass is on, drawn or solid:
     // `radius` as a real radius, which a pill-shaped radius larger than a
-    // side needs for the shadow; while it is off, the standard look's.
+    // side needs; while it is off, the standard look's.
     readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : standard.radius
+    // Whether the edge light moves: on drawn glass that shows, while the
+    // theme's motion scale is above 0.
+    readonly property bool lightsShown: drawn && edgeShown
+    readonly property bool lightsRunning: lightsShown && visible && opacity > 0 && Theme.glass.motion.scale > 0 && orbitLength > 0
 
     // Whether this window draws something glass would show unblurred under
     // this surface. Walking from the surface up through its ancestors: an
@@ -136,11 +136,51 @@ Item {
         return false;
     }
 
-    function shadowOf(name) {
-        const found = Theme.glass.shadow[name];
-        if (found !== undefined) return found;
-        console.error("GlassSurface: no elevation named " + JSON.stringify(name));
-        return Theme.glass.shadow.wide;
+    // The edge lights' orbit: a rounded box `lift` outside the surface.
+    // Phase is a share of its length, so the lights hold their place while
+    // the surface resizes; `clock` drives the pace's wobble. Each starts at
+    // a random place, so two surfaces never shine in step.
+    property real phase: Math.random()
+    property real clock: Math.random() * 100
+    readonly property real orbitRadius: corner + Theme.glass.edge.lift
+    readonly property real orbitW: Math.max(0, width - 2 * corner)
+    readonly property real orbitH: Math.max(0, height - 2 * corner)
+    readonly property real orbitLength: 2 * (orbitW + orbitH) + 2 * Math.PI * orbitRadius
+    readonly property vector2d lightA: orbitPoint(phase)
+    // The counter light trails half an orbit behind, drifting a little.
+    readonly property vector2d lightB: orbitPoint(phase + 0.5 + 0.045 * Math.sin(clock / 5.3))
+
+    // The point on the orbit at share F of its length, clockwise from the
+    // top-left of the top edge, from the surface's centre.
+    function orbitPoint(f) {
+        const w = orbitW, h = orbitH, r = orbitRadius, arc = Math.PI * r / 2;
+        let s = ((f % 1) + 1) % 1 * orbitLength;
+        const hw = w / 2, hh = h / 2;
+        if (s < w) return Qt.vector2d(-hw + s, -hh - r);
+        s -= w;
+        if (s < arc) return Qt.vector2d(hw + r * Math.sin(s / r), -hh - r * Math.cos(s / r));
+        s -= arc;
+        if (s < h) return Qt.vector2d(hw + r, -hh + s);
+        s -= h;
+        if (s < arc) return Qt.vector2d(hw + r * Math.cos(s / r), hh + r * Math.sin(s / r));
+        s -= arc;
+        if (s < w) return Qt.vector2d(hw - s, hh + r);
+        s -= w;
+        if (s < arc) return Qt.vector2d(-hw - r * Math.sin(s / r), hh + r * Math.cos(s / r));
+        s -= arc;
+        if (s < h) return Qt.vector2d(-hw - r, hh - s);
+        s -= h;
+        return Qt.vector2d(-hw - r * Math.cos(s / r), -hh - r * Math.sin(s / r));
+    }
+
+    // Moves the lights on by DT seconds, a long frame capped so a stall
+    // never jumps them, at an uneven pace: two slow, unrelated waves on the
+    // mean speed.
+    function advance(dt) {
+        const step = Math.min(dt, 0.05);
+        clock += step;
+        const pace = 1 + 0.3 * Math.sin(clock * 0.83) + 0.12 * Math.sin(clock * 2.1 + 1.3);
+        phase = (phase + step * (Theme.glass.edge.speed * pace / orbitLength + edgeSpin)) % 1;
     }
 
     Binding on x { when: glass.follow !== null; value: glass.follow ? glass.follow.x : 0 }
@@ -151,60 +191,32 @@ Item {
     Binding on scale { when: glass.follow !== null; value: glass.follow ? glass.follow.scale : 1 }
     Binding on transformOrigin { when: glass.follow !== null; value: glass.follow ? glass.follow.transformOrigin : Item.Center }
 
-    RectangularShadow {
-        visible: glass.drawn && glass.elevation !== "none"
-        z: -2
-        anchors.fill: parent
-        radius: glass.corner
-        blur: glass.shadow === null ? 0 : glass.shadow.blur
-        spread: glass.shadow === null ? 0 : glass.shadow.spread
-        offset: Qt.vector2d(0, glass.shadow === null ? 0 : glass.shadow.offsetY)
-        color: glass.shadow === null ? "transparent" : glass.shadow.color
-        cached: glass.shadowCached
-    }
-
     Rectangle {
         id: body
         anchors.fill: parent
         radius: glass.corner
-        color: glass.lensed ? "transparent" : glass.effectiveFill
+        color: glass.on ? "transparent" : glass.standard.background
         clip: true
-
-        // Light falling on the top of the glass, fading out `sheenHeight`
-        // down, under the fill.
-        Rectangle {
-            visible: glass.drawn && !glass.lensed
-            anchors.fill: parent
-            radius: glass.radius
-            z: -1
-            gradient: Gradient {
-                GradientStop { position: 0; color: Theme.glass.glass.sheen }
-                GradientStop { position: Math.min(1, Theme.glass.glass.sheenHeight / glass.height); color: Theme.glass.glass.sheenEnd }
-            }
-        }
     }
 
-    // The hairline, or the standard border, sits above the content, so no
-    // row covers it.
+    // The standard border sits above the content, so no row covers it.
     Rectangle {
-        visible: !glass.lensed
+        visible: !glass.on
         anchors.fill: parent
         radius: body.radius
         color: "transparent"
-        border.width: glass.on ? Theme.glass.glass.hairlineWidth : Theme.surface.border
-        border.color: glass.on ? Theme.glass.glass.hairline : glass.standard.border
+        border.width: Theme.surface.border
+        border.color: glass.standard.border
     }
 
-    // The lens pass, built only for a surface that hands a lens, so a
-    // flat surface holds none of it. Qt paints a lower `z` first (Qt 6
-    // Item.z reference), so it draws over the drop shadow and under the
-    // body's content, whatever its place among the children.
+    // The glass pass, built only while glass is on. Qt paints a lower `z`
+    // first (Qt 6 Item.z reference), so it draws under the body's content,
+    // whatever its place among the children.
     Loader {
         id: pass
-        // The dark line lies in the two pixels outside the surface.
-        readonly property real reach: 2
-        active: glass.lens !== null
-        visible: glass.lensed
+        // One pixel outside the surface holds the edge's antialiasing.
+        readonly property real reach: 1
+        active: glass.on
         z: -1
         x: -reach
         y: -reach
@@ -215,12 +227,41 @@ Item {
             property vector2d uSize: Qt.vector2d(glass.width, glass.height)
             property real uRadius: glass.corner
             property real uMargin: pass.reach
+            property real uRim: glass.rim
             property color uTint: glass.effectiveFill
-            property vector4d uLens: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
-                : Qt.vector4d(glass.bezel, glass.solid ? 0 : glass.lens.clarity, glass.lens.glint, glass.lens.glow)
-            property vector4d uLight: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
-                : Qt.vector4d(glass.lens.exit, glass.lens.outline, glass.lens.seam, 0)
+            property vector4d uRimLight: Qt.vector4d(Theme.glass.rim.glint, Theme.glass.rim.ambient, Theme.glass.rim.far, Theme.glass.edge.glow)
+            property vector2d uLightA: glass.lightA
+            property vector2d uLightB: glass.lightB
+            property vector4d uEdge: Qt.vector4d(Theme.glass.edge.strengthA * glass.edgeBoost, Theme.glass.edge.strengthB * glass.edgeBoost,
+                Theme.glass.edge.reach, glass.lightsShown ? 1 : 0)
+            property color uNeutral: Theme.glass.edge.neutral
+            property color uAccent: Theme.glass.palette.accent
+            property real uLit: glass.litShare
             fragmentShader: Qt.resolvedUrl("shaders/glasslens.frag.qsb")
+        }
+    }
+
+    property real litShare: lit ? 1 : 0
+    Behavior on litShare { NumberAnimation { duration: Theme.motion.duration.slow; easing.type: Theme.motion.easing.standard } }
+
+    FrameAnimation {
+        running: glass.lightsRunning && !glass.paced
+        onTriggered: glass.advance(frameTime)
+    }
+
+    // A paced light draws at most the table's frame rate. The step is the
+    // time since the last one, read from the clock, so a late timer never
+    // slows the light.
+    Timer {
+        property real last: 0
+        running: glass.lightsRunning && glass.paced
+        repeat: true
+        interval: Math.round(1000 / Theme.glass.edge.frameRate)
+        onRunningChanged: last = Date.now()
+        onTriggered: {
+            const now = Date.now();
+            glass.advance((now - last) / 1000);
+            last = now;
         }
     }
 }

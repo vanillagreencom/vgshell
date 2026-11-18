@@ -21,6 +21,7 @@ Item {
         y: Theme.dialog.margin
         width: Math.min(parent.width - 2 * Theme.dialog.margin, Theme.dialog.width)
         height: content.implicitHeight
+        surface: "indicators"
         standard: Theme.dialog
 
         Pane {
