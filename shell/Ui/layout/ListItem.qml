@@ -103,10 +103,9 @@ T.ItemDelegate {
 
     implicitWidth: leftPadding + rightPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth) + (trailingRow.width > 0 ? trailingRow.width + Theme.listItem.gap : 0)
     implicitHeight: Math.max((secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height) + secondaryLabel.addedHeight, implicitContentHeight + topPadding + bottomPadding)
+    padding: Theme.listItem.paddingY
     leftPadding: sidePadding
     rightPadding: leftPadding
-    topPadding: Theme.listItem.paddingX
-    bottomPadding: Theme.listItem.paddingX
     spacing: Theme.listItem.gap
     hoverEnabled: true
     down: clickable && pressed

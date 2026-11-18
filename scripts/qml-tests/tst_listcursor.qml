@@ -70,6 +70,32 @@ Item {
         }
     }
 
+    Component {
+        id: tallPaddedRow
+        Item {
+            width: 300
+            height: padded.height
+            property alias row: padded
+            property alias content: tallContent
+            ListCursor { id: tallPlate }
+            ContentRow {
+                id: padded
+                clickable: true
+                width: parent.width
+                text: "Tall content"
+                cursor: tallPlate
+                highlighted: true
+                trailing: Rectangle {
+                    id: tallContent
+                    width: Theme.icon.size.md
+                    height: Theme.listItem.height + Theme.space.md
+                    color: Theme.color.text
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+    }
+
     NavigationRow { chevronName: ""; id: loose; text: "Loose"; width: 300; y: 500 }
 
     Item {
@@ -178,6 +204,19 @@ Item {
         function cleanupTestCase() { UnitTheme.reset(); }
 
         function row(index) { return repeater.itemAt(index); }
+
+        function test_content_taller_than_a_row_stays_inside_its_plate() {
+            const sample = createTemporaryObject(tallPaddedRow, root);
+            verify(sample !== null);
+            verify(waitForPolish(sample));
+            const target = sample.row;
+            const box = sample.content;
+            const at = box.mapToItem(target, 0, 0);
+            verify(at.y >= Theme.space.sm, "tall content clears the plate above");
+            verify(target.height - at.y - box.height >= Theme.space.sm, "tall content clears the plate below");
+            verify(at.x >= Theme.space.sm && target.width - at.x - box.width >= Theme.space.sm,
+                "tall content clears both sides");
+        }
 
         function test_hovered_row_content_keeps_padding_inside_its_plate_data() {
             return [{ tag: "one line", index: 0 }, { tag: "two lines", index: 1 }];
