@@ -12,7 +12,7 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js shell/Ui/foundation/shaders/glasslens.frag.qsb
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -105,8 +105,8 @@ expect_poll "the launcher is open" true read_launcher opened
 focused "the open launcher holds the keyboard"
 expect "the launcher opens as a bare search field" '[]' launcher_rows
 expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
-shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,re,sys; d=json.loads(sys.stdin.read()); print(bool(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", d["url"])) and d["compiled"])'; }
-render expect_poll "the edge light's shader compiled from the published revision" True shader_ok
+shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,sys; d=json.loads(sys.stdin.read()); print(d["url"].endswith("/Ui/foundation/shaders/glasslens.frag.qsb") and d["compiled"])'; }
+render expect_poll "the card's glass shader, with its edge light, compiled" True shader_ok
 
 # The private Categories icon follows the shared icon toggle's rule: no
 # fill or border in any state, its glyph brighter on hover and the accent
@@ -1059,7 +1059,7 @@ rm -f -- "${user_menu:?}"
 # stays; the accent moves the accent; the interface family moves the text's
 # family; light mode applies the light glass.
 expect "the launcher summons for its look" ok ipc shell summon overlay vgs.launcher '{}'
-expect_poll "the look resolved" '"#c7151515"' look_at card.fill
+expect_poll "the look resolved" '"#ff404040"' look_at glass.ground
 if ! look_before="$(read_launcher look)"; then fail "the launcher's look is unreadable"; fi
 write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00", "success": "#123456" }, "font": { "size": 22, "family": { "mono": "Serif" } }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
 expected_errors+=('theme: font=Serif unavailable')
@@ -1072,11 +1072,10 @@ expect_poll "the interface font reaches the launcher's text" '"JetBrains Mono"' 
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the launcher" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the caret's halo" '"#2e7aa2f7"' look_at caret.halo
-expect "the accent leaves the glass" '"#c7151515"' look_at card.fill
+expect "the accent leaves the glass" '"#ff404040"' look_at glass.ground
 write_theme '{ "schemaVersion": 1, "name": "bright", "tokens": { "scheme": { "mode": "light" }, "palette": { "accent": "#a8330a" } } }'
-expect_poll "light mode applies the light glass" '"#ccefefef"' look_at card.fill
+expect_poll "light mode applies the light glass" '"#ffcecece"' look_at glass.ground
 expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
-expect "light mode lights the edge white, brighter than the fill" '"#ffffffff"' look_at edge.neutral
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent
 write_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'
 expect_poll "reduced motion stills the launcher's durations" 0 look_at motion.duration.medium4

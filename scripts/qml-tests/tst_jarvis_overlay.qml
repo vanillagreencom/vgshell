@@ -19,7 +19,7 @@ Item {
     width: 640
     height: 720
 
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "jarvis", clear: Appearance.CLEAR })
     property var intents: []
     property var pages: []
 

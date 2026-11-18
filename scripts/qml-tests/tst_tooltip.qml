@@ -102,7 +102,7 @@ Item {
         // same surface handed no `solidOnly` draws the translucent fill,
         // which the check refuses.
         function test_glass_on_draws_the_tooltip_solid() {
-            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
             hoverOpen(bare);
             const surface = named(bare.tip, "tooltipSurface")[0];
             const solid = Theme.glassSolid(surface.fill);

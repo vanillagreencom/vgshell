@@ -3,7 +3,7 @@
 # the host compositor, manager, elevation, configuration or package state.
 set -euo pipefail
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-script="$repo/shell/plugins/vgs.windows/tui/layer-glass.sh"
+script="$repo/shell/plugins/vgs.glass/tui/layer-glass.sh"
 mkdir -p "$tmp/tools" "$tmp/state" "$tmp/install/bin/lib"
 for name in bash cat python3 rm; do ln -s "$(command -v "$name")" "$tmp/tools/$name"; done
 ln -s "$node_bin" "$tmp/tools/node"

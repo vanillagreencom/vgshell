@@ -126,6 +126,7 @@ FocusScope {
                 info: "Off: every surface draws solid. Your choices below stay saved."
                 Switch {
                     id: mainSwitch
+                    objectName: "glassMain"
                     size: "sm"
                     Accessible.name: "Glass"
                     checked: root.glassOn
@@ -142,6 +143,7 @@ FocusScope {
                 label: "Style"
                 info: "Auto: light glass on a light theme and dark glass on a dark theme. Clear shows the background through the glass and shades it under white text."
                 Select {
+                    objectName: "glassStyle"
                     Accessible.name: "Style"
                     disabledReason: root.offReason
                     model: root.styles
@@ -183,6 +185,7 @@ FocusScope {
                     info: modelData.info
                     onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                     Switch {
+                        objectName: "glass-" + modelData.id
                         size: "sm"
                         Accessible.name: modelData.label
                         disabledReason: root.offReason

@@ -172,7 +172,7 @@ Item {
         function test_selected_row_keys_read_on_the_list_plate_data() {
             return [
                 { tag: "glass off", appearance: "", ground: () => Theme.surface.level.base.background },
-                { tag: "glass on", appearance: JSON.stringify({ glass: "on" }), ground: () => Theme.glassSolid(Qt.color(Theme.glass.glass.fill)) }
+                { tag: "glass on", appearance: JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } }), ground: () => Theme.glassSolid(Qt.color(Theme.themeGlass.glass.themed)) }
             ];
         }
 

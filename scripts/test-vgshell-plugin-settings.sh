@@ -99,7 +99,7 @@ control() { # NAME FILE NEEDLE REPLACEMENT
 }
 control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
-control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);' 'const moved = { config: config, migrated: false };'
-control conversation-data bin/lib/judge-files.js 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration)' 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations)'
+control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration, glassSettingsMigration);' 'const moved = { config: config, migrated: false };'
+control conversation-data bin/lib/judge-files.js 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration, glassSettingsMigration)' 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, undefined, glassSettingsMigration)'
 
 rows_done test-vgshell-plugin-settings

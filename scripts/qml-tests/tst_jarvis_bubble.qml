@@ -477,11 +477,11 @@ Item {
                         "drawn text fits the side's box");
                     verify(item.height >= item.implicitHeight, "the whole wrapped line remains laid out");
                     if (!(item instanceof Text)) continue;
-                    // The card's text keeps inside its band, and the card
+                    // The card's text keeps inside its rim, and the card
                     // gives up its full padding before a word breaks.
                     const card = findChild(bubble, "textCard");
                     const gap = (card.width - item.contentWidth) / 2;
-                    verify(gap >= bubble.look.plate.lens.bezel - 0.5, "the text keeps inside the card's band: " + gap);
+                    verify(gap >= card.rim - 0.5, "the text keeps inside the card's rim: " + gap);
                     wordMetrics.font = item.font;
                     const broken = (item.plain !== undefined ? item.plain : item.text).split(/\s+/)
                         .filter(word => { wordMetrics.text = word; return word !== "" && wordMetrics.advanceWidth > item.width + 0.5; });

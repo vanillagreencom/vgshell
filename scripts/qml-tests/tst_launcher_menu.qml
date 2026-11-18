@@ -94,7 +94,7 @@ Item {
         function init() {
             root.rowLauncher = hintLauncher;
             UnitTheme.reset();
-            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
         }
 
         function cleanup() {

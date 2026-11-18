@@ -8,7 +8,8 @@ import qs.Unit
 // and nothing else of it. Every other shell token moves and the plugin's
 // values stay, read back from bindings and from pixels; the mode applies the
 // light overrides, the accent reaches the plugin, and the motion scale
-// reaches its durations. A table the judge refuses answers null.
+// reaches its durations; a look on glass follows the Glass page's style
+// instead. A table the judge refuses answers null.
 Item {
     id: root
     width: 200
@@ -36,7 +37,29 @@ Item {
         name: "appearance"
         when: windowShown
 
-        function init() { UnitTheme.reset(); }
+        function init() {
+            UnitTheme.reset();
+            Theme.appearanceInput = "";
+        }
+        function cleanup() { Theme.appearanceInput = ""; }
+
+        // A look on glass follows the Glass page's style while its surface
+        // takes glass, LIGHT for Light and its Clear tree for Clear, and the
+        // theme's mode while it does not. Each row: [Appearance values,
+        // the card's fill].
+        function test_a_look_on_glass_follows_the_style_data() {
+            return [
+                { tag: "Auto in a dark theme", values: {}, fill: "#ff151515" },
+                { tag: "Light in a dark theme", values: { glassStyle: "light" }, fill: "#ffefefef" },
+                { tag: "Clear", values: { glassStyle: "clear" }, fill: "#ff000000" },
+                { tag: "Light on a surface without glass", values: { glassStyle: "light", glassSurfaces: { launcher: "off" } }, fill: "#ff151515" }
+            ];
+        }
+        function test_a_look_on_glass_follows_the_style(data) {
+            Theme.appearanceInput = JSON.stringify(data.values);
+            const look = Theme.appearance(root.table, root.light, { surface: "launcher", clear: { card: { fill: "#000000" } } });
+            compare(look.card.fill, data.fill);
+        }
 
         function test_dark_defaults() {
             compare(root.look.card.fill, "#ff151515");

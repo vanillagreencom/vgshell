@@ -31,10 +31,13 @@ PanelWindow {
     exclusiveZone: 0
     color: "transparent"
     // A plugin whose manifest sets `glassMaterial` holds only glass cards
-    // here, so its layer maps under the material namespace
-    // (HyprlandLayer.MATERIAL_NAMESPACES) and its GlassSurfaces may draw
-    // Clear.
-    readonly property bool glassMaterial: Registry.manifests[pluginId] !== undefined && Registry.manifests[pluginId].glassMaterial === true
+    // here, so while the Glass page's style is Clear its layer maps under
+    // the material namespace (HyprlandLayer.MATERIAL_NAMESPACES) and its
+    // GlassSurfaces may draw Clear. A layer's namespace is fixed once it
+    // maps, so the binding is cut when the surface is built: a later
+    // change of style reaches the next summon.
+    property bool glassMaterial: Registry.manifests[pluginId] !== undefined && Registry.manifests[pluginId].glassMaterial === true
+        && Theme.glassStyle === "clear"
     WlrLayershell.namespace: "vgs:" + kind + (glassMaterial ? "-glass" : "")
     readonly property int shellLayer: place.layer === "top" ? WlrLayer.Top : WlrLayer.Overlay
     WlrLayershell.layer: shellLayer
@@ -44,6 +47,7 @@ PanelWindow {
     property var keyboardRelease: null
 
     Component.onCompleted: {
+        glassMaterial = glassMaterial;
         if (place.error !== "") console.error("summon host: " + pluginId + " " + place.error);
         if (exclusiveKeyboard) keyboardRelease = Compositor.keyboardLayer(WlrLayershell.namespace);
     }

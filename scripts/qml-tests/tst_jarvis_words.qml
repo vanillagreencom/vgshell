@@ -20,7 +20,7 @@ Item {
     width: 400
     height: 200
 
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "jarvis", clear: Appearance.CLEAR })
     Words {
         id: words
         width: 380

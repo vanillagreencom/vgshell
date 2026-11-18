@@ -1,9 +1,9 @@
-# Synthetic manager/status proof for the real core and Windows pane. This
+# Synthetic manager/status proof for the real core and Glass pane. This
 # proves the core transaction and generated calls, never native plugin
 # loading, recursive reload lifetime, before-draw safety or rendered glass.
 # Polls use expect_poll's 200 ms interval; the manager fixture's 120 s
 # hang guard polls its release file every 50 ms. No latency is measured.
-# inputs: shell/plugins/vgs.windows/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.windows/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 lg_read() { ipc smoke readInstance service acme.appearance "$1"; }
@@ -24,7 +24,7 @@ except ValueError:
 lg_reason() { lg_read layerGlass | py_reply 'import json,sys; print(json.load(sys.stdin)["observed"]["reason"])'; }
 lg_cause_retained() { lg_read layerGlass | py_reply 'import json,sys; print(bool(sys.argv[1]) and sys.argv[1] in json.load(sys.stdin)["operation"]["reason"])' "$lg_failure"; }
 lg_dir="$home/.local/state/vgshell/layer-glass-fixture"
-lg_copy="$home/.config/vgshell/plugins/vgs.windows"
+lg_copy="$home/.config/vgshell/plugins/vgs.glass"
 lg_fixture="$home/.config/vgshell/plugins/acme.appearance"
 lg_user="$home/.config/vgshell/shell.json"
 lg_managed="/var/cache/hyprpm/$(id -un)/HyprGlass/hyprglass.so"
@@ -52,7 +52,7 @@ do
         file:write(step .. "\\n")
         file:close()
     end
-    local module = { config = function(_) record("config") end, layer = function(_, _) record("layer") end }
+    local module = { config = function(_) record("config") end, layer = function(_, _) record("layer") end, preset = function(_, _) record("preset") end }
     local declared = false
     hl.plugin.hyprglass = module
     hl.plugin.load = function(path)
@@ -69,19 +69,19 @@ EOF
 } >"$home/.config/hypr/hyprland.lua.next"
 mv -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"
 expect 'the nested compositor loads the synthetic Lua namespace' ok hypr reload config-only
-lg_windows_was="$(plugin_enabled vgs.windows | tr '[:upper:]' '[:lower:]')"
+lg_glass_was="$(plugin_enabled vgs.glass | tr '[:upper:]' '[:lower:]')"
 lg_system_was="$(plugin_enabled vgs.system | tr '[:upper:]' '[:lower:]')"
 mkdir -p "$lg_dir/saved-tools" "$lg_copy" "$lg_fixture"
 for tool in hyprpm cpio cmake pkg-config g++ gcc; do
   [[ ! -e $shim/$tool ]] || mv -- "$shim/$tool" "$lg_dir/saved-tools/$tool"
   printf '#!/bin/sh\nexit 0\n' >"$shim/$tool"; chmod 755 "$shim/$tool"
 done
-# The private Windows copy replaces its manager script below and deliberately
+# The private Glass copy replaces its manager script below and deliberately
 # shadows the shipped plugin. Declare only that shipped path's collision.
-lg_shadow_warning="$(python3 -c 'import re,sys; print(r"WARN qml: plugins: hidden by a higher-precedence plugin with the same id: vgs\.windows at " + re.escape(sys.argv[1]) + "$")' "$repo/shell/plugins/vgs.windows")"
+lg_shadow_warning="$(python3 -c 'import re,sys; print(r"WARN qml: plugins: hidden by a higher-precedence plugin with the same id: vgs\.glass at " + re.escape(sys.argv[1]) + "$")' "$repo/shell/plugins/vgs.glass")"
 expected_errors+=("$lg_shadow_warning")
-cp -R -- "$repo/shell/plugins/vgs.windows/." "$lg_copy/"
-cp -- "$repo/scripts/smoke/fixtures/tui/vgs.windows/tui/layer-glass.sh" "$lg_copy/tui/layer-glass.sh"
+cp -R -- "$repo/shell/plugins/vgs.glass/." "$lg_copy/"
+cp -- "$repo/scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh" "$lg_copy/tui/layer-glass.sh"
 cp -- "$lg_copy/tui/layer-glass.sh" "$lg_dir/manager.sh"
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.appearance/." "$lg_fixture/"
 printf 'false\n' >"$lg_dir/loaded"
@@ -108,17 +108,17 @@ terminal_stand_in
 rescan 'the synthetic layer-glass fixtures are discovered'
 expect 'the layer-glass capability fixture enables' ok ipc shell setPluginEnabled acme.appearance true
 expect_poll 'the layer-glass capability fixture builds' True record_exists acme.appearance
-expect 'the Windows pane enables for layer glass' ok ipc shell setPluginEnabled vgs.windows true
+expect 'the Glass pane enables for layer glass' ok ipc shell setPluginEnabled vgs.glass true
 expect 'System enables for layer glass' ok ipc shell setPluginEnabled vgs.system true
 lg_refresh
 expect_poll 'synthetic absence starts off by default' 'not-loaded|idle|false' lg_state
 expect 'unset layer glass contributes no plugin declaration' absent lg_block
-expect 'the actual Windows pane opens for layer glass' ok ipc shell summon window vgs.system '{"pane":"vgs.windows"}'
-expect_poll 'the Windows pane mounts for layer glass' '["vgs.windows"]' window_panes
+expect 'the actual Glass pane opens for layer glass' ok ipc shell summon window vgs.system '{"pane":"vgs.glass"}'
+expect_poll 'the Glass pane mounts for layer glass' '["vgs.glass"]' window_panes
 : >"$lg_dir/hold"
 lg_shown="$(ipc smoke revealScopedText window vgs.system FormRow 'Layer glass' Switch '')"
 if [[ $lg_shown =~ ^[0-9.]+$ ]]; then
-  click_item 'scoped:System Settings' window vgs.windows FormRow 'Layer glass' Switch ''
+  click_item 'scoped:System Settings' window vgs.glass FormRow 'Layer glass' Switch ''
 else
   fail "the layer glass row could not be revealed: $lg_shown"
 fi
@@ -168,7 +168,7 @@ expect 'Off cleans the declined compensation' ok lg_choose false
 expect_poll 'compensation cleanup verifies unloaded state' 'not-loaded|idle|false' lg_state
 expect 'compensation cleanup removes the generated block' absent lg_block
 expect 'the layer-glass fixture disables' ok ipc shell setPluginEnabled acme.appearance false
-expect 'the Windows fixture disables before removal' ok ipc shell setPluginEnabled vgs.windows false
+expect 'the Glass fixture disables before removal' ok ipc shell setPluginEnabled vgs.glass false
 expect_poll 'the appearance fixture is destroyed' False record_exists acme.appearance
 rm -r -- "${lg_copy:?}" "${lg_fixture:?}"
 shim_hyprctl real
@@ -180,8 +180,8 @@ done
 cp -- "$sandbox/layer-glass-before.json" "$lg_user.next"
 mv -- "$lg_user.next" "$lg_user"
 expect 'the user appearance is restored after layer glass' ok ipc shell reloadConfig
-rescan 'the shipped Windows plugin returns after layer glass'
-expect 'Windows enablement is restored after layer glass' ok ipc shell setPluginEnabled vgs.windows "$lg_windows_was"
+rescan 'the shipped Glass plugin returns after layer glass'
+expect 'Glass enablement is restored after layer glass' ok ipc shell setPluginEnabled vgs.glass "$lg_glass_was"
 expect 'System enablement is restored after layer glass' ok ipc shell setPluginEnabled vgs.system "$lg_system_was"
 hypr_lua_restore layer-glass || fail 'hyprland.lua is restored after the synthetic namespace'
 expect 'the nested compositor reloads without the synthetic namespace' ok hypr reload config-only

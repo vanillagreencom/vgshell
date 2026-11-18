@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Window
 import Quickshell
 import Quickshell.Wayland
+import qs.Commons
 import qs.Core
 import qs.Ui
 
@@ -70,12 +71,16 @@ Scope {
                     // its own `visible`.
                     contentItem.visible: !hiding
                     // A plugin whose manifest sets `glassMaterial` holds only
-                    // glass cards here, so its layer maps under the material
-                    // namespace (HyprlandLayer.MATERIAL_NAMESPACES) and its
-                    // GlassSurfaces may draw Clear. The entry is read before
-                    // the surface maps: `visible` waits for the content.
-                    readonly property bool glassMaterial: entry !== null && Registry.manifests[entry.pluginId] !== undefined
-                        && Registry.manifests[entry.pluginId].glassMaterial === true
+                    // glass cards here, so while the Glass page's style is
+                    // Clear its layer maps under the material namespace
+                    // (HyprlandLayer.MATERIAL_NAMESPACES) and its
+                    // GlassSurfaces may draw Clear. A layer's namespace is
+                    // fixed once it maps, so the choice is read once, in
+                    // build(), before the surface maps (`visible` waits for
+                    // the content); a layer mapped before Clear was chosen
+                    // keeps its namespace and draws Clear's opaque ground
+                    // until it maps again.
+                    property bool glassMaterial: false
                     WlrLayershell.namespace: glassMaterial ? "vgs:layer-glass" : "vgs:layer"
                     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
@@ -169,6 +174,8 @@ Scope {
                             return;
                         }
                         const name = screen ? screen.name : "";
+                        glassMaterial = Registry.manifests[entry.pluginId] !== undefined && Registry.manifests[entry.pluginId].glassMaterial === true
+                            && Theme.glassStyle === "clear";
                         const item = entry.component.createObject(win.contentItem);
                         if (item === null) {
                             console.error("layers: " + entry.pluginId + " content not built on " + name + ": createObject answered null");

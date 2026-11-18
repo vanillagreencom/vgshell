@@ -8,22 +8,17 @@ import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
-// Jarvis's overlay stands on plates of glass in the lens form, with
-// nothing behind the orb. In each state and both modes every plate draws
-// the lens pass with no drop shadow, whole and clear of the others and of
-// what the orb draws by the look's gap, and holds its content inside its
-// padding, which is no less than its band; the words' card follows the
-// lines shown; without
-// glass each plate draws the look's own solid. The drawn bubble is read
-// over white and over black under scripts/qml-unit.sh's software OpenGL,
-// which draws the shaders: a plate's body is its fill over the wallpaper,
-// the ground scripts/check-theme-contrast.js judges every ink against, at
-// the look's one tint, above the compositor's blur thresholds; its band is
-// under them; and the same material draws in both modes. Each orb style's
-// motion is continuous across its clocks' wraps, read from drawn frames,
-// with a planted wrap the reading must refuse. Each style's disc draws
-// whole inside its edge, read over white and over black, so no window
-// shows through it. The window is
+// Jarvis's overlay stands on plates of the shared glass, with nothing
+// behind the orb. In each state and both modes every plate draws the glass
+// pass, whole and clear of the others and of what the orb draws by the
+// look's gap, and holds its content inside its padding, which is no less
+// than its rim; the words' card follows the lines shown; without glass each
+// plate draws the look's own solid. The drawn bubble is read over white and
+// over black under scripts/qml-unit.sh's software OpenGL, which draws the
+// shaders: a plate's body is the style's fill over the wallpaper, above the
+// compositor's blur threshold, and the look judges its inks on the drawn
+// glass's ground. Each orb style's motion is continuous across its clocks'
+// wraps, and its disc draws whole over white and black. The window is
 // transparent, as the shell's layers are, since glass draws only there
 // (GlassSurface.drawn). A held request paints no frame before its console
 // answer.
@@ -32,7 +27,7 @@ Item {
     width: 1180
     height: 740
 
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT, { surface: "jarvis", clear: Appearance.CLEAR })
 
     QtObject {
         id: service
@@ -221,11 +216,11 @@ Item {
                 found[plate.objectName] = { item: plate, box: plate.mapToItem(root, 0, 0, plate.width, plate.height) };
             return found;
         }
-        function shadowOf(glass) { return glass.children[0]; }
-        function bodyOf(glass) { return glass.children[1]; }
-        function edgeOf(glass) { return glass.children[2]; }
-        // The lens pass a plate builds: the item of its fourth child.
-        function lensOf(glass) { return glass.children[3].item; }
+        function bodyOf(glass) { return glass.children[0]; }
+        function edgeOf(glass) { return glass.children[1]; }
+        // The glass pass a plate builds: the item of its third child.
+        function holderOf(glass) { return glass.children[2]; }
+        function passOf(glass) { return holderOf(glass).item; }
         // How far apart two boxes stand; negative where they overlap.
         function apart(a, b) {
             return Math.max(a.x - (b.x + b.width), b.x - (a.x + a.width), a.y - (b.y + b.height), b.y - (a.y + a.height));
@@ -259,9 +254,9 @@ Item {
             for (const name in shown) {
                 const plate = shown[name];
                 verify(plate.item.drawn, name + " draws as glass");
-                verify(plate.item.lensed && lensOf(plate.item).visible, name + " draws the lens pass");
+                verify(passOf(plate.item) !== null && passOf(plate.item).visible, name + " draws the glass pass");
+                compare(plate.item.surface, "jarvis", name + " is the Glass page's Jarvis row");
                 compare(plate.item.opacity, 1, name + " shows whole");
-                verify(!shadowOf(plate.item).visible, name + " draws no drop shadow");
                 verify(apart(plate.box, orbBox()) >= root.look.plate.gap, name + " stands " + apart(plate.box, orbBox()) + " from what the orb draws");
                 verify(plate.box.x >= overlay.x && plate.box.x + plate.box.width <= overlay.x + overlay.width
                     && plate.box.y >= overlay.y && plate.box.y + plate.box.height <= overlay.y + overlay.height, name + " stands inside the overlay's box");
@@ -314,15 +309,18 @@ Item {
             }
         }
 
-        function test_one_material_draws_in_both_modes_data() {
+        // One style draws the same plates and inks whatever the theme's
+        // mode: the style, not the mode, picks the material and the look's
+        // overrides.
+        function test_one_style_draws_the_same_in_both_modes_data() {
             const rows = [];
-            for (const glass of [true, false])
+            for (const style of ["dark", "light"])
                 for (const ground of ["#ffffff", "#000000", "#2068d0"])
-                    rows.push({ tag: (glass ? "glass " : "solid ") + ground, glass: glass, ground: ground });
+                    rows.push({ tag: style + " " + ground, style: style, ground: ground });
             return rows;
         }
-        function test_one_material_draws_in_both_modes(data) {
-            if (!data.glass) Theme.appearanceInput = JSON.stringify({ glass: "off" });
+        function test_one_style_draws_the_same_in_both_modes(data) {
+            Theme.appearanceInput = JSON.stringify({ glassStyle: data.style });
             ground.color = data.ground;
             const pose = poses()[1];
             put(pose);
@@ -333,48 +331,35 @@ Item {
             verify(grabImage(root).equals(dark), "the plates and their ink draw the same over " + data.ground + " in both modes");
         }
 
-        // The look's one tint sets every plate's fill in both modes, and
-        // the ground an ink is judged on is that fill over the wallpaper
-        // nearest the ink.
-        function test_one_value_sets_the_glass_tint() {
-            const tint = root.look.plate.tint;
-            const mixed = (fill, wall) => [fill.r, fill.g, fill.b].map(channel => Math.round(255 * (channel * fill.a + wall * (1 - fill.a))));
-            const channels = color => [color.r, color.g, color.b].map(channel => Math.round(255 * channel));
-            for (const light of [false, true]) {
-                if (light) compare(UnitTheme.override({ scheme: { mode: "light" }, motion: { scale: 0 } }), "ok");
-                const mode = light ? "light" : "dark";
-                compare(root.look.plate.tint, tint, mode + " mode keeps the one tint");
-                const fill = Qt.color(root.look.plate.card.fill);
-                verify(Math.abs(fill.a - tint) <= 1 / 255, mode + " mode's fill draws at the tint: " + fill.a + " against " + tint);
-                const near = channels(Qt.color(root.look.plate.card.nearInk));
-                const want = mixed(fill, 1);
-                verify(near.every((channel, i) => Math.abs(channel - want[i]) <= 1), mode + " mode judges its inks on " + near + ", its fill over the wallpaper is " + want);
-            }
+        // The look judges its inks on the drawn glass's ground, in each
+        // style.
+        function test_the_look_judges_its_inks_on_the_drawn_ground_data() {
+            return [{ tag: "dark", style: "dark" }, { tag: "light", style: "light" }, { tag: "clear", style: "clear" }];
+        }
+        function test_the_look_judges_its_inks_on_the_drawn_ground(data) {
+            Theme.appearanceInput = JSON.stringify({ glassStyle: data.style });
+            compare(String(Qt.color(root.look.glass.ground)), String(Qt.color(Theme.glass.glass.ground)), data.style + " hands its ground to the look");
+            compare(String(Qt.color(root.look.glass.base)), String(Qt.color(Theme.glass.glass.base)), data.style + " hands its body to the look");
         }
 
-        // What a line stands on is its plate's body: the fill over the
-        // wallpaper at the look's tint, read over white and over black in
-        // each mode. The same two readings give a pixel's alpha, which
-        // decides the compositor's blur: the body's is the tint, above the
-        // core rule's threshold, 0.7 (shell/Core/HyprlandLayer.js), and
-        // the band's is the tint less the look's clarity, under the
-        // manifest rule's, 0.6. Each is read on the plate's left wall at
-        // its middle: the body clear of the band and the content, the
-        // band on its second pixel, past the glint on the rim and short of
-        // the line where it meets the body, and the outer line a pixel
-        // outside.
-        function test_the_body_takes_the_tint_and_the_band_stays_under_the_blur_data() {
+        // What a line stands on is its plate's body: the style's fill over
+        // the wallpaper, read over white and over black in each mode,
+        // clear of the rim and the content, with the edge light hidden.
+        // The same two readings give a pixel's alpha, which decides the
+        // compositor's blur: the body's is the fill's, above the core
+        // rule's threshold, 0.7 (shell/Core/HyprlandLayer.js).
+        function test_the_body_takes_the_styles_fill_data() {
             const rows = [];
             for (const light of [false, true])
                 for (const pose of [poses()[1], poses()[3]])
                     rows.push(Object.assign({}, pose, { tag: (light ? "light " : "dark ") + pose.tag, light: light }));
             return rows;
         }
-        function test_the_body_takes_the_tint_and_the_band_stays_under_the_blur(data) {
+        function test_the_body_takes_the_styles_fill(data) {
             put(data);
             const shown = plates();
-            const tint = root.look.plate.tint;
-            const fill = Qt.color(root.look.plate.card.fill);
+            for (const name in shown) shown[name].item.edgeShown = false;
+            const fill = Qt.color(Theme.glass.glass.fill);
             const over = wall => {
                 ground.color = wall;
                 verify(renderedFrame(root), "the plates draw over " + wall);
@@ -396,12 +381,10 @@ Item {
                 reads(name, white, 1, inBody, y);
                 reads(name, black, 0, inBody, y);
                 const body = alpha(inBody, y);
-                verify(Math.abs(body - tint) <= 0.02, name + "'s body draws at alpha " + body + ", the tint is " + tint);
-                verify(body > 0.7, name + "'s body at alpha " + body + " stays above the blur thresholds");
-                const band = alpha(box.x + 1, y);
-                verify(band <= 0.6, name + "'s band at alpha " + band + " stays under the blur threshold");
-                verify(Math.abs(band - tint * (1 - root.look.plate.lens.clarity)) <= 0.04, name + "'s band draws at alpha " + band + ", the tint less the clarity");
+                verify(Math.abs(body - fill.a) <= 0.02, name + "'s body draws at alpha " + body + ", the fill's is " + fill.a);
+                verify(body > 0.7, name + "'s body at alpha " + body + " stays above the blur threshold");
             }
+            for (const name in shown) shown[name].item.edgeShown = true;
         }
 
         // The wrap orb's frame with its clocks at CLOCKS.
@@ -532,20 +515,20 @@ Item {
             compare(card.width, words.width + 2 * pad.paddingX);
         }
 
-        // With the user's glass off each plate draws the look's own solid,
-        // not the theme's surface: its base opaque inside its border.
+        // With the Glass page's Jarvis row off each plate draws the look's
+        // own solid, not the theme's surface: its base opaque inside its
+        // border.
         function test_without_glass_each_plate_draws_the_looks_own_solid() {
             put(poses()[1]);
-            Theme.appearanceInput = JSON.stringify({ glass: "off" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { jarvis: "off" } });
             const shown = plates();
             for (const name in shown) {
                 const plate = shown[name].item;
                 const values = root.look.plate.card;
                 verify(!plate.on, name + " draws no glass");
-                verify(!lensOf(plate).visible, name + " draws no lens pass");
+                compare(holderOf(plate).active, false, name + " builds no glass pass");
                 compare(String(bodyOf(plate).color), String(Qt.color(values.base)), name + " draws its base opaque");
                 compare(String(edgeOf(plate).border.color), String(Qt.color(values.border)), name + " draws its border");
-                verify(!shadowOf(plate).visible, name + " draws no drop shadow");
             }
             verify(bodyOf(shown.iconPill.item).radius >= shown.iconPill.item.width / 2, "the capsule stays round");
         }

@@ -80,6 +80,8 @@
       { "shortcut": "mark-read", "key": "SUPER+CTRL+N", "info": "Marks every notification as read, closes their popups and the panel, and keeps them in History." }
     ],
     "layerRules": [
+      { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },
+      { "namespace": "^vgs:panel$", "blur": true, "ignoreAlpha": 0.6 },
       { "namespace": "^vgs:layer-glass$", "blur": true, "ignoreAlpha": 0.6 },
       { "namespace": "^vgs:panel-glass$", "blur": true, "ignoreAlpha": 0.6 }
     ]

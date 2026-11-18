@@ -987,7 +987,7 @@ Item {
             // Every list's plate, on glass or not.
             compare(String(plate.color), String(Qt.color(Theme.listItem.selected)));
             compare(String(plate.pressedColor), String(Qt.color(Theme.listItem.selectedPressed)));
-            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
             try {
                 compare(String(plate.color), String(Qt.color(Theme.listItem.selected)), "glass on draws the same plate");
             } finally {

@@ -37,7 +37,7 @@
 # A scoped retry names `scripts/qml-smoke.sh --rows notifications`. The
 # existing input reader adds the core and declared producer rows:
 # docs/architecture/validation.md § Selection.
-# inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/notifications/AppSoundTrace.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/notifications/AppSoundTrace.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js shell/Ui/foundation/shaders/glasslens.frag.qsb
 set -euo pipefail
 # The row measures a row whose image is missing and the synthetic latency
 # controls refuse; a card measured while it is destroyed logs its settle.
@@ -465,7 +465,7 @@ first_id="$(notify smoke-app 0 "First toast" "A body with <b>markup</b> and <img
 expect_poll "a notification becomes a live toast" '["First toast"]' row_summaries live
 expect_poll "its layer surface shows on every screen" "$monitors" layer_count vgs:layer
 expect_poll "the toast is in the state file as on screen" '["First toast"]' live_summaries
-# The edge light's shader, read on the first card this shell draws, here
+# The card's glass shader, read on the first card this shell draws, here
 # unless an earlier row drew one (notes_first_card).
 notes_first_card "the first toast"
 key_of() { ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys; print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
@@ -788,7 +788,7 @@ wait_for "the toast expires once the pointer leaves" none 9 key_of Held
 alarm_id="$(notify smoke-app 0 "Alarm" "" '[]' '{"urgency": <byte 2>}' 0)"
 expect_poll "a critical toast shows" True has_row live "Alarm"
 expect "a critical toast has no clock" none clock_of "$(key_of Alarm)"
-edge_active() { ipc smoke layerItems vgs.notifications EdgeLight active,lit | py_reply 'import json,sys; print(sorted(set(v["active"] for s, r, v in json.load(sys.stdin))))'; }
+edge_active() { ipc smoke layerItems vgs.notifications GlassSurface lit | py_reply 'import json,sys; print(sorted(set(v["lit"] for s, r, v in json.load(sys.stdin))))'; }
 notify smoke-app 0 "Calm" "" '[]' '{}' 0 >/dev/null
 expect_poll "a normal toast shows beside it" True has_row live Calm
 expect_poll "only the critical toast's edge light is active" '[False, True]' edge_active
@@ -3279,11 +3279,11 @@ expect "the toast outlived the removed monitor" True has_row live "Everywhere"
 # interface font alone.
 theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
-edge_values() { ipc smoke layerItems vgs.notifications EdgeLight "$1" | py_reply 'import json,sys; print(json.dumps(sorted(set(json.dumps(v[sys.argv[1]]) for s, r, v in json.load(sys.stdin)))))' "$1"; }
-expect_poll "the look resolved" '"#cc101010"' look_at card.fill
+edge_values() { ipc smoke layerItems vgs.notifications QQuickShaderEffect "$1" | py_reply 'import json,sys; print(json.dumps(sorted(set(json.dumps(v[sys.argv[1]]) for s, r, v in json.load(sys.stdin)))))' "$1"; }
+expect_poll "the look resolved" '"#ff101010"' look_at glass.base
 write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00" }, "font": { "size": 22 }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
 expect_poll "the unrelated theme is accepted" unrelated ipc smoke themeName
-expect "an unrelated theme leaves the glass" '"#cc101010"' look_at card.fill
+expect "an unrelated theme leaves the glass" '"#ff101010"' look_at glass.base
 expect "an unrelated theme leaves the text" '"#ffe8e8e8"' look_at text.foreground
 expect "an unrelated theme leaves the type" '"Inter Variable"' look_at font.family.sans
 expect "an unrelated theme leaves the card width" "$note_card_width" look_at card.width
@@ -3291,12 +3291,11 @@ write_theme '{ "schemaVersion": 1, "name": "typeface", "tokens": { "font": { "fa
 expect_poll "the interface font reaches the notifications" '"JetBrains Mono"' look_at font.family.sans
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the notifications" '"#ff7aa2f7"' look_at palette.accent
-expect "the accent reaches the edge light" '["\"#7aa2f7\""]' edge_values accent
-expect "the accent leaves the glass" '"#cc101010"' look_at card.fill
+expect "the accent reaches the edge light" '["\"#7aa2f7\""]' edge_values uAccent
+expect "the accent leaves the glass" '"#ff101010"' look_at glass.base
 write_theme '{ "schemaVersion": 1, "name": "bright", "tokens": { "scheme": { "mode": "light" }, "palette": { "accent": "#a8330a" } } }'
-expect_poll "light mode applies the light glass" '"#d9f2f2f2"' look_at card.fill
+expect_poll "light mode applies the light glass" '"#fff2f2f2"' look_at glass.base
 expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
-expect "light mode lights the edge white, brighter than the fill" '"#ffffffff"' look_at edge.neutral
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent
 write_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'
 expect_poll "reduced motion stills the durations" 0 look_at motion.duration.medium4
@@ -6272,9 +6271,9 @@ Scope {
             reading.firstVisible = visible;
             reading.firstContentHeight = view.contentHeight;
             reading.retained = reading.operation === "open" || keptFace === find(panel, "CardFace");
-            const face = find(panel, "CardFace"), edge = face === null ? null : find(face, "EdgeLight");
+            const face = find(panel, "CardFace"), edge = face === null ? null : find(face, "GlassSurface");
             const edgeFrames = edge === null ? null : Array.from(edge.data || []).find(child => child.frameTime !== undefined && child.running !== undefined);
-            reading.firstAnimations = { edgeRunning: edge !== null && edge.running, edgeVisible: edge !== null && edge.visible,
+            reading.firstAnimations = { edgeRunning: edge !== null && edge.lightsRunning, edgeVisible: edge !== null && edge.lightsShown,
                 edgeFrameRunning: edgeFrames !== null && edgeFrames !== undefined && edgeFrames.running,
                 motionScale: panel.look.motion.scale, panelHeight: panel.height };
             reading.firstObserverMs = Date.now() - reading.started - elapsed;

@@ -116,7 +116,7 @@ Item {
             compare(Theme.keyHintInk(ground, "word"), "#ffffffff");
             verify(before !== Theme.keyHintInk(ground, "word"));
             const resolver = Theme.keyHintResolver;
-            Theme.appearanceInput = JSON.stringify({ glass: "on", interfaceFont: "Inter Variable" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" }, interfaceFont: "Inter Variable" });
             verify(Theme.keyHintResolver !== resolver, "Appearance publication replaces the resolver too");
             compare(hint.wordInk, Qt.color(Theme.keyHintInk(hint.ground, "word")));
             UnitTheme.reset();

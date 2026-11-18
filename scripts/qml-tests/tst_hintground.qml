@@ -71,7 +71,7 @@ Item {
         function initTestCase() { windowColor = root.Window.window.color; }
         function init() { UnitTheme.reset(); Theme.appearanceInput = ""; root.Window.window.color = windowColor; }
         function cleanup() { Theme.appearanceInput = ""; root.Window.window.color = windowColor; while (rowModel.count > 3) rowModel.remove(3); sibling.height = 20; }
-        function opaqueGlass() { return Qt.color(Theme.glassSolid(Qt.color(Theme.glass.glass.fill))); }
+        function opaqueGlass() { return Qt.color(Theme.glassSolid(Qt.color(Theme.themeGlass.glass.themed))); }
 
         function composed(fill, base) {
             const f = Qt.color(fill), b = Qt.color(base);
@@ -86,7 +86,7 @@ Item {
         // dialog's content read on the glass made opaque, where the default
         // inks fall short.
         function test_hints_read_on_their_surfaces_glass() {
-            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
             const glass = opaqueGlass();
             const capGround = composed(Theme.kbd.background, glass);
             verify(Theme.contrastRatio(Qt.color(Theme.kbd.foreground), capGround) < 4.5, "the default key ink fails opaque glass");
@@ -108,7 +108,7 @@ Item {
         // Drawn glass, in a window that paints nothing, publishes its fill
         // made opaque, never the clear fill.
         function test_drawn_glass_publishes_its_glass_made_opaque() {
-            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            Theme.appearanceInput = JSON.stringify({ glassSurfaces: { windows: "on", tooltips: "on", flyouts: "on", menus: "on", launcher: "on", notifications: "on", jarvis: "on", dialogs: "on", indicators: "on", clipboard: "on" } });
             root.Window.window.color = "transparent";
             tryVerify(() => holder.drawn, 1000, "the surface draws its glass");
             verify(Qt.colorEqual(holder.hintGround, Theme.glassSolid(holder.fill)), "the published ground is the glass made opaque");
@@ -122,7 +122,7 @@ Item {
             over.backgroundContext = { fill: beneath.hintGround };
             verify(Qt.colorEqual(over.ground.fill, beneath.hintGround), "the caller's ground is taken");
             over.backgroundContext = null;
-            root.Window.window.color = Theme.glass.glass.fill;
+            root.Window.window.color = Theme.themeGlass.glass.themed;
             verify(Qt.colorEqual(over.ground.fill, opaqueGlass()), "a window's glass reads opaque");
         }
 

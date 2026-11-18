@@ -3961,8 +3961,8 @@ Scope {
             rows.sort((a, b) => a.index - b.index);
             return root.json(rows.map(row => [row.kind, row.label, row.detail]));
         }
-        // The launcher's edge light: the URL its shader loaded from and
-        // whether the engine compiled it.
+        // The launcher card's glass pass, which draws its edge light: the
+        // URL its shader loaded from and whether the engine compiled it.
         function launcherShader(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";

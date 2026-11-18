@@ -1003,7 +1003,7 @@ import sys
 src, dst, old, new = sys.argv[1:]
 text = open(src).read()
 if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
-open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations, conversationSettingsMigration))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
+open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations, conversationSettingsMigration, glassSettingsMigration))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
 chmod +x "$unmigrated/bin/vgshell-plugin-judge"
 cfg="$tmp/cfg-version-one-mutant"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"

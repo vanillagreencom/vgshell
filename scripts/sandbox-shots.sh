@@ -845,7 +845,7 @@ fi
 ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
 scene_ships() {
   case $1 in
-    notice-banners) ships_plugin vgs.settings vgs.system vgs.packages vgs.network vgs.vpn vgs.tailscale vgs.bluetooth vgs.updates vgs.windows ;;
+    notice-banners) ships_plugin vgs.settings vgs.system vgs.packages vgs.network vgs.vpn vgs.tailscale vgs.bluetooth vgs.updates vgs.glass ;;
     restart-owed) [[ -f $tree/shell/Hosts/NoticeHost.qml && -f $tree/shell/Core/Registry.qml ]] ;;
     font-rewrite) scene_ships restart-owed && [[ -f $tree/shell/assets/fonts/InterVariable.ttf && -f $tree/shell/assets/fonts/JetBrainsMono-Variable.ttf ]] ;;
     sysmon) ships_plugin vgs.sysmon vgs.settings ;;
@@ -12379,7 +12379,7 @@ method("vgs.updates", "Window", '''
     function bannerShot(state) { bannerShotOutcome = { ended: state, text: state === "stopped" ? "The update run was stopped." : "The update run failed. Open the last log for details." }; return state; }''')
 edit("shell/plugins/vgs.updates/Window.qml", "readonly property var outcome: values.lastRun ?? null", "readonly property var outcome: bannerShotOutcome ?? values.lastRun ?? null")
 edit("shell/plugins/vgs.updates/Window.qml", "        refresh();", "")
-edit("shell/plugins/vgs.windows/Pane.qml", '    readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""\n        ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1\n            ? layerGlass.observed.reason : ""', '    readonly property string layerGlassProblem: "VGlass could not load. Try rebuilding it."')
+edit("shell/plugins/vgs.glass/Pane.qml", '    readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""\n        ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1\n            ? layerGlass.observed.reason : ""', '    readonly property string layerGlassProblem: "VGlass could not load. Try rebuilding it."')
 PYBANNERS
       tree_rescan "the notice banner capture states are scanned"
       for id in vgs.settings vgs.system; do expect "the banner capture enables $id" ok ipc shell setPluginEnabled "$id" true; done
@@ -13981,13 +13981,13 @@ scene_notice-banners() { # MODE
     notice_banner_take "$mode" "updates-$state" window vgs.updates Callout "$message"
   done
   expect "Updates closes after its outcome notices" ok ipc shell hide window vgs.updates
-  expect "Windows enables for its VGlass notice" ok ipc shell setPluginEnabled vgs.windows true
+  expect "Glass enables for its layer glass notice" ok ipc shell setPluginEnabled vgs.glass true
   close_notices
-  expect "System opens Windows for its VGlass notice" ok ipc shell summon window vgs.system '{"pane":"vgs.windows"}'
-  expect_poll "System mounts Windows for its VGlass notice" '["vgs.windows"]' window_panes
+  expect "System opens Glass for its layer glass notice" ok ipc shell summon window vgs.system '{"pane":"vgs.glass"}'
+  expect_poll "System mounts Glass for its layer glass notice" '["vgs.glass"]' window_panes
   ipc smoke revealText window vgs.system Callout 'VGlass could not load. Try rebuilding it.' >/dev/null || fail "the VGlass notice is not drawn"
-  notice_banner_take "$mode" windows window vgs.windows Callout 'VGlass could not load. Try rebuilding it.'
-  expect "System closes after the VGlass notice" ok ipc shell hide window vgs.system
+  notice_banner_take "$mode" glass window vgs.glass Callout 'VGlass could not load. Try rebuilding it.'
+  expect "System closes after the layer glass notice" ok ipc shell hide window vgs.system
 }
 
 park_pointer
