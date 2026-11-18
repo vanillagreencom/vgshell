@@ -460,11 +460,13 @@ with wave.open(sys.argv[1], "wb") as w:
 fi
 # VGS-2127 focused end.
 
-# A notification shows as a toast on every screen, under the bar.
-first_id="$(notify smoke-app 0 "First toast" "A body with <b>markup</b> and <img src=\"http://127.0.0.1:9/beacon.png\"> no image" '[]' '{}' 0)"
+# Keep this toast until the explicit sender close: the style remaps, shader
+# read and geometry checks do not share a deadline with the toast timer.
+first_id="$(notify smoke-app 0 "First toast" "A body with <b>markup</b> and <img src=\"http://127.0.0.1:9/beacon.png\"> no image" '[]' '{"urgency": <byte 2>}' 0)"
 expect_poll "a notification becomes a live toast" '["First toast"]' row_summaries live
 expect_poll "its layer surface shows on every screen" "$monitors" layer_count vgs:layer
 expect_poll "the toast is in the state file as on screen" '["First toast"]' live_summaries
+notes_first_card "the first toast"
 # A glass style chosen while the toast shows reaches it at once: under
 # Clear its layer remaps to the material namespace on every screen and
 # back, without the toast closing.
@@ -488,9 +490,6 @@ cp -p -- "$sandbox/notifications-glass-style.json" "$note_shell_config.next"
 mv -T -- "$note_shell_config.next" "$note_shell_config"
 expect "the shell reads the configuration from before the glass styles" ok ipc shell reloadConfig
 expect_poll "the configuration from before the glass styles settles" true ipc smoke configSettled
-# The card's glass shader, read on the first card this shell draws, here
-# unless an earlier row drew one (notes_first_card).
-notes_first_card "the first toast"
 key_of() { ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys; print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
 clock_of() { read_notes clocks | py_reply 'import json,sys; c=json.load(sys.stdin).get(sys.argv[1]); print("none" if c is None else ("running" if c["since"] is not None else "paused") + " " + str(c["remaining"]))' "$1"; }
 note_stack_top="$(look_at stack.edge)" || fail "the notification stack edge token is unreadable"
@@ -638,10 +637,11 @@ expect "its clock holds the sender's twelve seconds" True timed_clock
 
 # Replacement keeps the toast and its identity; the sender's close ends it.
 first_key="$(key_of "First toast")"
-notify smoke-app "$first_id" "First toast, updated" "New body" '[]' '{}' 0 >/dev/null
+notify smoke-app "$first_id" "First toast, updated" "New body" '[]' '{"urgency": <byte 2>}' 0 >/dev/null
 expect_poll "a replacement updates the toast in place" "$first_key" key_of "First toast, updated"
 expect "the replaced toast leaves no second row" none key_of "First toast"
-expect_poll "the state file holds the update" '["Timed", "First toast, updated"]' live_summaries
+expect_poll "the state file holds the update under the same key" "$first_key" \
+  note_state_py 'import json,sys; print(next((e["key"] for e in json.load(open(sys.argv[1]))["live"] if e["summary"] == "First toast, updated"), "none"))'
 close_note "$first_id"
 expect_poll "the sender's close ends the toast" none key_of "First toast, updated"
 expect_poll "the closed toast is in the history" True in_history "First toast, updated"
@@ -3322,7 +3322,12 @@ expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent
 write_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'
 expect_poll "reduced motion stills the durations" 0 look_at motion.duration.medium4
-expect_poll "reduced motion stills the orbiting lights" '["false"]' edge_values running
+orbit_read() {
+  ipc smoke layerItems vgs.notifications GlassSurface surface,lightsRunning,lightsShown | py_reply 'import json,sys
+rows = [v for _, _, v in json.load(sys.stdin) if v.get("surface") == "notifications" and v.get("lightsShown") is True]
+print("absent" if not rows else "still" if all(v.get("lightsRunning") is False for v in rows) else "moving")'
+}
+expect_poll "reduced motion stills the orbiting lights" still orbit_read
 write_theme '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }'
 expect_poll "the defaults return" vgs ipc smoke themeName
 expect "dismissing the last toast is allowed" ok notes dismiss-all

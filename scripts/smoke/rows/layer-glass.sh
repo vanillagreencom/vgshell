@@ -61,6 +61,8 @@ do
         declared = true
     end
     hl.on("config.reloaded", function()
+        local withheld = io.open(state .. "/withhold-load", "r")
+        if withheld then withheld:close(); return end
         if declared then write("loaded", "true") end
     end)
 end
@@ -110,7 +112,7 @@ expect 'the layer-glass capability fixture enables' ok ipc shell setPluginEnable
 expect_poll 'the layer-glass capability fixture builds' True record_exists acme.appearance
 expect 'the Glass pane enables for layer glass' ok ipc shell setPluginEnabled vgs.glass true
 expect 'System enables for layer glass' ok ipc shell setPluginEnabled vgs.system true
-lg_refresh
+expect 'the synthetic absence is read' ok lg_refresh
 expect_poll 'synthetic absence starts off by default' 'not-loaded|idle|false' lg_state
 expect 'unset layer glass contributes no plugin declaration' absent lg_block
 expect 'the actual Glass pane opens for layer glass' ok ipc shell summon window vgs.system '{"pane":"vgs.glass"}'
@@ -151,9 +153,14 @@ expect 'the launcher layer unmaps' ok ipc shell hide overlay vgs.launcher
 expect 'the launcher disables after the layer' ok ipc shell setPluginEnabled vgs.launcher false
 expect 'On preference is saved after verification' true lg_saved
 expect 'the one writer contributes its plugin declaration' present lg_block
+# A queued shell reload may still replay the declaration after the
+# preference is saved. Withhold the synthetic load until the test asks
+# the compositor to replay it.
+: >"$lg_dir/withhold-load"
 printf 'false\n' >"$lg_dir/loaded"
-lg_refresh
+expect 'the synthetic unload is read' ok lg_refresh
 expect_poll 'an unloaded plugin retains requested On' 'not-loaded|idle|true' lg_state
+rm -- "$lg_dir/withhold-load"
 expect 'external reload advances the synthetic declaration event' ok hypr reload config-only
 expect_poll 'the synthetic loaded fact is read fresh' 'eligible|idle|true' lg_state
 expect 'Off starts whole-plugin cleanup' ok lg_choose false

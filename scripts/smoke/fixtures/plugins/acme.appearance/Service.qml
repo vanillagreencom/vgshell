@@ -19,7 +19,10 @@ Item {
         return shell.appearance.chooseLayerGlass(JSON.parse(args), "layer-glass", "layer-glass-control", result => { root.layerGlassResult = result; });
     }
 
-    function refreshLayerGlass() { shell.hyprland.refreshLayerGlass(); }
+    function refreshLayerGlass() {
+        shell.hyprland.refreshLayerGlass();
+        return "ok";
+    }
 
     // ARGS is `{ "key": KEY, "value": VALUE }` as JSON.
     function set(args) {

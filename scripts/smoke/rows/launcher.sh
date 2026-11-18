@@ -105,8 +105,7 @@ expect_poll "the launcher is open" true read_launcher opened
 focused "the open launcher holds the keyboard"
 expect "the launcher opens as a bare search field" '[]' launcher_rows
 expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
-shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,sys; d=json.loads(sys.stdin.read()); print(d["url"].endswith("/Ui/foundation/shaders/glasslens.frag.qsb") and d["compiled"])'; }
-render expect_poll "the card's glass shader, with its edge light, compiled" True shader_ok
+render expect_poll "the launcher binds the shared glass pass" bound ipc smoke glassPass overlay vgs.launcher launcher
 
 # A glass style chosen while the launcher is open reaches it at once: under
 # Clear its surface remaps to the material namespace and back, without a

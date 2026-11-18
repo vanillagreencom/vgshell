@@ -2026,15 +2026,27 @@ Scope {
         }
         // pending, saved or unsaved, and the path, for the last grab.
         function grabbed(): string { return IpcPages.answer(root.grab); }
-        // Every shader effect in a plugin's layer copies: [screen, its
-        // fragment shader's URL, whether it compiled].
-        function layerShaders(id: string): string {
-            const out = [];
-            for (const entry of Layers.entries.filter(e => e.pluginId === id))
-                for (const screen of Object.keys(entry.screens).sort())
-                    for (const item of root.descendants(entry.screens[screen]).filter(i => i instanceof ShaderEffect))
-                        out.push([screen, String(item.fragmentShader), item.status === ShaderEffect.Compiled]);
-            return root.json(out);
+        // Check the effect on the shown card, not whether this instance
+        // compiled the shared program. Qt can leave a later instance
+        // Uncompiled while it draws (nested reading, 2026-09-28).
+        // The GL render case in tst_glasssurface proves the shader paints.
+        function glassPass(hostKey: string, id: string, surface: string): string {
+            const items = [];
+            if (hostKey === "layer") {
+                for (const entry of Layers.entries.filter(e => e.pluginId === id))
+                    items.push(...Object.values(entry.screens));
+            } else {
+                const item = root.instance(hostKey, id);
+                if (item !== null) items.push(item);
+            }
+            const effects = items.flatMap(item => root.descendants(item))
+                .filter(item => item instanceof Ui.GlassSurface && item.surface === surface && item.visible
+                    && item.Window.window !== null && item.Window.window.visible)
+                .flatMap(item => root.descendants(item))
+                .filter(item => item instanceof ShaderEffect && item.visible && item.width > 0 && item.height > 0
+                    && String(item.fragmentShader).endsWith("/foundation/shaders/glasslens.frag.qsb"));
+            if (effects.some(item => item.status === ShaderEffect.Error)) return "shader-error";
+            return effects.length > 0 ? "bound" : "absent";
         }
         // A service's ListModel property as a list of rows, each the roles
         // named in the comma list.
@@ -3970,15 +3982,6 @@ Scope {
             const rows = root.descendants(item).filter(child => /^LauncherRow_QMLTYPE_/.test(String(child)) && child.index >= 0);
             rows.sort((a, b) => a.index - b.index);
             return root.json(rows.map(row => [row.kind, row.label, row.detail]));
-        }
-        // The launcher card's glass pass, which draws its edge light: the
-        // URL its shader loaded from and whether the engine compiled it.
-        function launcherShader(hostKey: string, id: string): string {
-            const item = root.instance(hostKey, id);
-            if (item === null) return "absent";
-            const shader = root.descendants(item).find(child => child instanceof ShaderEffect);
-            if (shader === undefined) return "no-shader";
-            return root.json({ url: String(shader.fragmentShader), compiled: shader.status === ShaderEffect.Compiled, log: shader.log });
         }
         // Build a copy of a popup from FILE, a path beside the shipped file
         // so its imports and sibling types resolve as the shipped one's do,

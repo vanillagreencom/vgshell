@@ -3722,21 +3722,12 @@ notes_off() { # LABEL
   if [[ $notes_fresh == yes ]]; then rm -rf -- "${home:?}/.local/state/vgshell/notifications"; fi
   notes_fresh=""
 }
-# The glass of a vgs.notifications card, qs.Ui GlassSurface's one pass
-# with its edge light, loads qs.Ui's shader, and the shader compiled. Qt
-# compiles a shader once per process and marks only the effect that
-# compiled it (read in the sandbox on 2026-09-28: a later card's effect
-# stayed Uncompiled while it drew), so notes_first_card LABEL reads it on
-# the first card a shell draws, once per shell process, in whichever row
-# draws that card; a row calls it while its first card is on screen.
-edge_shaders_ok() { ipc smoke layerShaders vgs.notifications | py_reply 'import json,sys
-passes = [(u, ok) for _, u, ok in json.load(sys.stdin) if u.endswith("/Ui/foundation/shaders/glasslens.frag.qsb")]
-print(len(passes) >= 1 and any(ok for _, ok in passes))'; }
+# Probe.qml judges the card's binding; tst_glasssurface proves the shader paints.
 notes_edge_pid=""
 notes_first_card() { # LABEL
   [[ $notes_edge_pid != "$shell_qs_pid" ]] || return 0
   notes_edge_pid="$shell_qs_pid"
-  render expect_poll "$1: the card's glass shader compiled" True edge_shaders_ok
+  render expect_poll "$1: the card binds the shared glass pass" bound ipc smoke glassPass layer vgs.notifications notifications
 }
 # plugin_cards APP: the cards vgs.notifications shows from APP, the
 # sender's manifest name, and is not taking off, newest first, each as
