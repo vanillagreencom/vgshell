@@ -1016,7 +1016,9 @@ function verifyConsoleTalk(gate, consoleSource) {
         for (const key of ["Super+J", null, "Choose a key in [Settings](page:vgs.settings)"]) {
             const talk = gate.talkHint(hold, key) + ".";
             const line = scope.speechOnlyLine({ tone: "info", text: "Gemini Live" }, talk);
-            assert.ok(line.startsWith("Gemini Live ") && line.endsWith(" " + talk), hold + " " + key + ": the speech-only line ends with the talk sentence");
+            const ending = key === "Super+J" ? " " + talk : key === null
+                ? "\n[Set Talk key](page:vgs.jarvis/Settings)" : "\n[Set Talk key](page:vgs.settings)";
+            assert.equal(line, "Gemini Live takes speech only." + ending, hold + " " + key + ": speech-only repair links have their own action line");
         }
 }
 
