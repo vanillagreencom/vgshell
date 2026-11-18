@@ -274,12 +274,12 @@ function verifySelf(logic) {
   const rows = [
     ["a checkout behind runs self update", Object.assign({}, SELF_CURRENT, { behind: true, step: "self" }), 1, null, { updatable: true, badgeTone: "accent" }],
     ["vgshell-git behind with a helper rebuilds", rebuild, 1, null, { updatable: true, badgeTone: "accent" }],
-    ["vgshell-git behind without a helper installs one", Object.assign({}, git, { behind: true, step: "install-helper", reason: null }), 1, { kind: "installHelper" }, { updatable: true, badgeTone: "info" }],
+    ["vgshell-git behind without a helper installs one", Object.assign({}, git, { behind: true, step: "install-helper", reason: null }), 1, { kind: "installHelper" }, { updatable: true, badgeTone: "accent" }],
     ["a current package", Object.assign({}, git, { behind: false, step: "none", reason: null }), 0, null, { updatable: false, badgeTone: "neutral" }],
-    ["the release package without a helper", Object.assign({}, git, { package: "vgshell", behind: true, step: "none", reason: "no-aur-helper" }), 0, { kind: "reason", reason: "no-aur-helper" }, { updatable: false, badgeTone: "info" }],
-    ["the release package updates with the system", Object.assign({}, git, { package: "vgshell", current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "package-manager" }), 0, { kind: "reason", reason: "package-manager" }, { updatable: false, badgeTone: "info" }],
-    ["paru's tracked vgshell-git offers Update", Object.assign({}, git, { behind: true, step: "aur-upgrade", reason: null }), 0, { kind: "aurUpgrade" }, { updatable: true, badgeTone: "info" }],
-    ["a Nix tree updates with its flake", Object.assign({}, git, { method: "nix", package: null, current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "nix" }), 0, { kind: "reason", reason: "nix" }, { updatable: false, badgeTone: "info" }],
+    ["the release package without a helper", Object.assign({}, git, { package: "vgshell", behind: true, step: "none", reason: "no-aur-helper" }), 0, { kind: "reason", reason: "no-aur-helper" }, { updatable: false, badgeTone: "accent" }],
+    ["the release package updates with the system", Object.assign({}, git, { package: "vgshell", current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "package-manager" }), 0, { kind: "reason", reason: "package-manager" }, { updatable: false, badgeTone: "accent" }],
+    ["paru's tracked vgshell-git offers Update", Object.assign({}, git, { behind: true, step: "aur-upgrade", reason: null }), 0, { kind: "aurUpgrade" }, { updatable: true, badgeTone: "accent" }],
+    ["a Nix tree updates with its flake", Object.assign({}, git, { method: "nix", package: null, current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "nix" }), 0, { kind: "reason", reason: "nix" }, { updatable: false, badgeTone: "accent" }],
     ["a compare GitHub cannot answer", unanswered, null, null, { updatable: false, badgeTone: "warning" }],
     ["a step the status does not name", Object.assign({}, rebuild, { step: "later" }), null, null, { updatable: false, badgeTone: "warning" }],
     ["a reason on a step that runs", Object.assign({}, rebuild, { reason: "nix" }), null, null, { updatable: false, badgeTone: "warning" }],
@@ -365,10 +365,10 @@ function verifyView(logic) {
 
   const summaryRows = [
     [{ pending: 0, checkState: ok }, "Up to date"],
-    [{ pending: 1, checkState: ok }, "1 update"],
-    [{ pending: 7, checkState: ok }, "7 updates"],
-    [{ pending: 0, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "New VGS version"],
-    [{ pending: 2, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "2 updates"],
+    [{ pending: 1, checkState: ok, sources: [{ source: "pacman", count: 1 }] }, "1 update"],
+    [{ pending: 7, checkState: ok, sources: [{ source: "pacman", count: 7 }] }, "7 updates"],
+    [{ pending: 0, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "New VGS version", "1 update"],
+    [{ pending: 2, checkState: ok, sources: [{ source: "pacman", count: 2 }, { source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "2 updates", "3 updates"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check stale" } }, "Check stale"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "stale recovery hint" } }, "stale recovery hint"],
     [{ checkState: { tone: "danger", text: "Failed", hint: "failure recovery hint" } }, "failure recovery hint"],
@@ -376,10 +376,9 @@ function verifyView(logic) {
     [{}, "Not checked yet"]
   ];
   for (const [values, want] of summaryRows) assert.equal(logic.summaryText(values), want);
-  // The window's heading: the summary, worded for the window where the
-  // check needs attention.
-  for (const [values] of summaryRows.filter(([values]) => logic.widgetView(values, false).state !== "attention"))
-    assert.equal(logic.windowSummaryText(values), logic.summaryText(values));
+  // The window counts the builds named by its chips; the widget counts pending work.
+  for (const [values, widget, heading = widget] of summaryRows.filter(([values]) => logic.widgetView(values, false).state !== "attention"))
+    assert.equal(logic.windowSummaryText(values), heading);
   for (const [name, reason, heading] of [
     ["a failed check", "timeout=120", "The update check took too long. Select Refresh to try again."],
     ["GitHub's limit", "compare=http status=429 url=u", "GitHub limits how often VGS may check. Wait an hour, then select Refresh to try again."],
@@ -403,7 +402,7 @@ function verifyView(logic) {
   assert.equal(logic.checkedText(undefined, now, when), "Never checked");
   // The flyout's heading is the product result requested by VGS-2587.
   for (const [pending, summary] of [[7, "7 updates"], [0, "Up to date"]]) {
-    const values = { pending, lastCheck: today, checkState: ok };
+    const values = { pending, lastCheck: today, checkState: ok, sources: [{ source: "pacman", count: pending }] };
     assert.equal(logic.windowSummaryText(values, now, when), summary + " · 28m ago");
     assert.equal(logic.windowSummaryText(Object.assign({}, values, { checking: true }), now, when), "Checking for updates");
     assert.equal(logic.windowSummaryText(Object.assign({}, values, { admission: "offline" }), now, when), pending + " updates - No internet connection · 28m ago");
@@ -638,8 +637,8 @@ const controls = [
   ["the badge is capped", "return count > BADGE_COUNT_MAX ? BADGE_COUNT_MAX + \"+\" : String(count);", "return String(count);"],
   ["the checked line reads the shared wording at now", "return \"Checked \" + timeText(lastCheck, now);", "return \"Checked \" + timeText(lastCheck, lastCheck);"],
   ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],
-  ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(row.count),", "badge: badgeText(row.count),"],
-  ["only a source with updates offers Update", "\"neutral\", updatable: row.count > 0, detail: \"\" };", "\"neutral\", updatable: true, detail: \"\" };"],
+  ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(count),", "badge: badgeText(count),"],
+  ["only a source with updates offers Update", 'return Object.assign(badge, { updatable: row.count > 0, detail: "" });', 'return Object.assign(badge, { updatable: true, detail: "" });'],
   ["a known failure cause is the row's detail", "detail: errorText(error, true) };", "detail: \"\" };"],
   ["a row's failure adds no recovery instructions", "detail: errorText(error, true) };", "detail: errorText(error) };"],
   ["the window ending names Refresh, not Open", 'return cause + " " + RETRY_ENDINGS[ending][inWindow === true ? "window" : "hint"];', 'return cause + " " + RETRY_ENDINGS[ending].hint;'],
@@ -654,14 +653,14 @@ const controls = [
   ["VGS counts an update only for a step that runs", "var counted = behind && row.step !== \"none\" && row.step !== \"aur-upgrade\";", "var counted = behind;"],
   ["the AUR row alone counts paru's tracked vgshell-git", "row.step !== \"none\" && row.step !== \"aur-upgrade\";", "row.step !== \"none\";"],
   ["paru's tracked vgshell-git keeps its own note", 'else if (behind && row.step === "aur-upgrade") note = { kind: "aurUpgrade" };', ""],
-  ["paru's tracked vgshell-git offers Update", 'case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: true,', 'case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: false,'],
+  ["paru's tracked vgshell-git offers Update", 'case "aurUpgrade": return Object.assign(badge, { updatable: true,', 'case "aurUpgrade": return Object.assign(badge, { updatable: false,'],
   ["the status's step and reason are narrowed", "if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return", "if (false) return"],
   ["the status's error decides the VGS row", "if (row.error !== null && row.error !== undefined) return sourceRow(\"vgs\", null, [], checkedAt, row.error);", ""],
   ["a reason makes the VGS note", "if (behind && row.reason !== null) note = { kind: \"reason\", reason: row.reason };", "if (false) note = null;"],
   ["helper setup keeps its own action through the snapshot", 'if (behind && row.step === "install-helper") note = { kind: "installHelper" };', 'if (false) note = null;'],
   ["the snapshot keeps the note", "row.error === undefined ? null : row.error, row.note));", "row.error === undefined ? null : row.error, null));"],
   ["the published row keeps the note", "var note = clone(row.note);", "var note = null;"],
-  ["a reason offers no Update", "badge: \"New\", badgeTone: \"info\", updatable: false,", "badge: \"New\", badgeTone: \"info\", updatable: true,"],
+  ["a reason offers no Update", "updatable: false, detail: SELF_REASON_TEXT[note.reason]", "updatable: true, detail: SELF_REASON_TEXT[note.reason]"],
   ["a compare of a commit GitHub lost names it", "[/\\bcompare=http status=404\\b/, ", "[/$^/, "],
   ["a 403 from GitHub reads as its limit", "[/=http status=(?:403|429)\\b/, ", "[/$^/, "],
   ["a 429 from GitHub reads as its limit", "(?:403|429)", "(?:403)"],

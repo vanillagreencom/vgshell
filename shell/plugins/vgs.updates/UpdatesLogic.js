@@ -785,16 +785,16 @@ function summaryText(values) {
     }
 }
 
-// The Updates window's heading line: summaryText, worded for the window
-// where the check needs attention. A source that failed names its cause on
-// its own row, so the heading counts those sources rather than repeat a
+// The heading totals the source chips before their display cap. A source
+// that failed names its cause on its own row, so the heading counts failures rather than repeat a
 // row; a failed or old check as a whole reads its hint with the window's
 // ending, with a page link's words alone, since the heading is no link.
 // checkState gives a warning with a failed source only for that source,
 // before an old check.
 function windowSummaryText(values, now, timeText) {
     var v = valuesOf(values);
-    var summary = summaryText(values);
+    var total = sourcesOf(v).reduce(function (sum, row) { return sum + (sourceChipCount(row) ?? 0); }, 0);
+    var summary = summaryText(Object.assign({}, v, { pending: total }));
     if (v.admission !== "offline" && v.admission !== "unavailable" && widgetState(values) === "attention") {
         var check = v.checkState;
         var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
@@ -852,27 +852,32 @@ var SELF_REASON_TEXT = {
     "no-aur-helper": "This computer needs an AUR helper, paru or yay, to update VGS."
 };
 
+// A VGS note names a new build even when it does not add to the pending total.
+function sourceChipCount(row) {
+    return row.count !== null && row.note ? Math.max(1, row.count) : row.count;
+}
+
 // A row's badge, Update and detail: an error first, then the VGS
 // row's note, then the count. The window wraps unique detail under the row.
 function rowReading(row) {
     var failed = row.count === null;
     var error = row.error === null || row.error === undefined ? "" : String(row.error);
-    if (error !== "") return { badge: failed ? "Failed" : badgeText(row.count), badgeTone: "warning", updatable: !failed && row.count > 0, detail: errorText(error, true) };
+    var count = sourceChipCount(row);
+    if (error !== "") return { badge: failed ? "Failed" : badgeText(count), badgeTone: "warning", updatable: !failed && row.count > 0, detail: errorText(error, true) };
     if (failed) return { badge: "Failed", badgeTone: "neutral", updatable: false, detail: "" };
     var note = row.note === undefined ? null : row.note;
+    var badge = { badge: badgeText(count), badgeTone: count > 0 ? "accent" : "neutral" };
     if (note !== null) {
         switch (note.kind) {
-        case "installHelper": return { badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. The update window asks for your password if needed." };
+        case "installHelper": return Object.assign(badge, { updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. The update window asks for your password if needed." });
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
-            return { badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
-        // The AUR row counts this update, so this row counts none and
-        // still offers its own Update.
-        case "aurUpgrade": return { badge: "New", badgeTone: "info", updatable: true, detail: "" };
+            return Object.assign(badge, { updatable: false, detail: SELF_REASON_TEXT[note.reason] });
+        case "aurUpgrade": return Object.assign(badge, { updatable: true, detail: "" });
         default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason");
         }
     }
-    return { badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
+    return Object.assign(badge, { updatable: row.count > 0, detail: "" });
 }
 
 // The window's rows, one per published source in the service's order:
