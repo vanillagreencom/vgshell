@@ -134,7 +134,7 @@ Item {
         property var screen: ({ width: root.width, height: root.height })
     }
 
-    TestCase {
+    UnitCase {
         name: "glasssurface"
         when: windowShown
 
@@ -181,6 +181,30 @@ Item {
             compare(passOf(styled).uRim, 1.25, "the rim");
             compare(styled.corner, 20);
             verify(holderOf(styled).z < content.z, "the pass draws under the content");
+        }
+
+        function test_the_pass_paints_the_body_data() {
+            return [{ tag: "launcher", surface: "launcher" }, { tag: "notifications", surface: "notifications" }];
+        }
+
+        function test_the_pass_paints_the_body(data) {
+            glassIn({ glassStyle: "dark" });
+            styled.surface = data.surface;
+            styled.edgeShown = false;
+            try {
+                verify(styled.drawn);
+                verify(renderedFrame(styled));
+                const image = grabImage(styled);
+                // Sample the plain body to the right of the overlapping
+                // follower. Dark is #101010 at 0.8 alpha (Glass.js), so
+                // it reads 16 with alpha or about 13 over black.
+                const x = Math.floor(0.85 * image.width), y = Math.floor(image.height / 2);
+                for (const channel of [image.red(x, y), image.green(x, y), image.blue(x, y)])
+                    fuzzyCompare(channel, 16, 4, "the pass paints the dark body");
+            } finally {
+                styled.surface = "launcher";
+                styled.edgeShown = true;
+            }
         }
 
         // A styled row takes the page's style; any other the theme's mode

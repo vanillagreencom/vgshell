@@ -1242,6 +1242,7 @@ mutations=(
   "the edge light ignores motion off|foundation/GlassSurface.qml|opacity > 0 && glass.look.motion.scale > 0 && orbitLength > 0|opacity > 0 && orbitLength > 0|tst_glasssurface.qml|test_the_edge_light_runs_only_while_it_shows"
   "a paced edge light stands still|foundation/GlassSurface.qml|running: glass.lightsRunning && glass.paced|running: false|tst_glasssurface.qml|test_the_edge_light_runs_only_while_it_shows"
   "a lit edge light keeps its neutral colour|foundation/GlassSurface.qml|property real litShare: lit ? 1 : 0|property real litShare: 0|tst_glasssurface.qml|test_the_edge_light_runs_only_while_it_shows"
+  "the built glass pass paints nothing|foundation/GlassSurface.qml|sourceComponent: ShaderEffect {|sourceComponent: ShaderEffect { visible: false;|tst_glasssurface.qml|test_the_pass_paints_the_body"
   "glass ignores the handed radius|foundation/GlassSurface.qml|readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : standard.radius|readonly property real corner: standard.radius|tst_glasssurface.qml"
   "a released launcher row reads its destroyed owner|../plugins/vgs.launcher/LauncherRow.qml|backgroundContext: row.live ? row.launcher.hintBackgroundContext : null|backgroundContext: row.launcher.hintBackgroundContext|tst_launcher_menu.qml"
   "a released launcher row reads motion from its destroyed owner|../plugins/vgs.launcher/LauncherRow.qml|motion: row.listMotion|motion: row.launcher.listMotion|tst_launcher_menu.qml"
