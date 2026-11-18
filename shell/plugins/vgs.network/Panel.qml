@@ -24,7 +24,7 @@ Item {
         const reply = shell.surfaces.summon("pane", "{}");
         if (reply !== "ok") {
             console.warn("network panel: pane " + reply);
-            body.localProblem = "System Settings is not available.\n[Turn on System](page:vgs.system)";
+            body.localProblem = "System Settings is not available.\n[Open System settings](page:vgs.system)";
             return reply;
         }
         shell.surfaces.hide("panel");
