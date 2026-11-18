@@ -2227,7 +2227,7 @@ function launcherDetailShortfalls(judge, launcher) {
     for (const name of ["vgs", "catalog/flexoki-light"])
         assert.ok(oldKeyInk.some(([theme, , ratio]) => theme === name && ratio < 4.5), `control: the default key ink fails the list plate in ${name}`);
     // Clear's white detail matches the title's ink: size and weight carry
-    // that step (design-system.md § Glass plates over wallpaper).
+    // that step. See docs/architecture/design-system.md § Glass plates over wallpaper
     const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio, style]) => role === "step" && style !== "clear" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
     checkStep(readings);
     // Independent menu reading: Dark's lifted #1c1c1c under its plate,

@@ -5,7 +5,8 @@
 // Theme publishes once as `Theme.glass`, in the style the Glass page's
 // Style chooses (ThemeLogic.glassStyle): TOKENS is Dark, LIGHT and CLEAR
 // change it for Light and Clear. A style is these values alone; qs.Ui's
-// GlassSurface draws every style with one pass (design-system.md § Glass plates over wallpaper).
+// GlassSurface draws every style with one pass.
+// See docs/architecture/design-system.md § Glass plates over wallpaper
 // `window` holds what Hyprland draws its own
 // windows with while window glass is on. Only declared appearance inputs
 // reach this table (ThemeLogic.acceptAppearance).
