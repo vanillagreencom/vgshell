@@ -3,7 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // The heading of one section of a panel: an eyebrow title and an optional
-// description under it. It spans its parent, as a heading does, unless
+// description under it. `titleRole` sets another type role for a heading
+// that stands under a card's own eyebrow title, such as a card's details. It spans its parent, as a heading does, unless
 // given a width; a surface that insets its rows sets `leftPadding` and
 // `rightPadding` to match. `info` adds an InfoButton after the title,
 // whose dialog takes `infoTitle`, the title unless set.
@@ -32,6 +33,7 @@ Column {
     property string description: ""
     property string info: ""
     property string infoTitle: text
+    property string titleRole: "eyebrow"
     signal pageActivated(string page, string tab)
     // The width the eyebrow and the description share: the column's own,
     // less its padding, since a positioner does not narrow its children.
@@ -85,7 +87,7 @@ Column {
 
         Label {
             id: titleLabel
-            role: "eyebrow"
+            role: root.titleRole
             text: root.text
             width: parent.width - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
             anchors.verticalCenter: parent.verticalCenter

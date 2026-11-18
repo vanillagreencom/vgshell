@@ -77,7 +77,6 @@ Item {
                 compare(rows[i].mapToItem(window.panel, 0, 0).x, weekly.mapToItem(window.panel, 0, 0).x);
                 compare(values[i].mapToItem(window.panel, values[i].width, 0).x,
                     values[0].mapToItem(window.panel, values[0].width, 0).x, "one right value edge");
-                if (i > 0) compare(String(values[i].color), String(Qt.color(Theme.color.success)));
             }
             const tops = [title, weekly, credits, resets].map(item => item.mapToItem(window.panel, 0, 0).y);
             verify(tops.every((top, at) => at === 0 || top > tops[at - 1]), "title, limits, credits, resets");

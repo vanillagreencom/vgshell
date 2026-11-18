@@ -67,8 +67,8 @@ Item {
 
         function test_credit_gap_matches_the_view_data() {
             return [
-                { tag: "Compact", view: "compact", rowGap: Theme.row.lineGap, creditGap: Theme.row.lineGap },
-                { tag: "Full", view: "full", rowGap: Theme.stack.inline, creditGap: Theme.stack.group }
+                { tag: "Compact", view: "compact", rowGap: Theme.row.lineGap },
+                { tag: "Full", view: "full", rowGap: Theme.stack.inline }
             ];
         }
         function test_credit_gap_matches_the_view(data) {
@@ -86,13 +86,17 @@ Item {
             const row = name => find(window.panel, n => n.modelData !== undefined && n.modelData.name === name && n.topPadding !== undefined);
             const first = row("seven_day");
             const last = row("five_hour");
+            const heading = find(window.panel, n => n.visible && n.role !== undefined && n.text === "Details");
             const credit = row("credit-cowork");
-            verify(first !== null && last !== null && credit !== null, "the card draws two limits followed by its credit");
+            verify(first !== null && last !== null && heading !== null && credit !== null,
+                "the card draws two limits followed by its Details heading and credit");
             const creditLine = find(credit, n => n.role === "body" && n.text === "Claude Code and Cowork credit").parent;
             tryVerify(() => last.y - first.y - first.height === data.rowGap && credit.y >= last.y + last.height,
                 1000, "the limits settle at the view's row gap");
-            compare(credit.y + creditLine.y - last.y - last.height, data.creditGap,
-                "the first credit's content starts at the view's gap after the last limit");
+            const top = (item, inset = 0) => item.mapToItem(window.panel, 0, inset).y;
+            const above = top(heading) - top(last, last.height);
+            const below = top(creditLine) - top(heading, heading.height);
+            verify(above > below, "the Details title reads with the rows under it, not the limits above: " + above + " > " + below);
             window.destroy();
         }
 

@@ -8,8 +8,8 @@ import "UsageView.js" as View
 // the account's email, its menu, whose Refresh checks every account again
 // as Check now does and whose Hide adds it to Hidden accounts,
 // one row per limit with its time to reset and one
-// per credit the provider reports. Full view gives the credits a larger
-// group gap and adds a meter under each limit
+// per credit the provider reports, under one plain Details heading.
+// Full view adds a meter under each limit
 // and each credit with a used share, and the provider detail fields the
 // helper received. The calendar button left of the Settings gear shows the
 // reset calendar above the cards until the panel closes. The footer shows
@@ -79,6 +79,60 @@ Item {
 
     implicitWidth: Theme.size.panel.md
     implicitHeight: layout.implicitHeight
+
+    // Both groups use the same label/value geometry and body type. A plan
+    // limit's figure takes its quota tone; every details figure is plain.
+    // Inline components take their inputs explicitly:
+    // https://doc.qt.io/qt-6/qtqml-documents-definetypes.html#inline-components.
+    component UsageReading: Column {
+        id: reading
+        required property var modelData
+        property bool toned: false
+        property bool metered: false
+        readonly property color usageColor: !toned || modelData.tone === "" ? Theme.text.body.color
+            : modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
+        width: parent.width
+        spacing: Theme.row.lineGap
+
+        Item {
+            width: parent.width
+            implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
+            // A long title wraps; the time and the figure stay
+            // centred on its first line, one lineBox tall.
+            Label {
+                id: limit
+                width: parent.width - share.width - Theme.stack.inline
+                wrapMode: Text.Wrap
+                role: "body"
+                text: reading.modelData.label
+            }
+            Row {
+                id: share
+                anchors.right: parent.right
+                y: (limit.lineBox - height) / 2
+                spacing: Theme.stack.inline
+                Label {
+                    visible: text !== ""
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "hint"
+                    text: reading.modelData.reset || ""
+                }
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "body"
+                    text: reading.modelData.value !== undefined ? reading.modelData.value : reading.modelData.text
+                    color: reading.usageColor
+                }
+            }
+        }
+        // A balance has no used share and therefore no meter.
+        Loader {
+            width: parent.width
+            active: reading.metered
+            visible: active
+            sourceComponent: ProgressBar { value: Math.min(reading.modelData.percent, 100) / 100; tone: reading.modelData.tone }
+        }
+    }
 
     Surface { anchors.fill: parent }
 
@@ -311,84 +365,39 @@ Item {
 
                 Column {
                     id: usageRows
-                    // Full view separates credits from limits; Compact
-                    // keeps the same gap between every row.
-                    readonly property real groupGap: root.fullView ? Theme.stack.group : Theme.row.lineGap
-                    visible: entry.windows.length > 0 || entry.values.length > 0
+                    // UsageView.creditRow names credit pools with credit-;
+                    // those readings belong with details, not plan limits.
+                    readonly property var limits: entry.windows.filter(row => row.name.indexOf("credit-") !== 0)
+                    readonly property var credits: entry.windows.filter(row => row.name.indexOf("credit-") === 0 && row.text !== "")
+                    readonly property var details: credits.concat(entry.values, root.fullView ? entry.details : [])
+                    visible: limits.length > 0 || details.length > 0
                     width: parent.width
                     spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap
                     Repeater {
-                        model: entry.windows.concat(entry.values)
-                        Column {
-                            id: usageLimit
-                            required property var modelData
-                            readonly property bool accountValue: modelData.value !== undefined
-                            // Available account credits and resets are a good state.
-                            readonly property color usageColor: accountValue ? Theme.color.success : modelData.tone === "" ? Theme.text.body.color
-                                : modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
-                            width: parent.width
-                            spacing: Theme.row.lineGap
-                            // A Column's topPadding adds to its height above
-                            // its first child, so the row moves down and the
-                            // ones after it with it:
-                            // https://doc.qt.io/qt-6/qml-qtquick-column.html#topPadding-prop.
-                            topPadding: modelData.opensGroup ? usageRows.groupGap - usageRows.spacing : 0
-
-                            Item {
-                                width: parent.width
-                                implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
-                                // A long title wraps; the time and the figure stay
-                                // centred on its first line, one lineBox tall.
-                                Label {
-                                    id: limit
-                                    width: parent.width - share.width - Theme.stack.inline
-                                    wrapMode: Text.Wrap
-                                    role: "body"
-                                    text: modelData.label
-                                }
-                                Row {
-                                    id: share
-                                    anchors.right: parent.right
-                                    y: (limit.lineBox - height) / 2
-                                    spacing: Theme.stack.inline
-                                    Label {
-                                        visible: text !== ""
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        role: "hint"
-                                        text: modelData.reset || ""
-                                    }
-                                    Label {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        role: "body"
-                                        text: usageLimit.accountValue ? modelData.value : modelData.text
-                                        color: usageLimit.usageColor
-                                    }
-                                }
-                            }
-                            // Built only for a row with a used share, so a
-                            // balance has no bar and no tone.
-                            Loader {
-                                width: parent.width
-                                active: root.fullView && !usageLimit.accountValue && usageLimit.modelData.bar
-                                visible: active
-                                sourceComponent: ProgressBar { value: Math.min(usageLimit.modelData.percent, 100) / 100; tone: usageLimit.modelData.tone }
-                            }
+                        model: usageRows.limits
+                        UsageReading {
+                            required property int index
+                            toned: true
+                            metered: root.fullView && modelData.bar
+                            // Column padding contributes to its height. Add
+                            // room only between metered rows, never at the
+                            // group's ends; the heading owns its own gap.
+                            // https://doc.qt.io/qt-6/qml-qtquick-column.html#bottomPadding-prop
+                            bottomPadding: metered && index < usageRows.limits.length - 1 ? Theme.stack.inline : 0
                         }
                     }
-                }
-
-                Section {
-                    visible: root.fullView && entry.details.length > 0
-                    title: "Details"
-                    rowSpacing: Theme.row.lineGap
+                    // Plain, under the card's own accent eyebrow title.
+                    SectionHeader {
+                        visible: usageRows.details.length > 0
+                        text: "Details"
+                        titleRole: "bodyStrong"
+                    }
                     Repeater {
-                        model: entry.details
-                        Item {
-                            required property var modelData
-                            width: parent.width
-                            implicitHeight: Math.max(detailName.implicitHeight, detailValue.implicitHeight)
-                            Label { id: detailName; role: "hint"; text: modelData.label }
-                            Label { id: detailValue; anchors.right: parent.right; role: "body"; text: modelData.value }
+                        model: usageRows.details
+                        UsageReading {
+                            required property int index
+                            metered: root.fullView && modelData.bar === true
+                            bottomPadding: metered && index < usageRows.details.length - 1 ? Theme.stack.inline : 0
                         }
                     }
                 }

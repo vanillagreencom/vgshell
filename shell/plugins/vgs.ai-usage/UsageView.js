@@ -535,6 +535,13 @@ function sortedAccounts(accounts, mode) {
     });
 }
 
+// A details reading the card already says: its value is a figure of a
+// plan limit row, as Copilot's month total repeats "828k of 1M" when the
+// two counts agree.
+function repeatsLimit(limits, reading) {
+    return limits.some(function (limit) { return limit.text.split(" of ").indexOf(reading.value) >= 0; });
+}
+
 function sortOf(settings) {
     return settings === null || settings === undefined ? "provider" : settings.sort;
 }
@@ -553,7 +560,9 @@ function panel(usage, now, settings) {
             : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
-            note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row), values: accountValueRows(row),
+            note: note, noteTone: warning !== "" ? "warning" : "normal",
+            details: detailRows(row).filter(function (reading) { return !repeatsLimit(limits, reading); }),
+            values: accountValueRows(row).filter(function (reading) { return !repeatsLimit(limits, reading); }),
             windows: limits.concat(creditRows(row, now, limits.length > 0)) };
     });
 }

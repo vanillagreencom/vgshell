@@ -103,12 +103,13 @@
 # keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
-# three signed-in accounts, two Claude Code and one Codex, at rest and
+# two signed-in Claude Code accounts and two Codex accounts, at rest and
 # scrolled so the dividers under its header and over its footer show, read
 # as scripts/smoke/rows/ai-usage.sh reads them: the endpoint stand-in
 # scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, the Codex stand-in
 # beside it and planted sign-ins, with no host claude or codex on the
-# shell's PATH; ai-usage-states, taken only when named, is that dropdown
+# shell's PATH, plus a published Copilot reading first and an AI Gateway
+# reading last; ai-usage-states, taken only when named, is that dropdown
 # with a Claude Code account at its full weekly limit and one with no
 # figures at its top; ai-usage-hide, taken only when named, is that
 # dropdown over a Claude Code account whose sign-in file the helper cannot
@@ -12505,11 +12506,13 @@ PY2
       expect_poll "the stand-in usage endpoint listens" ready usage_port
       python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" 'const ORIGIN = "https://api.anthropic.com";' "const ORIGIN = \"http://127.0.0.1:$(cat -- "$usage_dir/port")\";" || fail "pointing the usage helper at the stand-in failed"
       ln -sfn -- "$checkout/scripts/fixtures/ai-usage/codex" "$shim/codex"
-      # A published gateway-shaped reading plants API billing without a
-      # keyring or a live Vercel request, in this sandbox copy alone.
+      # Published gateway-shaped and Copilot-shaped readings plant API
+      # billing and a Copilot card with its details without a keyring or a
+      # live Vercel or GitHub request, in this sandbox copy alone.
       python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-shots", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 64, resetsAt: null }], credits: null, details: { gateway: { balance: 36, totalUsed: 64 } } });
-    return { accounts, partial, gatewayKey };' || fail "planting the API gateway reading failed"
-      usage_shot_want='["no-plan", "ok", "ok", "ok", "ok"]'
+    accounts.unshift({ id: "copilot-shots", provider: "copilot", email: "octo-user", state: "ok", windows: [{ name: "credits", usedPercent: 82.8, resetsAt: Date.now() + 1101600000 }], credits: { unit: "credits", used: 828000, granted: 1000000, monthUsed: 828000 }, details: { copilotRenewsAt: Date.now() + 1101600000, copilotMonthUsed: 828000 } });
+    return { accounts, partial, gatewayKey };' || fail "planting the API gateway and Copilot readings failed"
+      usage_shot_want='["no-plan", "ok", "ok", "ok", "ok", "ok"]'
       if [[ " ${scenes[*]} " == *" ai-usage-states "* ]]; then
         # For ai-usage-states, two Claude Code readings ahead of the others:
         # one at its full weekly limit, and one whose first read Claude
@@ -12518,7 +12521,7 @@ PY2
         python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.unshift({ id: "claude-full", provider: "claude", label: "Claude Code", email: "full@example.invalid", state: "ok", windows: [{ name: "five_hour", usedPercent: 42, resetsAt: Date.now() + 19800000 }, { name: "seven_day", usedPercent: 100, resetsAt: Date.now() + 280800000 }, { name: "seven_day_fable", usedPercent: 12, resetsAt: Date.now() + 280800000 }], credits: null, details: {} },
           { id: "claude-limited", provider: "claude", label: "Claude Code", email: "limited@example.invalid", state: "limited", windows: [], credits: null, details: {} });
     return { accounts, partial, gatewayKey };' || fail "planting the AI Usage states failed"
-        usage_shot_want='["limited", "no-plan", "ok", "ok", "ok", "ok", "ok"]'
+        usage_shot_want='["limited", "no-plan", "ok", "ok", "ok", "ok", "ok", "ok"]'
       fi
       if [[ " ${scenes[*]} " == *" ai-usage-hide "* ]]; then
         # For ai-usage-hide, a Claude Code folder whose sign-in file holds

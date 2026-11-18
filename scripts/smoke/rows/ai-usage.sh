@@ -449,7 +449,7 @@ expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
 # The caller's tone binding is what gives the bar the value's tier. A
 # disposable panel without it still draws bars, in the accent colour.
-usage_edit "$usage_panel_qml" '; tone: usageLimit.modelData.tone' '' || fail "the accent progress control edit failed"
+usage_edit "$usage_panel_qml" '; tone: reading.modelData.tone' '' || fail "the accent progress control edit failed"
 rescan "the accent progress control is scanned"
 usage_refresh "the accent progress control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the accent progress control failed"
