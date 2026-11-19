@@ -261,7 +261,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Layer glass"
-                info: "When ready, layer glass bends the background at the edges of glass notification toasts and Jarvis cards in every style. In Clear, it also bends the background at the edges of the launcher and notification inbox and shades it behind white text."
+                info: "When ready, layer glass bends the background at the edges of glass notification toasts and Jarvis's overlay cards in every style. In Clear, it also bends the background at the edges of the launcher and notification inbox and shades it behind white text."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"

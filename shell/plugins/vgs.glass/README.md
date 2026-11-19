@@ -11,7 +11,7 @@ Glass lets you choose where glass appears and how it looks: on the launcher, not
 - Choose Auto, Light, Dark or Clear for the launcher, notifications and Jarvis. Auto follows your theme.
 - Clear shows the background through the glass with white text, and Hyprland shades the glass over a bright background so the text stays readable.
 - A switch for each surface: windows, tooltips, widget flyouts, menus, the launcher, notifications, Jarvis, dialogs, on-screen indicators and the clipboard. Buttons, switches and fields take the look of the card they are on.
-- Optional layer glass bends the background at the edges of glass notification toasts and Jarvis cards in every style. The launcher and notification inbox get edge bend only in Clear.
+- Optional layer glass bends the background at the edges of glass notification toasts and Jarvis's overlay cards in every style. The launcher and notification inbox get edge bend only in Clear.
 
 ## Setup
 
