@@ -26,11 +26,11 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 // qs.Ui's RadialBackdrop as its one shipped caller draws it: the disc
 // behind Voice's plasma orb, with the plasma's own shader hidden in every
 // scene, since the disc's cost is far under the plasma's frame-to-frame
-// spread and a reading taken beside it is that spread. glass-lens is qs.Ui's GlassSurface in
-// the lens form as the largest plate Jarvis's overlay draws: the card of a
-// held request whose payload fills the room this output leaves under the
-// orb, in the overlay's look. The pass's cost grows with the plate's area,
-// so the largest plate bounds the others.
+// spread and a reading taken beside it is that spread. glass-lens draws
+// one GlassSurface pass on a Jarvis-sized plate: a held request filling
+// the room under the orb. Its ceiling covers this shader scene, not
+// end-to-end rendering of the launcher, notification stacks or the lent
+// Jarvis plate window.
 // The off scene keeps the same
 // animation and background; only the shader stops drawing. The scene
 // selects the shader's own effect by its pack, so a visual that holds a
