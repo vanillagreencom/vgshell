@@ -20,7 +20,7 @@ Item {
             Panel { id: panel; width: implicitWidth; height: implicitHeight }
         }
     }
-    TestCase {
+    UnitCase {
         name: "aiUsageDetails"
         when: windowShown
 
@@ -33,7 +33,8 @@ Item {
             return (predicate(node) ? [node] : []).concat(...node.children.map(child => all(child, predicate)));
         }
         function label(node, text) {
-            return all(node, item => item.visible && item.role !== undefined && item.text === text)[0] || null;
+            const owner = displayedTextItems(node).find(item => displayedText(item) === text);
+            return owner === undefined ? null : displayedTextRenderer(owner);
         }
         function reading(node, text) {
             return all(node, item => item.visible && item.modelData !== undefined && item.modelData !== null
@@ -101,7 +102,7 @@ Item {
         function test_secondary_hierarchy(data) {
             const card = openCard(data), source = data.source;
             const expected = data.absent ? [] : source.expected.filter(row => !row[2] || data.view === "full");
-            const headings = all(card, item => item.visible && item.role !== undefined && item.text === "Details");
+            const headings = semanticLabelItems(card).filter(item => displayedText(item) === "Details").map(item => displayedTextRenderer(item));
             compare(headings.length, expected.length > 0 ? 1 : 0, "no empty or duplicate details block");
             for (const omitted of source.expected.filter(row => data.absent || (row[2] && data.view !== "full")))
                 compare(label(card, omitted[0]), null, "unreported or compact-hidden readings take no room");

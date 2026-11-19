@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Unit
 import "../../shell/plugins/vgs.updates" as Updates
 import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
@@ -16,7 +17,7 @@ Item {
         return found;
     }
 
-    TestCase {
+    UnitCase {
         name: "UpdatesCountChip"
         when: windowShown
 
@@ -37,10 +38,10 @@ Item {
             compare([vgs.displayedText, vgs.size, vgs.color, vgs.foreground],
                     ["1", aur.size, aur.color, aur.foreground]);
             compare(aur.displayedText, "5");
-            const heading = root.descendants(view).find(item => item.role === "hint"
-                && item.visible && /^\d+ updates$/.test(item.text));
+            const heading = displayedTextItems(view).find(item => item.role === "hint"
+                && /^\d+ updates$/.test(displayedText(item)));
             verify(heading !== undefined, "the heading shows the total");
-            compare(heading.text, (Number(aur.displayedText) + Number(vgs.displayedText)) + " updates");
+            compare(displayedText(heading), (Number(aur.displayedText) + Number(vgs.displayedText)) + " updates");
         }
     }
 }

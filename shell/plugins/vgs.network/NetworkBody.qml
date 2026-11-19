@@ -532,7 +532,7 @@ FocusScope {
                 label: "DNS provider"
                 inline: true
                 hint: root.dns.disabledReason || root.dns.hint
-                info: "Choose who looks up internet addresses for your saved Wi-Fi and wired networks. VGS opens a terminal to review each change and enter your own servers. Network default restores the servers VGS replaced."
+                info: "Choose who looks up internet addresses for saved Wi-Fi and wired networks.\nA terminal lets you review changes and enter your own servers.\nNetwork default restores the servers VGS replaced."
                 Select {
                     objectName: "network-dns-provider"
                     model: root.dnsChoices

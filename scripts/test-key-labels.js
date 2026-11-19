@@ -2,7 +2,7 @@
 // Every Keys row a shipped plugin draws shows its whole label. The rows are
 // the binds each shell/plugins/*/manifest.json declares, each labelled with
 // the description its Service.qml registers and carrying the manifest's
-// explanation, so the row draws the info icon beside the label. The script
+// explanation, so the row draws its dotted help label. The script
 // builds each row as the Settings page and Key Hints do, a BindField, in a
 // generated QML test run by scripts/qml-unit.sh with the shell's bundled
 // fonts, and reads each label's `truncated`. A label that wraps past two
@@ -109,8 +109,8 @@ function rows() {
 
 function testSource(list) {
     return `import QtQuick
-import QtTest
 import qs.Ui
+import qs.Unit
 
 Item {
     id: root
@@ -120,24 +120,18 @@ Item {
 
     Component { id: rowComponent; BindField { width: 640 } }
 
-    TestCase {
+    UnitCase {
         name: "keylabels"
         when: windowShown
-
-        function descendants(item) {
-            const found = [item];
-            for (let i = 0; i < found.length; i++)
-                for (const child of found[i].children || []) found.push(child);
-            return found;
-        }
 
         function test_every_keys_label_shows_whole() {
             const cut = [];
             for (const row of root.rows) {
                 const field = createTemporaryObject(rowComponent, root, { bind: { shortcut: row.shortcut, key: null, default: null, description: row.label, info: row.info } });
-                const labels = descendants(field).filter(child => child instanceof Text && child.visible && child.text === row.label);
+                const labels = semanticLabelItems(field).filter(child => displayedText(child) === row.label);
                 compare(labels.length, 1, row.id + ":" + row.shortcut + " draws its label once");
-                if (labels[0].truncated || labels[0].lineCount > 2) cut.push(row.id + ":" + row.shortcut + " " + JSON.stringify(row.label));
+                const renderer = displayedTextRenderer(labels[0]);
+                if (renderer.truncated || renderer.lineCount > 2) cut.push(row.id + ":" + row.shortcut + " " + JSON.stringify(row.label));
             }
             compare(JSON.stringify(cut), "[]", "every Keys label shows whole");
         }

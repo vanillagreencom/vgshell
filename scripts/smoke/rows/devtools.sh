@@ -103,7 +103,7 @@ ended_record_moved() { [[ $(ended_record "$1") != "$2" ]] && echo moved || echo 
 # third of the way down its view, whatever height the monitor gives it.
 reveal_row() {
   local shown
-  shown="$(ipc smoke revealScopedText window vgs.devtools ToolRow "$1" Label "$1")" || return
+  shown="$(ipc smoke revealScopedText window vgs.devtools ToolRow "$1" SemanticLabel "$1")" || return
   [[ $shown =~ ^[0-9.]+$ ]] && echo revealed || echo "$shown"
 }
 scroll_bottom() { local r; r="$(ipc smoke scrollTo window vgs.devtools 100000)" || return; [[ $r == \[* ]] && echo scrolled || echo "$r"; }
@@ -142,7 +142,7 @@ fields=[i for i,it in enumerate(items) if it.get("type")=="Field" and it.get("vi
 target=None
 for f in fields:
     desc=[i for i in range(len(items)) if f in ancestors(i)]
-    if any(items[i].get("text")==label and items[i].get("visible") for i in desc):
+    if any(items[i]["semanticLabel"] and items[i]["words"]==label and items[i].get("visible") for i in desc):
         for i in desc:
             if items[i].get("type")=="Switch" and items[i].get("visible"):
                 target=items[i]["box"]
@@ -385,7 +385,7 @@ expect "the window returns to Catalog after launcher reads" '[' select_devtools_
 # monitor 360 logical pixels wide. The wide reading is the narrow check's
 # control: the same reader answers `beside` there.
 actions_place() { # ROW BUTTON
-  python3 - "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" Label "$1")" "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" RowAction "$2")" <<'PY'
+  python3 - "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" SemanticLabel "$1")" "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" RowAction "$2")" <<'PY'
 import json, sys
 name, button = sys.argv[1], sys.argv[2]
 if not name.startswith("[") or not button.startswith("["):

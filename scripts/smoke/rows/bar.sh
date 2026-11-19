@@ -125,7 +125,7 @@ print("%s %d cells=42 today=%s" % (names[n%12], n//12, mark))' "$@"
 }
 calendar_read() {
   local labels days fill
-  labels="$(ipc smoke itemValues panel vgs.bar Label objectName,text)" || return
+  labels="$(ipc smoke descendantGeometry panel vgs.bar)" || return
   days="$(ipc smoke itemValues panel vgs.bar Button text,fill)" || return
   fill="$(ipc smoke themeValue button.variant.primary.background)" || return
   python3 - "$labels" "$days" "$fill" <<'PY'
@@ -137,7 +137,7 @@ labels, days, fill = (json.loads(a) for a in sys.argv[1:])
 def opaque(colour):
     colour = str(colour).lower()
     return colour[-6:] if len(colour) == 7 or colour[1:3] == "ff" else None
-title = [label["text"] for label in labels if label["objectName"] == "calendarTitle"]
+title = [label["words"] for label in labels if label["displayedOwner"] and label["name"] == "calendarTitle"]
 marked = [day["text"] for day in days if opaque(day["fill"]) == opaque(fill)]
 print("%s cells=%d today=%s" % (title[0] if title else "untitled", len(days), ",".join(marked) or "none"))
 PY

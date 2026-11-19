@@ -30,10 +30,10 @@
   "settings": {},
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+CTRL+V", "info": "Opens your clipboard history, where you pick an earlier copy to paste, or closes it." },
-      { "shortcut": "copy", "key": "SUPER+C", "info": "Copies the selection in the terminal, application or VGS field you work in." },
-      { "shortcut": "paste", "key": "SUPER+V", "info": "Pastes the clipboard into the terminal, application or VGS field you work in." },
-      { "shortcut": "cut", "key": "SUPER+X", "info": "Cuts the selection in the application or VGS field you work in. A terminal has no cut." }
+      { "shortcut": "toggle", "key": "SUPER+CTRL+V" },
+      { "shortcut": "copy", "key": "SUPER+C" },
+      { "shortcut": "paste", "key": "SUPER+V" },
+      { "shortcut": "cut", "key": "SUPER+X", "info": "Cuts the selection in an app or VGS field.\nTerminals do not support Cut." }
     ]
   }
 }

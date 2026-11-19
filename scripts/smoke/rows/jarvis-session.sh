@@ -172,7 +172,7 @@ print(json.dumps(rows[0].get("revealedRow.statusKey")) if len(rows) == 1 else "p
 }
 session_in_view() { # HINT
   local box view
-  box="$(ipc smoke windowGeometry window vgs.settings QQuickText "$1")" || return 1
+  box="$(ipc smoke windowGeometry window vgs.settings DisplayedText "$1")" || return 1
   view="$(ipc smoke viewHolding window vgs.settings "$1")" || return 1
   python3 -c '
 import json,sys

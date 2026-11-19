@@ -76,9 +76,9 @@ print("true" if any(row.get("activeFocus") is True for row in rows) else "false"
 }
 jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextArea text; }
 jarvis_console_hint_has() { # TEXT
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
+  ipc smoke itemTexts window vgs.jarvis DisplayedText | py_reply '
 import json,sys
-print("shown" if any(row.get("visible") and row.get("text")==sys.argv[1] for row in json.load(sys.stdin)) else "missing")
+print("shown" if any(sys.argv[1] in row for row in json.load(sys.stdin)) else "missing")
 ' "$1"
 }
 # Send's disabledReason, or `absent` while no Send button is drawn.
@@ -105,9 +105,9 @@ print("missing" if not rows else "locked" if rows[0].get("disabledReason") else 
 '
 }
 jarvis_console_speech_line() {
-  ipc smoke itemValues window vgs.jarvis LinkText text,visible | py_reply '
+  ipc smoke itemTexts window vgs.jarvis DisplayedText | py_reply '
 import json,sys
-print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Press Super+J to open or close the conversation.") for r in json.load(sys.stdin)) else "missing")
+print("shown" if any(text.endswith(" takes speech only. Press Super+J to open or close the conversation.") for row in json.load(sys.stdin) for text in row) else "missing")
 '
 }
 jarvis_console_engine_kind() {
@@ -168,7 +168,7 @@ print(sum(row.get('kind')=='console-intent' and row.get('intent')==sys.argv[2] f
 PY_COUNT
 }
 jarvis_console_audit() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="Deleting a file was refused." for r in rows) else "missing")'
+  ipc smoke itemTexts window vgs.jarvis DisplayedText | py_reply 'import json,sys; print("shown" if any("Deleting a file was refused." in row for row in json.load(sys.stdin)) else "missing")'
 }
 jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches History" '[[3, 2]]' jarvis_console_tabs; }
 jarvis_console_stop_check() { expect_poll "Stop on the second task's row sends its fixture id" "$1" jarvis_console_intent task-stop; }
@@ -176,7 +176,7 @@ jarvis_console_audit_check() { expect_poll "History draws a plain problem senten
 # A failed voice stream's record draws its cause after its result, as a
 # withheld one draws its refusal.
 jarvis_console_audit_cause() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="The voice service stopped before finishing." for r in rows) else "missing")'
+  ipc smoke itemTexts window vgs.jarvis DisplayedText | py_reply 'import json,sys; print("shown" if any("The voice service stopped before finishing." in row for row in json.load(sys.stdin)) else "missing")'
 }
 jarvis_console_audit_cause_check() { expect_poll "History draws the failed stream's cause" shown jarvis_console_audit_cause; }
 # With Problems selected, only its three-row GroupList draws separators.

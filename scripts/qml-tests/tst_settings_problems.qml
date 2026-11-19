@@ -111,7 +111,7 @@ Item {
         }
         function tooltipOf(badge) { return descendants(badge).find(item => item instanceof Tooltip); }
         function popupLink(tip) {
-            return descendants(tip.tracker.popup.contentItem).find(item => item instanceof LinkText && item.visible && item.text.indexOf("Settings/Keys") !== -1);
+            return displayedTextItems(tip.tracker.popup.contentItem).find(item => item instanceof LinkText && displayedText(item).indexOf("Settings/Keys") !== -1);
         }
         function opened(tip) {
             tryCompare(tip, "opened", true);

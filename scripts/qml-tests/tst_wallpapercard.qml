@@ -28,18 +28,13 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "wallpaperCard"
         when: windowShown
 
         // The visible item under ITEM that draws TEXT, or null.
         function textItem(item, text) {
-            for (const child of item.children) {
-                if (child.visible && child.text === text) return child;
-                const found = textItem(child, text);
-                if (found !== null) return found;
-            }
-            return null;
+            return displayedTextItems(item).find(child => displayedText(child) === text) || null;
         }
 
         function nameLabel() {

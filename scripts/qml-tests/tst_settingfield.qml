@@ -176,22 +176,44 @@ Item {
         }
     }
 
-    // A label that needs more words carries a tooltip; a label wraps and
-    // never elides; `probe` takes the labels whose drawn lines the
+    // Schema tooltip metadata joins the label's click-open help. A label
+    // wraps and never elides; `probe` takes the labels whose drawn lines the
     // manifest judge's line count must match.
     Column {
         id: labelRows
         y: 700
         width: 420
         spacing: Theme.stack.row
-        SettingField { id: explained; key: "smart"; spec: ({ type: "boolean", label: "Click to select", tooltip: "A click takes the window under it." }); value: true }
         SettingField { id: unexplained; key: "cursor"; spec: ({ type: "boolean", label: "Include pointer" }); value: true }
         SettingField { id: longLabel; key: "long"; spec: ({ type: "boolean", label: "A label that is far too long for two lines of its column" }); value: true }
         SettingField { id: probe; key: "probe"; spec: ({ type: "boolean", label: "Probe" }); value: true }
         SettingField { id: explainedChoice; key: "mode"; spec: ({ type: "enum", label: "Result", tooltip: "What a capture does.", options: [{ value: "both", label: "Save and copy" }, { value: "copy", label: "Copy" }] }); value: "both"; onApply: value => root.applied.push(value) }
     }
+    Component { id: helpSignalSpy; SignalSpy {} }
+    Component {
+        id: explainedWindow
+        QtWindow.Window {
+            width: 420
+            height: 160
+            color: Theme.color.surface
+            // QWindow.active also includes active transients. This boolean
+            // field opens no native popup (ModalDialog is the unit Item
+            // stand-in), so a non-transient window's active state identifies
+            // the actual key receiver, not an earlier Select's window group.
+            // https://doc.qt.io/qt-6/qwindow.html#isActive
+            // https://doc.qt.io/qt-6/qml-qtquick-window.html#transientParent-prop
+            transientParent: null
+            property alias setting: explained
+            SettingField {
+                id: explained
+                width: parent.width
+                key: "smart"
+                spec: ({ type: "boolean", label: "Click to select", tooltip: "A click takes the window under it." })
+                value: true
+            }
+        }
+    }
 
-    Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
     Component {
         id: committingField
         SettingField {
@@ -497,7 +519,7 @@ Item {
         }
 
         function lineBottom(field, text) {
-            const line = descendants(field).find(child => child.role === "hint" && child.text === text && child.visible);
+            const line = displayedTextItems(field).find(child => child.role === "hint" && displayedText(child) === text);
             return line.mapToItem(settingRows, 0, line.height).y;
         }
 
@@ -508,10 +530,9 @@ Item {
             compare(settingRows.height, lineBottom(lastDescribed, "Ends the column."), "the column's end after its last field");
         }
 
-        // The shown LinkText: `linked` is its own, where `hoveredLink` is
-        // also every Text's.
+        // A description is separate from the field's label-help link.
         function linkOf(item) {
-            return descendants(item).find(child => child.linked !== undefined && child.visible);
+            return displayedTextItems(item).find(child => child instanceof LinkText && !(child instanceof InfoButton));
         }
 
         function test_a_description_link_opens_its_address_by_pointer() {
@@ -667,6 +688,13 @@ Item {
             const window = selectListWindow(owner);
             const scope = window.contentItem.children.find(child => child.popup !== undefined);
             return scope.children.find(child => child.currentIndex !== undefined);
+        }
+
+        function closeSelectPopup(owner) {
+            const window = selectListWindow(owner);
+            verify(window !== null);
+            window.visible = false;
+            tryCompare(owner, "listOpen", false);
         }
 
         function test_unset_choice_reads_its_placeholder() {
@@ -890,92 +918,65 @@ Item {
         }
 
         function labelOf(owner) {
-            return descendants(owner).find(child => child.objectName === "fieldLabel" && child.visible);
+            return semanticLabelItems(owner).find(child => child.objectName === "fieldLabel");
         }
 
-        // Whether the setting's explainer, opened under its row over the
-        // description, takes more than one line, which the row hands to its
-        // info dialog. The room under a
-        // description's top holds a band of one line and no more. The row
-        // is as wide as a Settings page: the window less its panel inset.
-        function explainerWraps(key, spec) {
-            const made = createTemporaryObject(shippedField, root, { width: Theme.size.window.width - 2 * Theme.surface.padding, key: key, spec: spec, value: spec.default });
-            const row = descendants(made).find(child => child.objectName === "fieldRow");
-            if (row.explainInDialog) return true;
-            if (row.explainBeside) return false;
-            const tip = descendants(labelOf(made)).find(child => String(child).indexOf("Tooltip") === 0);
-            compare(tip.text, spec.tooltip);
-            tip.shown = true;
-            try {
-                // A tooltip made in this turn builds its window on the next
-                // (stand-ins/LazyLoader.qml).
-                tryVerify(() => tip.opened, 1000, "the explainer opens its own surface");
-                const title = descendants(tip.tracker.popup.contentItem).find(child => child.objectName === "tooltipTitle");
-                return title.lineCount > 1;
-            } finally {
-                tip.shown = false;
-            }
-        }
-
-        // Capture ships the settings that carry both an explainer and a
-        // description; a plugin that adds one adds its manifest here.
-        function test_a_shipped_explainer_over_a_description_keeps_one_line() {
-            const request = new XMLHttpRequest();
-            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.capture/manifest.json"), false);
-            request.send();
-            const schema = JSON.parse(request.responseText).schema;
-            const keys = Object.keys(schema).filter(key => schema[key].tooltip !== undefined && schema[key].description !== undefined);
-            verify(keys.length > 0, "the manifest holds no explained setting with a description");
-            for (const key of keys)
-                verify(!explainerWraps(key, schema[key]), key + ": the explainer wraps over its description: " + schema[key].tooltip);
-            const planted = Object.assign({}, schema[keys[0]], { tooltip: "Records every frame at the same interval, even when nothing on the screen moves, for as long as the recording runs." });
-            verify(explainerWraps(keys[0], planted), "control: a planted long explainer wraps");
-        }
-
-        function test_a_label_tooltip_opens_on_hover_and_keyboard_focus() {
-            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+        function test_schema_tooltip_metadata_opens_as_label_help() {
+            const fixture = createTemporaryObject(explainedWindow, null);
+            verify(fixture !== null);
+            const explained = fixture.setting;
+            fixture.visible = true;
             const label = labelOf(explained);
-            const tip = descendants(label).find(child => String(child).indexOf("Tooltip") === 0);
-            compare(tip.text, explained.spec.tooltip, "the label's tooltip reads the schema's tooltip");
-            mouseMove(root, root.width - 1, root.height - 1);
-            mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true, 2000, "hover opens the tooltip");
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
-            root.Window.window.requestActivate();
-            tryCompare(root.Window.window, "active", true);
-            const labelControl = label.children.find(child => child.visualFocus !== undefined);
-            verify(labelControl.activeFocusOnTab, "the label is a Tab stop");
-            const shown = [];
-            const record = () => { if (tip.opened) shown.push(tip.text); };
-            tip.openedChanged.connect(record);
+            verify(label instanceof InfoButton);
+            compare(label.info, explained.spec.tooltip);
+            verify(!descendants(label).some(child => String(child).indexOf("Tooltip") === 0));
+            compare(label.activeFocusOnTab, true);
+            verify(label.enabled, "the help label accepts input");
+            verify(label.linked, "tooltip metadata makes the label a link");
+            compare(label.text, explained.spec.label);
+            compare(label.link, label.text, "the help target is the plain label, not its drawn markup");
+            compare(label.Window.window, fixture);
+            compare(fixture.transientParent, null);
+            const clicks = createTemporaryObject(helpSignalSpy, root, { target: label, signalName: "clicked" });
+            const activations = createTemporaryObject(helpSignalSpy, root, { target: label, signalName: "activated" });
+            verify(clicks !== null && activations !== null);
             try {
-                labelControl.forceActiveFocus(Qt.TabFocusReason);
-                tryVerify(() => shown.length > 0, 2000, "keyboard focus opens the tooltip");
+                fixture.requestActivate();
+                tryCompare(fixture, "active", true);
+                label.forceActiveFocus(Qt.TabFocusReason);
+                tryCompare(label, "activeFocus", true);
+                compare(fixture.activeFocusItem, label);
+                verify(label.linked, "the label keeps its link while taking focus");
+                compare(label.infoOpen, false, "focus does not open help");
+                keyClick(Qt.Key_Return);
+                compare(clicks.count, 1, "Return reaches the focused label's key handler");
+                compare(activations.count, 1, "the clicked help label emits its action");
+                compare(label.info, explained.spec.tooltip, "activation keeps the help metadata");
+                compare(label.infoOpen, true);
+                compare(explained.value, true, "opening help leaves the setting unchanged");
             } finally {
-                tip.openedChanged.disconnect(record);
+                label.closeInfo();
+                fixture.visible = false;
             }
-            compare(shown[0], explained.spec.tooltip);
-            const plain = labelOf(unexplained).children.find(child => child.visualFocus !== undefined);
-            verify(!plain.activeFocusOnTab, "a label without a tooltip is no Tab stop");
+            compare(labelOf(unexplained).activeFocusOnTab, false);
         }
 
         function test_a_long_label_wraps_and_never_elides() {
             const label = labelOf(longLabel);
             verify(label.lineCount > 2, "the label wraps past two lines");
-            compare(label.truncated, false, "the label elides");
+            compare(label.labelItem.truncated, false, "the label elides");
             // The row box, which a row stood under another by ink may
             // overlap, holds the label.
             verify(label.parent.objectName === "fieldRow" && label.parent.height >= label.implicitHeight, "the row holds every line");
         }
 
-        // The manifest judge's characters a line, with and without an info
-        // mark, are the drawn label's at the default theme: that many of the
+        // The manifest judge's characters a line, with and without help,
+        // are the drawn label's at the default theme: that many of the
         // widest capital fill one line, and one more wraps.
         function test_the_judge_line_counts_fill_one_drawn_line_data() {
             return [
                 { tag: "plain", info: false, characters: PluginLogic.LABEL_LINE_CHARACTERS },
-                { tag: "beside an info mark", info: true, characters: PluginLogic.INFO_LABEL_LINE_CHARACTERS }
+                { tag: "with dotted help", info: true, characters: PluginLogic.LABEL_LINE_CHARACTERS }
             ];
         }
 
@@ -995,7 +996,7 @@ Item {
                 { tag: "one line", label: "Include pointer" },
                 { tag: "a space break", label: "Click to select a window or display" },
                 { tag: "a hyphen break", label: "Review third-party packages" },
-                { tag: "a hyphen break beside an info mark", label: "Use third-party keys", info: true },
+                { tag: "a hyphen break with dotted help", label: "Use third-party keys", info: true },
                 { tag: "a hyphen before a digit keeps its word", label: "Aaaa bbbbbbbbbbb-10 ccccccccccccc" },
                 { tag: "three lines", label: "Trim and level finished recordings" }
             ];
@@ -1005,7 +1006,7 @@ Item {
             const spec = { type: "boolean", label: data.label };
             if (data.info === true) spec.info = "Why it matters.";
             probe.spec = spec;
-            const characters = data.info === true ? PluginLogic.INFO_LABEL_LINE_CHARACTERS : PluginLogic.LABEL_LINE_CHARACTERS;
+            const characters = PluginLogic.LABEL_LINE_CHARACTERS;
             tryCompare(labelOf(probe), "lineCount", PluginLogic.labelLines(data.label, characters), 2000);
         }
 
@@ -1283,7 +1284,7 @@ Item {
             verify(cover !== null);
             verify(renderedFrame(cover));
             const img = grabImage(root);
-            const labels = cover.rows.children.map(field => descendants(field).find(child => child.objectName === "fieldLabel"));
+            const labels = cover.rows.children.map(field => semanticLabelItems(field).find(child => child.objectName === "fieldLabel"));
             const tops = labels.map(label => inkTop(img, label));
             verify(tops.every(top => top >= 0), "every label draws: " + tops.join(", "));
             const pitch = tops.slice(1).map((top, i) => top - tops[i]);
@@ -1291,7 +1292,7 @@ Item {
             verify(pitch.slice(2).every(step => step === pitch[2]), "under values with descenders, tall glyphs or neither: " + pitch.join(", "));
         }
 
-        function fieldRowOf(item, label) { return descendants(item).find(child => child.objectName === "fieldRow" && child.label === label && child.visible); }
+        function fieldRowOf(item, label) { return descendants(item).find(child => child.objectName === "fieldRow" && child.visible && semanticLabelItems(child).some(owner => displayedText(owner) === label)); }
 
         // The value a label draws, its line breaks read as the spaces they
         // stand for.
@@ -1393,19 +1394,25 @@ Item {
             window.x = screen.virtualX + 10;
             window.y = screen.virtualY + 10;
             select.openList();
-            const list = selectList(select);
-            tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
-            // The list's window lays its content out once it shows.
-            tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
-            for (const index of [1, 2, 5]) {
-                list.positionViewAtIndex(index, ListView.Contain);
-                tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
-                const entry = list.itemAtIndex(index);
-                const title = descendants(entry).find(child => child.role === "menuItem" && child.visible);
-                const value = select.model[index].value;
-                readsInFull(title, value, "entry " + index);
-                verify(title.mapToItem(entry, 0, title.contentHeight).y <= entry.height + 0.5, "entry " + index + " holds every line");
-                compare(entry.Accessible.name, value, "a screen reader reads entry " + index + "'s plain value");
+            try {
+                const list = selectList(select);
+                tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
+                // The list's window lays its content out once it shows.
+                tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
+                for (const index of [1, 2, 5]) {
+                    list.positionViewAtIndex(index, ListView.Contain);
+                    tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
+                    const entry = list.itemAtIndex(index);
+                    const title = descendants(entry).find(child => child.role === "menuItem" && child.visible);
+                    const value = select.model[index].value;
+                    readsInFull(title, value, "entry " + index);
+                    verify(title.mapToItem(entry, 0, title.contentHeight).y <= entry.height + 0.5, "entry " + index + " holds every line");
+                    compare(entry.Accessible.name, value, "a screen reader reads entry " + index + "'s plain value");
+                }
+            } finally {
+                // Release the native grab before temporary-window teardown,
+                // including when a glyph assertion stops this case early.
+                closeSelectPopup(select);
             }
         }
 
@@ -1534,20 +1541,24 @@ Item {
             listWindow.x = screen.virtualX + 10;
             listWindow.y = screen.virtualY + 10;
             select.openList();
-            const list = selectList(select);
-            tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
-            tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
-            const buttonCentre = index => {
-                tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
-                const entry = list.itemAtIndex(index);
-                const button = descendants(entry).find(child => child instanceof Loader && child.active).item;
-                return { entry: entry, centre: button.mapToItem(entry, 0, button.height / 2).y };
-            };
-            const short = buttonCentre(0);
-            const long = buttonCentre(1);
-            const title = descendants(long.entry).find(child => child.role === "menuItem" && child.visible);
-            verify(title.lineCount > 1, "the long entry wraps: " + title.lineCount + " line");
-            fuzzyCompare(long.centre, short.centre, 0.5, "the wrapped entry's button centres where a one-line entry's does, on its first line");
+            try {
+                const list = selectList(select);
+                tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
+                tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
+                const buttonCentre = index => {
+                    tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
+                    const entry = list.itemAtIndex(index);
+                    const button = descendants(entry).find(child => child instanceof Loader && child.active).item;
+                    return { entry: entry, centre: button.mapToItem(entry, 0, button.height / 2).y };
+                };
+                const short = buttonCentre(0);
+                const long = buttonCentre(1);
+                const title = descendants(long.entry).find(child => child.role === "menuItem" && child.visible);
+                verify(title.lineCount > 1, "the long entry wraps: " + title.lineCount + " line");
+                fuzzyCompare(long.centre, short.centre, 0.5, "the wrapped entry's button centres where a one-line entry's does, on its first line");
+            } finally {
+                closeSelectPopup(select);
+            }
         }
 
         // Play on the first voice, which stands for the unset voice, plays

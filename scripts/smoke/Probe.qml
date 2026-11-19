@@ -1024,7 +1024,8 @@ Scope {
                     const action = field.asideAction !== null && button.text === field.asideLabel ? field.asideAction : step;
                     return { text: button.text, tui: action === null ? "" : action.name, tone: button.tone, enabled: button.enabled };
                 }),
-                lines: shown.filter(child => typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1).map(line => line.text)
+                lines: root.displayedTextItems(field).filter(child => !root.isSemanticLabel(child)
+                    && root.displayedText(child) !== "" && inValue.indexOf(child) === -1).map(child => root.displayedText(child))
             };
         });
     }
@@ -1125,11 +1126,13 @@ Scope {
         });
         return {
             title: pane.title,
-            titleTexts: descendants(pane.children[0]).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text),
+            titleTexts: root.displayedTextItems(pane.children[0]).map(child => root.displayedText(child)).filter(text => text !== ""),
             container: pane.container,
             paneHeight: pane.height,
             requestedHeight: pane.uncappedHeight,
             titleSpace: Theme.stack.titleSpace,
+            titleBlockBottom: pane.children[0].y + pane.children[0].height,
+            footerTop: footer.y,
             bodyHeight: pane.bodyContentHeight,
             viewportHeight: view.height,
             contentHeight: view.contentHeight,
@@ -1143,7 +1146,7 @@ Scope {
                 overflow: child.contentHeight > child.height, scrollbarVisible: child.bar === undefined ? null : child.bar.visible
             })),
             lastRowType: row === null ? null : typeName(row),
-            lastRowTexts: row === null ? [] : descendants(row).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text),
+            lastRowTexts: row === null ? [] : root.displayedTextItems(row).map(child => root.displayedText(child)).filter(text => text !== ""),
             lastRowTop: top,
             lastRowBottom: bottom,
             lastRowClips: clips,
@@ -1170,7 +1173,7 @@ Scope {
     function textItem(hostKey, id, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const found = root.descendants(item).find(child => root.matchesType(child, type) && child.text === text && child.visible && child.enabled);
+        const found = root.descendants(item).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && child.enabled);
         return found === undefined ? null : found;
     }
 
@@ -1193,7 +1196,7 @@ Scope {
     function scopedItem(hostKey, id, scopeType, scopeText, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const draws = node => root.descendants(node).some(child => child instanceof Text && child.visible && child.text === scopeText);
+        const draws = node => root.descendants(node).some(child => root.visibleInTree(child) && root.displayedText(child) === scopeText);
         const scope = root.descendants(item).find(child => root.matchesType(child, scopeType) && child.visible && draws(child));
         if (scope === undefined) return null;
         const found = root.descendants(scope).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && child.enabled);
@@ -1206,12 +1209,21 @@ Scope {
     // through the overlay's AnchorTracker; inside the first item named
     // `scopeType` that draws `scopeText` when `scopeType` is not empty, as
     // scopedItem scopes. null when there is none.
+    function popupOf(owner) {
+        const anchored = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+        if (anchored !== null && anchored !== undefined) return anchored;
+        // ModalDialog's Loader owns an OverlaySurface rather than a
+        // visual child. Read its content through the same popup queries.
+        return owner instanceof Loader && owner.item !== null && !(owner.item instanceof Item)
+            && owner.item.contentItem !== undefined ? owner.item : null;
+    }
+
     function popupItem(hostKey, id, scopeType, scopeText, type, text) {
         const item = root.instance(hostKey, id);
         if (item === null) return null;
-        const draws = node => root.descendants(node).some(child => child instanceof Text && root.visibleInTree(child) && child.text === scopeText);
+        const draws = node => root.descendants(node).some(child => root.visibleInTree(child) && root.displayedText(child) === scopeText);
         for (const owner of root.descendants(item)) {
-            const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+            const popup = root.popupOf(owner);
             if (popup === null || popup === undefined || !popup.visible) continue;
             let within = popup.contentItem;
             if (scopeType !== "") {
@@ -1225,11 +1237,108 @@ Scope {
         return null;
     }
 
-    // Whether an item reads `text`: its `text`, its `name` for an icon,
-    // its `label` for an icon button, or its `currentText` for a Select,
-    // which draws its choice and holds no text of its own.
+    // Plain displayed text belongs to the link control; its child Text
+    // contains styling markup. Scope discovery and target reads share it.
+    function displayedText(child) {
+        return child instanceof Ui.LinkText ? child.plain : child instanceof Text ? child.text : undefined;
+    }
+
+    // A semantic label is the current label control, never a painted Text
+    // which happens to use the same typography role.
+    function isSemanticLabel(item) {
+        return item instanceof Ui.InfoButton && item instanceof Ui.LinkText;
+    }
+    function isDisplayedOwner(item) {
+        if (!(item instanceof Ui.LinkText) && !(item instanceof Text)) return false;
+        for (let at = item.parent; at !== null && at !== undefined; at = at.parent)
+            if (at instanceof Ui.LinkText) return false;
+        return true;
+    }
+    function displayedTextItems(item, includeHidden) {
+        if (item === null || item === undefined || (!includeHidden && !root.visibleInTree(item))) return [];
+        if (item instanceof Ui.LinkText || item instanceof Text) return [item];
+        return [].concat(...Array.from(item.children || []).map(child => root.displayedTextItems(child, includeHidden)));
+    }
+    function displayedTextRenderer(item) {
+        return item instanceof Ui.LinkText ? item.labelItem : item instanceof Text ? item : null;
+    }
+    function semanticLabelItems(item, includeHidden) {
+        return root.displayedTextItems(item, includeHidden).filter(child => root.isSemanticLabel(child));
+    }
+    function displayedFacts(item) {
+        const owner = root.isDisplayedOwner(item);
+        return { semanticLabel: root.isSemanticLabel(item), displayedOwner: owner,
+            words: owner ? root.displayedText(item) : null };
+    }
+    // Requested properties are component data, even when named "words".
+    // Only the reserved @display namespace requests a derived reader fact;
+    // it cannot be confused with a QML property identifier.
+    function propertyValue(item, name) {
+        let value = item;
+        if (name.startsWith("@display.")) {
+            const key = name.slice("@display.".length);
+            const facts = root.displayedFacts(item);
+            if (!Object.prototype.hasOwnProperty.call(facts, key))
+                throw new Error("probe-property: unknown-display-fact=" + key);
+            value = facts[key];
+        } else {
+            for (const key of name.split("."))
+                value = value === null || value === undefined ? undefined : value[key];
+        }
+        return value !== null && typeof value === "object" && "hslHue" in value ? value.toString() : value;
+    }
+
+    // The modal and its loaded body are private scene shape. Only this
+    // owner crosses that boundary; rows query titles and parsed targets.
+    function helpModal(label) {
+        if (!root.isSemanticLabel(label)) return null;
+        const dialogs = root.descendants(label).filter(child => child instanceof Ui.ModalDialog);
+        return dialogs.length === 1 ? dialogs[0] : null;
+    }
+    function modalSurface(modal) {
+        if (modal === null || !modal.shown) return null;
+        const surfaces = Array.from(modal.children).filter(child => child instanceof Loader && child.item !== null
+            && child.item.contentItem !== undefined).map(child => child.item);
+        return surfaces.length === 1 && surfaces[0].visible ? surfaces[0] : null;
+    }
+    function modalCard(modal) {
+        const surface = root.modalSurface(modal);
+        if (surface === null) return null;
+        const cards = root.descendants(surface.contentItem).filter(child => child instanceof Ui.Dialog && root.visibleInTree(child));
+        return cards.length === 1 ? cards[0] : null;
+    }
+    function helpSurface(label) {
+        return root.modalSurface(root.helpModal(label));
+    }
+    function helpDialog(label) {
+        return root.modalCard(root.helpModal(label));
+    }
+    function helpParagraphItems(label) {
+        const modal = root.helpModal(label), surface = root.helpSurface(label);
+        if (modal === null || surface === null) return [];
+        const loaders = root.descendants(surface.contentItem).filter(child => child instanceof Loader
+            && child.item !== null && child.sourceComponent === modal.body);
+        if (loaders.length !== 1) return [];
+        return root.displayedTextItems(loaders[0].item).filter(child => child instanceof Ui.LinkText && !root.isSemanticLabel(child));
+    }
+    function helpLabel(item, title) {
+        const labels = root.semanticLabelItems(item, true).filter(child => root.displayedText(child) === title
+            && (root.visibleInTree(child) || child.infoOpen));
+        return labels.length === 0 ? null : labels.length === 1 ? labels[0] : "error: help-labels=" + labels.length;
+    }
+    function helpParagraph(item, title, page) {
+        const label = root.helpLabel(item, title);
+        if (label === null || typeof label === "string") return label;
+        const paragraphs = root.helpParagraphItems(label).filter(child =>
+            PageReference.references(child.text).links.some(link => link.page === page));
+        return paragraphs.length === 0 ? null : paragraphs.length === 1 ? paragraphs[0] : "error: help-paragraphs=" + paragraphs.length;
+    }
+
+    // Whether an item reads `text`: its display text, icon name, button
+    // label, or a Select's current choice.
     function reads(child, text) {
-        return child.text === text || child.name === text || child.label === text || child.currentText === text;
+        if (root.isSemanticLabel(child)) return root.displayedText(child) === text;
+        return root.displayedText(child) === text || child.text === text || child.name === text || child.label === text || child.currentText === text;
     }
 
     // The window box of the first visible item named `type` under an
@@ -1239,7 +1348,7 @@ Scope {
         const item = root.instance(hostKey, id);
         if (item === null) return "absent";
         const found = root.descendants(item).find(child => root.matchesType(child, type) && root.reads(child, text) && child.visible && (child.enabled || !enabledOnly));
-        return found === undefined ? "absent" : root.json(root.windowBox(found));
+        return found === undefined ? "absent" : root.json(root.pointerBox(found, false));
     }
 
     function fieldOf(panel, id, key) {
@@ -1252,7 +1361,7 @@ Scope {
         const content = select.tracker.popup.contentItem;
         const view = descendants(content).find(child => child instanceof ListView);
         return { open: select.listOpen, empty: select.emptyText,
-            lines: select.listOpen ? descendants(content).filter(child => child instanceof Text && child.text !== "" && visibleInTree(child)).map(child => child.text) : [],
+            lines: select.listOpen ? root.displayedTextItems(content).map(child => root.displayedText(child)).filter(text => text !== "") : [],
             entries: view === undefined ? -1 : view.count };
     }
 
@@ -1385,6 +1494,27 @@ Scope {
         return "no-card-area";
     }
 
+    // Text-only help takes the pointer on its words, not the empty part
+    // of a form's label column. Use its first rendered span as a click box.
+    function pointerTarget(item) {
+        if (item instanceof Ui.MenuItem && item.info !== "") {
+            const labels = root.semanticLabelItems(item).filter(label => root.displayedText(label) === item.text);
+            return labels.length === 1 ? labels[0] : null;
+        }
+        return item;
+    }
+    function pointerBox(item, global) {
+        const spans = root.isSemanticLabel(item) ? item.underlined : [];
+        const span = spans.length > 0 ? spans[0] : null;
+        const x = span === null ? 0 : span.left;
+        const y = span === null ? 0 : span.line * item.linePitch;
+        const at = global ? item.mapToGlobal(x, y) : item.mapToItem(null, x, y);
+        return [at.x, at.y, span === null ? item.width : span.right - span.left, span === null ? item.height : item.linePitch];
+    }
+    function pointerHovered(item) {
+        return item instanceof Ui.LinkText && item.linked ? item.hoveredLink === true : item.hovered === true;
+    }
+
     function windowBox(item) {
         const at = item.mapToItem(null, 0, 0);
         return [at.x, at.y, item.width, item.height];
@@ -1400,7 +1530,8 @@ Scope {
     // A native Text query includes QML types that inherit Text, as the
     // scope's text reader above does. Declared component queries stay exact.
     function matchesType(item, type) {
-        return type === "QQuickText" ? item instanceof Text : type === "Field" ? item instanceof Ui.Field : typeName(item) === type;
+        return type === "SemanticLabel" ? root.isSemanticLabel(item) : type === "DisplayedText" ? root.isDisplayedOwner(item)
+            : type === "QQuickText" ? item instanceof Text : type === "Field" ? item instanceof Ui.Field : typeName(item) === type;
     }
 
     // How many instances of plugin `id` the core records under `hostKey`.
@@ -1499,9 +1630,9 @@ Scope {
             const formatted = editor === undefined || SettingValues.datetimeFormatProblem(editor.text) !== "" ? "" : Qt.formatDateTime(Time.now, editor.text);
             const problem = editor === undefined ? "" : SettingValues.datetimeFormatProblem(editor.text);
             const problemText = problem === "" ? "" : SettingValues.PROBLEM_TEXT[problem];
-            const labels = shown.filter(child => root.typeName(child) === "Label" && child.role === "hint");
-            const preview = labels.find(child => formatted !== "" && child.text === formatted) || null;
-            const error = labels.find(child => problemText !== "" && child.text === problemText) || null;
+            const labels = shown.filter(child => root.isDisplayedOwner(child) && child.role === "hint");
+            const preview = labels.find(child => formatted !== "" && root.displayedText(child) === formatted) || null;
+            const error = labels.find(child => problemText !== "" && root.displayedText(child) === problemText) || null;
             if (name === "editFieldCustom") {
                 if (editor === undefined) return "absent";
                 editor.forceActiveFocus();
@@ -1511,10 +1642,10 @@ Scope {
             return root.json({
                 visible: editor !== undefined,
                 text: editor === undefined ? "" : editor.text,
-                preview: preview === null ? "" : preview.text,
+                preview: preview === null ? "" : root.displayedText(preview),
                 formatted: formatted,
                 previewBox: preview === null ? [0, 0, 0, 0] : root.windowBox(preview),
-                error: problemText !== "" ? problemText : error === null ? "" : error.text
+                error: problemText !== "" ? problemText : error === null ? "" : root.displayedText(error)
             });
         }
         if (name === "fieldPresetPreviews") {
@@ -1587,8 +1718,12 @@ Scope {
             return "applied";
         }
         if (name === "fieldGeometry") {
+            // The Select's chevron can sit well before the row's right edge.
             const a = JSON.parse(arg);
-            return root.geometry(fieldOf(item, a.id, a.key));
+            const field = fieldOf(item, a.id, a.key);
+            if (field === null) return "absent";
+            const select = descendants(field).find(child => typeName(child) === "Select" && visibleInTree(child));
+            return root.geometry(select === undefined ? null : select);
         }
         if (name === "applyKey") {
             // A drawn Keys row's edit, as the row emits it: `key` absent
@@ -1945,7 +2080,7 @@ Scope {
                         const at = item.mapToGlobal(0, 0);
                         const values = {};
                         // A colour reads as its #aarrggbb name, not its channels.
-                        for (const name of names) values[name] = item[name] !== null && typeof item[name] === "object" && "hslHue" in item[name] ? item[name].toString() : item[name];
+                        for (const name of names) values[name] = root.propertyValue(item, name);
                         out.push([screen, [Math.round(at.x), Math.round(at.y), Math.round(item.width), Math.round(item.height)], values]);
                     }
             return root.json(out);
@@ -1992,8 +2127,8 @@ Scope {
             for (const entry of Layers.entries.filter(e => e.pluginId === id))
                 for (const screen of Object.keys(entry.screens).sort())
                     for (const holder of root.descendants(entry.screens[screen]).filter(i => root.matchesType(i, scope) && String(i[property]) === value))
-                        for (const item of root.descendants(holder).filter(i => i instanceof Text && i.visible))
-                            if (item.text.indexOf(needle) !== -1) total += 1;
+                        for (const item of root.displayedTextItems(holder))
+                            if (root.displayedText(item).indexOf(needle) !== -1) total += 1;
             return total;
         }
         // Saves the first item of a type in a plugin's layer copies whose
@@ -2091,7 +2226,7 @@ Scope {
                 return button === undefined || !button.visible || !button.enabled ? "absent" : root.json(root.windowBox(button));
             }
             if (part !== "title") return "refused: part=" + part + " want=card|title|scrim";
-            const title = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.text === dialog.title);
+            const title = root.displayedTextItems(dialog).find(child => root.displayedText(child) === dialog.title);
             return title === undefined ? "absent" : root.json(root.windowBox(title));
         }
         // How the notice's scrim is drawn, as { visible, opacity, color,
@@ -2142,24 +2277,20 @@ Scope {
         function noticeDrawn(): string {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             if (dialog === null) return "absent";
-            const linkTexts = root.descendants(dialog).filter(child => root.typeName(child) === "LinkText" && child.visible);
-            const inLinkText = item => {
-                for (let p = item.parent; p !== null; p = p.parent)
-                    if (linkTexts.indexOf(p) !== -1) return true;
-                return false;
-            };
+            const words = root.displayedTextItems(dialog);
+            const linkTexts = words.filter(child => child instanceof Ui.LinkText);
             const keyCaps = root.descendants(dialog).filter(child => root.typeName(child) === "KeyCaps" && child.visible);
-            const keyTitle = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.role === "eyebrow");
+            const keyTitle = words.find(child => child.role === "eyebrow");
             const hasAncestor = (item, type) => {
                 for (let p = item.parent; p !== null; p = p.parent)
                     if (root.matchesType(p, type)) return true;
                 return false;
             };
             const inKeyRow = item => (item.parent !== null && root.descendants(item.parent).some(child => root.typeName(child) === "KeyCaps")) || hasAncestor(item, "KeyCaps") || hasAncestor(item, "Kbd");
-            const labels = root.descendants(dialog).filter(child => root.typeName(child) === "Label" && child.visible && !inLinkText(child) && !inKeyRow(child) && child.role !== "eyebrow");
+            const labels = words.filter(child => !(child instanceof Ui.LinkText) && !inKeyRow(child) && child.role !== "eyebrow");
             const keyRows = keyCaps.map(cap => {
-                const label = root.descendants(cap.parent).find(child => root.typeName(child) === "Label" && child.visible);
-                return { shortcut: cap.shortcut, text: label === undefined ? "" : label.text };
+                const label = root.displayedTextItems(cap.parent).find(child => !hasAncestor(child, "KeyCaps") && !hasAncestor(child, "Kbd"));
+                return { shortcut: cap.shortcut, text: label === undefined ? "" : root.displayedText(label) };
             });
             // A requirement notice's entries: each name chip's text, the
             // lines drawn under it in its block, then the state chip
@@ -2169,21 +2300,22 @@ Scope {
                 const block = badge.parent.parent;
                 const chips = root.descendants(block).filter(child => root.typeName(child) === "Badge" && child.visible);
                 const inChip = item => chips.some(chip => root.descendants(chip).indexOf(item) !== -1);
-                const lines = root.descendants(block).filter(child => root.typeName(child) === "Label" && child.visible && !inChip(child));
-                return [badge.text, lines.map(line => line.text), chips.filter(chip => chip !== badge).map(chip => chip.text)];
+                const lines = root.displayedTextItems(block).filter(child => !inChip(child));
+                return [badge.text, lines.map(line => root.displayedText(line)), chips.filter(chip => chip !== badge).map(chip => chip.text)];
             });
             return root.json({
                 title: dialog.title,
                 message: dialog.message,
-                rows: linkTexts.map(link => link.text).concat(labels.map(label => label.text)).filter(text => text !== dialog.title && text !== dialog.message && !dialog.entries.some(entry => entry.label === text)),
+                rows: linkTexts.concat(labels).map(child => root.displayedText(child)).filter(text => text !== dialog.title
+                    && text !== PageReference.plain(dialog.message) && !dialog.entries.some(entry => entry.label === text)),
                 groups: groups,
-                keysTitle: keyTitle === undefined ? "" : keyTitle.text,
+                keysTitle: keyTitle === undefined ? "" : root.displayedText(keyTitle),
                 keys: keyRows,
                 // The button that holds the keyboard, by its text or label.
                 focused: (() => {
                     const held = root.descendants(dialog).find(child => child.activeFocus === true && ["Button", "IconButton"].includes(root.typeName(child)));
                     if (held !== undefined) return held.text || held.label;
-                    const linked = root.descendants(dialog).find(child => child.activeFocus === true && root.typeName(child) === "LinkText");
+                    const linked = words.find(child => child.activeFocus === true && child instanceof Ui.LinkText);
                     return linked === undefined ? null : "link:" + linked.link;
                 })(),
                 actions: dialog.entries.map(entry => entry.label),
@@ -2340,7 +2472,7 @@ Scope {
             const item = copyName === "" ? root.instance(hostKey, id) : root.popupCopies[copyName];
             if (item === null || item === undefined) return "absent";
             const orbs = copyName === "" ? root.descendants(item).filter(child => root.typeName(child) === "VoiceOrb") : [item];
-            const title = root.descendants(item).find(child => root.typeName(child) === "Label" && child.text === "VGS Components");
+            const title = root.displayedTextItems(item).find(child => root.displayedText(child) === "VGS Components");
             const viewport = root.shownScrollAreas(item)[0];
             let clip = viewport === undefined ? null : viewport.contentItem.parent;
             while (clip !== null && !clip.clip) clip = clip.parent;
@@ -2422,7 +2554,8 @@ Scope {
             const item = root.instance(hostKey, id);
             if (item === null || item.examples === undefined) return "absent";
             const typeOf = child => String(child).split("_QMLTYPE_")[0];
-            const header = root.descendants(item.examples).find(child => typeOf(child) === "SectionHeader" && child.text === section);
+            const header = root.descendants(item.examples).find(child => typeOf(child) === "SectionHeader"
+                && root.semanticLabelItems(child).some(label => root.displayedText(label) === section));
             if (header === undefined) return "no-section";
             const siblings = header.parent.children;
             let at = 0;
@@ -2978,7 +3111,7 @@ Scope {
             const items = root.descendants(item);
             return root.json(items.map(child => {
                 const at = child.mapToGlobal(0, 0);
-                return {
+                return Object.assign(root.displayedFacts(child), {
                     type: root.typeName(child),
                     box: [at.x, at.y, child.width, child.height],
                     implicit: [child.implicitWidth, child.implicitHeight],
@@ -2988,10 +3121,9 @@ Scope {
                     name: child.objectName,
                     visible: child.visible,
                     role: child.role,
-                    lineHeight: child.lineHeight,
-                    text: child.text,
-                    visible: child.visible
-                };
+                    lineHeight: root.isDisplayedOwner(child) ? root.displayedTextRenderer(child).lineHeight : child.lineHeight,
+                    text: child.text
+                });
             }));
         }
         // Geometry of every shown title, including inline title slots.
@@ -3018,7 +3150,7 @@ Scope {
                 implicitHeight: item.implicitHeight,
                 height: item.height,
                 lastRowBottom: box[1] + box[3],
-                lastRowTexts: root.descendants(row).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text).slice(0, 4),
+                lastRowTexts: root.displayedTextItems(row).map(child => root.displayedText(child)).filter(text => text !== "").slice(0, 4),
                 contentY: view.contentY,
                 cueAbove: view.fadeAbove > 0,
                 cueBelow: view.fadeBelow > 0
@@ -3039,12 +3171,8 @@ Scope {
                 for (const entry of Plugins.built[hostKey]) {
                     const trees = [entry.instance];
                     for (const owner of root.descendants(entry.instance)) {
-                        const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                        const popup = root.popupOf(owner);
                         if (popup !== null && popup !== undefined && popup.visible) trees.push(popup.contentItem);
-                        // A ModalDialog's Loader owns a window, not a visual
-                        // child. Its content needs the same inventory.
-                        if (owner instanceof Loader && owner.item !== null && !(owner.item instanceof Item)
-                            && owner.item.visible && owner.item.contentItem !== undefined) trees.push(owner.item.contentItem);
                     }
                     for (const tree of trees) {
                         for (const pane of root.titledPanes(tree)) {
@@ -3067,16 +3195,13 @@ Scope {
             return root.json(out);
         }
         // Every item named `type` under an instance, in tree order, as the
-        // texts it draws: its visible, non-empty Text items depth first, so
-        // a row reads a list item's title, its secondary line, its trailing
-        // badges and then whatever follows it, as drawn now.
+        // texts it draws, depth first. A LinkText owns its displayed words;
+        // stop there instead of reading its styled label and hidden help
+        // tree too. Hidden rows still contribute an empty list.
         function itemTexts(hostKey: string, id: string, type: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const texts = node => {
-                const own = node instanceof Text && node.visible && node.text !== "" ? [node.text] : [];
-                return own.concat(...Array.from(node.children || []).map(texts));
-            };
+            const texts = node => root.displayedTextItems(node).map(child => root.displayedText(child)).filter(text => text !== "");
             return root.json(root.descendants(item).filter(child => root.matchesType(child, type)).map(texts));
         }
         // Every item named `type` under an instance, in tree order, as the
@@ -3133,7 +3258,8 @@ Scope {
         // The box of the first visible, enabled item named `type` whose
         // `text` is `text`, in screen coordinates, so a row can click it.
         function itemGeometry(hostKey: string, id: string, type: string, text: string): string {
-            return root.geometry(root.textItem(hostKey, id, type, text));
+            const found = root.textItem(hostKey, id, type, text);
+            return found === null ? "absent" : root.json(root.pointerBox(found, true));
         }
         // Whether that item reports the pointer over it: "true", "false",
         // or "absent" with no such item. The compositor routes a click by
@@ -3141,14 +3267,15 @@ Scope {
         // itemGeometry reads, so a row clicks once this reads "true".
         function itemHovered(hostKey: string, id: string, type: string, text: string): string {
             const found = root.textItem(hostKey, id, type, text);
-            return found === null ? "absent" : String(found.hovered === true);
+            return found === null ? "absent" : String(root.pointerHovered(found));
         }
         // The same for the first visible, enabled item named `type` whose
         // `label` is `label`, for an icon button, which draws no text.
         function labelledGeometry(hostKey: string, id: string, type: string, label: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const found = root.descendants(item).find(child => root.matchesType(child, type) && child.label === label && child.visible && child.enabled);
+            const found = root.descendants(item).find(child => !root.isSemanticLabel(child)
+                && root.matchesType(child, type) && child.label === label && child.visible && child.enabled);
             return root.geometry(found === undefined ? null : found);
         }
         // Every Image under an instance, in tree order, as the local path it
@@ -3180,8 +3307,8 @@ Scope {
         }
         function textOf(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
-            const label = item === null ? undefined : root.descendants(item).find(child => child instanceof Text);
-            return label === undefined ? "absent" : root.json(label.text);
+            const labels = item === null ? [] : root.displayedTextItems(item);
+            return labels.length === 0 ? "absent" : root.json(root.displayedText(labels[0]));
         }
         function drawnFields(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
@@ -3229,7 +3356,7 @@ Scope {
                     checked: type === "Switch" ? row.control.checked : null,
                     focused: row.control.activeFocus,
                     chips: root.descendants(row).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => badge.text),
-                    truncated: root.descendants(row).some(child => root.typeName(child) === "Label" && child.visible && child.truncated === true),
+                    truncated: root.displayedTextItems(row).some(child => root.displayedTextRenderer(child).truncated === true),
                     row: JSON.parse(root.geometry(row)), control: JSON.parse(root.geometry(row.control))
                 };
             }));
@@ -3340,11 +3467,12 @@ Scope {
         // reports the pointer over it: "true", "false", or "absent"; a
         // LinkText also answers whether the pointer is on its link words.
         function popupItemGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
-            return root.geometry(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
+            const target = root.pointerTarget(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
+            return target === null ? "absent" : root.json(root.pointerBox(target, true));
         }
         function popupItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
-            const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : String(found.hovered === true || found.hoveredLink === true);
+            const target = root.pointerTarget(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
+            return target === null ? "absent" : String(root.pointerHovered(target));
         }
         // Read the actual popup item, rather than a registered disposable
         // copy. LinkText.linkBox is local to that item; its paragraph box
@@ -3354,6 +3482,39 @@ Scope {
             const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : root.json(found[property]);
         }
+        function helpLabelRead(hostKey: string, id: string, title: string, property: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const label = root.helpLabel(item, title);
+            if (label === null) return "absent";
+            if (typeof label === "string") return label;
+            return label[property] === undefined ? "error: help-label-property=" + property : root.json(label[property]);
+        }
+        function helpParagraphs(hostKey: string, id: string, title: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const label = root.helpLabel(item, title);
+            if (label === null) return "absent";
+            if (typeof label === "string") return label;
+            return root.json(root.helpParagraphItems(label).map(paragraph => ({
+                text: paragraph.text, words: root.displayedText(paragraph),
+                links: PageReference.references(paragraph.text).links, box: root.windowBox(paragraph)
+            })));
+        }
+        function helpParagraphGeometry(hostKey: string, id: string, title: string, page: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const paragraph = root.helpParagraph(item, title, page);
+            return paragraph === null ? "absent" : typeof paragraph === "string" ? paragraph : root.json(root.windowBox(paragraph));
+        }
+        function helpParagraphRead(hostKey: string, id: string, title: string, page: string, property: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const paragraph = root.helpParagraph(item, title, page);
+            if (paragraph === null) return "absent";
+            if (typeof paragraph === "string") return paragraph;
+            return paragraph[property] === undefined ? "error: help-paragraph-property=" + property : root.json(paragraph[property]);
+        }
         // The focused item inside an instance's open overlay as [type,
         // text, visualFocus], "no-focus" when an overlay is open and none
         // of its items holds the focus, or "absent".
@@ -3361,7 +3522,7 @@ Scope {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             for (const owner of root.descendants(item)) {
-                const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                const popup = root.popupOf(owner);
                 if (popup === null || popup === undefined || !popup.visible) continue;
                 const focused = root.descendants(popup.contentItem).filter(child => child.activeFocus);
                 if (focused.length === 0) return "no-focus";
@@ -3374,11 +3535,11 @@ Scope {
         // reports the pointer over it: "true", "false", or "absent".
         function scopedWindowGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : root.json(root.windowBox(found));
+            return found === null ? "absent" : root.json(root.pointerBox(found, false));
         }
         function scopedItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : String(found.hovered === true);
+            return found === null ? "absent" : String(root.pointerHovered(found));
         }
         function windowGeometry(hostKey: string, id: string, type: string, text: string): string {
             return root.labelledBox(hostKey, id, type, text, true);
@@ -3571,11 +3732,12 @@ Scope {
             const badges = shown.filter(child => root.typeName(child) === "Badge");
             const buttons = shown.filter(child => root.typeName(child) === "RowAction" || root.typeName(child) === "Button");
             const inside = (child, owners) => owners.some(owner => owner !== child && root.descendants(owner).indexOf(child) !== -1);
-            const titled = text => sections.some(section => text === section.title || text === section.description);
-            const lines = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && !inside(child, badges) && !inside(child, buttons) && !titled(child.text));
+            const titled = text => sections.some(section => text === section.title || text === PageReference.plain(section.description));
+            const lines = [].concat(...sections.map(section => root.displayedTextItems(section))).filter(child =>
+                root.displayedText(child) !== "" && !inside(child, badges) && !inside(child, buttons) && !titled(root.displayedText(child)));
             return root.json({
                 chips: badges.map(badge => [badge.text, badge.tone]),
-                lines: lines.map(line => line.text),
+                lines: lines.map(line => root.displayedText(line)),
                 buttons: buttons.map(button => {
                     const tip = root.descendants(button).find(child => root.typeName(child) === "Tooltip");
                     return [button.text, root.typeName(button) === "Button" ? "primary" : button.tone, button.enabled, tip === undefined ? "" : tip.text];
@@ -3651,14 +3813,15 @@ Scope {
         function textInk(hostKey: string, id: string, type: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            return root.json(root.descendants(item).filter(child => root.matchesType(child, type) && child instanceof Text && root.visibleInTree(child)).map(child => {
+            return root.json(root.displayedTextItems(item).filter(child => root.matchesType(child, type)).map(owner => {
+                const child = root.displayedTextRenderer(owner);
                 inkMetrics.font = child.font;
-                inkMetrics.text = child.text;
+                inkMetrics.text = root.displayedText(owner);
                 const rect = inkMetrics.tightBoundingRect;
                 const free = child.width - inkMetrics.advanceWidth;
                 const start = child.horizontalAlignment === Text.AlignHCenter ? free / 2 : child.horizontalAlignment === Text.AlignRight ? free : 0;
                 const at = child.mapToGlobal(start + rect.x, child.baselineOffset + rect.y);
-                return { text: child.text, ink: [at.x, at.y, rect.width, rect.height] };
+                return { text: root.displayedText(owner), ink: [at.x, at.y, rect.width, rect.height] };
             }));
         }
         function itemValues(hostKey: string, id: string, type: string, properties: string): string {
@@ -3667,12 +3830,7 @@ Scope {
             const names = properties === "" ? [] : properties.split(",");
             return root.json(root.descendants(item).filter(child => root.matchesType(child, type)).map(child => {
                 const values = {};
-                // A dotted name reads through an attached object, as `Accessible.name`.
-                for (const name of names) {
-                    let value = child;
-                    for (const key of name.split(".")) value = value === null || value === undefined ? undefined : value[key];
-                    values[name] = value !== null && typeof value === "object" && "hslHue" in value ? value.toString() : value;
-                }
+                for (const name of names) values[name] = root.propertyValue(child, name);
                 return values;
             }));
         }
@@ -3781,7 +3939,8 @@ Scope {
             if (item === null) return "absent";
             const pane = root.descendants(item).find(child => root.typeName(child) === "Pane" && child.title !== undefined && child.title !== "");
             if (pane === undefined) return "absent";
-            const title = root.descendants(pane).find(child => root.typeName(child) === "Label" && child.role === "h3" && child.text === pane.title && child.visible);
+            const titleOwner = root.displayedTextItems(pane).find(child => child.role === "h3" && root.displayedText(child) === pane.title);
+            const title = titleOwner === undefined ? undefined : root.displayedTextRenderer(titleOwner);
             const gear = root.descendants(pane).find(child => root.typeName(child) === "IconButton" && child.label === "Settings" && child.visible);
             const sw = pane.headerSwitch;
             // Boxes in the pane's own coordinates, the frame its content
@@ -3845,7 +4004,9 @@ Scope {
             const focused = root.descendants(item).filter(child => child.activeFocus);
             if (focused.length === 0) return "no-focus";
             const at = focused[focused.length - 1];
-            return root.json([root.typeName(at), at.label !== undefined && at.label !== "" ? String(at.label) : at.text !== undefined ? String(at.text) : null]);
+            const words = root.displayedText(at);
+            return root.json([root.typeName(at), words !== undefined ? words
+                : at.label !== undefined && at.label !== "" ? String(at.label) : at.text !== undefined ? String(at.text) : null]);
         }
         // The focused catalog action and the ToolRow that owns it. Qt also
         // marks enclosing FocusScopes active, so use the deepest focused
@@ -3907,6 +4068,8 @@ Scope {
                         if (at.focusExample !== undefined && at.focusExample !== "") return String(at.focusExample);
                     } catch (e) {}
                 }
+                const words = root.displayedText(target);
+                if (words !== undefined && words !== "") return words;
                 if (target.text !== undefined && target.text !== "") return String(target.text);
                 if (target.label !== undefined && target.label !== "") return String(target.label);
                 try {
@@ -3982,7 +4145,7 @@ Scope {
             if (name in root.popupCopies) return "loaded";
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const resolve = value => value === "@instance" ? item : value;
+            const resolve = value => value === "@instance" ? item : value === "@reader" ? root : value;
             const given = JSON.parse(properties);
             const initial = {};
             const lists = {};
@@ -4026,12 +4189,13 @@ Scope {
             return copy === undefined ? "absent" : root.json(copy[property]);
         }
         function popupDrop(name: string): string {
+            if (!(name in root.popupCopies)) return "absent";
             const copy = root.popupCopies[name];
-            if (copy === undefined) return "absent";
             const next = Object.assign({}, root.popupCopies);
             delete next[name];
             root.popupCopies = next;
-            copy.destroy();
+            // A host-close case may already have destroyed its child copy.
+            if (copy !== undefined && copy !== null && typeof copy.destroy === "function") copy.destroy();
             return "ok";
         }
         // Build a disposable panel host copy from FILE on the focused
@@ -4195,18 +4359,8 @@ Scope {
         function itemTextCount(hostKey: string, id: string, type: string, needle: string): int {
             const item = root.instance(hostKey, id);
             if (item === null) return 0;
-            const shown = child => {
-                for (let at = child; at !== null && at !== item; at = at.parent)
-                    if (at.visible === false) return false;
-                return true;
-            };
-            const texts = node => {
-                let count = node instanceof Text && shown(node) && node.text.indexOf(needle) !== -1 ? 1 : 0;
-                for (const child of Array.from(node.children || [])) count += texts(child);
-                return count;
-            };
-            const found = root.descendants(item).find(child => root.matchesType(child, type) && shown(child));
-            return found === undefined ? 0 : texts(found);
+            const found = root.descendants(item).find(child => root.matchesType(child, type) && root.visibleInTree(child));
+            return found === undefined ? 0 : root.displayedTextItems(found).filter(child => root.displayedText(child).indexOf(needle) !== -1).length;
         }
         // Count visible ImageText items under items named `type` that hold
         // at least one image segment. The row separately controls paged IPC.

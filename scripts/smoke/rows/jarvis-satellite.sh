@@ -81,15 +81,15 @@ PYSET
 # after `warning: `, or hidden.
 satellite_line() {
   local line notice
-  line="$(ipc smoke itemValues window vgs.jarvis LinkText objectName,text,visible)" || return
+  line="$(ipc smoke descendantGeometry window vgs.jarvis)" || return
   notice="$(ipc smoke itemValues window vgs.jarvis Callout objectName,text,visible,tone)" || return
   if [[ $notice != \[* ]]; then printf '%s\n' "$notice"; return; fi
   py_reply '
 import json,sys
 pick=lambda rows,name: [r for r in rows if r.get("objectName")==name]
-line=pick(json.load(sys.stdin),"mainReachLine")
+line=[r for r in json.load(sys.stdin) if r["displayedOwner"] and r["name"]=="mainReachLine"]
 notice=pick(json.loads(sys.argv[1]),"mainReachNotice")
-shown=[r["text"] for r in line if r["visible"]]+[r["tone"]+": "+r["text"] for r in notice if r["visible"]]
+shown=[r["words"] for r in line if r["visible"]]+[r["tone"]+": "+r["text"] for r in notice if r["visible"]]
 print("absent" if len(line)!=1 or len(notice)!=1 else shown[0] if len(shown)==1 else "hidden" if not shown else "both")' "$notice" <<<"$line"
 }
 satellite_choose() { # KEY VALUE

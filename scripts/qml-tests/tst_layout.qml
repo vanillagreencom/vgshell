@@ -83,14 +83,14 @@ Item {
         Section { id: ownSpaceSection; title: "Own"; spaceAbove: Theme.navList.headingSpace; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
     }
     ListCursor { id: navPlate }
-    FontMetrics { id: eyebrowMetrics; font: section.children[0].children[0].children[0].font }
+    FontMetrics { id: eyebrowMetrics }
     Surface { id: surface; level: "raised"; width: 100; height: 40; y: 220 }
     Divider { id: divider; width: 100; y: 270 }
     SignalSpy { id: clicks; target: row; signalName: "clicked" }
     SignalSpy { id: actionClicks; target: stillAction; signalName: "clicked" }
     Component { id: centredTabs; Tabs { y: 60 } }
 
-    TestCase {
+    UnitCase {
         name: "layout"
         when: windowShown
 
@@ -372,7 +372,7 @@ Item {
             const icon = row.contentItem.children[0];
             const column = row.contentItem.children[1];
             const title = column.children[0];
-            const secondary = column.children[1];
+            const secondary = column.children.find(child => child instanceof Label && child.role === "itemHint");
             compare(title.role, "item");
             compare(secondary.role, "itemHint");
             compare(title.lineHeight, title.lineBox);
@@ -416,13 +416,13 @@ Item {
         function test_a_wrapping_list_item_breaks_its_secondary_line_at_spaces_onto_two_lines(data) {
             compare(UnitTheme.override({ radius: { sm: data.radius } }), "ok");
             const plain = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Clock\"; width: 300; secondary: \"Show the time\" }", root);
-            const oneLine = plain.contentItem.children[1].children[1].height;
+            const oneLine = plain.contentItem.children[1].children.find(child => child instanceof Label && child.role === "itemHint").height;
             plain.destroy();
             const wrapped = Qt.createQmlObject("import qs.Ui\nContentRow { text: \"Backup\"; iconName: \"calendar-check\"; width: 300; secondaryWraps: true }", root);
             wrapped.secondary = data.secondary;
             const icon = wrapped.contentItem.children[0];
             const title = wrapped.contentItem.children[1].children[0];
-            const secondary = wrapped.contentItem.children[1].children[1];
+            const secondary = wrapped.contentItem.children[1].children.find(child => child instanceof Label && child.role === "itemHint");
             compare(secondary.lineCount, data.lines);
             compare(secondary.truncated, data.cut);
             compare(secondary.text.replace(/\n/g, " "), data.secondary, "the drawn lines hold the whole secondary line");
@@ -442,11 +442,11 @@ Item {
         function test_list_item_draws_plain_text() {
             const column = row.contentItem.children[1];
             compare(column.children[0].textFormat, Text.PlainText, "the title");
-            compare(column.children[1].textFormat, Text.PlainText, "the secondary line");
+            compare(column.children.find(child => child instanceof Label && child.role === "itemHint").textFormat, Text.PlainText, "the secondary line");
         }
 
         function test_section_header_and_divider() {
-            const eyebrow = header.children[0].children[0];
+            const eyebrow = semanticLabelItems(header)[0];
             compare(eyebrow.role, "eyebrow");
             compare(eyebrow.text, "Listed since");
             compare(header.topPadding, 0);
@@ -462,7 +462,8 @@ Item {
         // How far the capitals of SECTION's heading start under the drawn
         // row ABOVE, a box that draws to its edge.
         function headingSpace(target, above) {
-            const eyebrow = target.children[0].children[0].children[0];
+            const eyebrow = displayedTextRenderer(semanticLabelItems(target)[0]);
+            eyebrowMetrics.font = eyebrow.font;
             return eyebrow.mapToItem(root, 0, eyebrow.baselineOffset).y - eyebrowMetrics.capitalHeight - above.mapToItem(root, 0, above.height).y;
         }
 

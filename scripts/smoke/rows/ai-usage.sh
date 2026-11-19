@@ -182,10 +182,10 @@ usage_calendar_open() { ipc smoke readInstance panel vgs.ai-usage calendarOpen; 
 usage_calendar_click() { local box; box="$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "Reset calendar")" || return 1; usage_click calendar "$box"; }
 usage_calendar() {
   local labels read_at
-  labels="$(ipc smoke itemValues panel vgs.ai-usage Label text,visible)" && read_at="$(usage_read_at)" || return
+  labels="$(ipc smoke descendantGeometry panel vgs.ai-usage)" && read_at="$(usage_read_at)" || return
   ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import datetime,json,sys
 days = json.load(sys.stdin)
-shown = {r.get("text") for r in json.loads(sys.argv[1]) if r.get("visible")}
+shown = {r["words"] for r in json.loads(sys.argv[1]) if r["displayedOwner"] and r.get("visible")}
 want = int(sys.argv[2]) + 4680 * 60000
 got = sorted([a["provider"], a["label"], a["window"], a["percent"]] for d in days for a in d["accounts"])
 matched = got == [["claude", "Claude Code", "seven_day", 83], ["codex", "person@example.invalid", "seven_day", 64]]
@@ -205,7 +205,7 @@ usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dump
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
 # usage_drawn TEXT: how many visible labels of the panel read TEXT.
 usage_drawn() { # TEXT
-  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["type"] == "Label" and r.get("text") == sys.argv[1] and r["visible"] and r["box"][3] > 0))' "$1"
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["displayedOwner"] and r["words"] == sys.argv[1] and r["visible"] and r["box"][3] > 0))' "$1"
 }
 # Claude Code's credit rows: name, title, figure, whether the time left
 # reads as a limit row's, days and hours alone, and whether the row has a bar.
@@ -218,10 +218,10 @@ usage_first_line() { # TITLE FIGURE
   local values
   values="$(ipc smoke itemValues panel vgs.ai-usage Label text,lineBox)" || return
   ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys
-rows = [r for r in json.load(sys.stdin) if r["type"] == "Label" and r["visible"]]
+rows = [r for r in json.load(sys.stdin) if r["displayedOwner"] and r["visible"]]
 line = [v["lineBox"] for v in json.loads(sys.argv[1]) if v["text"] == sys.argv[2]]
-title = [r["box"] for r in rows if r.get("text") == sys.argv[2]]
-figure = [r["box"] for r in rows if r.get("text") == sys.argv[3]]
+title = [r["box"] for r in rows if r["words"] == sys.argv[2]]
+figure = [r["box"] for r in rows if r["words"] == sys.argv[3]]
 matched = len(title) == len(figure) == len(line) == 1 and abs(figure[0][1] + figure[0][3] / 2 - (title[0][1] + line[0] / 2)) < 1
 print("matched" if matched else json.dumps([title, figure, line]))' "$values" "$1" "$2"
 }
@@ -233,7 +233,7 @@ usage_panel_checked() {
 rows=json.load(sys.stdin)
 age=json.loads(sys.argv[1])
 bx,by,bw,bh=json.loads(sys.argv[2])
-labels=[r for r in rows if r["type"]=="Label" and r.get("text")==age and r["visible"]]
+labels=[r for r in rows if r["displayedOwner"] and r["words"]==age and r["visible"]]
 matched=age!="" and len(labels)==1 and labels[0].get("role")=="hint"
 if matched:
     x,y,w,h=labels[0]["box"]
@@ -260,7 +260,7 @@ for card,account in zip(cards,accounts):
         continue
     children=[r for r in rows if r["parent"]==columns[0] and r["visible"] and r["box"][3]>0]
     if account["account"]:
-        identities=[r for r in children if r.get("text")==account["account"]]
+        identities=[r for r in children if r["displayedOwner"] and r["words"]==account["account"]]
         contents=[r["contentHeight"] for r in labels if r["text"]==account["account"]]
         matched=matched and len(identities)==len(contents)==1
         if identities and contents:
@@ -792,7 +792,7 @@ def card_of(index):
         if rows[index]["type"] == "Card": return index
         index=rows[index]["parent"]
     return -1
-cards={card_of(i) for i,r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "AI Gateway"}
+cards={card_of(i) for i,r in enumerate(rows) if r["displayedOwner"] and r["words"] == "AI Gateway"}
 views=[r["box"] for r in rows if r["type"] == "ScrollArea" and r["visible"]]
 def drawn(r):
     x,y,w,h=r["box"]

@@ -308,7 +308,7 @@ Item {
         function test_details_without_required_work_has_no_setup_heading(data) {
             const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Details");
             compare(pageOf(window).tab, "Details");
-            verify(onTab(window, Section).every(section => section.title !== "Setup"),
+            verify(semanticLabelItems(tabsOf(window).currentPage).every(label => displayedText(label) !== "Setup"),
                 "Details has no empty Setup heading when it occupies the second tab");
         }
         function test_setup_draws_required_steps_with_links_and_two_state_chips_data() {
@@ -319,7 +319,7 @@ Item {
         function test_setup_draws_required_steps_with_links_and_two_state_chips(data) {
             const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            compare(shown(window, Field).map(field => field.label).filter(label => ["Model", "Home", "Health"].indexOf(label) !== -1), data.id === "acme.home" ? ["Home", "Model"] : ["Model", "Home"]);
+            compare(shown(window, Field).reduce((labels, field) => labels.concat(semanticLabelItems(field).map(label => displayedText(label))), []).filter(label => ["Model", "Home", "Health"].indexOf(label) !== -1), data.id === "acme.home" ? ["Home", "Model"] : ["Model", "Home"]);
             compare(shown(window, Badge).map(chip => chip.text), data.chips);
             compare(shown(window, RowAction).map(action => action.text), data.actions);
             compare(onTab(window, Button).length, 0, "Setup draws no boxed action");
@@ -334,15 +334,15 @@ Item {
         function test_setup_draws_an_optional_step(data) {
             const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            compare(shown(window, Field).map(field => field.label).filter(label => ["Extra", "Model"].indexOf(label) !== -1), data.labels);
+            compare(shown(window, Field).reduce((labels, field) => labels.concat(semanticLabelItems(field).map(label => displayedText(label))), []).filter(label => ["Extra", "Model"].indexOf(label) !== -1), data.labels);
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), data.chips);
             compare(shown(window, RowAction).map(action => action.text), data.actions);
         }
         function test_an_optional_step_keeps_published_warning_without_required_warning() {
             const window = opened(); window.openPlugin("acme.extra", Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            const steps = shown(window, Field).filter(field => ["Model", "Extra"].indexOf(field.label) !== -1);
-            compare(steps.map(field => field.label), ["Extra", "Model"]);
+            const steps = shown(window, Field).filter(field => semanticLabelItems(field).some(label => ["Model", "Extra"].indexOf(displayedText(label)) !== -1));
+            compare(steps.map(field => semanticLabelText(field)), ["Extra", "Model"]);
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Not set up", "warning"], ["Done", "success"]]);
             compare(descendants(steps[0]).filter(item => item instanceof RowAction && item.visible).map(action => action.text), ["Add"]);
             compare(chipShown(window, "acme.extra"), false, "the list row draws no warning");
@@ -360,11 +360,11 @@ Item {
         function test_setup_draws_the_neutral_reading_and_the_tools_action(data) {
             const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            const steps = shown(window, Field).filter(field => data.labels.indexOf(field.label) !== -1);
-            compare(steps.map(field => field.label), data.labels);
+            const steps = shown(window, Field).filter(field => semanticLabelItems(field).some(label => data.labels.indexOf(displayedText(label)) !== -1));
+            compare(steps.map(field => semanticLabelText(field)), data.labels);
             compare(shown(window, Badge).map(chip => chip.tone), data.tones);
             const action = field => descendants(field).find(item => item instanceof RowAction && item.visible);
-            compare(steps.filter(field => action(field) !== undefined).map(field => field.label), data.acting);
+            compare(steps.filter(field => action(field) !== undefined).map(field => semanticLabelText(field)), data.acting);
             if (data.acting.indexOf("Home") === -1) return;
             const review = action(steps[0]);
             tryVerify(() => review.height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
@@ -399,7 +399,7 @@ Item {
             compare(onTab(window, RowAction).filter(item => item.text === Steps.REVIEW_LABEL).length, 0, "Details offers no install");
             window.openPlugin("acme.optional", Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            const step = onTab(window, Field).find(item => item.label === "Optional tools");
+            const step = onTab(window, Field).find(item => semanticLabelItems(item).some(label => displayedText(label) === "Optional tools"));
             verify(step !== undefined, "Setup draws the Optional tools step");
             compare(descendants(step).filter(item => item instanceof Badge && item.visible).map(chip => [chip.text, chip.tone]), [["Optional", "neutral"]]);
             const review = descendants(step).find(item => item instanceof RowAction && item.visible);
@@ -447,7 +447,7 @@ Item {
         }
         function test_tools_are_one_persistent_step_and_the_link_requests_the_notice() {
             const window = opened(); window.openPlugin("acme.required", Qt.OtherFocusReason, "Setup");
-            const tools = shown(window, Field).filter(field => field.label === "Tools");
+            const tools = shown(window, Field).filter(field => semanticLabelItems(field).some(label => displayedText(label) === "Tools"));
             compare(tools.length, 1, "required tools collapse to one step");
             compare(shown(window, Badge).map(chip => chip.text), ["To do"]);
             const link = descendants(tools[0]).find(item => item instanceof RowAction && item.visible);
@@ -455,13 +455,13 @@ Item {
             tryVerify(() => link.height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
             mouseClick(link); compare(fakeManager.installs, ["acme.required"]);
             window.openPlugin("acme.present", Qt.OtherFocusReason, "Setup");
-            compare(shown(window, Field).filter(field => field.label === "Tools").length, 1);
+            compare(shown(window, Field).filter(field => semanticLabelItems(field).some(label => displayedText(label) === "Tools")).length, 1);
             compare(shown(window, Badge).map(chip => chip.text), ["Done"]);
             compare(shown(window, RowAction).length, 0);
         }
         function test_architecture_exclusion_draws_no_install_offer() {
             const window = opened(); window.openPlugin("acme.architecture", Qt.OtherFocusReason, "Setup");
-            const tools = shown(window, Field).filter(field => field.label === "Tools");
+            const tools = shown(window, Field).filter(field => semanticLabelItems(field).some(label => displayedText(label) === "Tools"));
             compare(tools.length, 1, "the required tool stays on Setup");
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Not available", "neutral"]]);
             compare(shown(window, RowAction).length, 0, "an excluded recipe offers no installation");
@@ -479,13 +479,13 @@ Item {
             const failure = { action: "install", manager: "pacman", packages: ["required-a-pkg"], lines: ["error: failed retrieving file", "error: failed to commit transaction"], run: "1-1", key: "core/requirements-install", path: "/run/r.json" };
             fakeManager.installFailures = { "acme.required": failure };
             const window = opened(); window.openPlugin("acme.required", Qt.OtherFocusReason, "Setup");
-            const tools = shown(window, Field).filter(field => field.label === "Tools");
+            const tools = shown(window, Field).filter(field => semanticLabelItems(field).some(label => displayedText(label) === "Tools"));
             compare(tools.length, 1);
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [[Steps.STEP_CHIPS.failed.text, "danger"]]);
-            const labels = descendants(tools[0]).filter(item => item instanceof Label && item.visible);
-            const output = labels.filter(label => label.text === failure.lines.join("\n"));
+            const labels = displayedTextItems(tools[0]);
+            const output = labels.filter(label => displayedText(label) === failure.lines.join("\n"));
             compare(output.map(label => [label.role, Qt.colorEqual(label.color, Theme.color.textMuted)]), [["code", true]]);
-            const sentence = labels.filter(label => label.role === "value" && failure.packages.every(name => label.text.indexOf(name) !== -1));
+            const sentence = labels.filter(label => label.role === "value" && failure.packages.every(name => displayedText(label).indexOf(name) !== -1));
             compare(sentence.length, 1);
             verify(sentence[0].y < output[0].y, "the last lines stand under what failed");
             const links = descendants(tools[0]).filter(item => item instanceof RowAction && item.visible);
@@ -525,7 +525,7 @@ Item {
         // A key list under its step draws its keys alone: the step names it.
         function test_a_step_key_list_draws_its_keys_alone() {
             const window = opened(); window.openPlugin("acme.keys", Qt.OtherFocusReason, "Setup");
-            compare(onTab(window, StatusLine).map(line => line.label), ["Connection", "Client ID", "Client secret"]);
+            compare(onTab(window, StatusLine).map(line => semanticLabelText(line)), ["Connection", "Client ID", "Client secret"]);
         }
         // The guide heads the Setup tab, above its steps, and its link opens
         // the README section in the default browser; a plugin with no README
@@ -543,7 +543,7 @@ Item {
             if (!data.callout) return;
             compare([callouts[0].title, callouts[0].text], [root.guide.title, root.guide.text]);
             compare(callouts[0].level, "raised");
-            const setup = onTab(window, Section).find(section => section.title === "Setup");
+            const setup = onTab(window, Section).find(section => semanticLabelItems(section).some(label => displayedText(label) === "Setup"));
             tryVerify(() => callouts[0].height > 0 && callouts[0].mapToItem(null, 0, callouts[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the guide stands above the steps: "
                 + callouts[0].mapToItem(null, 0, callouts[0].height).y + " " + setup.mapToItem(null, 0, 0).y);
             const links = descendants(callouts[0]).filter(item => item instanceof RowAction && item.visible);
@@ -564,26 +564,26 @@ Item {
             compare(onTab(window, Button).length, 0, "the masked editor keeps Setup actions as links");
             compare(descendants(onTab(window, TextField)[0].parent).filter(item => item instanceof RowAction && item.visible).length, 2, "the masked editor draws its two action links");
         }
-        // A key's info draws its own icon beside the key's label, which opens
-        // the explanation in a dialog; a key without info draws none. The
+        // A key's info makes its label open the explanation in a dialog;
+        // a key without info keeps a plain label. The
         // key's hint stays under its value.
-        function test_a_key_with_info_draws_its_own_icon_and_dialog() {
+        function test_a_key_with_info_draws_its_own_label_and_dialog() {
             const window = opened(); window.openPlugin("acme.explained", Qt.OtherFocusReason, "Setup");
-            const line = label => onTab(window, StatusLine).find(item => item.label === label);
-            const marks = item => descendants(item).filter(child => child instanceof InfoButton && child.visible);
-            compare(marks(line("Client secret")).length, 0, "a key without info draws no info icon");
+            const line = label => onTab(window, StatusLine).find(item => semanticLabelText(item) === label);
+            const marks = item => semanticLabelItems(item).filter(child => child.info !== "");
+            compare(marks(line("Client secret")).length, 0, "a key without info draws no help target");
             const mark = marks(line("Client ID"));
-            compare(mark.length, 1, "a key with info draws its own info icon");
+            compare(mark.length, 1, "a key with info draws its own help label");
             compare(mark[0].info, root.idInfo);
             // The list page hides once the page has slid in, where the
-            // pointer reaches the icon.
+            // pointer reaches the label.
             tryVerify(() => !descendants(window).find(item => item instanceof ListPage).visible);
             mouseClick(mark[0]);
-            tryVerify(() => mark[0].infoOpen, 1000, "the key's info icon opens its dialog");
+            tryVerify(() => mark[0].infoOpen, 1000, "the key's help label opens its dialog");
             mark[0].closeInfo();
             tryVerify(() => !mark[0].infoOpen);
             const chip = descendants(line("Client ID")).find(item => item instanceof Badge && item.visible);
-            const hint = descendants(line("Client ID")).find(item => item instanceof LinkText && item.visible && item.text === root.idHint);
+            const hint = displayedTextItems(line("Client ID")).find(item => displayedText(item) === root.idHint);
             verify(hint !== undefined, "the key's hint draws");
             verify(hint.mapToItem(null, 0, 0).y >= chip.mapToItem(null, 0, chip.height).y, "the key's hint sits under its value");
         }
@@ -595,14 +595,14 @@ Item {
         }
         function test_an_info_page_link_opens_its_page(data) {
             const window = opened(); window.openPlugin("acme.paged", Qt.OtherFocusReason, "Setup");
-            const line = onTab(window, StatusLine).find(item => item.label === data.label);
+            const line = onTab(window, StatusLine).find(item => semanticLabelText(item) === data.label);
             verify(line !== undefined, "the line draws");
-            const mark = descendants(line).filter(child => child instanceof InfoButton && child.visible);
-            compare(mark.length, 1, "the line draws its info icon");
+            const mark = semanticLabelItems(line).filter(child => child.info !== "");
+            compare(mark.length, 1, "the line draws its help label");
             tryVerify(() => !descendants(window).find(item => item instanceof ListPage).visible);
             mouseClick(mark[0]);
-            tryVerify(() => mark[0].infoOpen, 1000, "the icon opens its dialog");
-            const link = descendants(mark[0].popup.tracker.popup.contentItem).find(item => item instanceof LinkText && item.visible && item.linked);
+            tryVerify(() => mark[0].infoOpen, 1000, "the label opens its dialog");
+            const link = helpParagraphs(mark[0], root).find(item => item.linked);
             verify(link !== undefined, "the dialog draws the page reference as a link");
             link.clicked();
             tryVerify(() => pageOf(window).row !== null && pageOf(window).row.id === data.page, 2000, "the link opens the page it names");
@@ -623,7 +623,7 @@ Item {
         function test_a_settings_key_list_draws_its_keys_as_the_fields_own() {
             const window = opened(); window.openPlugin("acme.sourced", Qt.OtherFocusReason);
             compare(pageOf(window).tab, "Settings");
-            compare(keyLines(window).map(line => line.label), ["Acme", "Globex"], "the list draws its keys alone, with no head");
+            compare(keyLines(window).map(line => semanticLabelText(line)), ["Acme", "Globex"], "the list draws its keys alone, with no head");
             compare(onTab(window, Badge).length, 0, "a stored key draws no chip on Settings");
             const acme = keyLines(window)[0];
             verify(acme.text !== "" && acme.tone === "", "a stored key reads plain text");
@@ -633,7 +633,7 @@ Item {
             // source; the other key reads as it did.
             const acmeText = acme.text;
             window.writing = { step: window.stepKey("acme.sourced", "keys", "acme:g"), verb: "store" };
-            const globex = keyLines(window).find(line => line.label === "Globex");
+            const globex = keyLines(window).find(line => semanticLabelText(line) === "Globex");
             compare([globex.text, globex.tone], [Steps.WRITE_WORDS.store, ""], "Globex reads its write");
             verify(!descendants(globex).find(item => item instanceof RowAction && item.visible && item.text === "Make key").enabled, "Globex's source takes no press while its write runs");
             compare(keyLines(window)[0].text, acmeText, "Acme reads as it did");
@@ -644,13 +644,13 @@ Item {
             window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Details");
             const wiring = onTab(window, StatusRow).find(item => item.entry !== null && item.entry.key === "wiring");
             verify(wiring !== undefined, "Details draws its key list");
-            compare(descendants(wiring).filter(item => item instanceof StatusLine && item.visible).map(line => line.label), ["Wiring", "Bar"], "a Details key list keeps its head");
+            compare(descendants(wiring).filter(item => item instanceof StatusLine && item.visible).map(line => semanticLabelText(line)), ["Wiring", "Bar"], "a Details key list keeps its head");
         }
         // expected-log: settings: acme.sourced/keys/source acme:g refused: tui=make reason=busy-other -- the refused source the case plants
         // expected-log: settings: acme.sourced/keys/acme:g refused: secret write failed locked -- the failed write the case plants
         function test_a_key_source_takes_the_manager_route_and_keeps_its_own_reply() {
             const window = opened(); window.openPlugin("acme.sourced", Qt.OtherFocusReason);
-            const globex = () => keyLines(window).find(line => line.label === "Globex");
+            const globex = () => keyLines(window).find(line => semanticLabelText(line) === "Globex");
             const source = () => descendants(globex()).find(item => item instanceof RowAction && item.visible && item.text === "Make key");
             settled(window, source());
             mouseClick(source());
@@ -696,9 +696,9 @@ Item {
         function test_an_unavailable_key_links_setup_while_its_tool_is_missing(data) {
             const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason);
             compare(pageOf(window).tab, "Settings");
-            const line = keyLines(window).find(item => item.label === "Acme");
+            const line = keyLines(window).find(item => semanticLabelText(item) === "Acme");
             verify(line !== undefined, "the unavailable key draws its line");
-            const hint = descendants(line).find(item => item instanceof LinkText && item.visible && item.role === "hint" && item.plain !== "");
+            const hint = displayedTextItems(line).find(item => item.role === "hint" && displayedText(item) !== "");
             verify(hint !== undefined, "the key reads a sentence under its value");
             compare(hint.links.map(link => [link.page, link.tab]), data.links, "the sentence links the plugin's Setup tab only while the key tool is missing");
         }
@@ -744,12 +744,12 @@ Item {
             const notices = onTab(window, Callout);
             compare(notices.length, 1, "the tab draws one notice");
             compare(notices[0].level, "raised");
-            const setup = onTab(window, Section).find(section => section.title === "Setup");
+            const setup = onTab(window, Section).find(section => semanticLabelItems(section).some(label => displayedText(label) === "Setup"));
             tryVerify(() => notices[0].height > 0 && notices[0].mapToItem(null, 0, notices[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the notice stands above the steps");
             const link = descendants(notices[0]).filter(item => item instanceof RowAction && item.visible);
             compare(link.length, 1, "the notice draws one link");
             // Model reads To do and Home, published as done, Done; neither offers a link.
-            compare(onTab(window, StatusLine).map(line => [line.label, line.text, line.actionOffered]), [["Model", "To do", false], ["Home", "Done", false]], "each step keeps its chip and offers nothing");
+            compare(onTab(window, StatusLine).map(line => [semanticLabelText(line), line.text, line.actionOffered]), [["Model", "To do", false], ["Home", "Done", false]], "each step keeps its chip and offers nothing");
             compare(onTab(window, RowAction).filter(action => link.indexOf(action) === -1).length, 0, "no step draws a link");
             tryVerify(() => pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
             mouseClick(link[0]);
@@ -833,10 +833,10 @@ Item {
             const window = opened(); window.openPlugin("acme.settings", Qt.OtherFocusReason);
             const action = () => shown(window, RowAction).find(item => item.text === "Run task");
             const fieldOf = link => shown(window, Field).find(field => descendants(field).indexOf(link) !== -1);
-            verify(action() !== undefined); compare(fieldOf(action()).label, "More settings");
+            verify(action() !== undefined); compare(semanticLabelText(fieldOf(action())), "More settings");
             tabsOf(window).currentIndex = 1; compare(action(), undefined, "Details does not repeat More settings");
             window.openPlugin("acme.tasks", Qt.OtherFocusReason, "Details");
-            verify(action() !== undefined); compare(fieldOf(action()).label, "Actions");
+            verify(action() !== undefined); compare(semanticLabelText(fieldOf(action())), "Actions");
             tryVerify(() => action().height > 0 && pageOf(window).parent.x === -window.width, 2000);
             mouseClick(action()); compare(fakeManager.opens, [["acme.tasks", "task"]]);
             window.openPlugin("acme.held", Qt.OtherFocusReason, "Details");
@@ -856,7 +856,7 @@ Item {
             const body = tabsOf(window).currentPage;
             let loader, group, row, owner;
             if (data.kind === "more") {
-                row = onTab(window, Field).find(field => field.label === "More settings");
+                row = onTab(window, Field).find(field => semanticLabelItems(field).some(label => displayedText(label) === "More settings"));
                 owner = body;
             } else if (data.kind === "tool") {
                 row = onTab(window, RequirementRow)[0];

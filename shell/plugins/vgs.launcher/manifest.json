@@ -44,15 +44,14 @@
     "glass": {
       "type": "boolean",
       "label": "VGlass",
-      "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides",
-      "info": "VGlass draws the launcher as frosted glass with a moving edge light."
+      "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides"
     }
   },
   "defaultSection": "left",
   "appearance": "Appearance.js",
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SPACE", "info": "Opens the launcher to start an app or a command, or closes it." }
+      { "shortcut": "toggle", "key": "SUPER+SPACE" }
     ],
     "layerRules": [
       { "namespace": "^vgs:overlay$", "blur": true, "ignoreAlpha": 0.6 }

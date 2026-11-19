@@ -504,9 +504,13 @@ Item {
         function test_the_link_and_its_underline_take_the_handed_colour() {
             verify(!Qt.colorEqual(hosted.linkColor, Theme.color.accent), "the handed colour is not the accent");
             verify(labelOf(hosted).text.indexOf("<font color=\"" + hosted.linkColor + "\">hyprland.lua</font>") !== -1, labelOf(hosted).text);
-            verify(Qt.colorEqual(underlines(hosted)[0].color, hosted.linkColor), "the underline draws " + underlines(hosted)[0].color);
+            const hostedRule = underlines(hosted)[0].children.find(child => child instanceof Rectangle && child.visible);
+            verify(hostedRule !== undefined, "the solid underline draws");
+            verify(Qt.colorEqual(hostedRule.color, hosted.linkColor), "the underline draws " + hostedRule.color);
             verify(Qt.colorEqual(inline.linkColor, Theme.color.accent), "a link handed no colour draws the accent");
-            verify(Qt.colorEqual(underlines(inline)[0].color, Theme.color.accent));
+            const inlineRule = underlines(inline)[0].children.find(child => child instanceof Rectangle && child.visible);
+            verify(inlineRule !== undefined, "the default solid underline draws");
+            verify(Qt.colorEqual(inlineRule.color, Theme.color.accent));
         }
 
         // The underline draws only while the pointer is on the words, at the

@@ -896,9 +896,7 @@ function blockedNotice(state, profiles) {
     return { uuid: meant.uuid, text: "VPN dropped: traffic blocked" };
 }
 
-var KILL_COUNT_INFO = "Counts each time the kill switch refused traffic outside the VPN since it last started: when you turned on the VPN or the kill switch in VGS, or when this computer started. "
-    + "A change to another VPN profile while one is on does not restart it, and a VGS update can restart it. "
-    + "One app can try many times, so it is not a count of apps or sites.";
+var KILL_COUNT_INFO = "Counts blocked traffic attempts since you started the VPN or kill switch in VGS, or started this computer.\nChanging VPN profiles while connected keeps the count. A VGS update can reset it.\nOne app can make many attempts. This is not a count of apps or sites.";
 var KILL_LAN_HINT = "Printers, shared folders, containers and virtual machines work only with this on";
 // What the kill switch row draws from STATE, the published
 // `killSwitchState`, and PROFILES, for the profile names: whether it
@@ -1278,10 +1276,7 @@ function checkStale(check, rows, action) {
 // install }: its value, the error line for a leak or a reading that
 // failed, and for a command not installed a hint whose LINK words offer
 // INSTALL (Field `hintLink`).
-var PUBLIC_INFO = "VGS asks " + INSIGHTS_HOST + ", NordVPN's own service, which public address it sees. "
-    + "It asks through the VPN once after you connect a WireGuard profile here and each time you press Check, "
-    + "only when the lookup of its name stays in the VPN, and never while no profile is connected. "
-    + "The service sees the address the question comes from, the address every site you open sees.";
+var PUBLIC_INFO = "VGS asks " + INSIGHTS_HOST + ", a NordVPN service, which public address it sees.\nIt asks through the VPN after you connect a WireGuard profile here and when you select Check.\nIt asks only when name lookups stay inside the VPN, and never when no profile is connected.\nNordVPN sees the same public address as the sites you open.";
 var CHECK_REASONS = {
     link: "VGS could not read the VPN's network interface",
     inactive: "The VPN is not connected",

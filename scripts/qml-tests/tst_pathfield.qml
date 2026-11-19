@@ -20,7 +20,7 @@ Item {
     TextMetrics { id: metrics; elide: Text.ElideLeft }
     Component { id: emptyFolder; PathField {} }
 
-    TestCase {
+    UnitCase {
         name: "pathfield"
         when: windowShown
 
@@ -34,7 +34,7 @@ Item {
             }
             return out;
         }
-        function titleOf(row) { return descendants(row.contentItem).find(child => child.role === "item" && child.text === row.text); }
+        function titleOf(row) { return displayedTextItems(row.contentItem).find(child => child.role === "item" && displayedText(child) === row.text); }
 
         function test_browse_empty_field_opens_home_as_a_choosable_path() {
             const field = createTemporaryObject(emptyFolder, root);
@@ -108,8 +108,11 @@ Item {
             if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
             const value = "/usr/share/a-long-parent-directory-for-the-layout-check/last-folder";
             const editor = path.children.find(child => child.placeholderText !== undefined);
-            const display = path.children.find(child => child.role === "item");
-            verify(editor !== undefined && display !== undefined);
+            // The overlay is initially hidden. The editor's placeholder
+            // uses the same role but is not PathField's direct readout.
+            const readout = displayedTextItems(path, true).find(child => child.parent === path && child.role === "item");
+            verify(editor !== undefined && readout !== undefined);
+            const display = displayedTextRenderer(readout);
             editor.forceActiveFocus();
             editor.text = value;
             editor.textEdited();

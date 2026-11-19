@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Core
 import qs.Commons
 import qs.Ui
+import qs.Unit
 import "../../shell/plugins/vgs.updates" as Updates
 import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
@@ -34,7 +35,7 @@ Item {
     })
     Component { id: serviceComponent; Updates.Service {} }
     Component { id: windowComponent; Updates.Window {} }
-    TestCase {
+    UnitCase {
         id: tests
         name: "updates_refresh"
         when: windowShown
@@ -94,14 +95,14 @@ Item {
                 checkState: { tone: "warning", text: "Check failed" },
                 sources: Array.from({ length: data.count }, (unused, index) =>
                     ({ source: "source-" + index, count: null, error: "exit=1", packages: [] })) };
-            const labels = descendants(view).filter(item => item.role === "hint");
-            const time = labels.find(item => item.text.startsWith(" · "));
+            const labels = displayedTextItems(view).filter(item => item.role === "hint");
+            const time = labels.find(item => displayedText(item).startsWith(" · "));
             verify(time !== undefined, "the summary keeps its time beside it");
             compare(time.text, " · just now");
             verify(Qt.colorEqual(time.color, Theme.color.textMuted));
             compare(time.font.italic, false);
-            const summary = time.parent.children.find(item => item !== time && item.role === "hint");
-            compare(summary.text, data.summary);
+            const summary = labels.find(item => item !== time && item.parent === time.parent);
+            compare(displayedText(summary), data.summary);
             compare(summary.lineCount, 1);
         }
         // The production footer stays one keyboard path; checking replaces
@@ -162,8 +163,8 @@ Item {
             compare(view.rows[0].detail, data.detail);
             compare(row.expandable, data.detail !== "");
             compare(row.expanded, data.detail !== "");
-            const details = descendants(row).filter(item => item.visible && item.role === "hint");
-            compare(details.map(item => item.text), data.detail === "" ? [] : [data.detail]);
+            const details = displayedTextItems(row).filter(item => item.role === "hint");
+            compare(details.map(item => displayedText(item)), data.detail === "" ? [] : [data.detail]);
         }
         function test_flyout_fits_content_up_to_cap() {
             startup();

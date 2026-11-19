@@ -89,7 +89,7 @@ Item {
             return true;
         }
         function labelOf(text) {
-            const found = all(bubble, []).filter(item => item.role !== undefined && item.text === text && shown(item));
+            const found = displayedTextItems(bubble).filter(item => item.role !== undefined && displayedText(item) === text && shown(item));
             verify(found.length === 1, "one drawn line reads " + JSON.stringify(text) + ", found " + found.length);
             return found[0];
         }
@@ -132,7 +132,7 @@ Item {
             return service.acknowledged.some(entry => entry.item === layer && entry.hold.id === id);
         }
         function linesOf(layer, text) {
-            return all(layer, []).filter(item => item.role !== undefined && item.text === text && layer.drawn(item));
+            return displayedTextItems(layer).filter(item => item.role !== undefined && displayedText(item) === text && layer.drawn(item));
         }
 
         function test_main_text_is_body_strong_data() {

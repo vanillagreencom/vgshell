@@ -190,7 +190,7 @@ print("drawn" if off>=0.02 else "blank" if off<0.001 else "faint")
 # Jarvis's words as the bubble draws them while its voice is muted: one
 # visible Words view whose revealed words are the whole caption and whose
 # reveal has ended, longer than the look's line count. Its drawn lines are
-# the visible Labels inside its box, each line's words read left to right
+# the displayed owners inside its box, each line's words read left to right
 # and the lines top to bottom. `latest-lines` when exactly the look's line
 # count draws and, read in order, they are the caption's last words;
 # `unbounded` when another count draws; `wrong-order` otherwise;
@@ -198,7 +198,7 @@ print("drawn" if off>=0.02 else "blank" if off<0.001 else "faint")
 jarvis_bubble_words() {
   local views labels lines
   views="$(ipc smoke layerItems vgs.jarvis Words shown,settled,lineCount,visible)" &&
-    labels="$(ipc smoke layerItems vgs.jarvis Label text,visible)" || return 1
+    labels="$(ipc smoke layerItems vgs.jarvis DisplayedText @display.words,visible)" || return 1
   [[ $views == \[* && $labels == \[* ]] || { printf 'jarvis-bubble: words-reader=unreadable views=%s labels=%s\n' "$views" "$labels" >&2; return 1; }
   if [[ $views == '[]' ]]; then echo absent; return; fi
   lines="$(jarvis_bubble_look_value words.lines)" || return 1
@@ -214,8 +214,8 @@ if view["lineCount"]<=lines: print("short"); sys.exit()
 # Boxes are rounded apart, so an edge may stand one pixel out.
 drawn={}
 for s,b,v in labels:
-    if s==screen and v["visible"] and v["text"]!="" and b[2]>0 and b[0]>=x-1 and b[0]+b[2]<=x+w+1 and b[1]>=y-1 and b[1]+b[3]<=y+h+1:
-        drawn.setdefault(b[1],[]).append((b[0],v["text"]))
+    if s==screen and v["visible"] and v["@display.words"]!="" and b[2]>0 and b[0]>=x-1 and b[0]+b[2]<=x+w+1 and b[1]>=y-1 and b[1]+b[3]<=y+h+1:
+        drawn.setdefault(b[1],[]).append((b[0],v["@display.words"]))
 if len(drawn)!=lines: print("unbounded"); sys.exit()
 rows=[" ".join(t for _,t in sorted(drawn[top])) for top in sorted(drawn)]
 print("latest-lines" if text.endswith(" "+" ".join(rows)) else "wrong-order")
@@ -656,7 +656,7 @@ jarvis_bubble_request() {
   state="$(ipc smoke jarvisProcess)" &&
     buttons="$(ipc smoke layerItems vgs.jarvis Answer variant,visible)" &&
     clips="$(ipc smoke layerItems vgs.jarvis Words text)" &&
-    fields="$(ipc smoke layerItems vgs.jarvis Label role,visible)" || return 1
+    fields="$(ipc smoke layerItems vgs.jarvis DisplayedText role,visible)" || return 1
   "$node_bin" - "$state" "$buttons" "$clips" "$fields" "$jarvis_key_gates/effects.jsonl" "$repo/shell/plugins/vgs.jarvis/backend/ToolRouter.js" <<'JS'
 const [rawState, rawButtons, rawClips, rawFields, effects, file] = process.argv.slice(2);
 const fs = require("node:fs"), assert = require("node:assert/strict"), crypto = require("node:crypto");
@@ -1237,7 +1237,7 @@ expect_poll "hidden device loss shows the fault" error jarvis_key_state fault
 expect_poll "the reply card holds the hidden fault, so the overlay stays quiet" quiet jarvis_bubble_hidden quiet
 expect_poll "the hidden fault keeps its required text and field once the card hides" required jarvis_bubble_hidden required
 jarvis_bubble_before="$(jarvis_key_received count)"
-jarvis_bubble_menu_choose "Show Jarvis" Label role bodyStrong || fail "the hidden fault's menu Show is delivered"
+jarvis_bubble_menu_choose "Show Jarvis" DisplayedText role bodyStrong || fail "the hidden fault's menu Show is delivered"
 expect_poll "Show from the required fault restores the orb choice" shown jarvis_key_state visibility
 expect "the hidden fault menu sends only the direct Show intent" '["show"]' jarvis_key_received "$jarvis_bubble_before"
 expect_poll "Show restores the fault's orb" error jarvis_bubble_look

@@ -19,19 +19,11 @@ Item {
             Panel { id: panel; width: implicitWidth; height: implicitHeight }
         }
     }
-    TestCase {
+    UnitCase {
         name: "aiUsageCardRows"
         when: windowShown
 
         function initTestCase() { verify(Theme.name !== ""); }
-        function find(node, predicate) {
-            if (predicate(node)) return node;
-            for (const child of node.children) {
-                const found = find(child, predicate);
-                if (found !== null) return found;
-            }
-            return null;
-        }
         function fontOf(label) {
             return [label.font.family, label.font.pixelSize, label.font.weight, label.font.letterSpacing, label.font.capitalization];
         }
@@ -56,7 +48,10 @@ Item {
                         details: { creditPools: [{ kind: "codex", balance: "10", unlimited: false }], availableResets: 3 },
                         windows: [{ name: "seven_day", usedPercent: 4, resetsAt: now + 86400000 }] }
                 ] } } } };
-            const label = text => find(window.panel, item => item.text === text && item.role !== undefined);
+            const label = text => {
+                const owner = displayedTextItems(window.panel).find(item => displayedText(item) === text && item.role !== undefined);
+                return owner === undefined ? null : displayedTextRenderer(owner);
+            };
             tryVerify(() => label("Resets") !== null, 5000, "the card draws Resets after its API credits");
             const title = label("Codex"), weekly = label("Weekly limit"), credits = label("API credits"), resets = label("Resets");
             verify(title !== null && weekly !== null && credits !== null && resets !== null);

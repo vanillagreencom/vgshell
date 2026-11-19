@@ -173,7 +173,7 @@ lines = []
 for row in mine:
     if items[row].get("name") != "fieldRow" or items[row]["parent"] != items[headers[0]]["parent"] or not items[row]["visible"]: continue
     parts = [items[n] for n in mine if items[n]["visible"] and under(n, row)]
-    line = lambda role: next((p.get("text") for p in parts if p["type"] in ("Label", "LinkText") and p.get("role") == role and p["parent"] == row), None)
+    line = lambda role: next((p["words"] for p in parts if (p["semanticLabel"] if role == "label" else p["displayedOwner"]) and p.get("role") == role and p["parent"] == row), None)
     lines.append([line("label"), line("hint"), next((p.get("text") for p in parts if p["type"] == "RowAction"), None)])
 print(json.dumps({"header": items[headers[0]]["visible"], "lines": lines}))' "${1:-}" "${disp_access_copies[@]}"; }
 # disp_setting KEY VALUE: the plugin's setting KEY in the user file, a
@@ -274,15 +274,16 @@ pane = swap(pane, '    function keepTrial() {', '    function keepTrial() {\n   
 pane = swap(pane, '    function revertTrial() {', '    function revertTrial() {\n        trialActionCalls++;')
 end = pane.rfind('}')
 pane = pane[:end] + '''
+    property var reader
     property int trialActionCalls: 0
     function closeBeforeLoad() { open(""); close(); }
     function hideCopyBody() { content.visible = false; }
     readonly property bool vrrGrouped: vrrRow.parent === refreshRow.parent && vrrRow.y >= refreshRow.y + refreshRow.height && vrrRow.y <= refreshRow.y + refreshRow.height + Theme.stack.group
     readonly property var modalEvidence: {
-        const surface = trialDialog.children[0].item;
+        const surface = reader.modalSurface(trialDialog);
         if (surface === null) return { loaded: false };
-        const card = surface.contentItem.children.find(child => child.modal !== undefined);
-        if (card === undefined) return { loaded: true, card: false };
+        const card = reader.modalCard(trialDialog);
+        if (card === null) return { loaded: true, card: false };
         const scrim = surface.contentItem.children.find(child => child.clicked !== undefined && child.color !== undefined);
         const washed = scrim !== undefined && scrim.color.toString() === Theme.color.scrim.toString() && scrim.width === surface.contentItem.width && scrim.height === surface.contentItem.height;
         const centerErrorX = card.x + card.width / 2 - surface.contentItem.width / 2;
@@ -300,7 +301,7 @@ pane = pane[:end] + '''
 (folder / 'PaneLayout.qml').write_text(pane)
 (folder / 'ModalNotModal.qml').write_text(swap(modal, '                id: card', '                id: card\n                modal: false'))
 (folder / 'ModalNotCentered.qml').write_text(swap(modal, '                anchors.centerIn: parent', '                anchors.left: parent.left\n                anchors.top: parent.top'))
-(folder / 'ModalNoScrim.qml').write_text(swap(modal, '            Scrim {}', '            Item {}'))
+(folder / 'ModalNoScrim.qml').write_text(swap(modal, '            Scrim { onClicked: if (root.dismissOnOutside && !root.busy) root.rejected() }', '            Item {}'))
 (folder / 'ModalMasked.qml').write_text(swap(modal, '            inputAll: true', '            inputItems: [card]'))
 for name, host in [('PaneNotModal', 'ModalNotModal'), ('PaneNotCentered', 'ModalNotCentered'), ('PaneNoScrim', 'ModalNoScrim'), ('PaneMasked', 'ModalMasked')]:
     (folder / (name + '.qml')).write_text(swap(pane, '    ModalDialog {', '    ' + host + ' {'))
@@ -328,7 +329,7 @@ disp_scrim_matches() {
   disp_modal_read "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("loaded") is True and v.get("card") is True and v.get("scrim") is True and v.get("inputAll") is True)'
 }
 for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNoScrim PaneMasked; do
-  expect "the probe builds the layout copy $disp_layout" ok ipc smoke popupLoad "displays-layout-$disp_layout" "$disp_layout_dir/$disp_layout.qml" window vgs.displays '{"width":600}'
+  expect "the probe builds the layout copy $disp_layout" ok ipc smoke popupLoad "displays-layout-$disp_layout" "$disp_layout_dir/$disp_layout.qml" window vgs.displays '{"width":600,"reader":"@reader"}'
   expect "the layout copy closes before its modal can map" ok ipc smoke popupCall "displays-layout-$disp_layout" closeBeforeLoad
   expect "closing before mapping keeps the dialog hold count zero" 0 disp_read trialDialogs
   expect "the layout copy opens through its pane lifecycle" ok ipc smoke popupCall "displays-layout-$disp_layout" open
@@ -878,7 +879,7 @@ disp_bl_points() {
   local window row level box
   window="$(surface_box "window:System Settings")" || return 1
   row="$(ipc smoke windowGeometry window vgs.displays DisplayRow "Built-in display")" || return 1
-  level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "Built-in display" Label "$1")" || return 1
+  level="$(ipc smoke scopedWindowGeometry window vgs.displays DisplayRow "Built-in display" DisplayedText "$1")" || return 1
   for box in "$window" "$row" "$level"; do [[ $box == \[* ]] || { echo "$box"; return 1; }; done
   py_dumps "$window" "$row" "$level" <<'PY'
 import json, sys

@@ -71,7 +71,7 @@ def under(j):
         if rows[j]["type"] in ("CardCarousel", "Tabs"): return True
         j = rows[j]["parent"]
     return False
-print(json.dumps(sorted({r["text"] for i, r in enumerate(rows) if isinstance(r.get("text"), str) and r["text"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
+print(json.dumps(sorted({r["words"] for i, r in enumerate(rows) if r["displayedOwner"] and r["words"] != "" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and not under(i)})))'
 }
 # rail_top: the top of the rail on the output, to a hundredth of a pixel.
 # rail_held TOP: `held` while the rail's top is TOP, else `moved` with both.
@@ -97,7 +97,7 @@ def line(j):
     while j != -1 and rows[j]["type"] != "BrowserSlot":
         j = rows[j]["parent"]
     return j
-found = [line(i) for i, r in enumerate(rows) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+found = [line(i) for i, r in enumerate(rows) if r["displayedOwner"] and r["words"] == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 found = [j for j in found if j != -1]
 print("%.2f %.2f" % (rows[found[0]]["box"][1], rows[found[0]]["box"][3]) if len(found) == 1 else "lines=%d" % len(found))' "$1"
 }
@@ -106,7 +106,7 @@ print("%.2f %.2f" % (rows[found[0]]["box"][1], rows[found[0]]["box"][3]) if len(
 text_top() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
-tops = [r["box"][1] for r in json.load(sys.stdin) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+tops = [r["box"][1] for r in json.load(sys.stdin) if r["displayedOwner"] and r["words"] == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 print("%.2f" % tops[0]) if len(tops) == 1 else sys.exit("texts=%d" % len(tops))' "$1"
 }
 # show_all_pixels: the pixels Show all draws on the nested output, its box
@@ -121,7 +121,7 @@ show_all_pixels() {
   # layer's position on the layout places them for grim.
   geometry="$(python3 -c '
 import json, math, sys
-boxes = [r["box"] for r in json.loads(sys.argv[1]) if r.get("text") == "Show all" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+boxes = [r["box"] for r in json.loads(sys.argv[1]) if r["displayedOwner"] and r["words"] == "Show all" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 if len(boxes) != 1: sys.exit("show-all-boxes=%d" % len(boxes))
 l = json.loads(sys.argv[2])
 x, y, w, h = boxes[0]
@@ -186,7 +186,7 @@ search_field() { ipc smoke readDescendant overlay vgs.themes TextField visible; 
 # slice_names: the side cards the rail shows and how many of them draw no
 # name, as [shown, unnamed]: a side card is a shown AngledCard other than
 # the selected one, the largest, and it names its theme with a visible
-# Label inside it.
+# displayed text owner inside it.
 slice_names() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
@@ -198,7 +198,7 @@ def card_of(j):
     return -1
 cards = [i for i, r in enumerate(rows) if r["type"] == "AngledCard" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 selected = max(cards, key=lambda i: rows[i]["box"][2] * rows[i]["box"][3]) if cards else -1
-named = {card_of(i) for i, r in enumerate(rows) if r["type"] == "Label" and r["visible"] and isinstance(r.get("text"), str) and r["text"] != "" and r["box"][2] > 0 and r["box"][3] > 0}
+named = {card_of(i) for i, r in enumerate(rows) if r["displayedOwner"] and r["visible"] and r["words"] != "" and r["box"][2] > 0 and r["box"][3] > 0}
 sides = [i for i in cards if i != selected]
 print(json.dumps([len(sides), len([i for i in sides if i not in named])]))'
 }
@@ -801,7 +801,7 @@ clear_filter() { # LABEL
   expect "$1: the footer shows the filter no card matches" True rest_has zzqx
   expect "$1: the footer hides the hint while the filter shows" False rest_has "Type a theme name to search"
   expect "$1: a filter no card matches leaves the rail where it was" held rail_held "$rail"
-  click_in vgs:overlay overlay vgs.themes Label "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
+  click_in vgs:overlay overlay vgs.themes DisplayedText "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
 }
 clear_filter "Clear filter"
 expect_poll "Clear filter clears the filter" '""' view_value filterText
@@ -982,7 +982,7 @@ plugin_restore() {
 # Control: a manifest copy that still binds the theme browser to SUPER+T.
 # The bind reads the old key, and SUPER+SHIFT+T opens nothing: the SUPER+T
 # typed after it, which would close a browser it opened, opens the browser.
-plugin_control manifest.json "old theme key" '"shortcut": "themes", "key": "SUPER+SHIFT+T",' '"shortcut": "themes", "key": "SUPER+T",'
+plugin_control manifest.json "old theme key" '"shortcut": "themes", "key": "SUPER+SHIFT+T"' '"shortcut": "themes", "key": "SUPER+T"'
 expect_poll "control: the copy binds SUPER+T to the theme browser" '[[64, "T"]]' themes_bind
 press_themes || fail "typing SUPER+SHIFT+T for the old theme key control failed"
 press_old_themes || fail "typing SUPER+T for the old theme key control failed"
@@ -1129,7 +1129,7 @@ show_every() { # LABEL
   expect_poll "$1: SUPER+SHIFT+W opens the browser" 1 layer_count vgs:overlay
   expect_poll "$1: the wallpaper view read its lists" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
   expect "$1: vgs's theme source lists Black" "[\"$vgs_black\"]" wall_keys
-  click_in vgs:overlay overlay vgs.themes Label "Show all" || { fail "$1: the click on Show all failed"; return 1; }
+  click_in vgs:overlay overlay vgs.themes DisplayedText "Show all" || { fail "$1: the click on Show all failed"; return 1; }
 }
 show_every "the source line"
 expect_poll "the source line's Show all shows every source" '"all"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
@@ -1218,7 +1218,7 @@ type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
 expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
 expect "the wallpaper footer shows the filter no card matches" True rest_has zzqx
 expect "a wallpaper filter no card matches leaves the rail where it was" held rail_held "$wall_rail"
-click_in vgs:overlay overlay vgs.themes Label "Clear filter" || fail "the wallpaper Clear filter click failed"
+click_in vgs:overlay overlay vgs.themes DisplayedText "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
 expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search"
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
@@ -1370,7 +1370,7 @@ expect_poll "SUPER+SHIFT+W opens the browser for the scope word click" 1 layer_c
 expect_poll "the scope word view selects a.jpg" "$nord_a" wall_selected
 expect "the chosen All monitors draws brighter than This monitor" '[true, false]' scope_tones
 expect "the chosen All monitors draws bolder than This monitor" '[600, 400]' scope_weights
-click_in vgs:overlay overlay vgs.themes Label "This monitor" || fail "the click on This monitor failed"
+click_in vgs:overlay overlay vgs.themes DisplayedText "This monitor" || fail "the click on This monitor failed"
 expect_poll "a click on This monitor chooses it" '"this"' wall_value scope
 expect_poll "the clicked This monitor draws brighter than All monitors" '[false, true]' scope_tones
 expect_poll "the clicked This monitor draws bolder than All monitors" '[400, 600]' scope_weights

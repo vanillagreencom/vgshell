@@ -35,7 +35,7 @@ BarWidget {
     readonly property bool inputObserved: inputShows > 0 && (inputFrames > 0 || inputHoverExits > 0)
     function overlap() {
         linked = false;
-        tip.side = "belowStart";
+        tip.side = "below";
         tip.box = Qt.binding(() => Qt.rect(0, -item.height - Theme.tooltip.gap, item.width, item.height));
         return "ok";
     }

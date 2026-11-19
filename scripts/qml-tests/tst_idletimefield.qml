@@ -106,7 +106,7 @@ Item {
             return found;
         }
         function selectOf(item) { return descendants(item).find(child => String(child).indexOf("Select") === 0); }
-        function hintOf(item) { return descendants(item).find(child => child.role === "hint" && child.visible && child.text !== "" && String(child).indexOf("LinkText") === 0); }
+        function hintOf(item) { return displayedTextItems(item).find(child => child.role === "hint" && displayedText(child) !== ""); }
         function labels(select) {
             const out = [];
             for (let i = 0; i < select.count; i++) out.push(select.textAt(i));

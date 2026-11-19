@@ -177,9 +177,8 @@ Item {
             const row = rowOf();
             compare(row.stateText, "Problem");
             compare(row.title, "The AI model did not answer");
-            // The LinkText holds the action's words with their link markup.
-            const link = all(windowOf().contentItem).find(child => child.visible && child.link !== undefined
-                && String(child.text).indexOf("[Settings > Jarvis]") !== -1);
+            const link = displayedTextItems(windowOf().contentItem).find(child => child instanceof LinkText
+                && displayedText(child).indexOf("Settings > Jarvis") !== -1);
             verify(link !== undefined, "the fault's action reads under it");
             const window = windowOf();
             verify(renderedFrame(window.contentItem));

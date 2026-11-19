@@ -250,14 +250,14 @@ page = [i for i, r in enumerate(rows) if r["type"] == "ListPage"]
 if len(page) != 1: print(json.dumps(["pages=%d" % len(page)])); sys.exit()
 under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and inside(i, page[0])]
 search, areas, items = under("TextField"), under("ScrollArea"), under("NavigationRow")
-heading = [i for i in under("Label") if rows[i].get("role") == "windowTitle" and visible(i)]
+heading = [i for i, r in enumerate(rows) if r["displayedOwner"] and r.get("role") == "windowTitle" and inside(i, page[0]) and visible(i)]
 if len(search) != 1 or len(areas) != 1 or len(heading) != 1 or len(items) < 3:
     print(json.dumps(["search=%d areas=%d heading=%d items=%d" % (len(search), len(areas), len(heading), len(items))])); sys.exit()
 edge_l, edge_r = rows[page[0]]["box"][0] + inset, right(rows[areas[0]]) - inset
 check("content.rightInset", right(rows[page[0]]) - edge_r, inset)
 check("search.width", rows[search[0]]["box"][2], edge_r - edge_l)
 check("heading.x", rows[heading[0]]["box"][0], edge_l)
-placeholders = [j for j, r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "Search plugins" and inside(j, search[0])]
+placeholders = [j for j, r in enumerate(rows) if r["displayedOwner"] and r["words"] == "Search plugins" and inside(j, search[0])]
 if len(placeholders) != 1: out.append("placeholder=%d" % len(placeholders))
 else:
     check("search.placeholder.y", mid_y(rows[placeholders[0]]), mid_y(rows[search[0]]))
@@ -273,7 +273,7 @@ for n, i in enumerate(items):
     check("item%d.left" % n, item["box"][0], edge_l)
     check("item%d.right" % n, right(item), edge_r)
     icons = [j for j, r in enumerate(rows) if r["type"] == "Icon" and inside(j, i) and rows[r["parent"]]["parent"] == i]
-    lines = [j for j, r in enumerate(rows) if r["type"] == "Label" and r.get("role") in ("item", "itemHint") and inside(j, i) and r["box"][3] > 0]
+    lines = [j for j, r in enumerate(rows) if r["displayedOwner"] and r.get("role") in ("item", "itemHint") and inside(j, i) and r["box"][3] > 0]
     if len(icons) != 1 or not lines: out.append("item%d icons=%d lines=%d" % (n, len(icons), len(lines))); continue
     icon = rows[icons[0]]
     check("item%d.icon.x" % n, icon["box"][0], edge_l + pad)
@@ -337,11 +337,11 @@ settings_box() { ipc smoke windowGeometry window vgs.settings "$1" "$2"; }
 probe_row_box() { ipc smoke scopedWindowGeometry window vgs.settings NavigationRow Probe "$1" "$2"; }
 expect_cursor "the search field shows the I-beam" text window:Plugins "$(settings_box TextField "")"
 expect_cursor "Add plugin shows the hand" pointer window:Plugins "$(settings_box Button "Add plugin")"
-expect_cursor "the list's heading shows the arrow" default window:Plugins "$(settings_box Label Plugins)"
+expect_cursor "the list's heading shows the arrow" default window:Plugins "$(settings_box DisplayedText Plugins)"
 expect_cursor "a plugin's row shows the hand" pointer window:Plugins "$(settings_box NavigationRow Probe)"
 expect_cursor "the search field shows the I-beam again" text window:Plugins "$(settings_box TextField "")"
 expect_cursor "the row's switch shows the hand" pointer window:Plugins "$(probe_row_box Switch "")"
-expect_cursor "the heading shows the arrow again" default window:Plugins "$(settings_box Label Plugins)"
+expect_cursor "the heading shows the arrow again" default window:Plugins "$(settings_box DisplayedText Plugins)"
 expect_cursor "the row's chevron shows the hand" pointer window:Plugins "$(probe_row_box Icon chevron-right)"
 
 # A page: a click on a row opens it, drawn from the manifest alone; its
@@ -414,6 +414,12 @@ def right(r): return r["box"][0] + r["box"][2]
 def mid_y(r): return r["box"][1] + r["box"][3] / 2
 def check(name, got, want):
     if abs(got - want) > 1: out.append("%s=%.2f want=%.2f" % (name, got, want))
+def field_label(r):
+    return r["semanticLabel"] and r.get("role") == "label"
+def slider_label(j):
+    r = rows[j]
+    # Displayed owners exclude the help label's painted child.
+    return r["displayedOwner"] and not r["semanticLabel"] and r.get("role") == "label"
 page = [i for i, r in enumerate(rows) if r["type"] == "PluginPage"]
 areas = [i for i, r in enumerate(rows) if r["type"] == "ScrollArea" and page and inside(i, page[0])]
 if len(page) != 1 or len(areas) != 1:
@@ -423,7 +429,7 @@ if plant:
     select_planted = False
     for j, r in enumerate(rows):
         if r["type"] == "Slider" and inside(j, page[0]) and not slider_planted:
-            labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, page[0]) and visible(q)]
+            labels_after = [q for q, row in enumerate(rows) if slider_label(q) and row["box"][0] > right(r) and inside(q, page[0]) and visible(q)]
             if labels_after:
                 rows[labels_after[0]] = dict(rows[labels_after[0]], box=[right(r) + label_gap - 8] + rows[labels_after[0]]["box"][1:])
                 slider_planted = True
@@ -434,7 +440,7 @@ if plant:
     # the field moved holds neither control planted above.
     first = next(i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field", "KeyField") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "Select") and inside(j, i) for j, c in enumerate(rows)))
     line = next(j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == first)
-    label_box = next(r["box"] for r in rows if r["parent"] == line and r["type"] == "Label" and r.get("role") == "label")
+    label_box = next(r["box"] for r in rows if r["parent"] == line and field_label(r))
     for j, r in enumerate(rows):
         if r["parent"] == line and r["type"] == "QQuickItem":
             rows[j] = dict(r, box=[r["box"][0], label_box[1] + label_box[3] + 1] + r["box"][2:])
@@ -447,7 +453,7 @@ check("content.leftInset", content_left - rows[page[0]]["box"][0], inset)
 check("content.rightInset", right(rows[page[0]]) - column_right, inset)
 headers = [i for i, r in enumerate(rows) if r["type"] == "SectionHeader" and inside(i, page[0])]
 for n, i in enumerate(headers):
-    labels = [j for j, r in enumerate(rows) if r["type"] == "Label" and inside(j, i) and r.get("role") == "eyebrow"]
+    labels = [j for j, r in enumerate(rows) if r["semanticLabel"] and r["parent"] == i and r.get("role") == "eyebrow"]
     if len(labels) != 1: out.append("section%d labels=%d" % (n, len(labels))); continue
     check("section%d.x" % n, rows[labels[0]]["box"][0], content_left)
 setting_roots = [i for i, r in enumerate(rows) if r["type"] == "SettingField" and inside(i, page[0]) and visible(i)]
@@ -460,7 +466,7 @@ for n, i in enumerate(fields):
     left = rows[i]["box"][0]
     lines = [j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == i]
     if len(lines) != 1: out.append("%s rows=%d" % (name, len(lines))); continue
-    labels = [j for j, r in enumerate(rows) if r["parent"] == lines[0] and r["type"] == "Label" and r.get("role") == "label"]
+    labels = [j for j, r in enumerate(rows) if r["parent"] == lines[0] and field_label(r)]
     if len(labels) != 1: out.append("%s labels=%d" % (name, len(labels))); continue
     label = rows[labels[0]]
     # The control slot is the shown item the label sits beside; the row's
@@ -481,7 +487,7 @@ for n, i in enumerate(fields):
     for j, r in enumerate(rows):
         if r["type"] in ("TextField", "DraftField", "Select") and inside(j, i) and visible(j): check(name + "." + r["type"] + ".right", right(r), box_right)
         if r["type"] == "Slider" and inside(j, i):
-            labels_after = [q for q, row in enumerate(rows) if row["type"] == "Label" and row.get("role") == "label" and row["box"][0] > right(r) and inside(q, i)]
+            labels_after = [q for q, row in enumerate(rows) if slider_label(q) and row["box"][0] > right(r) and inside(q, i)]
             if labels_after: check(name + ".slider.gap", rows[labels_after[0]]["box"][0] - right(r), label_gap)
 print(json.dumps(out))
 PY
@@ -546,9 +552,9 @@ terminal_stand_in
 terminal_ready "Settings' TUIs"
 # settings_button TEXT [TYPE]: whether the window draws a shown control of
 # TYPE, Button unless given, reading TEXT.
-# settings_label TEXT: the same for a Label.
+# settings_label TEXT: the same for displayed words.
 settings_button() { ipc smoke windowGeometry window vgs.settings "${2:-Button}" "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
-settings_label() { ipc smoke windowGeometry window vgs.settings Label "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+settings_label() { ipc smoke windowGeometry window vgs.settings DisplayedText "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 # How many floating TUI windows the nested instance maps.
 tui_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"].startswith("org.vgs.tui")))'; }
 settings_focused="[\"$shell_class\", \"Plugins\"]"
@@ -1040,7 +1046,7 @@ pages = [i for i, r in enumerate(rows) if r["type"] == "PluginPage" and shown(r)
 if len(pages) != 1: print(json.dumps(["pages=%d" % len(pages)])); sys.exit()
 under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and inside(i, pages[0]) and shown(r)]
 headers, backs, titles = under("PageHeader"), under("IconButton"), under("TitleButton")
-hints = [i for i in under("Label") if rows[i].get("role") == "hint"]
+hints = [i for i, r in enumerate(rows) if r["displayedOwner"] and r.get("role") == "hint" and inside(i, pages[0]) and shown(r)]
 if len(headers) != 1 or not backs or len(titles) != 1 or not hints:
     print(json.dumps(["headers=%d backs=%d titles=%d hints=%d" % (len(headers), len(backs), len(titles), len(hints))])); sys.exit()
 header, back, title = rows[headers[0]], rows[backs[0]], rows[titles[0]]

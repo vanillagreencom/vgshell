@@ -387,41 +387,22 @@ Item {
             }
         }
 
-        function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
-            const field = disposableKey.createObject(root, { width: 420, z: 1,
+        function test_settings_bind_explanation_uses_the_shared_label_help() {
+            const field = createTemporaryObject(disposableKey, root, { width: 420, z: 1,
                 bind: { shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare", info: "Open the window." } });
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
-            const label = descendants(field).find(item => item.objectName === "fieldLabel");
-            const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
-            verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));
-            compare(tip.text, "Open the window.");
-            mouseMove(label, label.width / 2, label.height / 2);
-            tryCompare(tip, "opened", true);
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tip, "opened", false);
-            root.Window.window.requestActivate();
-            tryCompare(root.Window.window, "active", true);
-            wait(0);
-            const focused = [];
-            const record = () => { if (tip.opened) focused.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                const control = label.children.find(item => item.visualFocus !== undefined);
-                control.forceActiveFocus(Qt.OtherFocusReason);
-                keyClick(Qt.Key_Tab);
-                keyClick(Qt.Key_Backtab);
-                compare(control.activeFocus, true);
-                compare(control.visualFocus, true);
-                tryVerify(() => focused.length > 0, 2000);
-                compare(root.Window.window.active, true);
-                compare(control.activeFocus, true);
-            } finally {
-                tip.openedChanged.disconnect(record);
-            }
-            compare(focused[0], tip.text);
-            elsewhere.forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", false);
-            field.destroy();
+            verify(field !== null);
+            const label = semanticLabelItems(field).find(item => item.objectName === "fieldLabel");
+            verify(label instanceof InfoButton);
+            compare(label.info, field.bind.info);
+            verify(!descendants(label).some(item => String(item).indexOf("Tooltip") === 0));
+            label.forceActiveFocus(Qt.TabFocusReason);
+            compare(label.infoOpen, false);
+            keyClick(Qt.Key_Enter);
+            compare(label.infoOpen, true);
+            compare(field.shortcutField.capturing, false, "label help does not start shortcut capture");
+            label.closeInfo();
+            tryCompare(label, "activeFocus", true);
+            compare(label.visualFocus, true);
         }
 
         function test_a_typed_text_waits_and_joins_the_set() {
@@ -450,14 +431,14 @@ Item {
             const field = () => descendants(page).find(child => child instanceof SettingField && child.key === "showGpu");
             tryVerify(() => field() !== undefined);
             compare(field().hintText, "", "the switch reads no status message");
-            verify(!descendants(field()).some(child => child.role === "hint" && child.visible && child.text === "No supported graphics card found."), "Settings draws no status message");
+            verify(!displayedTextItems(field()).some(child => child.role === "hint" && displayedText(child) === "No supported graphics card found."), "Settings draws no status message");
             const tabs = descendants(page).find(child => child instanceof TabPages);
             verify(tabs !== undefined);
             tabs.currentIndex = 1;
             const status = () => descendants(page).find(child => child instanceof StatusRow && child.entry !== null && child.entry.key === "graphics");
             tryVerify(() => status() !== undefined);
             const chip = descendants(status()).find(child => child instanceof Badge && child.text === "Not found");
-            const message = descendants(status()).find(child => child.role === "hint" && child.text === "No supported graphics card found.");
+            const message = displayedTextItems(status()).find(child => child.role === "hint" && displayedText(child) === "No supported graphics card found.");
             verify(chip !== undefined && chip.visible, "Details chip says Not found");
             verify(message !== undefined && message.visible, "Details shows the full message");
             // The tab's Columns position their children after it becomes visible.
@@ -494,15 +475,15 @@ Item {
                 compare(page.tab, "Setup", "a page with setup steps has a Setup tab");
                 const shown = type => descendants(page).filter(child => child instanceof type && child.visible);
                 tryVerify(() => shown(StatusRow).length === 1, 1000, "the key list is drawn");
-                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Setup"]);
-                verify(shown(Field).some(row => row.label === "Google Drive sync"), "the Status section draws its entry under its own label");
+                compare(semanticLabelItems(page).map(header => displayedText(header)).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Setup"]);
+                verify(shown(Field).some(row => semanticLabelItems(row).some(label => displayedText(label) === "Google Drive sync")), "the Status section draws its entry under its own label");
                 compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), [], "Setup has no boxed action");
                 compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Add a pair accent", "Remove danger", "Replace accent", "Sign out danger"]);
                 // The key list draws its one key alone under its step, so
                 // its own list holds no divider; the steps keep theirs.
                 compare(shown(GroupList).map(list => list.hairlines.length).sort(), [0, 3], "required rows keep their dividers, and a lone key under its step has none of its own");
                 page.open(Qt.OtherFocusReason, "Settings");
-                compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
+                compare(semanticLabelItems(page).map(header => displayedText(header)).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
             } finally {
                 releasePage(page, original);
             }
@@ -551,13 +532,13 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
             const sections = () => descendants(page).filter(item => item instanceof Section);
-            tryVerify(() => sections().some(item => item.title === "Clock"));
-            const clockSections = sections().filter(item => item.title === "Clock");
+            tryVerify(() => sections().some(item => semanticLabelItems(item).some(label => label.parent instanceof SectionHeader && displayedText(label) === "Clock")));
+            const clockSections = sections().filter(item => semanticLabelItems(item).some(label => label.parent instanceof SectionHeader && displayedText(label) === "Clock"));
             compare(clockSections.length, 1, "same-named groups draw one heading");
             const fields = descendants(clockSections[0]).filter(item => item instanceof SettingField);
             verify(fields.some(item => item.pluginId === "acme.unit-clock" && item.visible));
             verify(fields.some(item => item.key === "format" && item.visible));
-            verify(sections().some(item => item.title === "Bar" && descendants(item).some(child => child.key === "hidden")));
+            verify(sections().some(item => semanticLabelItems(item).some(label => label.parent instanceof SectionHeader && displayedText(label) === "Bar") && descendants(item).some(child => child.key === "hidden")));
             verify(sections().every(item => !descendants(item).some(child => child.key === "plain")), "a field of no group draws in no section");
             const plain = descendants(page).find(item => item instanceof SettingField && item.key === "plain");
             verify(plain !== undefined && plain.visible, "a field of no group draws");
@@ -589,10 +570,10 @@ Item {
                 compare(page.sections[0].group, "Main");
                 compare(page.sections[0].lists, ["grouped"]);
                 compare(page.lists, ["unknown", "plain"]);
-                const sections = descendants(page).filter(item => item instanceof Section && item.title !== "Keys");
-                tryVerify(() => sections.some(item => item.title === "Grouped list"));
-                const titles = sections.filter(item => ["Main", "Grouped list", "Unknown list", "Plain list"].indexOf(item.title) !== -1)
-                    .sort((a, b) => a.mapToItem(page, 0, 0).y - b.mapToItem(page, 0, 0).y).map(item => item.title);
+                const headings = () => semanticLabelItems(page).filter(item => item.parent instanceof SectionHeader);
+                tryVerify(() => headings().some(item => displayedText(item) === "Grouped list"));
+                const titles = headings().filter(item => ["Main", "Grouped list", "Unknown list", "Plain list"].indexOf(displayedText(item)) !== -1)
+                    .sort((a, b) => a.mapToItem(page, 0, 0).y - b.mapToItem(page, 0, 0).y).map(item => displayedText(item));
                 compare(titles, ["Main", "Grouped list", "Unknown list", "Plain list"]);
             } finally {
                 releasePage(page, original);
@@ -623,7 +604,7 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
             const drawn = () => descendants(page).filter(item => item instanceof SettingField).map(item => item.key);
-            const headings = () => descendants(page).filter(item => item instanceof Section).map(item => item.title);
+            const headings = () => semanticLabelItems(page).filter(item => item.parent instanceof SectionHeader).map(item => displayedText(item));
             tryVerify(() => drawn().indexOf("kept") !== -1);
             compare(drawn().filter(key => key === "hiding" || key === "alone"), [], "a hideEmpty field with nothing offered is not drawn");
             compare(headings().indexOf("Lone"), -1, "a group whose every field is hidden draws no heading");
@@ -657,7 +638,7 @@ Item {
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
             const drawn = () => descendants(page).filter(item => item instanceof SettingField).map(item => item.key);
-            const headings = () => descendants(page).filter(item => item instanceof Section).map(item => item.title);
+            const headings = () => semanticLabelItems(page).filter(item => item.parent instanceof SectionHeader).map(item => displayedText(item));
             tryVerify(() => drawn().indexOf("kept") !== -1);
             compare(drawn().filter(key => key === "low" || key === "charging"), [], "a field whose presence entry reads absent is not drawn");
             compare(headings().indexOf("Battery"), -1, "a group whose every field is withheld draws no heading");
@@ -676,8 +657,8 @@ Item {
             });
             tryVerify(() => drawn().length === 0);
             verify(!page.bare, "a plugin whose fields only wait is not bare");
-            const enabled = descendants(page).find(item => item instanceof Field && item.label === SettingValues.PAGE_LABELS.enabled);
-            verify(enabled !== undefined && enabled.hint !== "", "the Enabled switch keeps its Turn on hint");
+            const enabled = descendants(page).find(item => item instanceof Field && semanticLabelItems(item).some(label => displayedText(label) === SettingValues.PAGE_LABELS.enabled));
+            verify(enabled !== undefined && displayedTextItems(enabled).some(item => item.role === "hint" && displayedText(item) !== ""), "the Enabled switch keeps its Turn on hint");
             releasePage(page, original);
         }
 

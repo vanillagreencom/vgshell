@@ -11,8 +11,7 @@ import qs.Ui
 // value }` for a count row whose value column aligns with the other count
 // rows. After the theme's delay with the pointer resting on the item or
 // after keyboard focus reaches it, the tooltip opens in its own surface
-// on the item's `side`, "below" (the default), "right", "belowStart",
-// under the item from its start edge, or "clear", beside the item where it
+// on the item's `side`, "below" (the default), "right", or "clear", beside the item where it
 // covers no text, image or Tab stop of its window (`placed`), and takes no
 // focus. It closes when the pointer leaves and focus leaves, on a press on
 // the item, when the item hides, and it does
@@ -20,11 +19,7 @@ import qs.Ui
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
 // the item's own box unless set, and wraps its text past `maxWidth`,
-// `tooltip.maxWidth` unless set, and is no narrower than `minWidth`, so a
-// caller can have it span a row. Under its item from the start edge it
-// is a band of help under a form row: it draws `band`, a neutral plate
-// with no outline, since an input shows by its outline and a band with
-// one read as an empty input. A title or a plain detail line that holds a
+// `tooltip.maxWidth` unless set. A title or a plain detail line that holds a
 // page or file reference (PageReference.js) draws the reference's words
 // alone. With `pageLinks` set, such a line whose reference names a page
 // or a file draws as a link (LinkText), and a click on it, or Enter,
@@ -58,15 +53,12 @@ Item {
     property string side: "below"
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
     property real maxWidth: Theme.tooltip.maxWidth
-    property real minWidth: 0
-    // A fill lifted off the surface it lies on, its border in that fill.
-    readonly property var band: ({ background: Theme.color.surfaceHover, border: Theme.color.surfaceHover, radius: Theme.tooltip.radius })
     readonly property int edge: edgeFor(side)
     // A corner of the box with the gravity of the opposite corner starts
     // the popup on that corner; only opposing edges are refused.
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/PopupAnchor/
-    readonly property int anchorEdges: side === "belowStart" ? Edges.Bottom | Edges.Left : edge
-    readonly property int anchorGravity: side === "belowStart" || side === "clear" ? Edges.Bottom | Edges.Right : edge
+    readonly property int anchorEdges: edge
+    readonly property int anchorGravity: side === "clear" ? Edges.Bottom | Edges.Right : edge
     // What a "clear" tooltip's window draws, read once as it opens
     // (`survey`), so no binding reads the item tree; null while closed.
     property var scene: null
@@ -214,7 +206,7 @@ Item {
     }
 
     function edgeFor(name) {
-        if (name === "below" || name === "belowStart") return Edges.Bottom;
+        if (name === "below") return Edges.Bottom;
         if (name === "right") return Edges.Right;
         if (name === "clear") return Edges.Top | Edges.Left;
         throw new Error("Tooltip: side=" + JSON.stringify(name) + " unexpected");
@@ -477,7 +469,7 @@ Item {
             // One line up to `maxWidth`, then title and plain details
             // wrap; never wider than the output less its gutters, nor,
             // when "clear", than its window's content.
-            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.padding), OverlayState.widthFor(root.anchorItem, Math.min(root.maxWidth + 2 * Theme.tooltip.padding, root.clearWidth)))
+            readonly property real paddedWidth: Math.min(content.implicitWidth + 2 * Theme.tooltip.padding, OverlayState.widthFor(root.anchorItem, Math.min(root.maxWidth + 2 * Theme.tooltip.padding, root.clearWidth)))
             // The room under the content: the padding, or what the last
             // line's link ring needs to stand clear of the border.
             readonly property real paddingBelow: Math.max(sideInset.bottomPadding, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)
@@ -502,7 +494,7 @@ Item {
             GlassSurface {
                 objectName: "tooltipSurface"
                 anchors.fill: parent
-                standard: root.side === "belowStart" ? root.band : Theme.tooltip
+                standard: Theme.tooltip
                 elevation: "tight"
                 solidOnly: true
             }

@@ -421,10 +421,14 @@ function verifyKeys(shots, key) {
     assert.equal(labels.length, 1, "extractor: one actual BindField label");
     const field = { label: vm.runInNewContext(labels[0][1], { bind }), children: [], visible: true, enabled: true,
         width: 300, height: 40, mapToItem: () => ({ x: 10, y: 20 }), toString: () => "KeyField_QMLTYPE_1(0xfixture)" };
-    const ctx = { Plugins: { built: { window: [{ id: "vgs.settings", instance: { children: [field] } }] } }, IpcPages: { answer: text => text } };
+    class LinkText {}
+    class InfoButton extends LinkText {}
+    const ctx = { Plugins: { built: { window: [{ id: "vgs.settings", instance: { children: [field] } }] } }, IpcPages: { answer: text => text },
+        Ui: { LinkText, InfoButton }, Text: class {} };
     ctx.root = ctx;
     vm.createContext(ctx);
-    for (const name of ["json", "instance", "descendants", "reads", "labelledBox", "windowBox", "typeName", "matchesType"]) {
+    for (const name of ["json", "instance", "descendants", "displayedText", "isSemanticLabel", "isDisplayedOwner",
+        "reads", "labelledBox", "pointerBox", "typeName", "matchesType"]) {
         const functions = [...probeSource.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(functions.length, 1, `extractor: one actual Probe.${name}`);
         vm.runInContext(functions[0][0], ctx);

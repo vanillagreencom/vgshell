@@ -24,7 +24,7 @@ Item {
     SignalSpy { id: saves; target: bar; signalName: "save" }
     SignalSpy { id: discards; target: bar; signalName: "discard" }
 
-    TestCase {
+    UnitCase {
         name: "saveBar"
         when: windowShown
 
@@ -49,7 +49,7 @@ Item {
             return found;
         }
         function button(text) { return descendants(bar).find(child => child.text === text && child.clicked !== undefined); }
-        function line() { return descendants(bar).find(child => child.text === "Saved" || child.text === "Unsaved changes"); }
+        function line() { return displayedTextItems(bar, true).find(child => displayedText(child) === "Saved" || displayedText(child) === "Unsaved changes"); }
         function shown(item) {
             for (let at = item; at !== null && at !== bar.parent; at = at.parent)
                 if (!at.visible) return false;

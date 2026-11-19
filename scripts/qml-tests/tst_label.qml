@@ -69,7 +69,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "label"
         when: windowShown
 
@@ -258,7 +258,7 @@ Item {
         // A key/value row's label and its value: capitals within a pixel of
         // one height, and baselines within a pixel on the row.
         function test_a_label_and_its_value_read_as_one_line() {
-            const label = pair.children.find(child => child.objectName === "fieldRow").children[0];
+            const label = displayedTextRenderer(semanticLabelItems(pair).find(child => child.objectName === "fieldLabel"));
             compare(label.role, "label");
             const labelMetrics = Qt.createQmlObject("import QtQuick\nFontMetrics {}", root);
             labelMetrics.font = label.font;

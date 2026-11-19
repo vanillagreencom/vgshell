@@ -382,7 +382,7 @@ rm -r -- "${repo:?}/shell/Core/GalleryFocusControl" || fail "removing the Galler
 gallery_sections=(Surfaces Typography Buttons Choices Inputs Groups Feedback "Voice levels" Dialogs Cards Carousel Focus "Titles and scrolling" Lists "List motion")
 gallery_stack() {
   local boxes=() title name
-  title="$(ipc smoke shownWindowGeometry window vgs.gallery Label "VGS Components")" || return
+  title="$(ipc smoke shownWindowGeometry window vgs.gallery DisplayedText "VGS Components")" || return
   for name in "${gallery_sections[@]}"; do boxes+=("$(ipc smoke shownWindowGeometry window vgs.gallery SectionHeader "$name")"); done
   python3 - "${1:-}" "$title" "${boxes[@]}" <<'PY'
 import json, sys

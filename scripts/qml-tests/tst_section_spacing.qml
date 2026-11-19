@@ -16,7 +16,7 @@ import "../../shell/plugins/vgs.settings"
 // a link: one inside running text, whose underline, not its glyphs, ends
 // the ink, and one that is the whole hint, whose glyphs end it, since its
 // underline draws on hover alone; and exactly under a row action's text
-// or danger mark, not its box, and under the last row of a device list
+// or danger mark, not its box, and under the last row of a passive list
 // or of a plain column of rows, not its box. The settings of no group draw no
 // heading: they follow the
 // Enabled switch at the space rows of one list leave. A
@@ -332,7 +332,7 @@ Item {
             const enabled = all.find(item => item instanceof Field && item.label === SettingValues.PAGE_LABELS.enabled);
             verify(tabs !== undefined && enabled !== undefined);
             const row = enabled.children.find(item => item instanceof FormRow);
-            const label = row.children.find(item => item.objectName === "fieldLabel");
+            const label = semanticLabelItems(row).find(item => item.objectName === "fieldLabel");
             compare(enabled.mapToItem(tabs, 0, 0).y - tabs.tabs.height, tabs.topInset + Theme.stack.section);
             compare(label.mapToItem(tabs, 0, label.capTop()).y - tabs.tabs.height,
                 tabs.topInset + Theme.stack.section + row.labelTop + label.capTop());
@@ -373,10 +373,9 @@ Item {
             return out;
         }
 
-        // The shown headings under `item`, as their eyebrow labels.
+        // The shown headings under `item`, as their semantic label owners.
         function headings(item) {
-            return descendants(item).filter(child => child instanceof SectionHeader && child.visible && child.text !== "")
-                .map(header => header.children[0].children[0]);
+            return semanticLabelItems(item).filter(child => child.parent instanceof SectionHeader && displayedText(child) !== "");
         }
 
         function inked(img, x, y) {
@@ -543,7 +542,7 @@ Item {
             const page = createTemporaryObject(statusThenSection, root, { hint: data.hint });
             verify(page !== null);
             tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
-            const hints = descendants(page).filter(child => child instanceof LinkText && child.text === data.hint);
+            const hints = displayedTextItems(page).filter(child => child.role === "hint" && displayedText(child) === data.hint);
             compare(hints.length, 1);
             compare(hints[0].lineCount, data.lines);
             verify(renderedFrame(page));
@@ -576,7 +575,7 @@ Item {
             const page = createTemporaryObject(statusThenSection, root, { hint: data.hint, hintLink: data.link });
             verify(page !== null);
             tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
-            const hints = descendants(page).filter(child => child instanceof LinkText && child.text === data.hint);
+            const hints = displayedTextItems(page).filter(child => child.role === "hint" && displayedText(child) === data.hint);
             compare(hints.length, 1);
             verify(hints[0].linked);
             compare(hints[0].lineCount, data.lines);
@@ -610,9 +609,8 @@ Item {
             else compare(gap, Theme.stack.heading, "the heading sits " + gap + " px under the action, not " + Theme.stack.heading);
         }
 
-        // A device list draws no plate at rest, and a row with no cursor
-        // draws no box, so the heading under either stands by its last
-        // row's text, not the row's box.
+        // A device list clears the plate even while it is idle. A passive
+        // row has no plate, so its following heading still measures text.
         function test_heading_space_after_a_device_list_data() {
             return [{ tag: "device list", plain: false }, { tag: "column of rows", plain: true }];
         }
@@ -627,7 +625,8 @@ Item {
             tryCompare(row, "opacity", 1, 2000);
             verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
-            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the device list, not " + Theme.stack.heading);
+            const expected = Theme.stack.heading + (data.plain ? 0 : Math.floor(row.contentInkBelow()));
+            verify(Math.abs(gap - expected) <= root.tolerance, "the heading clears the last " + (data.plain ? "text" : "plate") + ": got " + gap + " expected " + expected);
         }
 
         function test_a_row_reports_ink_below_its_box() {

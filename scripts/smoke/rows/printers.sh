@@ -60,7 +60,7 @@ pr_pane() { ipc smoke readInstance window vgs.printers "$1"; }
 pr_address_inline() {
   ipc smoke descendantGeometry window vgs.printers | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-labels=[r for r in rows if r["type"] == "Label" and r["visible"] and r.get("role") == "label" and r.get("text") == "Printer address"]
+labels=[r for r in rows if r["semanticLabel"] and r["visible"] and r.get("role") == "label" and r["words"] == "Printer address"]
 fields=[r for r in rows if r["type"] == "TextField" and r["visible"] and r.get("name") == "printers-address"]
 if len(labels) != 1 or len(fields) != 1: print(False)
 else:
@@ -153,8 +153,8 @@ pr_stays() { # WANT CMD...
 # failure, else `absent`.
 pr_problem() {
   local visible drawn problem
-  visible="$(ipc smoke readMatchingDescendant window vgs.printers Label objectName printers-problem visible)" || return 1
-  drawn="$(ipc smoke readMatchingDescendant window vgs.printers Label objectName printers-problem text)" || return 1
+  visible="$(ipc smoke readMatchingDescendant window vgs.printers DisplayedText objectName printers-problem visible)" || return 1
+  drawn="$(ipc smoke readMatchingDescendant window vgs.printers DisplayedText objectName printers-problem text)" || return 1
   problem="$(pr_pane problem)" || return 1
   if [[ $visible == true && $drawn == "$problem" && $drawn != '""' ]]; then echo shown; else echo absent; fi
 }

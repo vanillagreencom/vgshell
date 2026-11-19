@@ -932,6 +932,7 @@ var TOKENS = {
         height: length("{row.height}"),
         twoLineHeight: length("{row.twoLineHeight}"),
         paddingX: length("{row.paddingX}"),
+        paddingY: length("{space.md}"),
         gap: length("{control.gap}"),
         iconGap: length("{space.lg}"),
         radius: length("{radius.sm}"),

@@ -34,7 +34,7 @@ Item {
     SignalSpy { id: linkSpy; target: message; signalName: "sourceActivated" }
     SignalSpy { id: filterSpy; target: filter; signalName: "activated" }
 
-    TestCase {
+    UnitCase {
         name: "message_patterns"
         when: windowShown
 
@@ -85,10 +85,10 @@ Item {
             message.bodyText = "<b>One long body that must remain plain text rather than markup.</b> ".repeat(6);
             message.width = 300;
             tryVerify(() => message.implicitHeight > originalHeight);
-            const body = allChildren(message).find(item => item.text === message.bodyText);
+            const body = displayedTextItems(message).find(item => displayedText(item) === message.bodyText);
             verify(body !== undefined);
             compare(body.textFormat, Text.PlainText);
-            const firstInk = Math.min(...allChildren(message).filter(item => item.text === message.sender).map(item => item.mapToItem(message, 0, 0).y));
+            const firstInk = Math.min(...displayedTextItems(message).filter(item => displayedText(item) === message.sender).map(item => item.mapToItem(message, 0, 0).y));
             verify(firstInk >= message.paddingY);
             const last = message.actionAt(message.actions.length - 1);
             const bottom = last.mapToItem(message, 0, last.height).y;

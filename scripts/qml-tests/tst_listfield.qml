@@ -69,7 +69,7 @@ Item {
         value: "a"
     }
 
-    TestCase {
+    UnitCase {
         name: "listfield"
         when: windowShown
 
@@ -109,7 +109,7 @@ Item {
             for (const group of groups()) {
                 compare(fields(group).map(field => field.key), ["kind", "wide"], "item " + group.modelData.name + " draws its declared fields");
                 compare(removes(group).length, 1, "item " + group.modelData.name + " draws one Remove");
-                const texts = descendants(group).filter(child => child instanceof Label && shown(child)).map(label => label.text);
+                const texts = displayedTextItems(group).filter(child => shown(child)).map(label => displayedText(label));
                 compare(texts.filter(text => text.toLowerCase() === "name"), [], "item " + group.modelData.name + " draws no Name label");
                 compare(texts.filter(text => text === "7" || text === "9"), [], "item " + group.modelData.name + " draws no storage key");
             }

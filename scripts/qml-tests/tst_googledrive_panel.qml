@@ -132,9 +132,9 @@ Item {
         function stops() {
             const gear = find(panel, item => "focusPolicy" in item && item.iconName === "settings");
             verify(gear !== null, "the gear shows");
-            const info = find(panel, item => "infoOpen" in item);
+            const info = semanticLabelItems(panel).find(item => item.info !== "") || null;
             verify(info !== null, "the kept-copy info shows");
-            const name = find(panel, item => "linkBox" in item && item.text === panel.review.needs[0].name);
+            const name = displayedTextItems(panel).find(item => item instanceof LinkText && displayedText(item) === panel.review.needs[0].name) || null;
             verify(name !== null, "the file's name shows as a link");
             return [gear, control(panel.callout.action.label), name, info, control(panel.review.needs[0].action.label),
                 control(panel.review.notesLine), control(panel.footer.pause.text), control(panel.footer.sync.text)];
@@ -161,7 +161,7 @@ Item {
 
         // The note rows show while the fold is open, and only then.
         function notesShown() {
-            const name = find(panel, item => item.text === panel.review.notes[0].name && "role" in item);
+            const name = displayedTextItems(panel).find(item => displayedText(item) === panel.review.notes[0].name) || null;
             return name !== null;
         }
 
@@ -205,17 +205,14 @@ Item {
             compare(root.calls, [], "the fold asks the shell nothing");
         }
 
-        // The fold line and its plate reach into the focus ring's room on
-        // both sides, as its hover box did, and its words stay on the
-        // rows' grid at the column's edge. Column sets only a child's y, so
-        // the line's wrapper keeps the x that reaches out.
-        function test_fold_line_plate_covers_its_reach() {
+        // The fold plate stays inside the content edge and the shared row
+        // keeps its words inside the plate.
+        function test_fold_line_keeps_shared_padding() {
             const fold = control(panel.review.notesLine);
             const column = fold.parent.parent;
-            const ringRoom = Theme.focusRing.width + Theme.focusRing.offset;
-            compare(fold.mapToItem(column, 0, 0).x, -ringRoom, "the line reaches into the ring room");
-            compare(fold.width, column.width + 2 * ringRoom, "on both sides");
-            compare(fold.contentItem.mapToItem(column, 0, 0).x, 0, "the line's content stays on the column's edge");
+            compare(fold.mapToItem(column, 0, 0).x, 0);
+            compare(fold.width, column.width);
+            verify(fold.contentItem.mapToItem(column, 0, 0).x >= Theme.space.sm);
             mouseMove(fold, fold.width / 2, fold.height / 2);
             mouseMove(fold, fold.width / 2 + 1, fold.height / 2);
             verify(fold.cursor !== null && fold.cursor.placed === fold, "the hover puts the plate on the line");
@@ -325,13 +322,13 @@ Item {
             const file = "/home/me/gdrive/taxes/2025.xlsx";
             root.editEnds = { [file]: "refused: file=\"" + file + "\" reason=missing" };
             const sentence = "This file is no longer on this computer.";
-            verify(find(panel, c => c.text === sentence) === null, "the row says nothing before a click");
+            verify(!displayedTextItems(panel).some(c => displayedText(c) === sentence), "the row says nothing before a click");
             panel.openFile(file);
             compare(root.calls, [["edit", file]]);
             compare(panel.goneFiles, [file]);
             compare(panel.problem, "");
-            verify(find(panel, c => c.text === sentence) !== null, "the row says the file is gone");
-            verify(find(panel, c => c.text === "2025.xlsx" && c.link !== undefined) !== null, "the row keeps its link");
+            verify(displayedTextItems(panel).some(c => displayedText(c) === sentence), "the row says the file is gone");
+            verify(displayedTextItems(panel).some(c => c instanceof LinkText && displayedText(c) === "2025.xlsx"), "the row keeps its link");
         }
 
         function test_a_file_that_fails_to_open_says_so_under_the_list() {
@@ -446,7 +443,7 @@ Item {
             tabTo(control(panel.review.notesLine));
             keyClick(Qt.Key_Return);
             renderedFrame(panel);
-            const link = find(panel, c => "linkBox" in c && c.text === panel.review.notes[0].name);
+            const link = displayedTextItems(panel).find(c => c instanceof LinkText && displayedText(c) === panel.review.notes[0].name) || null;
             verify(link !== null);
             tabTo(link);
             root.calls = [];
@@ -484,7 +481,7 @@ Item {
 
             for (let i = 0; i < buttons.length; i++) {
                 const button = buttons[i];
-                const name = find(button.parent, item => "role" in item && item.text === value.pairs[i].label);
+                const name = displayedTextItems(button.parent).find(item => displayedText(item) === value.pairs[i].label) || null;
                 verify(name !== null, "the full published name is drawn");
                 if (data.count > 1 && i === 0) verify(name.lineCount > 1, "long names wrap");
                 tabTo(button);

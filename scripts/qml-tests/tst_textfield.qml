@@ -78,11 +78,14 @@ Item {
             const searchBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
                 + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
             const search = createTemporaryQmlObject('import QtQuick; import QtQuick.Layouts; import qs.Ui; TextField { variant: "search"; width: parent.width; Layout.fillWidth: true; leadingIcon: "search" }', searchBox);
-            for (const width of [900, 80]) {
+            for (const width of [900, 80, 900]) {
                 searchBox.width = width;
-                // Process InputWidth's Qt.callLater allocation before reading:
-                // https://doc.qt.io/qt-6/qml-qttest-testcase.html#wait-method
+                // InputWidth uses callLater; ColumnLayout applies its
+                // attached maximum during polish. A width binding can still
+                // read the holder's width before that allocation runs.
+                // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
                 wait(0);
+                if (data.layout) verify(waitForPolish(searchBox));
                 compare(search.width, width);
             }
             compare(search.sidePadding, 0, "Plugins' icon starts at the content edge");
@@ -316,12 +319,11 @@ Item {
         }
 
         function test_field_lays_out_label_hint_and_error() {
-            const labels = field.children.filter(child => child.role !== undefined);
-            const hint = field.children[2].children[0];
-            compare(hint.text, "Shown in the bar");
+            const hint = displayedTextItems(field).find(child => child.role === "hint");
+            compare(displayedText(hint), "Shown in the bar");
             compare(String(hint.color), String(Qt.color(Theme.text.hint.color)));
             field.error = "Taken";
-            compare(hint.text, "Taken");
+            compare(displayedText(hint), "Taken");
             compare(String(hint.color), String(Qt.color(Theme.color.danger)));
             const pad = Theme.field.paddingX;
             tryVerify(() => inner.mapToItem(field, 0, 0).x === pad);
@@ -337,9 +339,9 @@ Item {
         // A label too long for its column wraps to a second line, whole,
         // and the value column starts where `valueX` says.
         function test_a_long_inline_label_wraps_and_the_value_column_is_published() {
-            const label = longLabel.children[1].children[0];
+            const label = semanticLabelItems(longLabel).find(child => child.objectName === "fieldLabel");
             compare(label.lineCount, 2);
-            compare(label.truncated, false);
+            compare(label.labelItem.truncated, false);
             compare(longLabel.valueX, Theme.field.labelWidth + Theme.field.labelGap);
             verify(longLabel.children[1].height >= label.implicitHeight, "the row holds both lines");
         }
@@ -351,8 +353,8 @@ Item {
             const pairs = [[switchField, inlineSwitch], [labelField, inlineLabel], [badgeField, inlineBadge], [textFieldRow, inlineText], [buttonField, inlineButton], [selectField, inlineSelect]];
             for (const pair of pairs)
                 fuzzyCompare(pair[1].mapToItem(pair[0].children[1], 0, pair[1].height / 2).y, Theme.row.height / 2, 1);
-            const hint = selectField.children[2].children[0];
-            compare(hint.x, Theme.field.labelWidth + Theme.field.labelGap);
+            const hint = displayedTextItems(selectField).find(child => child.role === "hint");
+            compare(hint.mapToItem(selectField, 0, 0).x, Theme.field.labelWidth + Theme.field.labelGap);
         }
 
         function test_theme_change_moves_the_field() {

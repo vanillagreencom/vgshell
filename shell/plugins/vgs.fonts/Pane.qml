@@ -100,7 +100,7 @@ FocusScope {
                 id: interfaceRow
                 width: parent.width
                 label: "Interface"
-                info: "The text of the shell. Code and key names keep the theme's fixed-width font. The launcher and notifications keep their own fonts."
+                info: "Code and key names keep the theme's fixed-width font.\nThe launcher and notifications keep their own fonts."
                 themeOffered: true
                 source: root.sourceOf("interfaceFont")
                 themeValue: root.themeOf("interfaceFont")
@@ -124,7 +124,7 @@ FocusScope {
                 id: terminalRow
                 width: parent.width
                 label: "Terminal"
-                info: "The font of Kitty and Ghostty. Kitty changes at once. In Ghostty, open a new window if the font does not change. Without a font here, Kitty keeps the font from " + PageReference.fileReference("its config", Paths.configHome + "/kitty/kitty.conf") + " and Ghostty keeps the font from " + PageReference.fileReference("its config", Paths.configHome + "/ghostty/config.ghostty") + "."
+                info: "This font applies to Kitty and Ghostty.\nKitty changes immediately. Open a new Ghostty window if its font does not change.\nWith no font selected, Kitty uses " + PageReference.fileReference("its config", Paths.configHome + "/kitty/kitty.conf") + ".\nGhostty uses " + PageReference.fileReference("its config", Paths.configHome + "/ghostty/config.ghostty") + "."
                 onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 themeOffered: true
                 source: root.sourceOf("terminalFont")

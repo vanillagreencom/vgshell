@@ -24,12 +24,12 @@ function searchValue(outcome, pageReference) {
         if (outcome.partial === "entry-limit")
             return { tone: "warning", text: found + ". Search stopped at 10,000 folder entries.", action: true,
                 hint: "Add an account with Accounts",
-                info: "Jarvis searches up to 10,000 entries in each parent folder. This limit keeps a large folder from delaying account search. Use Accounts to add a folder that the search missed. Open your " + pageReference.fileReference("home folder", "~/") + " to look for it." };
+                info: "Account search checks up to 10,000 entries in each parent folder so large folders do not delay it.\nUse Accounts to add a missed folder.\nOpen your " + pageReference.fileReference("home folder", "~/") + " to find it." };
         if (outcome.partial === "parent-unreadable")
             return { tone: "warning", text: found + ". Some of your folders could not be read. Add an account by hand with Accounts.", action: true };
         if (outcome.partial === "account-limit")
             return { tone: "warning", text: found + ". Jarvis can show up to 32 accounts.", action: true,
-                info: "Jarvis shows up to 32 accounts so the account list stays small enough to use. Use Accounts to remove an account you do not use before you add another." };
+                info: "Jarvis shows up to 32 accounts to keep the list easy to use.\nUse Accounts to remove one you do not use before adding another." };
         if (outcome.partial === "")
             return outcome.found > 0 ? { tone: "ok", text: found, action: true }
                 : { tone: "info", text: "No account found yet", action: true };

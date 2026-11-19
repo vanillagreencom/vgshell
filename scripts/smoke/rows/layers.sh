@@ -60,7 +60,7 @@ gallery_select() { ipc smoke readMatchingDescendant window vgs.gallery Select mo
 layer_presented() { ipc smoke layerWindows acme.layers | py_reply 'import json,sys; print(json.dumps(sorted({r["presented"] for r in json.load(sys.stdin)})))'; }
 layer_pad() { local box; box="$(ipc smoke layerItemGeometry acme.layers QQuickRectangle width 80)" || return 1; [[ $box == \[* ]] && echo drawn || echo "$box"; }
 gallery_off_pointer() { windows_of "VGS Components" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin)[0]; px,py=map(int, sys.argv[1].split()); print(not (x<=px<x+w and y<=py<y+h))' "$pointer_at"; }
-calendar_title() { ipc smoke readMatchingDescendant panel vgs.bar Label objectName calendarTitle text; }
+calendar_title() { ipc smoke readMatchingDescendant panel vgs.bar DisplayedText objectName calendarTitle text; }
 calendar_open() { local title; title="$(calendar_title)" || return 1; [[ $title == \"* ]] && echo open || echo "$title"; }
 calendar_moved() { local title; title="$(calendar_title)" || return 1; [[ $title != "$calendar_month" && $title != absent ]] && echo moved || echo "still $title"; }
 clock_point() { ipc smoke descendantGeometry "$(bar_key)" vgs.bar/center-clock | py_reply 'import json,sys; x,y,w,h=next(r["box"] for r in json.load(sys.stdin) if r["type"] == "BarItem"); print(int(x + w / 2), int(y + h / 2))'; }

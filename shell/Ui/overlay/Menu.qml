@@ -192,7 +192,7 @@ Item {
         flickable: root.scrollArea
         itemAt: index => root.items()[index]
         onMoved: index => root.keyTo(index)
-        onActivated: index => root.triggerCurrent()
+        onActivated: index => { root.keyChose = true; root.triggerCurrent(); }
     }
 
     // Every entry draws its highlight through the menu's cursor, and a
@@ -205,6 +205,7 @@ Item {
             Component.onCompleted: {
                 modelData.cursor = Qt.binding(() => root.plate);
                 modelData.barRoom = Qt.binding(() => root.overflows ? Theme.scrollArea.gutter : 0);
+                modelData.helpByKey = Qt.binding(() => root.keyChose);
             }
             function onPointed() { if (root.reachable(modelData)) root.currentIndex = root.items().indexOf(modelData); }
         }
@@ -217,7 +218,9 @@ Item {
         delegate: Connections {
             required property var modelData
             target: modelData
-            function onTriggered() { if (!modelData.keepsOpen) root.close(true); }
+            // Help takes the keyboard in its own dialog and restores the
+            // opener on close; activating the window here would steal it.
+            function onTriggered() { if (!modelData.keepsOpen) root.close(modelData.info === ""); }
         }
     }
 

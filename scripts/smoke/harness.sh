@@ -3603,7 +3603,7 @@ settings_press() {
     shown="$(ipc smoke revealText window vgs.settings "$type" "$1")" || return 1
     lookup=(window:Plugins window vgs.settings "$type" "$1")
   fi
-  [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
+  [[ $shown == unscrolled || $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
   if ! click_item "${lookup[@]}"; then
     echo "settings_press: pointer-not-ready=$type $1" >&2
     return 1

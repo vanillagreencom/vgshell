@@ -70,7 +70,7 @@ Item {
             verify(waitForPolish(rows.Window.window));
             const slot = rows.field.children.find(child => typeof child.textLineBelow === "function");
             verify(slot !== undefined);
-            const hint = slot.children.find(child => child instanceof LinkText);
+            const hint = displayedTextItems(slot, true).find(child => child.role === "hint");
             verify(hint !== undefined);
             let reentrantMeasures = 0;
             hint.textChanged.connect(() => {

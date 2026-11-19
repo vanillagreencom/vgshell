@@ -74,7 +74,7 @@ Item {
             return {
                 entry: all.find(n => n.placeholderText === "Message Jarvis"),
                 send: all.find(n => n.label === "Send message"),
-                speechHint: all.find(n => n.linkColor !== undefined && n.text === jarvisConsole.speechOnlyText),
+                speechHint: displayedTextItems(jarvisConsole).find(n => n instanceof LinkText && n.text === jarvisConsole.speechOnlyText),
                 tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Chat")
             };
         }
@@ -289,7 +289,7 @@ Item {
             compare(sent.length, 0, "opening and recreating never sends an action");
             compare(replacement.pendingAsk, data.kind === "unknown" ? "" : request.requestId);
             compare(replacement.askRecoveryText, recovery);
-            verify(collect(replacement, n => n instanceof Text && n.visible && n.text === replacement.askRecoveryText, []).length > 0,
+            verify(displayedTextItems(replacement).some(n => displayedText(n) === replacement.askRecoveryText),
                 "the retained reply is visible with the optional ask page absent");
             shell.status.values = Object.assign({}, shell.status.values,
                 { ownerAskAnswer: { kind: "unknown", home: "", request: request, result: null } });
@@ -527,7 +527,7 @@ Item {
             tryCompare(filter, "activeFocus", true);
             keyClick(Qt.Key_Tab);
             const focused = root.Window.window.activeFocusItem;
-            verify(collect(focused, n => n instanceof Text && n.text === data.heading, []).length === 1,
+            verify(semanticLabelItems(focused).filter(n => displayedText(n) === data.heading).length === 1,
                 "Tab from the filter reaches the shown list, not the scroll stop: " + focused);
         }
 

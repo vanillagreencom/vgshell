@@ -608,12 +608,10 @@ expect "the stored Realtime reaches the shell" ok ipc shell reloadConfig
 expect_poll "the page reads Realtime as the Voice provider" '"realtime"' page_voice
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
-page_info_text="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["info"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
-  fail "the Microphone info is unreadable"
 expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
-settings_press --type InfoButton "About Microphone" SettingField Microphone || fail "the Microphone info did not open"
-expect_poll "the Microphone info shows its page link" shown info_link_shown "$page_info_text"
-info_link_click "$page_info_text" || fail "the Sounds page link did not activate"
+settings_help_open Microphone || fail "the Microphone info did not open"
+expect_poll "the Microphone info shows its page link" shown info_link_shown Microphone vgs.sounds
+info_link_click Microphone vgs.sounds || fail "the Sounds page link did not activate"
 expect_poll "the Microphone info link opens the Sounds page" '["vgs.sounds"]' window_panes
 expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'

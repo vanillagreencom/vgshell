@@ -70,6 +70,32 @@ Item {
         }
     }
 
+    Component {
+        id: tallPaddedRow
+        Item {
+            width: 300
+            height: padded.height
+            property alias row: padded
+            property alias content: tallContent
+            ListCursor { id: tallPlate }
+            ContentRow {
+                id: padded
+                clickable: true
+                width: parent.width
+                text: "Tall content"
+                cursor: tallPlate
+                highlighted: true
+                trailing: Rectangle {
+                    id: tallContent
+                    width: Theme.icon.size.md
+                    height: Theme.listItem.height + Theme.space.md
+                    color: Theme.color.text
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+    }
+
     NavigationRow { chevronName: ""; id: loose; text: "Loose"; width: 300; y: 500 }
 
     Item {
@@ -153,7 +179,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "listcursor"
         when: windowShown
 
@@ -178,6 +204,38 @@ Item {
         function cleanupTestCase() { UnitTheme.reset(); }
 
         function row(index) { return repeater.itemAt(index); }
+
+        function test_content_taller_than_a_row_stays_inside_its_plate() {
+            const sample = createTemporaryObject(tallPaddedRow, root);
+            verify(sample !== null);
+            verify(waitForPolish(sample));
+            const target = sample.row;
+            const box = sample.content;
+            const at = box.mapToItem(target, 0, 0);
+            verify(at.y >= Theme.listItem.paddingY, "tall content clears the plate above");
+            verify(target.height - at.y - box.height >= Theme.listItem.paddingY, "tall content clears the plate below");
+            verify(at.x >= Theme.listItem.paddingX && target.width - at.x - box.width >= Theme.listItem.paddingX,
+                "tall content clears both sides");
+        }
+
+        function test_hovered_row_content_keeps_padding_inside_its_plate_data() {
+            return [{ tag: "one line", index: 0 }, { tag: "two lines", index: 1 }];
+        }
+        function test_hovered_row_content_keeps_padding_inside_its_plate(data) {
+            const target = row(data.index);
+            // After disarm, the first reading only records a position.
+            // A second position proves hover, even on the selected first row.
+            mouseMove(target, target.width / 2 - 1, target.height / 2);
+            mouseMove(target, target.width / 2, target.height / 2);
+            tryVerify(() => plate.hovered === target);
+            compare(plate.placed, target);
+            const content = target.contentItem;
+            verify(content.x >= Theme.listItem.paddingX, "content clears the plate's start");
+            verify(target.width - content.x - content.width >= Theme.listItem.paddingX, "content clears the plate's end");
+            verify(content.y >= Theme.listItem.paddingY, "content clears the plate's top");
+            verify(target.height - content.y - content.height >= Theme.listItem.paddingY, "content clears the plate's bottom");
+        }
+
 
         function test_a_nested_list_releases_every_outer_hover() {
             holder.visible = false;
@@ -493,12 +551,7 @@ Item {
         }
 
         function itemLabel(item, role) {
-            const found = [item];
-            for (let i = 0; i < found.length; i++) {
-                if (found[i].role === (role || "item")) return found[i];
-                for (const child of found[i].children) found.push(child);
-            }
-            return null;
+            return displayedTextItems(item).find(child => child.role === (role || "item")) || null;
         }
 
         function test_the_row_under_the_plate_draws_the_accent_and_an_active_row_keeps_it() {

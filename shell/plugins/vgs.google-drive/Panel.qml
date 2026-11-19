@@ -195,25 +195,15 @@ Item {
                 text: reviewRow.modelData.place
                 wrapMode: Text.Wrap
             }
-            Row {
+            InfoButton {
                 width: parent.width
-                spacing: Theme.space.xs
-                Label {
-                    id: detailLabel
-                    width: parent.width - (limitInfo.visible ? limitInfo.width + parent.spacing : 0)
-                    role: "body"
-                    color: Theme.color.textMuted
-                    textFormat: Text.PlainText
-                    text: reviewRow.modelData.detail
-                    wrapMode: Text.Wrap
-                }
-                InfoButton {
-                    id: limitInfo
-                    visible: reviewRow.modelData.info !== ""
-                    y: detailLabel.topForLeadingIcon(height)
-                    title: "Kept copies"
-                    info: reviewRow.modelData.info
-                }
+                role: "body"
+                color: Theme.color.textMuted
+                text: reviewRow.modelData.detail
+                title: "Kept copies"
+                info: reviewRow.modelData.info
+                wrapMode: Text.Wrap
+                onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
             Label {
                 visible: reviewRow.gone
@@ -307,24 +297,15 @@ Item {
                     text: root.header !== null ? root.header.meta : ""
                     wrapMode: Text.Wrap
                 }
-                Row {
+                InfoButton {
                     width: parent.width
                     visible: root.header !== null
-                    spacing: Theme.space.xs
-                    Label {
-                        id: modeLabel
-                        width: parent.width - (modeInfo.visible ? modeInfo.width + parent.spacing : 0)
-                        role: "hint"
-                        text: root.header !== null ? root.header.mode : ""
-                        wrapMode: Text.Wrap
-                    }
-                    InfoButton {
-                        id: modeInfo
-                        y: modeLabel.topForLeadingIcon(height)
-                        title: "Sync mode"
-                        info: root.shell === null || root.shell.manifest === undefined ? "" : root.shell.manifest.schema.twoWaySync.info
-                        visible: info !== ""
-                    }
+                    role: "hint"
+                    text: root.header !== null ? root.header.mode : ""
+                    title: "Sync mode"
+                    info: root.shell === null || root.shell.manifest === undefined ? "" : root.shell.manifest.schema.twoWaySync.info
+                    wrapMode: Text.Wrap
+                    onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 }
             }
         ]
@@ -417,28 +398,18 @@ Item {
         }
 
         // The files that need no action, folded until the user opens them.
-        // The fold line's chevron stands in the rows' icon column and its
-        // words in their text column, so it and every row share one grid:
-        // the line and its cursor reach out into the focus ring's room on
-        // both sides (Pane leaves that room past the content edge), and the
-        // line's padding is that room, so the plate covers the reach and the
-        // content stays on the grid. Disclosure would put the chevron at the
-        // end and inset the line by its padding. The line is a Tab stop; a
-        // click, Return, Enter or Space opens and closes it, Right opens and
-        // Left closes, as Disclosure's row does.
+        // The shared row owns the fold line's padding and plate box.
+        // The line is a Tab stop; Return, Enter or Space toggles it,
+        // Right opens it and Left closes it, as Disclosure's row does.
         Column {
             id: notesFold
             property bool expanded: false
-            readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
             width: layout.contentWidth
             visible: root.review.notesLine !== ""
             spacing: Theme.stack.row
 
-            // Column sets only a child's y (tst_googledrive_panel.qml reads
-            // the reach), so the wrapper keeps the x that reaches out.
             Item {
-                x: -notesFold.ringRoom
-                width: parent.width + 2 * notesFold.ringRoom
+                width: parent.width
                 height: foldLine.height
                 ListCursor { id: foldCursor }
                 // focus-indicator: the row draws ListItem's FocusRing for the fold line
@@ -446,8 +417,6 @@ Item {
                     id: foldLine
                     width: parent.width
                     clickable: true
-                    leftPadding: notesFold.ringRoom
-                    rightPadding: notesFold.ringRoom
                     cursor: foldCursor
                     focusPolicy: Qt.StrongFocus
                     iconName: notesFold.expanded ? "chevron-down" : "chevron-right"

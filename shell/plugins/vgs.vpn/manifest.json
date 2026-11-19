@@ -57,7 +57,7 @@
       "type": "string",
       "label": "Profile",
       "description": "Connects on a network not on your trusted list",
-      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile by itself. A wired network is trusted by its router and its address range. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
+      "info": "VGS connects this profile when you join an untrusted network or start VGS on one.\nA wired network is trusted by its router and address range.\nWith the kill switch on, traffic is blocked before connecting.\nIf you turn the VPN off, it stays off until the computer changes networks.",
       "optionsFrom": "vpnChoices",
       "problem": "autoConnectProblem",
       "group": "Connect automatically"
@@ -66,7 +66,7 @@
       "type": "list",
       "label": "Trusted networks",
       "description": "On these networks the VPN does not connect by itself",
-      "info": "Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. Trusting the wired network this computer is on saves its router and address range: a cable to another router is not trusted, but a network that copies both is. If VGS cannot read the router, the wired network is not trusted. A Bluetooth or mobile network is never trusted.",
+      "info": "Trusting saved Wi-Fi trusts every network with the same name and password. Without a password, the name alone matches.\nTrusting the current wired network saves its router and address range.\nAnother router is not trusted, but a network that copies both values is trusted.\nWired networks with an unreadable router, Bluetooth networks and mobile networks are never trusted.",
       "group": "Connect automatically",
       "items": {
         "network": {
@@ -197,7 +197,7 @@
       "label": "Kill switch",
       "setup": "optional",
       "hint": "Block traffic outside the VPN when the VPN drops",
-      "info": "When a VPN you turned on in VGS drops, the kill switch blocks traffic outside it until it connects again or you turn it off in VGS. It works while VGS is not running and after a restart.",
+      "info": "If a VPN started in VGS drops, traffic stays blocked until it reconnects or you turn it off in VGS.\nThe block stays active when VGS closes and after a restart.",
       "action": {
         "label": "Set up",
         "system": "vpn-kill-switch"

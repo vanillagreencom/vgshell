@@ -72,7 +72,7 @@ def under(j, kind):
         if rows[j]["type"] == kind: return j
         j = rows[j]["parent"]
     return -1
-heads = sorted((r["box"][1], r["text"]) for i, r in enumerate(rows) if r["type"] == "Label" and r.get("role") == "eyebrow" and under(i, "Sidebar") != -1 and shown(i))
+heads = sorted((r["box"][1], r["words"]) for i, r in enumerate(rows) if r["semanticLabel"] and r.get("role") == "eyebrow" and rows[r["parent"]]["type"] == "SectionHeader" and under(i, "Sidebar") != -1 and shown(i))
 items = sorted((r["box"][1], r["text"]) for i, r in enumerate(rows) if r["type"] in ("NavigationRow", "ContentRow") and under(i, "Sidebar") != -1 and shown(i))
 print(json.dumps([[t for _, t in heads], [t for _, t in items]], separators=(",", ":")))'
 }
@@ -388,7 +388,7 @@ if len(side) != 1 or len(rules) != 1: print(json.dumps(["sidebars=%d rules=%d" %
 sb, rule, win = rows[side[0]], rows[rules[0]], rows[0]
 under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and inside(i, side[0]) and shown(i)]
 search, items = under("TextField"), sorted(under("NavigationRow") + under("ContentRow"))
-eyebrows = [i for i in under("Label") if rows[i].get("role") == "eyebrow"]
+eyebrows = [i for i, r in enumerate(rows) if r["semanticLabel"] and r.get("role") == "eyebrow" and rows[r["parent"]]["type"] == "SectionHeader" and inside(i, side[0]) and shown(i)]
 if len(search) != 1 or len(items) < 2 or not eyebrows: print(json.dumps(["search=%d items=%d eyebrows=%d" % (len(search), len(items), len(eyebrows))])); sys.exit()
 edge_l, edge_r = rows[items[0]]["box"][0], right(rows[items[0]])
 check("sidebar.leftInset", edge_l - sb["box"][0], inset)

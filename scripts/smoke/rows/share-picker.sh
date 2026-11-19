@@ -25,7 +25,7 @@ share_read() { ipc smoke readInstance window vgs.capture "$1"; }
 share_tabs_span() {
   ipc smoke descendantGeometry window vgs.capture | py_reply 'import json,sys
 rows=json.load(sys.stdin); strip=next(r for r in rows if r["type"]=="Tabs"); tabs=[r for r in rows if r["type"] in ("TabButton","QQuickTabButton")]
-hint=next(r for r in rows if r["type"]=="Label" and r.get("role")=="hint" and r["visible"])
+hint=next(r for r in rows if r["displayedOwner"] and r.get("role")=="hint" and r["visible"])
 print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"][2]-tabs[0]["box"][2])<1 for t in tabs) and abs(tabs[-1]["box"][0]+tabs[-1]["box"][2]-strip["box"][0]-strip["box"][2])<1)'
 }
 share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
@@ -69,7 +69,7 @@ viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
 actions=[r for r in rows if r['type']=='Button' and r.get('text') in ('Cancel','Share') and r['visible']]
 sliders=[r for r in rows if r['type']=='Slider' and r['visible']]
 selection=[r for r in rows if r['parent']==image_index and r['type']=='QQuickRectangle' and r['visible']]
-hint=next(r for r in rows if r['type']=='Label' and r.get('role')=='hint' and r['visible'])
+hint=next(r for r in rows if r['displayedOwner'] and r.get('role')=='hint' and r['visible'])
 def inside(a,b):
     x,y,w,h=a; X,Y,W,H=b
     return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
@@ -935,7 +935,7 @@ def scrolled(i):
 def shown(i): return inside(rows[i]['box'], rows[area]['box'] if scrolled(i) else rows[0]['box'])
 preview=next(i for i,r in enumerate(rows) if r['type']=='ScreencopyPreview')
 image=rows[rows[preview]['parent']]['parent']
-hint=next(i for i,r in enumerate(rows) if r['type']=='Label' and r.get('role')=='hint' and r['visible'] and (r.get('text') or '').startswith('Choose'))
+hint=next(i for i,r in enumerate(rows) if r['displayedOwner'] and r.get('role')=='hint' and r['visible'] and (r['words'] or '').startswith('Choose'))
 items=[i for i,r in enumerate(rows) if r['type']=='ContentRow' and r['visible']]
 row=count>=11 and selected==count-1 and len(items)==count and len(scroll)==1 and scroll[0]['contentY']>0 and shown(items[-1])
 print(row if part=='row' else row and shown(image) and shown(hint))

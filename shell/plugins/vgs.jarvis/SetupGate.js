@@ -164,7 +164,7 @@ var HOME_TODO = {
     "home=text": { hint: "Your instructions are not plain text: save them as plain text", action: "agents" },
     "home=package": {},
     "guidance=home-skills-too-large": { text: "Too many skills", hint: "A skill set exceeds 256 entries: remove the skills you do not use", action: "skills",
-        info: "Jarvis lists up to 256 entries in a skill folder. This limit stops an unexpectedly large folder from making Jarvis stop responding. Remove unused skills, then try again." }
+        info: "Jarvis lists up to 256 entries in a skill folder so a large folder does not stop it responding.\nRemove unused skills, then try again." }
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or choose another [Home folder](page:vgs.jarvis/Settings/home)";
 var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/", memory: "/memory/MEMORY.md", persona: "/.agents/skills/jarvis/persona.md", folder: "/", state: "/state/" };
@@ -176,8 +176,7 @@ var HOME_SETUP = {
     "home=missing": "This folder does not exist yet: Set up makes it a new Jarvis home",
     "home=not-set-up": "This folder is not a complete Jarvis home: Set up adds the Jarvis package and your starting files"
 };
-var HOME_SETUP_INFO = "Set up makes the Home folder a Jarvis home. kendex installs the Jarvis package in it, and the package writes your starting files."
-    + " To use the home of your main Jarvis on another computer, name that computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost).";
+var HOME_SETUP_INFO = "Set up adds the Jarvis package and starting files to your Home folder.\nTo copy your main Jarvis home from another computer, enter that computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost).";
 var HOME_CLONE = "Your main Jarvis runs on another computer, so this computer uses a copy of its home."
     + " To set up a new home here, choose This computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost).";
 // The one route that makes the Home folder a Jarvis home, the action every
@@ -202,7 +201,7 @@ function homeStep(cause, home, repair, main) {
     }
     if (home.kind === "ready") {
         if (cause === "home=text") value.hint = homeReference("AGENTS.md", home, "/AGENTS.md") + " is not plain text: save it as plain text";
-        if (cause === "guidance=home-skills-too-large") value.info += " Check the " + homeReference("base skills", home, "/.agents/skills/")
+        if (cause === "guidance=home-skills-too-large") value.info += "\nCheck " + homeReference("base skills", home, "/.agents/skills/")
             + " and " + homeReference("own skills", home, "/skills/") + ".";
         if (cause === "home=link") value.hint = "Replace the shortcut in your " + homeReference("Home folder", home, "/") + " with the real file";
         if (cause !== "home=text" && cause !== "home=link" && cause !== "guidance=home-skills-too-large")
@@ -313,15 +312,15 @@ function numberText(value) {
 }
 function messageLimit(maximum) {
     return { maximum: maximum,
-        info: "A message can hold up to " + numberText(maximum) + " characters. This keeps each message within the size Jarvis can send to the AI model. Send a longer request as separate messages. Control characters, such as line breaks and tabs, are not supported." };
+        info: "Each message can contain up to " + numberText(maximum) + " characters, within the size Jarvis can send to the AI model.\nSplit longer requests into separate messages.\nLine breaks, tabs and other control characters are not supported." };
 }
-var START_REASON = "Each answering AI model gets this text at the start of every conversation. Longer text costs more and leaves less room for your conversation. Jarvis still loads it whole.";
+var START_REASON = "Every AI model receives this text at the start of a conversation.\nLonger text costs more and leaves less room for the conversation.\nJarvis still reads each file in full.";
 function budgetInfo(causes, home) {
     var facts = causes.map(function (cause) {
         var budget = OVER_BUDGET[cause];
         return homeReference(budget.name, home, HOME_FILES[budget.action]) + " " + numberText(budget.bytes);
     });
-    return "Byte budgets: " + facts.join("; ") + ". " + START_REASON;
+    return "Byte budgets:\n" + facts.join("\n") + ".\n" + START_REASON;
 }
 var START_FILES = {
     "home/persona": { name: "Persona", action: "persona" },
@@ -334,11 +333,11 @@ var START_FILES = {
 function startTextInfo(layers, causes, home) {
     var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
     var reason = over.length > 0 ? budgetInfo(over, home)
-        : "Tokens are small pieces of words. These counts are estimates. " + START_REASON;
-    return reason + " Open: " + layers.map(function (layer) {
+        : "Tokens are small pieces of words. These counts are estimates.\n" + START_REASON;
+    return reason + "\nOpen:\n" + layers.map(function (layer) {
         var file = START_FILES[layer.layer];
         return homeReference(file.name, home, HOME_FILES[file.action]);
-    }).join(", ") + ".";
+    }).join("\n") + ".";
 }
 // The Instructions row from SHOWN, the daemon's instructions message, and
 // CAUSES, its last answer's, an optional Setup step: the home's whole
@@ -414,7 +413,7 @@ function voiceCheck(value, check, talk) {
         ? Object.assign({}, value, { action: "setup" }) : typeof value.action === "string" ? value : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
         return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds",
-            info: "This short test checks whether Jarvis can hear Hey Jarvis. The microphone closes after three seconds. Press Check microphone to try again." };
+            info: "Say Hey Jarvis to test whether Jarvis can hear you.\nThe microphone closes after three seconds.\nSelect Check microphone to try again." };
     if (check.kind === "finishing") return { tone: "info", text: "Checking" };
     if (check.kind === "failed") return { tone: "danger", text: "Check failed",
         hint: "Jarvis could not check the microphone: press Check microphone to try again", action: "check" };
@@ -452,7 +451,7 @@ var LOCAL_FAILURES = {
     cancelled: "The setup was cancelled: set it up again when you are ready",
     other: "The setup stopped before it finished: try again"
 };
-var LOCAL_SETUP_INFO = "The download holds the speech models that run on this computer, so your speech stays here.";
+var LOCAL_SETUP_INFO = "Setup downloads voice models that run on this computer, so your speech stays here.";
 
 // The Voice step as the page shows it, from VALUE, the step readiness,
 // voiceCheck and setupValue made, and FACTS: `provider` (voiceProvider),
@@ -872,9 +871,9 @@ function echoCancellation(provider, reading) {
     default:
         throw new Error("jarvis-setup: echo-cancel=" + reading.state);
     }
-    var details = local ? "Local and ElevenLabs close the microphone during replies. " : "";
-    details += "Setup asks before saving the chosen physical microphone and speaker. It changes no system default. ";
-    if (reading.path !== "") details += Commons.PageReference.fileReference("Open the configuration file", reading.path) + ". ";
+    var details = local ? "The microphone closes during replies.\n" : "";
+    details += "Setup asks before saving the chosen microphone and speaker. It changes no system default.\n";
+    if (reading.path !== "") details += Commons.PageReference.fileReference("Open the configuration file", reading.path) + ".\n";
     details += "Jarvis checks the connected route before it keeps the microphone open during replies.";
     setup.info = details;
     return { setup: setup, route: route };

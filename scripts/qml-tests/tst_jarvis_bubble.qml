@@ -95,10 +95,10 @@ Item {
             return out;
         }
         function shownText() {
-            return collect(bubble, n => n instanceof Text && n.visible && n.opacity > 0 && n.text !== "", []).map(n => n.text);
+            return displayedTextItems(bubble).filter(n => n.opacity > 0 && displayedText(n) !== "").map(n => displayedText(n));
         }
         function links() {
-            return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
+            return displayedTextItems(bubble).filter(n => n instanceof LinkText);
         }
         function plates() { return collect(bubble, n => n.glassSurface === true && n.visible, []); }
 

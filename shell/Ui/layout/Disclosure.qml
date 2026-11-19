@@ -24,6 +24,7 @@ Column {
 
     property alias text: row.text
     property alias secondary: row.secondary
+    property alias info: row.info
     property alias iconName: row.iconName
     // A shared corner count over the icon, "" for none; it takes no row room.
     property string iconCount: ""

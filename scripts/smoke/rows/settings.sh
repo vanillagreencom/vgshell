@@ -313,26 +313,28 @@ expect_poll "the plate fades once no row is shown" 0 reveal_mark
 # sandbox, so both proofs enable it and restore its state afterwards.
 # settings_shown: the window's shownPage, the page and its tab.
 settings_shown() { ipc smoke readInstance window vgs.settings shownPage; }
-# info_link_shown TEXT [SCOPE_TYPE SCOPE_TEXT]: whether the actual popup
-# draws the named paragraph.
-info_link_shown() { ipc smoke popupItemGeometry window vgs.settings "${2:-}" "${3:-}" LinkText "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
-# info_link_click TEXT [SCOPE_TYPE SCOPE_TEXT]: click the actual popup's
+# Open the displayed semantic label, not its accessible "About" name.
+settings_help_open() { settings_press --type SemanticLabel "$1" "${2:-SettingField}" "${3:-$1}"; }
+# info_link_shown TITLE PAGE: whether the label's current modal draws the
+# unique paragraph whose parsed destination is PAGE.
+info_link_shown() { ipc smoke helpParagraphGeometry window vgs.settings "$1" "$2" | py_reply 'import sys; value=sys.stdin.read().strip(); print("shown" if value.startswith("[") else "absent" if value == "absent" else value)'; }
+# info_link_click TITLE PAGE: click the actual popup's
 # link words only after their box settles and they report the pointer.
 info_link_click() {
-  local text="$1" scope_type="${2:-}" scope_text="${3:-}"
+  local title="$1" page="$2"
   local paragraph box linked rect="" last="" settled=false point x y failed_before="$failures"
-  # popupItemGeometry gives the whole paragraph in the popup window's
-  # Quickshell global frame, which at_centre places with the parent window.
+  # helpParagraphGeometry gives the whole paragraph in the modal window's
+  # frame, which at_centre places with its compositor layer.
   # linkBox is local to LinkText. Add its origin once and keep its size.
   # A link the dialog wraps holds a gap at its box's centre, so the click
   # aims at its first laid-out span (LinkText.underlined) on its line.
   local spans pitch
   for _ in $(seq 1 50); do
-    paragraph="$(ipc smoke popupItemGeometry window vgs.settings "$scope_type" "$scope_text" LinkText "$text")" || return 1
-    linked="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linked)" || return 1
-    box="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linkBox)" || return 1
-    spans="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" underlined)" || return 1
-    pitch="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linePitch)" || return 1
+    paragraph="$(ipc smoke helpParagraphGeometry window vgs.settings "$title" "$page")" || return 1
+    linked="$(ipc smoke helpParagraphRead window vgs.settings "$title" "$page" linked)" || return 1
+    box="$(ipc smoke helpParagraphRead window vgs.settings "$title" "$page" linkBox)" || return 1
+    spans="$(ipc smoke helpParagraphRead window vgs.settings "$title" "$page" underlined)" || return 1
+    pitch="$(ipc smoke helpParagraphRead window vgs.settings "$title" "$page" linePitch)" || return 1
     if [[ $linked == true && $paragraph == \[* && $box == \{* ]]; then
       rect="$(printf '%s\n' "$paragraph" | py_reply '
 import json,sys
@@ -351,12 +353,12 @@ else:
     sleep 0.1
   done
   [[ $settled == true ]] || { echo "info_link_click: no still link in the info dialog: $rect" >&2; return 1; }
-  point="$(at_centre window:Plugins "$rect")" || return 1
+  point="$(at_centre vgs:dialog "$rect")" || return 1
   read -r x y <<<"$point" || return 1
   hover "$x" "$y" || return 1
-  expect_poll "the info dialog's paragraph reports a link" true ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linked || return 1
+  expect_poll "the info dialog's paragraph reports a link" true ipc smoke helpParagraphRead window vgs.settings "$title" "$page" linked || return 1
   [[ $failures -eq $failed_before ]] || return 1
-  expect_poll "the pointer reaches the info dialog's link words" true ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" hoveredLink || return 1
+  expect_poll "the pointer reaches the info dialog's link words" true ipc smoke helpParagraphRead window vgs.settings "$title" "$page" hoveredLink || return 1
   [[ $failures -eq $failed_before ]] || return 1
   click "$x" "$y"
 }
@@ -385,11 +387,11 @@ expect "enabling the System window for the info link is allowed" ok ipc shell se
 expect_poll "the System window is enabled for the info link" True plugin_enabled vgs.system
 expect "the window opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows for its info dialog" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" SettingField On || fail "the click on the On field's info icon failed"
-expect_poll "the On field's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
+settings_help_open On || fail "the click on the On field's help label failed"
+expect_poll "the On field's info dialog draws its page reference after prose" shown info_link_shown On vgs.sounds
 expect_poll "no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
-info_link_click "$page_info_text" || fail "the click on the info dialog's page reference failed"
-expect_poll "a page reference in an info dialog closes the dialog" absent info_link_shown "$page_info_text"
+info_link_click On vgs.sounds || fail "the click on the info dialog's page reference failed"
+expect_poll "a page reference in an info dialog closes the dialog" absent info_link_shown On vgs.sounds
 expect_poll "a page reference in an info dialog opens the Sounds pane" '["vgs.sounds"]' window_panes
 expect_poll "Sounds boxed inputs share their row allocation" aligned settings_inputs_read window vgs.system 1 sounds-info-link
 expect "opening the Sounds pane keeps the fixture's Settings page" '"acme.page-link/Settings"' settings_shown
@@ -794,9 +796,8 @@ fi
 # LABEL, a step of the Setup tab or a line of a Status row, each a Field:
 # its label, its value, its action and its hint or last refusal.
 # token_drawn: the Token step's, the Sync group's first entry.
-# A step's texts as a user reads them: a link's styled markup and the
-# narrow spaces LinkText sets for its ring are not words.
-step_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import html,json,re,sys; r=[[html.unescape(re.sub(r"<[^>]*>", "", t)).replace("\u202f", "") for t in r] for r in json.load(sys.stdin) if r and r[0] == sys.argv[1]]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))' "$1"; }
+# Probe supplies each displayed owner's words once, without styled children.
+step_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == sys.argv[1]]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))' "$1"; }
 token_drawn() { step_drawn Token; }
 setup_notices() { ipc smoke itemTexts window vgs.settings Callout | py_reply 'import json,sys; print(json.dumps([t for t in json.load(sys.stdin) if t]))'; }
 status_of() { settings_rows | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]][0]["status"]; print(json.dumps([[s["label"], s["report"], s["value"], s["tone"]] for s in r]))' "$1"; }
@@ -1888,12 +1889,12 @@ expect "control: the copy takes a summon that names a tab" ok ipc shell summon w
 expect_poll "control: an open() that drops the tab shows Settings" '"acme.probe/Settings"' settings_shown
 expect "control: the copy opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "control: the copy shows the page link fixture's page" '"acme.page-link/Settings"' settings_shown
-settings_press --type InfoButton "About On" SettingField On || fail "control: the click on the On field's info icon failed"
-expect_poll "control: the copy's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
+settings_help_open On || fail "control: the click on the On field's help label failed"
+expect_poll "control: the copy's info dialog draws its page reference after prose" shown info_link_shown On vgs.sounds
 expect_poll "control: no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
 expect "control: no System window is open before the info dialog's Sounds link click" 0 window_count 'System Settings'
-info_link_click "$page_info_text" || fail "control: the click on the info dialog's page reference failed"
-expect_poll "control: the page reference closes the copy's info dialog" absent info_link_shown "$page_info_text"
+info_link_click On vgs.sounds || fail "control: the click on the info dialog's page reference failed"
+expect_poll "control: the page reference closes the copy's info dialog" absent info_link_shown On vgs.sounds
 expect "control: a field that drops the info dialog's page reference opens no pane" '[]' window_panes
 expect "control: a field that drops the info dialog's page reference opens no System window" 0 window_count 'System Settings'
 expect "control: a field that drops the info dialog's page reference keeps its page" '"acme.page-link/Settings"' settings_shown

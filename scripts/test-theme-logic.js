@@ -1832,11 +1832,6 @@ const LED_LINES = [
         centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     {
-        file: "shell/Ui/controls/FormRow.qml", item: "Loader", icon: "id: infoButton",
-        binding: "y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)",
-        centred: "y: Math.round((root.labelBox - implicitHeight) / 2)"
-    },
-    {
         file: "shell/Ui/controls/RowAction.qml", icon: "id: mark\n",
         binding: "y: label.y + label.topForLeadingIcon(height, label.y, true)",
         centred: "y: Math.round(parent.half - height / 2)"

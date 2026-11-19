@@ -439,7 +439,7 @@ Item {
         // content box.
         function headerFaults(place) {
             const control = headerPane.headerSwitch;
-            const labels = descendants(headerPane).filter(item => item.text === "VPN" || item.text === "Tailscale").filter(item => item.contentWidth !== undefined && item.visible);
+            const labels = displayedTextItems(headerPane).filter(item => displayedText(item) === "VPN" || displayedText(item) === "Tailscale").map(item => displayedTextRenderer(item));
             const out = [];
             for (const label of labels.concat([headerState, headerHint]))
                 if (overlap(place, words(label)) > 0) out.push("covers " + label.text);
@@ -484,7 +484,8 @@ Item {
             header.visible = true;
             verify(renderedFrame(header));
             const tip = openReason(headerPane.headerSwitch);
-            const title = descendants(headerPane).find(item => item.text === "VPN" && item.contentWidth !== undefined && item.visible);
+            const titleOwner = displayedTextItems(headerPane).find(item => displayedText(item) === "VPN");
+            const title = titleOwner === undefined ? undefined : displayedTextRenderer(titleOwner);
             verify(title !== undefined, "the header draws its title");
             const at = title.mapToItem(header, 0, 0), image = grabImage(header), bg = Qt.color(Theme.color.surface);
             let last = -1;
@@ -588,7 +589,7 @@ Item {
             const tip = openReason(crowded);
             const place = placedBox(tip);
             const content = surfaceBox(packed);
-            const texts = descendants(packed).filter(item => item.contentWidth !== undefined && item.font !== undefined && item.visible && item.text !== "" && !descendants(crowded).includes(item) && !descendants(smallStop).includes(item));
+            const texts = displayedTextItems(packed).filter(item => displayedText(item) !== "" && !descendants(crowded).includes(item) && !descendants(smallStop).includes(item)).map(item => displayedTextRenderer(item));
             verify(texts.length >= 9, "the fixture's texts are found: " + texts.length);
             const textCover = p => texts.reduce((sum, label) => sum + overlap(p, words(label)), 0);
 

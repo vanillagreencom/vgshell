@@ -101,7 +101,7 @@ Item {
     // As narrow as the gallery's focus example, after the column's Tab chain.
     ShortcutField { id: narrow; y: column.height; width: Theme.size.panel.sm / 2; capture: capture }
 
-    TestCase {
+    UnitCase {
         name: "shortcutfield"
         when: windowShown
 
@@ -241,7 +241,7 @@ Item {
 
         function test_unbound_uses_chip_text_size_and_placeholder_colour() {
             field.keys = [];
-            const prompt = descendant(field, item => item.text === "Unbound" && item.visible);
+            const prompt = displayedTextItems(field).find(item => displayedText(item) === "Unbound") || null;
             verify(prompt !== null);
             compare(prompt.font.pixelSize, Theme.text.kbd.size);
             compare(prompt.color, Qt.color(Theme.textField.placeholder));
@@ -497,7 +497,7 @@ Item {
             arm();
             capture.failed = true;
             verify(field.hint.indexOf("Hyprland's own shortcuts still run") === 0, field.hint);
-            const shown = descendant(field, item => item.text === field.hint && item.visible);
+            const shown = displayedTextItems(field).find(item => displayedText(item) === field.hint) || null;
             verify(shown !== null);
             compare(Qt.colorEqual(shown.color, Theme.color.danger), true);
             keyClick(Qt.Key_Escape);
@@ -650,7 +650,7 @@ Item {
 
         function test_a_conflict_is_a_hint_that_blocks_nothing() {
             field.conflict = "Also bound to Launcher (toggle).";
-            const hint = descendant(field, item => item.text === field.conflict && item.visible);
+            const hint = displayedTextItems(field).find(item => displayedText(item) === field.conflict) || null;
             verify(hint !== null);
             compare(Qt.colorEqual(hint.color, Theme.color.warning), true);
             arm();

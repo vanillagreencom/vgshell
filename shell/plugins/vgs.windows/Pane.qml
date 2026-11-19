@@ -100,7 +100,7 @@ FocusScope {
                 onUseHyprlandValue: root.answer(root.shell.appearance.set("windowRadius", "hyprland"))
                 onUseThemeValue: root.answer(root.shell.appearance.unset("windowRadius"))
                 onOpenHyprlandConfig: root.openHyprlandConfig()
-                info: "Windows use this radius. Flyouts and cards use three quarters of it. Grouped window tabs use half of it."
+                info: "Windows use this radius.\nFlyouts and cards use three quarters of it.\nGrouped window tabs use half of it."
                 SavedSlider {
                     id: radius
                     from: root.boundOf("windowRadius", "min")
@@ -150,7 +150,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "VGlass"
-                info: "The glass surfaces are the launcher, notifications and your windows. Each surface decides: each one uses its own VGlass setting, and the launcher and notifications use glass by default. On or Off for every glass surface sets all of them."
+                info: "VGlass controls the launcher, notifications and windows.\n\"Each surface decides\" uses each surface's own VGlass setting.\nThe launcher and notifications use glass by default.\n\"On for every glass surface\" or \"Off for every glass surface\" changes all of them."
                 Select {
                     Accessible.name: "VGlass"
                     model: root.glassChoices
@@ -167,7 +167,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Windows"
-                info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + ". The VGlass choice above sets this unless each surface decides."
+                info: "On adds blur, transparency and a shadow to windows.\nOff keeps the window appearance from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + ".\nThe VGlass choice controls this unless it is set to Each surface decides."
                 onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 Switch {
                     size: "sm"
@@ -185,7 +185,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Glow"
-                info: "On: Hyprland draws a soft glow inside your focused window in your theme's colours while Windows glass is on. Off: Hyprland keeps the glow from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "."
+                info: "On adds a glow inside the focused window in your theme's colours when Windows glass is on.\nOff keeps the glow from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "."
                 onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 Switch {
                     size: "sm"
@@ -203,7 +203,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Layer glass"
-                info: "Adds glass to VGS panels independently of VGlass. On offers to install hyprglass."
+                info: "Adds glass to VGS panels separately from VGlass.\nTurning it on offers to install hyprglass."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"

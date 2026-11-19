@@ -215,8 +215,8 @@ vpn_details() { # UUID
   shown="$(ipc smoke readMatchingDescendant window vgs.vpn QQuickColumn objectName "vpn-details:$1" visible)" || return 1
   [[ $shown == true ]] || { echo closed; return 0; }
   for part in type server address; do
-    visible="$(ipc smoke readMatchingDescendant window vgs.vpn Label objectName "vpn-$part:$1" visible)" || return 1
-    value="$(ipc smoke readMatchingDescendant window vgs.vpn Label objectName "vpn-$part:$1" text)" || return 1
+    visible="$(ipc smoke readMatchingDescendant window vgs.vpn DisplayedText objectName "vpn-$part:$1" visible)" || return 1
+    value="$(ipc smoke readMatchingDescendant window vgs.vpn DisplayedText objectName "vpn-$part:$1" text)" || return 1
     if [[ $visible == true ]]; then out+=("$value"); else out+=(hidden); fi
   done
   out+=("$(ipc smoke readMatchingDescendant window vgs.vpn RowAction objectName "vpn-remove:$1" visible)") || return 1
@@ -363,7 +363,7 @@ PYVPNPRIVATE
 vpn_answer() { printf '%s|%s\n' "$(vpn_profiles state)" "$(vpn_profiles count)"; }
 vpn_empty_action() { vpn_named window EmptyState vpn-empty actionText | py_reply 'import json,sys; print("offered" if json.load(sys.stdin) else "none")'; }
 # Whether any private text is drawn in System Settings or published.
-vpn_drawn_private() { ipc smoke itemTexts window vgs.system QQuickText | py_reply 'import json,re,sys; print(json.dumps(any(re.search(sys.argv[1], t) for row in json.load(sys.stdin) for t in row)))' "$vpn_private"; }
+vpn_drawn_private() { ipc smoke itemTexts window vgs.system DisplayedText | py_reply 'import json,re,sys; print(json.dumps(any(re.search(sys.argv[1], t) for row in json.load(sys.stdin) for t in row)))' "$vpn_private"; }
 vpn_status_private() { ipc smoke statusValues vgs.vpn | py_reply 'import json,re,sys; print(json.dumps(re.search(sys.argv[1], json.dumps(json.load(sys.stdin))) is not None))' "$vpn_private"; }
 # Whether System Settings draws any Install plugin action.
 vpn_install_drawn() { vpn_named window RowAction "vpn-install-plugin:$vpn_office" visible; }
@@ -690,7 +690,7 @@ read_count vpn_before "prompt: nmcli calls are unreadable" vpn_call_count
 vpn_press "Travel L2TP" Switch "" || fail "the switch of Travel L2TP could not be pressed"
 expect_poll "the Needs password switch opens the password prompt in System Settings" true vpn_prompt window
 expect "the prompt names the profile" true vpn_prompt_names window "Travel L2TP"
-expect "the prompt draws no retry line before a password was tried" false vpn_named window Label vpn-password-retry visible
+expect "the prompt draws no retry line before a password was tried" false vpn_named window DisplayedText vpn-password-retry visible
 expect_poll "the masked field holds the keys" true vpn_named window TextField vpn-password activeFocus
 expect "the field is masked" true vpn_named window TextField vpn-password password
 type_keys vpn-smoke-draft
@@ -791,7 +791,7 @@ expect_poll "the Needs password switch opens the prompt in the dropdown" true vp
 expect "the prompt and its scrim draw in the dropdown's own Pane, the scrim over all of it" pane vpn_prompt_placed
 expect "the prompt is drawn on no layer of its own" 0 layer_count vgs:dialog
 expect "the dropdown prompt names the profile" true vpn_prompt_names panel "Travel L2TP"
-expect "no retry line shows before a password was tried" false vpn_named panel Label vpn-password-retry visible
+expect "no retry line shows before a password was tried" false vpn_named panel DisplayedText vpn-password-retry visible
 expect_poll "the dropdown's masked field holds the keys" true vpn_named panel TextField vpn-password activeFocus
 expect "the dropdown's field is masked" true vpn_named panel TextField vpn-password password
 expect "the switch hands the stand-in nmcli no plain up" '[]' vpn_changes "$vpn_before"
@@ -808,7 +808,7 @@ expect "the change in flight says a password went, as a flag alone" true vpn_act
 vpn_connect_world failed run
 expect_poll "the failed password connect leaves Travel L2TP asking again" '"password-tried"' vpn_failure "$vpn_travel"
 expect_poll "the failed password connect opens the prompt again" true vpn_prompt panel
-expect "the reopened prompt shows its retry line" true vpn_named panel Label vpn-password-retry visible
+expect "the reopened prompt shows its retry line" true vpn_named panel DisplayedText vpn-password-retry visible
 expect_poll "the reopened prompt's field holds the keys" true vpn_named panel TextField vpn-password activeFocus
 expect "the reopened field is empty" 0 vpn_named panel TextField vpn-password length
 expect "Travel L2TP still reads Needs password" needs-password vpn_key panel "$vpn_travel"

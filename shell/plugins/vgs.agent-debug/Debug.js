@@ -60,7 +60,7 @@ var WATCH = {
     "no-journal": { tone: "info", text: "Off", hint: "Starts when the system journal tool is installed from the [Setup tab](page:vgs.agent-debug/Setup)" },
     "starting": { tone: "info", text: "Starting" },
     "watching": { tone: "ok", text: "Watching" },
-    "stopped": { tone: "warning", text: "Stopped", info: "Agent Debug stopped looking for crashes because it could not read the system journal.\nTurn Agent Debug off and on to try again." }
+    "stopped": { tone: "warning", text: "Stopped", info: "Agent Debug cannot read the system journal, so it stopped checking for crashes.\nTurn Agent Debug off and on to try again." }
 };
 
 function hasOwn(object, key) {

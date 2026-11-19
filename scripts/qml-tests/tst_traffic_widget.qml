@@ -71,10 +71,7 @@ Item {
         // The widget's shown item.
         function button() { return widget.children.find(child => child.label === "Network Traffic" && child.visible); }
         function rates() {
-            const found = [];
-            const walk = node => { for (const child of node.children) { if (child.role === "bar" && child.visible && String(child.text).indexOf("/s") >= 0) found.push(child); walk(child); } };
-            walk(widget);
-            return found;
+            return displayedTextItems(widget).filter(child => child.role === "bar" && displayedText(child).indexOf("/s") >= 0);
         }
         // The rightmost column holding ink between x0 and x1 in rows y0
         // to y1 of the canvas, -1 when none does.

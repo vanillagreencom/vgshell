@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import qs.Commons
 import qs.Ui
+import qs.Unit
 
 Item {
     id: root
@@ -51,16 +52,6 @@ Item {
     SignalSpy { id: headerPages; target: linked.children[0]; signalName: "pageActivated" }
     SignalSpy { id: sectionPages; target: linked; signalName: "pageActivated" }
 
-    function descriptionOf(header) { return header.children[1]; }
-    function labelOf(link) { return link.children[0]; }
-    function infoButtonOf(item) {
-        for (const child of item.children) {
-            if ("infoOpen" in child) return child;
-            const nested = infoButtonOf(child);
-            if (nested !== null) return nested;
-        }
-        return null;
-    }
     function focusRingOf(item) {
         for (const child of item.children) {
             if (child.toString().indexOf("FocusRing") === 0) return child;
@@ -70,9 +61,10 @@ Item {
         return null;
     }
 
-    TestCase {
+    UnitCase {
         name: "sectionheader"
         when: windowShown
+        function descriptionOf(header) { return displayedTextItems(header).find(item => item.role === "hint"); }
 
         function init() {
             headerPages.clear();
@@ -89,7 +81,7 @@ Item {
             plain.description = data.text;
             plain.width = data.width;
             const description = descriptionOf(plain);
-            const label = labelOf(description);
+            const label = displayedTextRenderer(description);
             tryCompare(description, "height", oldDescription.height);
             compare(label.font.family, oldDescription.font.family);
             compare(label.font.pixelSize, oldDescription.font.pixelSize);
@@ -115,11 +107,11 @@ Item {
         }
         // The info dialog takes the section's info title, else its title.
         function test_info_dialog_title() {
-            const named = infoButtonOf(titled);
-            verify(named !== null);
+            const named = semanticLabelItems(titled)[0];
+            verify(named !== undefined);
             compare(named.title, titled.infoTitle);
-            const plainInfo = infoButtonOf(untitled);
-            verify(plainInfo !== null);
+            const plainInfo = semanticLabelItems(untitled)[0];
+            verify(plainInfo !== undefined);
             compare(plainInfo.title, untitled.title);
         }
         function test_description_link_is_in_tab_order_with_focus_ring() {

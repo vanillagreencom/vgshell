@@ -91,7 +91,7 @@ Item {
             compare(icons[0].y, text.topForLeadingIcon(icons[0].height));
             if (data.battery.present) {
                 const row = field.children.find(item => item instanceof FormRow);
-                const key = row.children.find(item => item.objectName === "fieldLabel");
+                const key = displayedTextRenderer(semanticLabelItems(row)[0]);
                 const level = field.control[0].children.find(item => item instanceof Label);
                 const keyCentre = key.mapToItem(view, 0, (key.baselineOffset + key.capTop()) / 2).y;
                 const levelCentre = level.mapToItem(view, 0, (level.baselineOffset + level.capTop()) / 2).y;
@@ -107,7 +107,9 @@ Item {
             const field = all.find(item => item instanceof Field && descendants(item).indexOf(awake) !== -1);
             const progress = all.find(item => item instanceof ProgressBar);
             const tiles = all.find(item => item instanceof TileGroup);
-            const label = field.children[0].children[0];
+            const labels = semanticLabelItems(field);
+            compare(labels.length, 1, "Stay awake draws one label above its control");
+            const label = labels[0];
             compare(label.mapToItem(view, 0, 0).y - (progress.mapToItem(view, 0, 0).y + progress.height),
                 Theme.stack.group + Theme.stack.row);
             compare(tiles.mapToItem(view, 0, 0).y - (field.mapToItem(view, 0, 0).y + field.height - field.bottomPadding),

@@ -75,14 +75,14 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "devicerow"
         when: windowShown
 
         // The row's accessories: its badge, its actions and its overflow button.
         function trailing(row) { return row.contentItem.children[2].children[0].children; }
         function badgeOf(row) { return trailing(row)[0]; }
-        function lineOf(row) { return row.contentItem.children[1].children[1]; }
+        function lineOf(row) { return displayedTextItems(row.contentItem).find(child => child.role === "itemHint"); }
 
         function test_a_danger_state_line_draws_in_the_danger_colour() {
             compare(lineOf(headset).text, "Connected");

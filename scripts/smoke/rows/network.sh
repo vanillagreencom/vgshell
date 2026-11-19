@@ -138,10 +138,10 @@ net_widget_click() { rest_pointer && click_centre "$(bar_key)" vgs.network; }
 # The password prompt of the view HOST holds: whether its dialog shows,
 # whether the dialog names the prompted network, and its top in the body.
 net_dialog() { ipc smoke readMatchingDescendant "$1" vgs.network Dialog objectName network-prompt visible; }
-net_dialog_names() { ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-name text | py_reply 'import json,sys; print("VGS Smoke Wi-Fi" in json.load(sys.stdin))'; }
+net_dialog_names() { ipc smoke readMatchingDescendant "$1" vgs.network DisplayedText objectName network-prompt-name text | py_reply 'import json,sys; print("VGS Smoke Wi-Fi" in json.load(sys.stdin))'; }
 net_reason_matches() {
   local reason
-  reason="$(ipc smoke readMatchingDescendant "$1" vgs.network Label objectName network-prompt-reason text)" || return 1
+  reason="$(ipc smoke readMatchingDescendant "$1" vgs.network DisplayedText objectName network-prompt-reason text)" || return 1
   net_snapshot | py_reply 'import json,sys; problem=json.load(sys.stdin)["network"]["problem"]; print("same" if problem and json.loads(sys.argv[1])==problem else "different")' "$reason"
 }
 net_saved_reason() { expect "$1: the dialog draws the service failure reason" same net_reason_matches panel; }
@@ -250,7 +250,7 @@ net_follow_restore() {
 # then Cancel moves there. The disabled page behind it takes no focus.
 net_dialog_follows() {
   local before after prior scrolled
-  ipc smoke revealText "$1" vgs.system Label 'Wi-Fi password' >/dev/null || return 1
+  ipc smoke revealText "$1" vgs.system DisplayedText 'Wi-Fi password' >/dev/null || return 1
   before="$(net_dialog_y "$1")" || return 1
   prior="$(ipc smoke viewHolding "$1" vgs.system Cancel | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("{") else {}; print(r.get("contentY","unreadable"))')" || return 1
   scrolled="$(ipc smoke revealText "$1" vgs.system Button Cancel)" || return 1
@@ -942,7 +942,7 @@ expect_poll "the first-time password case is mounted" shown net_shown panel
 expect_poll "the first-time network is listed without a saved profile" '[["VGS Smoke Wi-Fi", 82, false, false]]' net_rows panel
 net_reprompt "First-time password" || return 0
 expect_poll "the first-time password dialog shows" true net_dialog panel
-expect "the first-time dialog has no failure reason line" false ipc smoke readMatchingDescendant panel vgs.network Label objectName network-prompt-reason visible
+expect "the first-time dialog has no failure reason line" false ipc smoke readMatchingDescendant panel vgs.network DisplayedText objectName network-prompt-reason visible
 expect "the first-time dialog still names its network" True net_dialog_names panel
 expect "the first-time password view closes" ok ipc shell hide panel vgs.network
 expect_poll "closing the first-time view cancels its prompt" none net_prompt

@@ -442,7 +442,7 @@ click_row() {
   themes_click_item NavigationRow "$1"
 }
 # Whether the panel draws a label reading TEXT: True or False.
-panel_label() { ipc smoke itemTexts panel vgs.themes Label | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
+panel_label() { ipc smoke itemTexts panel vgs.themes DisplayedText | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
 panel_open() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
 scroll_themes() { ipc smoke scrollTo panel vgs.themes "$1" >/dev/null; }
 # click_button TEXT [TYPE]: one click_item on the enabled control of TYPE,
@@ -878,7 +878,7 @@ def inside(j, i):
         j = rows[j]["parent"]
     return False
 panel = rows[0]["box"]
-title = [r["box"][:] for r in rows if r["type"] == "Label" and r.get("role") == "h3" and r.get("text") == "Themes" and shown(r)]
+title = [r["box"][:] for r in rows if r["displayedOwner"] and r.get("role") == "h3" and r["words"] == "Themes" and shown(r)]
 heads = [r["box"][:] for r in rows if r["type"] == "SectionHeader" and shown(r)]
 items = [i for i, r in enumerate(rows) if r["type"] == "NavigationRow" and shown(r)]
 smoke = [i for i in items if rows[i].get("text") == "smoke"]
@@ -887,8 +887,8 @@ add = [r["box"][:] for r in rows if r["type"] == "Button" and r.get("text") == "
 if len(title) != 1 or len(heads) != 3 or len(smoke) != 1 or len(scroll) != 1 or len(add) != 1:
     print(json.dumps(["rows title=%d heads=%d smoke=%d scroll=%d add=%d" % (len(title), len(heads), len(smoke), len(scroll), len(add))])); sys.exit()
 title, row = title[0], rows[smoke[0]]["box"][:]
-name = [rows[j]["box"][:] for j in range(len(rows)) if rows[j]["type"] == "Label" and rows[j].get("text") == "smoke" and inside(j, smoke[0])]
-line = [r["box"][:] for r in rows if r["type"] == "Label" and r.get("text") == "smoke-fails: The theme action failed. Try again or choose another theme." and shown(r)]
+name = [rows[j]["box"][:] for j in range(len(rows)) if rows[j]["displayedOwner"] and rows[j]["words"] == "smoke" and inside(j, smoke[0])]
+line = [r["box"][:] for r in rows if r["displayedOwner"] and r["words"] == "smoke-fails: The theme action failed. Try again or choose another theme." and shown(r)]
 if plant == "edge": row[2] -= 8
 if plant == "column" and line: line[0][0] += 8
 if plant == "footer": add[0][1] -= 40

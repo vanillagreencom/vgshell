@@ -36,7 +36,7 @@ Item {
         bodyComponent: Component { Rectangle { objectName: "slotItem"; width: parent ? parent.width : 0; height: 40 } }
     }
 
-    TestCase {
+    UnitCase {
         name: "message_row"
         when: windowShown
 
@@ -56,7 +56,7 @@ Item {
             return found;
         }
         function labelOf(item, text) {
-            return allChildren(item).find(child => child.text === text && child.visible);
+            return displayedTextItems(item).find(child => displayedText(child) === text);
         }
         function plateOf(item) {
             return item.children.find(child => child.color !== undefined && child.anchors !== undefined && child.anchors.fill === item);
@@ -84,7 +84,7 @@ Item {
             row.bodyText = Array(40).fill("word").join(" ");
             row.bodyLines = 2;
             tryCompare(row, "bodyTruncated", true);
-            const body = allChildren(row).find(child => child.text === row.bodyText);
+            const body = displayedTextItems(row).find(child => displayedText(child) === row.bodyText);
             compare(body.lineCount, 2);
             const hint = labelOf(row, "Click to read the full answer");
             verify(hint !== undefined, "the cut body shows its hint");

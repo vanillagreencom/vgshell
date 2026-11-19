@@ -204,7 +204,7 @@ Item {
         // the number its digits spell.
         function test_rest_edit_reaches_the_draft_and_engine_definition() {
             const window = opened();
-            const restField = descendants(window).find(item => item instanceof Field && item.label === "Rest");
+            const restField = descendants(window).find(item => item instanceof Field && semanticLabelItems(item, true).some(label => displayedText(label) === "Rest"));
             verify(restField !== undefined);
             compare(restField.visible, false, "a weekly rule has no rest");
             const draft = View.clone(window.draft);
@@ -212,7 +212,7 @@ Item {
             draft.interval = 10;
             window.loadDraft(draft);
             renderedFrame(window);
-            const shown = descendants(window).find(item => item instanceof Field && item.label === "Rest");
+            const shown = descendants(window).find(item => item instanceof Field && semanticLabelItems(item).some(label => displayedText(label) === "Rest"));
             tryVerify(() => shown.visible, 5000, "a seconds rule shows its rest");
             const input = descendants(shown).find(item => item instanceof TextField);
             verify(input !== undefined);

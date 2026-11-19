@@ -147,7 +147,7 @@ settings_page_close acme.hideable
 # question names the plugin's page inside its message, one paragraph the
 # link's words are part of; the same reader finds no paragraph that holds
 # the link sentence alone, the control.
-hide_paragraph() { [[ $(ipc smoke popupItemGeometry "$(bar_key)" acme.hideable "" "" LinkText "$1") == \[* ]] && echo drawn || echo absent; }
+hide_paragraph() { [[ $(ipc smoke popupItemGeometry "$(bar_key)" acme.hideable "" "" DisplayedText "$1") == \[* ]] && echo drawn || echo absent; }
 hide_again='To show it again, turn on Show in bar on its [page in Plugins](page:acme.hideable).'
 hide_ask acme.hideable
 expect "the question's message holds the link to the plugin's page" drawn hide_paragraph "Hideable leaves the bar. $hide_again"

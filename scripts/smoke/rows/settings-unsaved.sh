@@ -84,7 +84,7 @@ us_prompt_press() { click_scoped_in window:Plugins window vgs.settings Dialog "$
 # its actions in their order.
 us_prompt_actions() { ipc smoke itemTexts window vgs.settings Dialog | py_reply 'import json,sys; t=json.load(sys.stdin)[0]; print(json.dumps([x for x in t if x != sys.argv[1] and not x.endswith(" has unsaved changes.")]))' "$us_prompt_title"; }
 us_bar_press() { click_scoped_in window:Plugins window vgs.settings SaveBar "Unsaved changes" Button "$1"; }
-us_line() { [[ $(ipc smoke windowGeometry window vgs.settings Label "$1") == absent ]] && echo absent || echo drawn; }
+us_line() { [[ $(ipc smoke windowGeometry window vgs.settings DisplayedText "$1") == absent ]] && echo absent || echo drawn; }
 # us_refused ID: whether the window holds a refusal for plugin ID's page.
 us_refused() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print("refused" if json.load(sys.stdin).get(sys.argv[1], "") != "" else "none")' "$1"; }
 # us_left TEXT: `left` once the text field drawing TEXT holds no keyboard.

@@ -44,17 +44,13 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "themeCard"
         when: windowShown
 
         // Whether a visible item under ITEM draws TEXT.
         function drawsText(item, text) {
-            for (const child of item.children) {
-                if (child.visible && child.text === text) return true;
-                if (drawsText(child, text)) return true;
-            }
-            return false;
+            return displayedTextItems(item).some(child => displayedText(child) === text);
         }
 
         function test_a_card_without_a_wallpaper_names_its_theme() {

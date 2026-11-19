@@ -223,22 +223,17 @@ FocusScope {
             rows: root.searchRows
             onActed: key => root.actOn(searchList, key)
         }
-        Row {
+        InfoButton {
             objectName: "tailscale-exit-search-more"
             visible: searchList.visible && root.searchMatches.length > root.searchRows.length
-            spacing: Theme.stack.inline
-
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                role: "hint"
-                text: "Showing " + root.searchRows.length + " of " + root.searchMatches.length + " matches."
-            }
-            InfoButton {
-                anchors.verticalCenter: parent.verticalCenter
-                title: "Search"
-                info: "The list shows the first " + Logic.SEARCH_MAX + " matches, so it opens quickly. Type more of a name to find the others."
-            }
+            width: parent.width
+            role: "hint"
+            text: "Showing " + root.searchRows.length + " of " + root.searchMatches.length + " matches."
+            title: "Search"
+            info: "The list shows the first " + Logic.SEARCH_MAX + " matches so it opens quickly.\nType more of the name to find other matches."
+            wrapMode: Text.Wrap
         }
+
         EmptyState {
             objectName: "tailscale-exit-no-match"
             width: parent.width

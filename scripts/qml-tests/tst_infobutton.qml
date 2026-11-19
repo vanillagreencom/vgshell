@@ -4,398 +4,228 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// InfoButton shows its explanation in its tooltip on hover and on keyboard
-// focus, and its label there when it has none. It opens a dialog by click,
-// Return and Space; the dialog closes by Escape, its Close button and a
-// press outside, and focus returns to the icon. The open dialog draws one
-// frame, centred inside the window's dialog margin over a scrim that washes
-// every row of the window. A Field draws the icon only when `info` is set,
-// and beside its label that icon opens no tooltip, which would lie on the
-// label of the row under it.
-// A page reference in the explanation is a link in the dialog: activating
-// it closes the dialog and asks for its page and tab through
-// `infoPageActivated`, which a Field forwards whether its label stands
-// beside or above its control.
+// The offscreen modal is an interface stand-in. These cases prove the
+// label's independent input, help body and page routing. The nested
+// surfaces row proves the real ModalDialog's screen, close and lifetime.
 Item {
     id: root
-    width: 520
-    height: 320
-
-    Button {
-        id: outside
-        text: "Outside"
-        x: 420
-        y: 10
-    }
+    width: 600
+    height: 420
 
     InfoButton {
-        id: info
-        title: "Warden"
-        info: "Shows whether Agent Warden is checking agents."
+        id: help
+        title: "Help label"
+        info: "One useful condition.\nSee [another page](page:acme.test/Setup)."
         x: 20
         y: 20
     }
-
-    InfoButton {
-        id: bare
-        title: "Bare"
-        x: 80
-        y: 20
+    InfoButton { id: bare; title: "Plain label"; x: 20; y: 70 }
+    SettingField {
+        id: toggle
+        x: 20
+        y: 130
+        width: 520
+        key: "switch"
+        spec: ({ type: "boolean", label: "Toggle help", info: "A condition for this setting." })
+        value: false
     }
-
-    InfoButton {
-        id: paged
-        title: "Voice"
-        info: "Set it up on the [Voice page](page:acme.voice/Setup)."
-        x: 140
-        y: 20
-    }
-    SignalSpy { id: pagedPages; target: paged; signalName: "infoPageActivated" }
-
     Field {
-        id: explained
-        label: "Explained"
-        info: "This row has a declared explanation."
-        inline: true
-        width: 360
-        y: 80
-
-        Label { role: "value"; text: "Value" }
-    }
-
-    Field {
-        id: plain
-        label: "Plain"
-        inline: true
-        width: 360
-        y: 140
-
-        Label { role: "value"; text: "Value" }
-    }
-
-    Field {
-        id: pagedBeside
-        label: "Beside"
-        info: "Keys are on the [Models page](page:acme.models)."
-        inline: true
-        width: 360
-        y: 190
-
-        Label { role: "value"; text: "Value" }
-    }
-    SignalSpy { id: besidePages; target: pagedBeside; signalName: "infoPageActivated" }
-
-    Field {
-        id: pagedAbove
-        label: "Above"
-        info: "Keys are on the [Models page](page:acme.models/Setup)."
+        id: top
+        x: 20
+        y: 220
+        width: 520
         inline: false
-        width: 360
-        y: 240
-
-        Label { role: "value"; text: "Value" }
+        label: "Above"
+        info: "See [another page](page:acme.test/Details)."
+        Label { text: "Value" }
     }
-    SignalSpy { id: abovePages; target: pagedAbove; signalName: "infoPageActivated" }
+    Field {
+        id: beside
+        x: 20
+        y: 300
+        width: 520
+        inline: true
+        label: "Beside"
+        info: "See [another page](page:acme.test/Keys)."
+        Label { text: "Value" }
+    }
+    SignalSpy { id: changes; target: toggle; signalName: "apply" }
+    SignalSpy { id: pages; target: help; signalName: "infoPageActivated" }
+    SignalSpy { id: topPages; target: top; signalName: "infoPageActivated" }
+    SignalSpy { id: besidePages; target: beside; signalName: "infoPageActivated" }
+    Component {
+        id: readerFixture
+        Column {
+            InfoButton { title: "Current"; info: "A condition."; role: "eyebrow" }
+            Label { role: "label"; text: "Old label" }
+            Text { text: "Plain text" }
+            LinkText { text: "See [Settings](page:acme.test/Settings)." }
+            Item { property string text: "Metadata, not drawn words" }
+            Item { visible: false; Label { text: "Hidden" } }
+        }
+    }
+    Component {
+        id: returnFixture
+        Item {
+            width: 300
+            height: 100
+            property alias opener: returnButton
+            property alias help: returnedHelp
+            Button { id: returnButton; text: "More" }
+            InfoButton {
+                id: returnedHelp
+                y: 50
+                title: "Entry help"
+                info: "A condition."
+                returnFocus: returnButton
+            }
+        }
+    }
 
-    TestCase {
+    UnitCase {
         name: "infobutton"
         when: windowShown
 
+        function descendants(item) {
+            const out = [item];
+            for (let i = 0; i < out.length; i++)
+                for (const child of out[i].children || []) out.push(child);
+            return out;
+        }
         function init() {
             UnitTheme.reset();
-            info.destroyPopup();
-            // A tooltip an earlier test showed may still hold the window
-            // focus; keys and focus go to the test window.
-            root.Window.window.requestActivate();
-            outside.forceActiveFocus();
-            tryCompare(outside, "activeFocus", true);
+            help.closeInfo();
+            for (const field of [toggle, top, beside]) {
+                const label = semanticLabelItems(field).find(child => child.info !== "");
+                if (label !== undefined) label.closeInfo();
+            }
+            changes.clear(); pages.clear(); topPages.clear(); besidePages.clear();
         }
 
-        function descendants(item) {
-            const found = [item];
-            for (let i = 0; i < found.length; i++)
-                for (const child of found[i].children || []) found.push(child);
-            return found;
+        function test_shared_readers_keep_owners_once_and_refuse_old_labels() {
+            const fixture = createTemporaryObject(readerFixture, root);
+            verify(fixture !== null);
+            const words = displayedTextItems(fixture);
+            compare(words.map(item => displayedText(item)), ["Current", "Old label", "Plain text", "See Settings."]);
+            const labels = semanticLabelItems(fixture);
+            compare(labels.length, 1, "the visible old Label and plain Text are not semantic labels");
+            compare(semanticLabelText(fixture), "Current");
+            compare(labels[0], words[0]);
+            compare(displayedTextRenderer(labels[0]), labels[0].labelItem);
+            compare(labels[0].label, "About Current", "the accessible name is not an extra displayed word");
         }
 
-        function typeName(item) { return String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, ""); }
-        function popup(of) {
-            return of.popup === null ? null : of.popup.tracker.popup;
+        function test_pointer_and_keyboard_open_help_data() {
+            return [{ tag: "pointer", key: 0 }, { tag: "Enter", key: Qt.Key_Enter }, { tag: "Return", key: Qt.Key_Return }, { tag: "Space", key: Qt.Key_Space }];
         }
-        function dialog(of) {
-            return descendants(popup(of).contentItem).find(child => typeName(child) === "Dialog");
+        function test_pointer_and_keyboard_open_help(data) {
+            if (data.key === 0) mouseClick(help);
+            else {
+                help.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(data.key);
+            }
+            compare(help.infoOpen, true);
+            compare(helpDialog(help).dismissOnOutside, true);
+            helpDialog(help).rejected();
+            compare(help.infoOpen, false);
+            tryCompare(help, "activeFocus", true);
         }
-        function closeButton(of) {
-            return descendants(popup(of).contentItem).find(child => typeName(child) === "Button" && child.text === "Close");
+        function test_plain_label_has_no_action() {
+            compare(bare.linked, false);
+            compare(bare.activeFocusOnTab, false);
+            mouseClick(bare);
+            compare(bare.infoOpen, false);
         }
-        function shownTexts(of) {
-            return descendants(popup(of).contentItem).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text);
+        function test_close_restores_the_reason_on_an_already_focused_opener_data() {
+            return [{ tag: "key", visual: true }, { tag: "pointer", visual: false }];
         }
-        function tooltipOf(of) {
-            return descendants(of).find(child => child.anchorItem === of && child.details !== undefined);
+        function test_close_restores_the_reason_on_an_already_focused_opener(data) {
+            const fixture = createTemporaryObject(returnFixture, root);
+            verify(fixture !== null);
+            const opener = fixture.opener;
+            const previous = data.visual ? Qt.MouseFocusReason : Qt.TabFocusReason;
+            opener.forceActiveFocus(previous);
+            opener.focusReason = previous;
+            tryCompare(opener, "activeFocus", true);
+            compare(opener.visualFocus, !data.visual);
+            fixture.help.openInfo(data.visual);
+            fixture.help.closeInfo();
+            tryCompare(opener, "activeFocus", true);
+            tryCompare(opener, "visualFocus", data.visual);
         }
-        function tooltipTitle(of) {
-            // openedChanged runs before the tooltip's tracker binding
-            // updates. Read the loaded window itself in that callback.
-            const loader = tooltipOf(of).resources.find(child => String(child).indexOf("LazyLoader") === 0);
-            const window = loader.item;
-            return descendants(window.contentItem).find(child => child.objectName === "tooltipTitle");
+        function test_hover_has_no_help_copy() {
+            mouseMove(help, help.width / 2, help.height / 2);
+            verify(!descendants(help).some(child => child.details !== undefined && child.anchorItem !== undefined), "help owns no tooltip");
+            compare(help.infoOpen, false);
         }
-        function rest(of) {
-            mouseMove(root, root.width - 1, root.height - 1);
-            mouseMove(of, of.width / 2, of.height / 2);
+        function test_help_draws_dots_beneath_its_words() {
+            verify(help.linked);
+            verify(help.activeFocusOnTab);
+            verify(help.underlineAtRest);
+            verify(help.dottedUnderline);
+            verify(help.underlined.length > 0);
+            renderedFrame(root);
+            const image = grabImage(root);
+            const at = help.mapToItem(root, 0, 0);
+            const span = help.underlined[0];
+            const y = Math.floor(at.y + help.labelItem.baselineOffset + help.underlineOffset);
+            const from = Math.ceil(at.x + span.left);
+            const to = Math.floor(at.x + span.right);
+            let changes = 0;
+            for (let x = from + 1; x < to; x++) {
+                if (!Qt.colorEqual(image.pixel(x, y), image.pixel(x - 1, y))) changes++;
+            }
+            verify(changes >= 6, "the underline has repeated gaps, rather than a solid rule");
         }
-        function infoButtons(item) {
-            return descendants(item).filter(child => typeName(child) === "InfoButton" && child.visible);
+        function test_toggle_help_never_changes_the_setting_data() {
+            return [{ tag: "pointer", key: 0 }, { tag: "Enter", key: Qt.Key_Enter }];
         }
-        function openByKey(key) {
-            info.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(key);
-            tryCompare(info, "infoOpen", true);
-            popup(info).requestActivate();
-            tryCompare(popup(info), "active", true);
-            tryCompare(dialog(info), "activeFocus", true);
+        function test_toggle_help_never_changes_the_setting(data) {
+            const label = semanticLabelItems(toggle).find(child => child.info !== "");
+            verify(label !== undefined);
+            if (data.key === 0) mouseClick(label);
+            else { label.forceActiveFocus(Qt.TabFocusReason); keyClick(data.key); }
+            compare(label.infoOpen, true);
+            compare(changes.count, 0);
+            compare(toggle.value, false);
         }
-
-        function test_opens_by_click_enter_and_space_data() {
+        function test_paragraphs_and_page_links_keep_their_route() {
+            const lines = helpParagraphs(help, root);
+            compare(lines.length, 2);
+            compare(lines[1].y - lines[0].height - lines[0].y, Theme.space.md);
+            help.openInfo();
+            lines[1].clicked();
+            compare(help.infoOpen, false);
+            compare(pages.count, 1);
+            compare(Array.from(pages.signalArguments[0]), ["acme.test", "Setup"]);
+        }
+        function test_fields_forward_the_page_route_data() {
             return [
-                { tag: "click", key: 0 },
-                { tag: "Space", key: Qt.Key_Space }
+                { tag: "above", field: top, spy: topPages, tab: "Details" },
+                { tag: "inline", field: beside, spy: besidePages, tab: "Keys" }
             ];
         }
-
-        function test_opens_by_click_enter_and_space(data) {
-            if (data.key === 0) mouseClick(info);
-            else openByKey(data.key);
-            tryCompare(info, "infoOpen", true);
-            const texts = shownTexts(info);
-            verify(texts.indexOf("Warden") !== -1, "the title is not drawn");
-            verify(texts.indexOf("Shows whether Agent Warden is checking agents.") !== -1, "the explanation is not drawn");
-            info.closeInfo();
-            tryCompare(info, "activeFocus", true);
-            info.destroyPopup();
-        }
-
-        function test_hover_shows_the_explanation_in_the_tooltip() {
-            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
-            rest(info);
-            tryCompare(tooltipOf(info), "opened", true, 2000);
-            compare(tooltipTitle(info).text, "Shows whether Agent Warden is checking agents.");
-            compare(info.infoOpen, false);
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tooltipOf(info), "opened", false);
-        }
-
-        // The offscreen platform activates a window when it shows, so the
-        // shown tooltip takes the focus from the icon and closes again; the
-        // test records what the tooltip drew when it opened.
-        function test_keyboard_focus_shows_the_explanation_in_the_tooltip() {
-            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
-            mouseMove(root, root.width - 1, root.height - 1);
-            const tip = tooltipOf(info);
-            const shown = [];
-            const record = () => { if (tip.opened) shown.push(tooltipTitle(info).text); };
-            tip.openedChanged.connect(record);
-            try {
-                info.forceActiveFocus(Qt.TabFocusReason);
-                tryVerify(() => shown.length > 0, 2000, "keyboard focus opens the tooltip");
-            } finally {
-                tip.openedChanged.disconnect(record);
-            }
-            compare(shown[0], "Shows whether Agent Warden is checking agents.");
-        }
-
-        function test_a_button_without_an_explanation_shows_its_label() {
-            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
-            rest(bare);
-            tryCompare(tooltipOf(bare), "opened", true, 2000);
-            compare(tooltipTitle(bare).text, "About Bare");
-            mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(tooltipOf(bare), "opened", false);
-        }
-
-        function test_escape_closes_and_returns_focus() {
-            openByKey(Qt.Key_Return);
-            keyClick(Qt.Key_Escape);
-            tryCompare(info, "infoOpen", false);
-            compare(info.activeFocus, true);
-            info.destroyPopup();
-        }
-
-        function test_close_button_closes_and_returns_focus() {
-            openByKey(Qt.Key_Return);
-            mouseClick(closeButton(info));
-            tryCompare(info, "infoOpen", false);
-            tryCompare(info, "activeFocus", true);
-            info.destroyPopup();
-        }
-
-        function test_outside_press_closes_and_returns_focus() {
-            openByKey(Qt.Key_Return);
-            mouseClick(outside);
-            tryCompare(info, "infoOpen", false);
-            tryCompare(info, "activeFocus", true);
-            compare(outside.activeFocus, false);
-            info.destroyPopup();
-        }
-
-        // The frames the open help draws: every GlassSurface in its popup.
-        function frames(of) {
-            return descendants(popup(of).contentItem).filter(child => child.glassSurface === true && child.visible);
-        }
-        // Open the help by pointer and wait for its surface to take the
-        // window's size, which the platform applies once the surface shows.
-        function openHelp() {
-            mouseClick(info);
-            tryCompare(info, "infoOpen", true);
-            const covered = root.Window.window.contentItem;
-            tryCompare(popup(info).contentItem, "width", covered.width);
-            tryCompare(popup(info).contentItem, "height", covered.height);
-            return popup(info);
-        }
-        function boxIn(item, within) {
-            const at = item.mapToItem(within, 0, 0);
-            return { x: at.x, y: at.y, width: item.width, height: item.height };
-        }
-
-        function test_the_help_draws_one_frame() {
-            mouseClick(info);
-            tryCompare(info, "infoOpen", true);
-            const drawn = frames(info);
-            compare(drawn.length, 1, "the help draws one frame");
-            compare(drawn[0].parent, dialog(info), "the one frame is the dialog's");
-            info.closeInfo();
-            tryCompare(info, "activeFocus", true);
-            info.destroyPopup();
-        }
-
-        function test_info_lines_draw_a_paragraph_gap() {
-            const original = info.info;
-            info.info = "First paragraph.\nSecond paragraph.";
-            try {
-                const window = openHelp();
-                verify(waitForPolish(window));
-                const lines = descendants(window.contentItem).filter(child => typeName(child) === "LinkText" && child.visible);
-                compare(lines.length, 2);
-                compare(lines[1].y - lines[0].y - lines[0].height, Theme.space.md);
-            } finally {
-                info.closeInfo();
-                info.destroyPopup();
-                info.info = original;
-            }
-        }
-
-        // A theme dialog wider than the window shows the cap: the dialog
-        // takes the window's width less the margin on each side.
-        function test_the_help_stays_inside_the_content_edge_data() {
-            return [
-                { tag: "theme width", width: 0 },
-                { tag: "wider than the window", width: 900 }
-            ];
-        }
-
-        function test_the_help_stays_inside_the_content_edge(data) {
-            if (data.width > 0) compare(UnitTheme.override({ dialog: { width: data.width } }), "ok");
-            const window = openHelp();
-            const margin = Theme.dialog.margin;
-            const box = boxIn(dialog(info), window.contentItem);
-            verify(box.x >= margin && box.x + box.width <= window.width - margin, "the dialog spans x " + box.x + "+" + box.width + " in a window " + window.width + " wide");
-            verify(box.y >= margin && box.y + box.height <= window.height - margin, "the dialog spans y " + box.y + "+" + box.height + " in a window " + window.height + " tall");
-            fuzzyCompare(box.x, window.width - box.x - box.width, 1, "the dialog is centred across the window");
-            fuzzyCompare(box.y, window.height - box.y - box.height, 1, "the dialog is centred down the window");
-            info.closeInfo();
-            tryCompare(info, "activeFocus", true);
-            info.destroyPopup();
-        }
-
-        // Every row of the window lies under the help's scrim, so none is
-        // drawn undimmed beside the dialog, and a press on one closes the
-        // help without reaching that row.
-        function test_the_help_covers_no_row_undimmed() {
-            const window = openHelp();
-            const scrim = descendants(window.contentItem).find(child => child.scrim === true && child.visible);
-            verify(scrim !== undefined, "the help draws a scrim");
-            const wash = boxIn(scrim, window.contentItem);
-            for (const row of [info, bare, explained, plain, outside]) {
-                const box = boxIn(row, root);
-                verify(box.x >= wash.x && box.y >= wash.y && box.x + box.width <= wash.x + wash.width && box.y + box.height <= wash.y + wash.height, "a row at " + box.x + "," + box.y + " lies outside the scrim");
-            }
-            info.closeInfo();
-            tryCompare(info, "activeFocus", true);
-            info.destroyPopup();
-        }
-
-        function pageLink(of) {
-            return descendants(popup(of).contentItem).find(child => typeName(child) === "LinkText" && child.visible && child.linked);
-        }
-
-        function test_a_page_reference_closes_the_help_and_asks_for_its_page() {
-            pagedPages.clear();
-            mouseClick(paged);
-            tryCompare(paged, "infoOpen", true);
-            const link = pageLink(paged);
-            verify(link !== undefined, "the help draws the reference as a link");
+        function test_fields_forward_the_page_route(data) {
+            const label = semanticLabelItems(data.field).find(child => child.info !== "");
+            verify(label !== undefined);
+            label.openInfo();
+            const link = helpParagraphs(label, root).find(child => child.linked);
+            verify(link !== undefined);
             link.clicked();
-            tryCompare(paged, "infoOpen", false);
-            compare(pagedPages.count, 1);
-            compare(pagedPages.signalArguments[0][0], "acme.voice");
-            compare(pagedPages.signalArguments[0][1], "Setup");
-            tryCompare(paged, "activeFocus", true);
-            paged.destroyPopup();
-        }
-
-        function test_a_field_forwards_its_help_page_data() {
-            return [
-                { tag: "label beside", field: pagedBeside, spy: besidePages, tab: "" },
-                { tag: "label above", field: pagedAbove, spy: abovePages, tab: "Setup" }
-            ];
-        }
-
-        function test_a_field_forwards_its_help_page(data) {
-            data.spy.clear();
-            const buttons = infoButtons(data.field);
-            compare(buttons.length, 1);
-            mouseClick(buttons[0]);
-            tryCompare(buttons[0], "infoOpen", true);
-            pageLink(buttons[0]).clicked();
-            tryCompare(buttons[0], "infoOpen", false);
+            compare(label.infoOpen, false);
             compare(data.spy.count, 1);
-            compare(data.spy.signalArguments[0][0], "acme.models");
-            compare(data.spy.signalArguments[0][1], data.tab);
-            tryCompare(buttons[0], "activeFocus", true);
-            buttons[0].destroyPopup();
+            compare(Array.from(data.spy.signalArguments[0]), ["acme.test", data.tab]);
         }
-
-        // Under a row's icon lies the next row's label and past it the
-        // row's own control, so the icon opens its dialog on a press alone.
-        function test_a_rows_icon_opens_no_tooltip() {
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
-            const mark = infoButtons(explained)[0];
-            const tip = tooltipOf(mark);
-            const opened = [];
-            const record = () => { if (tip.opened) opened.push(tip.text); };
-            tip.openedChanged.connect(record);
-            try {
-                rest(mark);
-                mark.forceActiveFocus(Qt.TabFocusReason);
-                compare(mark.visualFocus, true);
-                wait(4 * Theme.tooltip.delay);
-                compare(opened.length, 0, "the icon opens a tooltip over the next row: " + opened);
-            } finally {
-                tip.openedChanged.disconnect(record);
-                mouseMove(root, root.width - 1, root.height - 1);
-            }
-            mouseClick(mark);
-            tryCompare(mark, "infoOpen", true);
-            mark.closeInfo();
-            tryCompare(mark, "activeFocus", true);
-            mark.destroyPopup();
-        }
-
-        function test_field_draws_icon_only_with_info() {
-            compare(infoButtons(explained).length, 1);
-            compare(infoButtons(explained)[0].label, "About Explained");
-            compare(infoButtons(plain).length, 0);
+        function test_removing_help_closes_it() {
+            const original = help.info;
+            help.forceActiveFocus(Qt.TabFocusReason);
+            help.openInfo();
+            help.info = "";
+            compare(help.infoOpen, false);
+            compare(help.linked, false);
+            compare(help.activeFocus, false);
+            compare(help.activeFocusOnTab, false);
+            help.info = original;
         }
     }
 }

@@ -73,14 +73,13 @@ Item {
         for (const child of item.children) out = out.concat([child], descendants(child));
         return out;
     }
-    function enabledSwitch() {
-        const field = descendants(page).find(item => item instanceof Field && item.label === SettingValues.PAGE_LABELS.enabled);
-        return descendants(field).find(item => item instanceof Switch);
-    }
-
     UnitCase {
         name: "SettingsScroll"
         when: windowShown
+        function enabledSwitch() {
+            const field = descendants(page).find(item => item instanceof Field && semanticLabelItems(item).some(label => displayedText(label) === SettingValues.PAGE_LABELS.enabled));
+            return descendants(field).find(item => item instanceof Switch);
+        }
 
         function init() {
             manager.current = root.row(true);

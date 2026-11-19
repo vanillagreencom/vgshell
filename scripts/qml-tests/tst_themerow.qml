@@ -65,7 +65,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "themeRow"
         when: windowShown
 
@@ -82,7 +82,7 @@ Item {
 
         function item(row) { return find(row, child => child instanceof NavigationRow); }
         function action(row) { return find(row, child => child instanceof RowAction); }
-        function title(row) { return find(item(row).contentItem, child => child instanceof Label && child.role === "item"); }
+        function title(row) { return displayedTextItems(item(row).contentItem).find(child => child.role === "item"); }
         function inside(action, item) {
             const p = action.mapToItem(item, 0, 0);
             return p.x >= item.leftPadding && p.y >= item.topPadding
@@ -148,7 +148,7 @@ Item {
             verify(inside(link, item(own)));
             verify(nearerOwnName(link));
             verify(title(own).contentWidth <= title(own).width);
-            const subtitle = find(item(own).contentItem, child => child instanceof Label && child.role === "itemHint");
+            const subtitle = displayedTextItems(item(own).contentItem).find(child => child.role === "itemHint");
             verify(subtitle.contentWidth <= subtitle.width);
             verify(link.implicitWidth <= link.width);
             compare(own.requestAction(), data.installed);

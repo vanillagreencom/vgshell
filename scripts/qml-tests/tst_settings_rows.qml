@@ -131,7 +131,7 @@ Item {
         // Where a line's drawn ink starts and ends, in the row's frame.
         function inkTop(line, item) { return item.mapToItem(line, 0, 0).y + Theme.inkAbove(item); }
         function inkBottom(line, item) { return item.mapToItem(line, 0, item.height).y - Theme.inkBelow(item); }
-        function labelOf(line, text) { return descendants(line).find(item => item instanceof Label && item.visible && item.text === text); }
+        function labelOf(line, text) { return displayedTextItems(line).find(item => displayedText(item) === text); }
         function addOf(window) { return descendants(listOf(window)).find(item => item instanceof Button && item.visible && item.text === "Add a folder pair"); }
         // Qt takes the cursor over an item from a handler of the item that
         // sets a cursor shape and is hovered; with none, the arrow shows.
@@ -172,8 +172,24 @@ Item {
             const last = drawn[drawn.length - 1];
             const groups = descendants(listOf(window)).find(item => item instanceof GroupList);
             verify(Number.isInteger(groups.height) && Number.isInteger(groups.implicitHeight), "the list keeps a whole-pixel height: " + groups.height);
-            compare(addOf(window).mapToItem(null, 0, 0).y - (last.mapToItem(null, 0, last.height).y - Math.floor(last.drawnInkBelow)), Theme.stack.heading, "Add stands stack.heading below the list's last drawn ink, floored");
-            compare(onTab(window, LinkText).map(text => text.text).filter(text => text === root.pairsEntry.hint).length, 1, "the hint reads under the list");
+            compare(addOf(window).mapToItem(null, 0, 0).y - (last.mapToItem(null, 0, last.height).y - Math.floor(last.inkBelow)), Theme.stack.heading, "Add stands stack.heading below the list's last drawn ink, floored");
+            compare(displayedTextItems(tabsOf(window).currentPage).filter(item => displayedText(item) === root.pairsEntry.hint).length, 1, "the hint reads under the list");
+        }
+
+        function test_a_last_hovered_folder_row_keeps_its_plate_box() {
+            fakeManager.plugins = [root.pluginRow("acme.rows", root.pairsEntry, { pairs: root.pairs.slice(0, 2) }, {})];
+            const window = opened("acme.rows", "Settings");
+            const drawn = lines(window);
+            const last = drawn[drawn.length - 1];
+            verify(last.cursor !== null);
+            mouseMove(last, last.leftPadding + 1, last.height / 2);
+            mouseMove(last, last.leftPadding + 2, last.height / 2);
+            tryVerify(() => last.cursor.placed === last);
+            const groups = descendants(listOf(window)).find(item => item instanceof GroupList);
+            // Entrance transforms move row content, not the cursor's box.
+            const plate = last.cursor;
+            verify(groups.mapToItem(null, 0, groups.height).y >= plate.mapToItem(null, 0, plate.height).y,
+                "the list's box includes the last hovered plate");
         }
 
         // Name, state, folders and button stand one ink gap apart, and the
@@ -234,7 +250,7 @@ Item {
             compare(plate.shown, false, "a passive row takes no plate");
             // With no action under the list, its hint stands stack.heading
             // below the last row's drawn ink.
-            const hint = onTab(window, LinkText).find(text => text.text === root.mutedEntry.hint);
+            const hint = displayedTextItems(tabsOf(window).currentPage).find(item => displayedText(item) === root.mutedEntry.hint);
             fuzzyCompare(hint.mapToItem(null, 0, 0).y - (line.mapToItem(null, 0, line.height).y - line.drawnInkBelow), Theme.stack.heading, 1, "the hint stands stack.heading below the list's last drawn ink");
             verify(Number.isInteger(descendants(listOf(window)).find(item => item instanceof GroupList).height), "the passive list keeps a whole-pixel height");
             mouseClick(unmute[0]);
@@ -344,7 +360,7 @@ Item {
         // and a later press that opens its window clears it.
         function test_the_list_reads_the_reply_of_its_last_press() {
             const window = opened("acme.rows", "Settings");
-            const shown = () => descendants(listOf(window)).filter(item => item instanceof Label && item.visible && item.color === Qt.color(Theme.color.danger)).map(label => label.text);
+            const shown = () => displayedTextItems(listOf(window)).filter(item => item.color === Qt.color(Theme.color.danger)).map(label => displayedText(label));
             fakeManager.actionReply = "refused: tui=add reason=launcher-missing";
             ignoreWarning("settings: acme.rows/pairs " + fakeManager.actionReply);
             mouseClick(addOf(window));
@@ -374,7 +390,7 @@ Item {
             const window = opened(data.id, data.tab);
             compare(pageOf(window).tab, data.tab);
             compare(lines(window).length, 0);
-            verify(descendants(listOf(window)).some(item => item instanceof Label && item.visible && item.text === data.text), "the list reads " + data.text);
+            verify(displayedTextItems(listOf(window)).some(item => displayedText(item) === data.text), "the list reads " + data.text);
             const under = descendants(listOf(window)).filter(item => item instanceof Button && item.visible).map(action => action.text);
             compare(under, data.action === "" ? [] : [data.action]);
             if (data.action.indexOf("Turn on") !== 0) return;

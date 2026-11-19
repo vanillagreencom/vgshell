@@ -63,7 +63,7 @@ Item {
     Updates.Window { id: updatesWindow; x: 320; width: 320; height: 520; shell: root.updatesShell }
     Automations.HistoryPage { id: historyPage; x: 640; width: 320; height: 360; panel: historyPanel }
 
-    TestCase {
+    UnitCase {
         name: "listHover"
         when: windowShown
 
@@ -83,7 +83,7 @@ Item {
         }
         function cursorOf(item) { return descendants(item).find(child => child.follow !== undefined && child.placed !== undefined); }
         // The row's title, not a trailing control's own label.
-        function titleOf(row) { return descendants(row.contentItem).find(child => child.role === "item" && child.text === row.text); }
+        function titleOf(row) { return displayedTextItems(row.contentItem).find(child => child.role === "item" && displayedText(child) === row.text); }
         function scrolls(item) { return descendants(item).filter(child => child.contentY !== undefined).map(child => child.contentY); }
         // Two readings a pixel apart: a cursor takes a hover once the
         // pointer moved (ListCursor.hoverTakes).

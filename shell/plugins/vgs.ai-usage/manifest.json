@@ -31,7 +31,7 @@
     "showClaude": {"type": "boolean", "label": "Claude Code", "group": "Providers"},
     "showCodex": {"type": "boolean", "label": "Codex", "group": "Providers"},
     "showCopilot": {"type": "boolean", "label": "Copilot", "group": "Providers"},
-    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Needs a key from the Vercel dashboard", "link": {"text": "Vercel dashboard", "url": "https://vercel.com/dashboard"}, "info": "In the Vercel dashboard, open AI Gateway, then API keys, then Create key. Turn on AI Gateway credits. Then, on the AI Gateway row under it, select Add key and paste the key into the masked field."},
+    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Needs a key from the Vercel dashboard", "link": {"text": "Vercel dashboard", "url": "https://vercel.com/dashboard"}, "info": "In the Vercel dashboard, open AI Gateway, then API keys, then Create key.\nTurn on AI Gateway credits here.\nOn the AI Gateway row, select Add key and paste the key into the masked field."},
     "hidden": {"type": "list", "label": "Hidden accounts", "items": {"account": {"type": "string", "label": "Account", "optionsFrom": "accounts", "placeholder": "Choose an account"}}, "defaults": {"account": ""}}
   },
   "tui": {
@@ -44,7 +44,7 @@
     "accounts": {"type": "choices", "label": "Accounts", "hidden": true},
     "claude": {"type": "state", "label": "Claude Code", "setup": "optional", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
     "codex": {"type": "state", "label": "Codex", "setup": "optional", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
-    "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "Turn on AI Gateway credits to add its key", "info": "Create the key in Vercel under AI Gateway, then API keys. VGS stores the key in your keyring.", "setting": "aiGateway"}
+    "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "Turn on AI Gateway credits to add its key", "info": "In Vercel, open AI Gateway, then API keys to create a key.\nVGS stores it in your keyring.", "setting": "aiGateway"}
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }
 }

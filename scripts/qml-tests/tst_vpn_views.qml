@@ -148,7 +148,7 @@ Item {
             verify(named("vpn-import-hint") !== null, "the import hint shows");
             verify(named("vpn-empty") === null, "no empty state with profiles");
             const profilesSection = named("vpn-profiles");
-            const info = find(profilesSection, item => "infoOpen" in item);
+            const info = semanticLabelItems(profilesSection).find(item => item.info !== "") || null;
             verify(info !== null, "the Profiles section has its info button");
             compare(info.title, profilesSection.infoTitle);
             verify(info.title !== profilesSection.title, "the dialog is titled apart from the section");
@@ -410,7 +410,7 @@ Item {
         function test_blocked_notice_data() {
             return [{ tag: "section", component: paneComponent }, { tag: "flyout", component: panelComponent }];
         }
-        function infoButton(item) { return find(item, child => String(child).indexOf("InfoButton") === 0); }
+        function infoButton(item) { return semanticLabelItems(item).find(child => child.info !== "") || null; }
         function test_blocked_notice(data) {
             const ready = { state: "ready", reason: "granted" };
             const valid = (meantOn, mode) => ({ kind: "valid", meantOn: meantOn, mode: mode, portalUntil: "0" });

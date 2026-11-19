@@ -121,7 +121,7 @@ var IDLE_STAGE_TEXT = {
         label: "Lock after",
         owner: "locks the screen",
         immediately: "Locks when the screensaver starts",
-        snapshot: "Immediately sets this time to the screensaver's start time. The lock time does not change when you change the screensaver's time later. Choose Immediately again to use the new time."
+        snapshot: "Immediately copies the screensaver's current start time.\nChanging the screensaver time later does not change the lock time.\nChoose Immediately again to copy the new time."
     },
     displayOff: { label: "Turn displays off after", owner: "turns the displays off" },
     sleep: { label: "Sleep after", owner: "puts the computer to sleep" }

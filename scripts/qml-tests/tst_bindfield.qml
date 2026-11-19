@@ -15,11 +15,8 @@ import qs.Unit
 // keys that is the list with the one alternative set or removed, one key
 // once one is left and a key twice once; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
-// no room while none shows. The explanation of a bind with no hint is
-// in its info icon's dialog: the label opens no tooltip, which would lie
-// on the bind under it. A bind with a hint opens its explanation in a band
-// of one line over that hint, and one too long for that line is in the info
-// icon's dialog too. The capture here answers every conflict question with
+// no room while none shows. The explanation belongs to its dotted label,
+// which opens a modal and no hover tooltip. The capture answers each question with
 // one hint and records each question as "KEY ID SHORTCUT". The listed
 // bind's key goes through the manager's judge and write as Plugins.setKey
 // takes it from the signal.
@@ -123,7 +120,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "bindfield"
         when: windowShown
 
@@ -146,53 +143,24 @@ Item {
         function input(f) { return descendant(f, item => String(item).indexOf("ShortcutField") === 0); }
 
         function test_the_label_is_the_description_else_the_shortcut() {
-            compare(row.label, "Lock the screen");
-            compare(unbound.label, "lock");
+            compare(row.label, row.bind.description);
+            compare(unbound.label, unbound.bind.shortcut);
+            const label = semanticLabelItems(row)[0];
+            compare(label.info, row.bind.info);
+            verify(label.activeFocusOnTab);
+            const plain = semanticLabelItems(later)[0];
+            compare(plain.info, "");
+            verify(!plain.activeFocusOnTab);
         }
 
-        // A bind row with no hint has no line of its own under it, so its
-        // explanation opens in the info icon's dialog and neither the label
-        // nor the icon opens a tooltip over the bind under it.
-        function test_the_bind_explanation_is_in_the_info_dialog() {
-            const label = descendant(row, item => item.objectName === "fieldLabel");
-            const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
-            compare(tip.text, "", "the label opens the explanation over the next bind");
-            verify(!label.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
-            const mark = descendant(row, item => String(item).indexOf("InfoButton") === 0);
-            verify(mark !== null, "the bind draws its info icon");
-            compare(mark.info, "Locks the screen at once.");
-            compare(mark.tooltip, "");
-            compare(descendant(later, item => String(item).indexOf("InfoButton") === 0), null, "a bind with no explanation draws an info icon");
-        }
-
-        function tipOf(f) {
-            return descendant(descendant(f, item => item.objectName === "fieldLabel"), item => String(item).indexOf("Tooltip") === 0);
-        }
-
-        // The room under a hint's top holds a band of one line. A key row's
-        // explanation of one line opens there and ends above the next row;
-        // a longer one opens in the info icon's dialog and in no band.
-        function test_a_key_explanation_over_its_hint_keeps_one_line() {
-            const tip = tipOf(shortKey);
-            compare(tip.text, "Hold the key while you speak.");
-            compare(descendant(shortKey, item => String(item).indexOf("InfoButton") === 0), null, "a key row with room for its explanation draws an info icon");
-            tip.shown = true;
-            try {
-                verify(tip.opened, "the explanation opens its own surface");
-                const popup = tip.tracker.popup;
-                compare(popup.anchor.edges, Edges.Bottom | Edges.Left, "the explanation opens under its row");
-                const title = descendant(popup.contentItem, item => item.objectName === "tooltipTitle");
-                compare(title.lineCount, 1);
-                const top = tip.anchorItem.mapToItem(hinted, popup.anchor.rect.x, popup.anchor.rect.y + popup.anchor.rect.height - popup.anchor.margins.bottom);
-                verify(top.y + popup.implicitHeight <= underKeys.y, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underKeys.y);
-            } finally {
-                tip.shown = false;
+        function test_short_and_long_key_help_use_the_label() {
+            for (const field of [shortKey, longKey]) {
+                const label = semanticLabelItems(field)[0];
+                verify(label !== undefined);
+                compare(label.info, field.bind.info);
+                verify(label.linked);
+                verify(label.activeFocusOnTab);
             }
-            compare(tipOf(longKey).text, "", "a long explanation opens in a band over the next row");
-            const mark = descendant(longKey, item => String(item).indexOf("InfoButton") === 0);
-            verify(mark !== null, "the key row draws its info icon");
-            compare(mark.info, longKey.bind.info);
-            compare(mark.tooltip, "");
         }
 
         function test_the_field_holds_the_key_in_effect() {
@@ -251,12 +219,12 @@ Item {
         }
 
         function test_the_hint_cites_its_link_and_reports_it() {
-            const link = descendant(input(row), item => item.linked !== undefined && item.text === "Also used by your other shortcuts.");
+            const link = displayedTextItems(input(row)).find(item => displayedText(item) === "Also used by your other shortcuts.");
             verify(link !== null && link.linked, "the hint draws its cited text as a link");
             const before = root.linked;
             link.activated();
             compare(root.linked, before + 1);
-            const plain = descendant(input(later), item => item.linked !== undefined && item.text === "Also used by your other shortcuts.");
+            const plain = displayedTextItems(input(later)).find(item => displayedText(item) === "Also used by your other shortcuts.");
             verify(plain !== null && !plain.linked, "a field with no link draws plain text");
         }
 
@@ -268,7 +236,7 @@ Item {
 
         function test_a_hint_action_draws_under_the_hint() {
             const field = input(row);
-            const hint = descendant(field, item => item.text === "Also used by your other shortcuts.");
+            const hint = displayedTextItems(field).find(item => displayedText(item) === "Also used by your other shortcuts.");
             verify(hint !== null && hint.visible, "the hint draws");
             const below = fix.mapToItem(field, 0, 0).y;
             verify(below >= hint.mapToItem(field, 0, 0).y + hint.height, "the action sits under the hint");

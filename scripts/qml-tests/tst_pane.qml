@@ -400,13 +400,8 @@ Item {
             const heading = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 360; title: "Bluetooth"; fitToContent: true; SectionHeader { text: "My devices" } }', root);
             const keyed = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 360; title: "Power"; fitToContent: true; ' + data.row + ' }', root);
             verify(renderedFrame(keyed));
-            function labels(item) {
-                let out = [];
-                for (const child of item.children) out = out.concat(child instanceof Label ? [child] : [], labels(child));
-                return out;
-            }
-            const key = labels(keyed).find(item => item.objectName === "fieldLabel");
-            const section = labels(heading).find(item => item.role === "eyebrow");
+            const key = semanticLabelItems(keyed).find(item => item.objectName === "fieldLabel");
+            const section = semanticLabelItems(heading).find(item => item.role === "eyebrow");
             verify(key !== undefined && section !== undefined);
             compare(key.mapToItem(keyed, 0, key.capTop()).y - keyed.topPadding - keyed.headerHeight,
                 section.mapToItem(heading, 0, section.capTop()).y - heading.topPadding - heading.headerHeight);

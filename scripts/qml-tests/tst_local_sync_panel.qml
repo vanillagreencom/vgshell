@@ -133,7 +133,7 @@ Item {
         }
 
         function test_a_chip_opens_its_folder() {
-            const chip = find(card("mirror.service"), item => "lineHeight" in item && item.text === "/home/u/mirror.service/");
+            const chip = displayedTextItems(card("mirror.service")).find(item => displayedText(item) === "/home/u/mirror.service/") || null;
             verify(chip !== null);
             mouseClick(chip);
             compare(JSON.stringify(root.calls), JSON.stringify([["edit", "/home/u/mirror.service/"]]));

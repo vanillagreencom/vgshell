@@ -36,7 +36,7 @@ Item {
         }
 
         function test_layout_bounds_data() {
-            const compact = ["Button", "IconButton", "InfoButton", "ToggleButton", "BarItem", "TitleButton", "Switch", "Checkbox", "Radio"];
+            const compact = ["Button", "IconButton", "ToggleButton", "BarItem", "TitleButton", "Switch", "Checkbox", "Radio"];
             const fields = ["Select", "Slider", "TextField", "TextArea", "ShortcutField", "DateField", "PathField", "LevelSlider", "SavedSlider", "SegmentedControl", "TileGroup", "WeekdayChipGroup", "TimeChipList", "TimeField"];
             return compact.map(type => ({tag: type, type: type, minimum: Theme.control.minWidth}))
                 .concat(fields.map(type => ({tag: type, type: type, minimum: Theme.field.minWidth})));
@@ -59,7 +59,7 @@ Item {
         // the inputs that install InputWidth are bounded here.
         function test_plain_parent_allocation() {
             const holder = createTemporaryQmlObject("import QtQuick; Item { width: 2000; height: 100 }", parent);
-            const buttons = ["Button", "IconButton", "InfoButton", "ToggleButton"];
+            const buttons = ["Button", "IconButton", "ToggleButton"];
             const rows = test_layout_bounds_data().filter(row => !buttons.includes(row.type));
             const inputs = rows.map(row => createTemporaryQmlObject("import QtQuick; import qs.Ui; " + row.type + " { " + fixtureProperties(row.type) + "width: parent.width }", holder));
             verify(inputs.every(input => input !== null));

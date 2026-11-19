@@ -64,7 +64,7 @@ def under(index, row):
             return True
         index = items[index]["parent"]
     return False
-rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
+rows = [i["parent"] for i in items if i["displayedOwner"] and i.get("role") == "tooltip" and i["visible"] and i["words"] and items[i["parent"]].get("name") == "fieldRow"]
 print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "Select") and under(n, row)}) for row in rows]))'; }
 # The user's own Hyprland value the Pointer speed row reads from the
 # `hyprland` capability, `undefined` for none.
@@ -74,7 +74,7 @@ mouse_speed_label() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
 import json, sys
 items = json.load(sys.stdin)
 slider = next(i for i in items if i["type"] == "Slider" and i["visible"])
-print(next(i["text"] for i in items if i["type"] == "Label" and i["parent"] == slider["parent"]))'; }
+print(next(i["words"] for i in items if i["displayedOwner"] and not i["semanticLabel"] and i["parent"] == slider["parent"]))'; }
 mouse_slider_width() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"][2] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(r[0] if r else "absent")'; }
 # The boxes of the drawn "use my Hyprland value" actions, as a JSON list.
 mouse_actions() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(json.dumps([i["box"] for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]]))'; }
@@ -94,7 +94,7 @@ if not found:
     print("absent"); sys.exit(0)
 row = row_of(found[0])
 action = items[found[0]]["box"]
-message = next(i["box"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and i["parent"] == row)
+message = next(i["box"] for i in items if i["displayedOwner"] and i.get("role") == "tooltip" and i["visible"] and i["words"] and i["parent"] == row)
 if message[2] > 0 and action[1] >= message[1] + message[3]: print("under")
 elif message[2] > 0 and action[1] < message[1] + message[3] and action[0] >= message[0] + message[2]: print("beside")
 else: print("action=%s message=%s" % (action, message))'; }

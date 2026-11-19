@@ -29,7 +29,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "aiUsageWidget"
         when: windowShown
 
@@ -86,11 +86,11 @@ Item {
             const row = name => find(window.panel, n => n.modelData !== undefined && n.modelData.name === name && n.topPadding !== undefined);
             const first = row("seven_day");
             const last = row("five_hour");
-            const heading = find(window.panel, n => n.visible && n.role !== undefined && n.text === "Details");
+            const heading = semanticLabelItems(window.panel).find(n => displayedText(n) === "Details") || null;
             const credit = row("credit-cowork");
             verify(first !== null && last !== null && heading !== null && credit !== null,
                 "the card draws two limits followed by its Details heading and credit");
-            const creditLine = find(credit, n => n.role === "body" && n.text === "Claude Code and Cowork credit").parent;
+            const creditLine = displayedTextItems(credit).find(n => n.role === "body" && displayedText(n) === "Claude Code and Cowork credit").parent;
             tryVerify(() => last.y - first.y - first.height === data.rowGap && credit.y >= last.y + last.height,
                 1000, "the limits settle at the view's row gap");
             const top = (item, inset = 0) => item.mapToItem(window.panel, 0, inset).y;
@@ -161,7 +161,8 @@ Item {
         }
         // The More actions button of the card whose account line is EMAIL.
         function moreActionsOf(panel, email) {
-            const line = find(panel, n => n.text === email && n.role === "hint");
+            const line = displayedTextItems(panel).find(n => displayedText(n) === email && n.role === "hint");
+            if (line === undefined) return null;
             for (let at = line; at !== null; at = at.parent) {
                 const button = find(at, n => n.label === "More actions");
                 if (button !== null) return button;

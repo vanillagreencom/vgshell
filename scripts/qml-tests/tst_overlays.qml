@@ -80,6 +80,9 @@ Item {
             MenuItem { id: hideEntry; text: "Hide"; iconName: "eye-off" }
             MenuItem { id: settingsEntry; text: "Settings"; iconName: "settings" }
         }
+        Menu { id: helpMenu
+            MenuItem { id: helpEntry; text: "Message limits"; info: "A useful limit for this view."; helpReturnFocus: host }
+        }
         Menu { id: oneWord
             MenuItem { text: "Off" }
         }
@@ -182,7 +185,7 @@ Item {
     ContentRow { id: listRow; visible: false; text: "Row"; secondary: "Detail" }
     FontMetrics { id: itemMetrics; font: settingsEntry.contentItem.children[1].font }
 
-    TestCase {
+    UnitCase {
         name: "overlays"
         when: windowShown
 
@@ -223,6 +226,25 @@ Item {
             compare(popover.opened, false);
             host.visible = true;
             host.x = 0;
+        }
+
+        function test_menu_help_uses_the_dotted_label_and_returns_to_its_opener_data() {
+            return [{ tag: "keyboard", pointer: false }, { tag: "pointer", pointer: true }];
+        }
+        function test_menu_help_uses_the_dotted_label_and_returns_to_its_opener(data) {
+            helpMenu.open("key");
+            tryCompare(helpMenu, "opened", true);
+            const label = semanticLabelItems(helpEntry)[0];
+            verify(label !== undefined);
+            if (data.pointer) mouseClick(label);
+            else keyClick(Qt.Key_Enter);
+            tryCompare(label, "infoOpen", true);
+            compare(label.returnWasVisual, !data.pointer, "help keeps the entry's activation origin");
+            tryCompare(helpMenu, "opened", false);
+            const modal = helpDialog(label);
+            compare(modal.screenOwner, host);
+            label.closeInfo();
+            tryCompare(host, "activeFocus", true);
         }
 
         function test_menu_moves_and_triggers_by_key() {
@@ -479,7 +501,7 @@ Item {
             // lines, and the shortcut keeps its trailing column beside the
             // first line.
             const title = wide.contentItem.children[1];
-            const hint = wide.contentItem.children[2];
+            const hint = wide.contentItem.children.find(child => child instanceof Label && child.role === "menuItemHint");
             compare(title.truncated, false, "the long text elides");
             verify(title.lineCount > 1, "the long text wraps: " + title.lineCount + " line");
             verify(wide.height >= title.contentHeight + wide.topPadding + wide.bottomPadding, "the entry holds every line");
@@ -588,8 +610,9 @@ Item {
         function test_menu_text_draws_a_pixel_under_the_rows() {
             compare(Theme.font.size, 15);
             compare(wide.contentItem.children[1].font.pixelSize, 14);
-            compare(wide.contentItem.children[2].text, "Ctrl+Shift+W");
-            compare(wide.contentItem.children[2].font.pixelSize, 12);
+            const hint = wide.contentItem.children.find(child => child instanceof Label && child.role === "menuItemHint");
+            compare(hint.text, "Ctrl+Shift+W");
+            compare(hint.font.pixelSize, 12);
             compare(field.font.pixelSize, 15);
             compare(select.contentItem.font.pixelSize, 15);
             const rows = labelsOf(listRow);

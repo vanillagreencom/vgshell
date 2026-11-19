@@ -155,7 +155,7 @@ FocusScope {
                 Field {
                     width: parent.width
                     label: "History"
-                    info: "Run history and saved output are kept for up to 30 days so old runs do not keep using disk space. Change how long to keep them in [Plugins](page:vgs.automations/Settings/historyDays)."
+                    info: "History and saved output expire after up to 30 days to limit disk use.\nChange the time in [Plugins](page:vgs.automations/Settings/historyDays)."
                     onInfoPageActivated: (target, tab) => page.panel.shell.surfaces.openPage(target, tab)
                     visible: page.groups.length === 0
                     Label {

@@ -500,7 +500,7 @@ rows=json.load(sys.stdin)
 print(json.dumps([[r["source"], r["updatable"], len(r["lines"]), bool(r["more"])] for r in rows]))'; }
 updates_package_lines() { ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-print(sum(1 for r in rows if r["type"] == "Label" and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
+print(sum(1 for r in rows if r["displayedOwner"] and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
 updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 # Open the window with a click on the widget, unless it is open: the
 # click toggles it.

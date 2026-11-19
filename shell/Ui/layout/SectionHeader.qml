@@ -6,8 +6,8 @@ import qs.Ui
 // description under it. `titleRole` sets another type role for a heading
 // that stands under a card's own eyebrow title, such as a card's details. It spans its parent, as a heading does, unless
 // given a width; a surface that insets its rows sets `leftPadding` and
-// `rightPadding` to match. `info` adds an InfoButton after the title,
-// whose dialog takes `infoTitle`, the title unless set.
+// `rightPadding` to match. `info` gives the title a dotted help underline;
+// its dialog takes `infoTitle`, the title unless set.
 //
 // It owns the space on both sides, so no page pads a heading. Above, it
 // leaves `spaceAbove`, `stack.heading`, from the lowest drawn pixel of the
@@ -66,9 +66,10 @@ Column {
 
     width: parent ? parent.width : implicitWidth
 
-    // The title row is the column's first, at its top padding; its
-    // capitals start this far below it.
-    readonly property real titleCapTop: text === "" ? 0 : titleLabel.y + titleLabel.capTop()
+    // The title is the column's first item, at its top padding; its
+    // capitals start this far below it. Its own `y` is that padding, which
+    // this sets, so it is not read.
+    readonly property real titleCapTop: text === "" ? 0 : titleLabel.capTop()
 
     // The item above must still read as shown when this reads it. QML
     // marks an item deleted as it starts to destroy it, before it leaves
@@ -81,29 +82,15 @@ Column {
     bottomPadding: Math.max(0, spaceBelow - parentSpacing)
     spacing: Theme.sectionHeader.gap
 
-    Item {
+    InfoButton {
+        id: titleLabel
         width: root.bodyWidth
-        height: Math.max(titleLabel.implicitHeight, infoButton.implicitHeight)
-
-        Label {
-            id: titleLabel
-            role: root.titleRole
-            text: root.text
-            width: parent.width - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
-            anchors.verticalCenter: parent.verticalCenter
-            elide: Text.ElideRight
-        }
-        Loader {
-            id: infoButton
-            active: root.info !== ""
-            anchors.left: titleLabel.right
-            anchors.leftMargin: Theme.space.xs
-            anchors.verticalCenter: parent.verticalCenter
-            sourceComponent: InfoButton {
-                title: root.infoTitle
-                info: root.info
-            }
-        }
+        role: root.titleRole
+        text: root.text
+        title: root.infoTitle
+        info: root.info
+        wrapMode: Text.Wrap
+        onInfoPageActivated: (page, tab) => root.pageActivated(page, tab)
     }
     LinkText {
         role: "hint"

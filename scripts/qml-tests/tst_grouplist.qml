@@ -329,7 +329,7 @@ Item {
     SignalSpy { id: sources; target: sourcedKey; signalName: "source" }
     SignalSpy { id: askedSources; target: askedKey; signalName: "source" }
 
-    TestCase {
+    UnitCase {
         name: "grouplist"
         when: windowShown
 
@@ -560,7 +560,7 @@ Item {
         function test_a_lines_ink_starts_at_its_first_drawn_row() {
             checkDivided(valueInkList);
             compare(offCentre(valueInkFrame, valueInkList, 2), [], "the dividers centre between the value rows' drawn ink");
-            const link = findChild(linkInk, LinkText);
+            const link = displayedTextItems(linkInk).find(item => item instanceof LinkText && !(item instanceof InfoButton)) || null;
             verify(link !== null && link.lineCount === 1, "the hint is drawn as the value, as one line of a link");
             verify(link.linked, "the hint cites its link's words");
             // The Loader that holds a line's value, in the frame.
@@ -661,17 +661,8 @@ Item {
         function test_a_step_centres_on_the_first_chip_and_a_wrapped_value_fits() {
             const chip = box(chipOf(linedStep), linedStep), step = box(stepOf(linedStep), linedStep);
             fuzzyCompare(step.y + (step.bottom - step.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
-            const hint = findChild(longHint, Label);
-            let wrapped = null;
-            for (const item of [longHint]) {
-                const stack = [item];
-                while (stack.length > 0) {
-                    const at = stack.pop();
-                    if (at.role === "hint" && at.text !== "" && at.visible) wrapped = at;
-                    for (const child of at.children) stack.push(child);
-                }
-            }
-            verify(wrapped !== null && wrapped.lineCount > 1, "the hint wraps");
+            const wrapped = displayedTextItems(longHint).find(item => item.role === "hint" && displayedText(item) !== "");
+            verify(wrapped !== undefined && wrapped.lineCount > 1, "the hint wraps");
             verify(box(wrapped, longHint).bottom <= longHint.height + 0.5, "the row holds every wrapped line");
         }
 
@@ -680,15 +671,7 @@ Item {
         // value column; the choice is the same however the line is built.
         function test_a_text_value_keeps_its_step_beside_or_under() {
             // The line's shown text in the value role.
-            const value = line => {
-                const stack = [line];
-                while (stack.length > 0) {
-                    const at = stack.shift();
-                    if (at !== line && at.role === "value" && at.visible) return at;
-                    for (const child of at.children) stack.push(child);
-                }
-                return null;
-            };
+            const value = line => displayedTextItems(line).find(item => item.role === "value") || null;
             const shortValue = box(value(shortText), shortText), shortAction = box(stepOf(shortText), shortText);
             compare(shortAction.x, shortValue.right + Theme.stack.inline, "the step stands right after a short text");
             const longValue = box(value(longText), longText), longAction = box(stepOf(longText), longText);
@@ -711,18 +694,12 @@ Item {
             verify(label !== undefined, "the chip holds its label");
             verify(label.truncated, "the label elides");
             verify(box(label, longState).x + label.contentWidth <= chipBox.right + 0.5, "the label's text ends inside the chip");
-            let sentence = null;
-            const stack = [longState];
-            while (stack.length > 0) {
-                const at = stack.pop();
-                if (at.role === "hint" && at.text === longState.hint && at.visible) sentence = at;
-                for (const child of at.children) stack.push(child);
-            }
-            verify(sentence !== null, "the line draws its sentence");
+            const sentence = displayedTextItems(longState).find(item => item.role === "hint" && displayedText(item) === longState.hint);
+            verify(sentence !== undefined, "the line draws its sentence");
             verify(sentence.lineCount > 1, "the sentence wraps");
             const sentenceBox = box(sentence, longState);
             verify(sentenceBox.y >= chipBox.bottom, "the sentence sits under the chip");
-            verify(sentenceBox.x + sentence.contentWidth <= longState.width + 0.5, "the sentence ends inside the line");
+            verify(sentenceBox.x + displayedTextRenderer(sentence).contentWidth <= longState.width + 0.5, "the sentence ends inside the line");
             verify(sentenceBox.bottom <= longState.height + 0.5, "the line holds every wrapped line of the sentence");
         }
 
@@ -767,13 +744,7 @@ Item {
         function test_a_hint_value_keeps_its_link() {
             linkPresses.clear();
             const field = linkedHint.children.find(child => child.valueX !== undefined);
-            const links = [];
-            const stack = [linkedHint];
-            while (stack.length > 0) {
-                const at = stack.pop();
-                if (at instanceof LinkText && at.visible && at.text === linkedHint.hint) links.push(at);
-                for (const child of at.children) stack.push(child);
-            }
+            const links = displayedTextItems(linkedHint).filter(item => item.role === "hint" && displayedText(item) === linkedHint.hint);
             compare(links.length, 1, "the hint is drawn once, as one LinkText");
             verify(links[0].linked, "the hint cites its link's words");
             compare(links[0].link, "Google Cloud credentials");
@@ -787,14 +758,9 @@ Item {
         function test_a_hint_page_reference_asks_for_its_page() {
             for (const [line, spy, tab] of [[pagedHint, pagedHintPages, "Setup"], [pagedState, pagedStatePages, ""]]) {
                 spy.clear();
-                const links = [];
-                const stack = [line];
-                while (stack.length > 0) {
-                    const at = stack.pop();
-                    if (at instanceof LinkText && at.visible && at.text === line.hint) links.push(at);
-                    for (const child of at.children) stack.push(child);
-                }
+                const links = displayedTextItems(line).filter(item => item.role === "hint" && item instanceof LinkText);
                 compare(links.length, 1, "the hint is drawn once, as one LinkText");
+                compare(links[0].text, line.hint, "the hint retains its page-reference source");
                 links[0].clicked();
                 compare(spy.count, 1, "a press on the reference emits hintPageActivated");
                 compare(spy.signalArguments[0][0], "acme.models");
@@ -889,7 +855,7 @@ Item {
                 const input = findChild(storedKey, TextField);
                 const field = storedKey.children.find(child => child.valueX !== undefined);
                 const row = field.children.find(child => child.objectName === "fieldRow");
-                const label = row.children.find(child => child.objectName === "fieldLabel");
+                const label = semanticLabelItems(row).find(child => child.objectName === "fieldLabel");
                 const inputBox = box(input, field), rowBox = box(row, field);
                 compare(inputBox.x, field.valueX);
                 verify(inputBox.y < rowBox.bottom && inputBox.bottom <= rowBox.bottom,
@@ -947,11 +913,11 @@ Item {
             sources.clear();
             askedSources.clear();
             const field = sourcedKey.children.find(child => child.valueX !== undefined);
-            const hint = field.children.find(child => child.height > 0 && child.children.length > 0 && child.children[0].role === "hint");
+            const hint = displayedTextItems(field).find(child => child.role === "hint" && displayedText(child) !== "");
             const source = sourceOf(sourcedKey);
             verify(source !== undefined, "the line draws its source action");
             compare(box(source, sourcedKey).x, field.valueX, "the source starts on the value column");
-            verify(box(source, sourcedKey).y >= box(hint.children[0], sourcedKey).bottom, "the source stands under the hint");
+            verify(box(source, sourcedKey).y >= box(hint, sourcedKey).bottom, "the source stands under the hint");
             compare(findChild(sourcedKey, TextField), null);
             source.clicked();
             compare(sources.count, 1, "the press asks for the source");
@@ -1003,9 +969,7 @@ Item {
             const keyField = sourcedKey.children.find(child => child.valueX !== undefined);
             const add = actionsOf(sourcedKey).find(action => action.text === "Add key");
             compare(box(add, sourcedKey).x, keyField.valueX, "Add key returns to the value column once the write's text goes");
-            const danger = [];
-            const stack = [askedKey];
-            while (stack.length) { const at = stack.pop(); if (at instanceof Label && at.visible && at.text === askedKey.text) danger.push(at); for (const child of at.children) stack.push(child); }
+            const danger = displayedTextItems(askedKey).filter(item => displayedText(item) === askedKey.text);
             compare(danger.length, 1);
             verify(Qt.colorEqual(danger[0].color, Theme.color.danger), "a danger value draws in the danger colour");
         }
@@ -1029,9 +993,9 @@ Item {
             verify(field !== undefined, "the line holds its field");
             compare(warden.spacing, Theme.field.gap);
             const row = field.children.find(child => child.objectName === "fieldRow");
-            const hint = field.children.find(child => child.height > 0 && child.children.length > 0 && child.children[0].role === "hint");
+            const hint = displayedTextItems(field).find(child => child.role === "hint" && displayedText(child) !== "");
             verify(row !== undefined && hint !== undefined, "the field holds its row and its hint");
-            compare(hint.children[0].mapToItem(field, 0, 0).y - (row.y + row.valueBottom), Theme.field.gap, "the hint sits under the value");
+            compare(hint.mapToItem(field, 0, 0).y - (row.y + row.valueBottom), Theme.field.gap, "the hint sits under the value");
         }
     }
 }

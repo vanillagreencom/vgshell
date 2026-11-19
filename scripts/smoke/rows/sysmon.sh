@@ -133,7 +133,7 @@ printf '  sysmon_stability geometry=%s scroll=%s deepest_focus=%s anchor_window=
 expect "the body keeps the flyout keyboard focus" true ipc smoke readInstance panel "$sysmon_fixture_id" activeFocus
 expect "the unfocused readings have no ring" 0 sysmon_stability_rings
 for sysmon_stability_label in CPU Memory GPU 'Temperature 63° · 16 cores' '2.0 GB available' 'Temperature 58°'; do
-  sysmon_stability_rect="$(ipc smoke itemGeometry panel "$sysmon_fixture_id" Label "$sysmon_stability_label")" || return
+  sysmon_stability_rect="$(ipc smoke itemGeometry panel "$sysmon_fixture_id" DisplayedText "$sysmon_stability_label")" || return
   # mapToGlobal for an anchored popup is relative to its anchor window.
   # Add the actual compositor position, as the surfaces row does.
   read -r sysmon_stability_x sysmon_stability_top < <(at_centre 'window:System Monitor keyboard fixture' "$sysmon_stability_rect") || return

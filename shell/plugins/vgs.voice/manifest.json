@@ -38,7 +38,7 @@
       {
         "shortcut": "toggle",
         "key": null,
-        "info": "Press once to start dictating, speak, and press again to stop. VGS types what you said into the focused field."
+        "info": "Press once to start dictation. Speak, then press again to stop.\nVGS types your words into the focused field."
       },
       {
         "shortcut": "tap",
@@ -47,13 +47,13 @@
           "code:105"
         ],
         "tap": true,
-        "info": "Tap this key on its own to start or stop dictation. Held, or pressed with other keys, it keeps its usual job."
+        "info": "Tap the key on its own to start or stop dictation.\nHolding it or using it with other keys keeps its usual action."
       },
       {
         "shortcut": "talk",
         "key": "F9",
         "hold": true,
-        "info": "Hold the key while you speak. Dictation stops when you let go, and VGS types what you said into the focused field."
+        "info": "Hold the key while you speak. Release it to stop dictation.\nVGS types your words into the focused field."
       }
     ]
   },

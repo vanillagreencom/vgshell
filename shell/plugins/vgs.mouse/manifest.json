@@ -27,7 +27,7 @@
   },
   "schema": {
     "sensitivity": { "type": "number", "label": "Pointer speed", "description": "0 keeps the default speed", "min": -1, "max": 1, "step": 0.05, "group": "Pointer" },
-    "accelProfile": { "type": "enum", "label": "Acceleration", "info": "Adaptive speeds the pointer up when you move it fast. Flat keeps one speed.", "options": [{ "value": "adaptive", "label": "Adaptive" }, { "value": "flat", "label": "Flat" }], "group": "Pointer" },
+    "accelProfile": { "type": "enum", "label": "Acceleration", "info": "Adaptive increases pointer speed when you move it faster.\nFlat keeps the same speed.", "options": [{ "value": "adaptive", "label": "Adaptive" }, { "value": "flat", "label": "Flat" }], "group": "Pointer" },
     "naturalScroll": { "type": "boolean", "label": "Natural scroll", "group": "Pointer" },
     "leftHanded": { "type": "boolean", "label": "Left-handed", "description": "Swap the main and secondary mouse buttons", "group": "Pointer" },
     "scrollFactor": { "type": "number", "label": "Scroll speed", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Pointer" },

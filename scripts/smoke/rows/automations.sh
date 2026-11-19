@@ -320,7 +320,7 @@ ui_answer_runs() { ipc smoke readInstance window vgs.automations historyAnswer |
 ui_history_rows_built() { ipc smoke itemValues window vgs.automations HistoryRow visible | py_reply 'import json,sys; t=sys.stdin.read(); print(len(json.loads(t)) if t.startswith("[") else t.strip())'; }
 expect_poll "the window reads both runs" 2 ui_answer_runs smoke-ui
 expect "the hidden History page builds no row" 0 ui_history_rows_built
-expect "the History tab opens" ok ui_click Label History
+expect "the History tab opens" ok ui_click DisplayedText History
 forget_record
 expect_poll "a click on the history row opens its transcript TUI" "$(words vgs.automations/transcript tui/transcript.sh)" ui_history_opens_transcript "Smoke UI"
 
@@ -383,7 +383,7 @@ expect_poll "the CLI reads history cleared by the window" 0 auto_history_count s
 # The keyboard alone: back to the Automations tab, then Ctrl+N, typing,
 # Tab and Ctrl+S create an automation with no pointer event; the arrows
 # reach its row, Delete asks, Escape keeps it and Delete, Return remove it.
-expect "the Automations tab opens" ok ui_click Label Automations
+expect "the Automations tab opens" ok ui_click DisplayedText Automations
 keyboard_create "(keyboard)" "Smoke keyboard" "printf keyboard"
 expect_poll "the CLI reads the keyboard-created automation" '"printf keyboard"' auto_row_value smoke-keyboard command
 expect "Escape leaves the editor" ok ui_keys -k Escape
@@ -524,7 +524,7 @@ keyboard_create "(control)" "Smoke control keys" "printf control"
 expect_poll "the control window received the keyboard create" fired auto_window_run_after "$control_run_before"
 expect "the control's keyboard create reaches no store" absent auto_row_exists smoke-control-keys
 expect "Escape leaves the control's editor again" ok ui_keys -k Escape
-expect "the control's History tab opens" ok ui_click Label History
+expect "the control's History tab opens" ok ui_click DisplayedText History
 forget_record
 control_transcript_before="$(auto_window_transcript_marker)" || fail "the control window transcript marker is readable before history click"
 expect "a click on the control's history row runs" ok ui_click HistoryRow Nightly

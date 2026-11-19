@@ -71,10 +71,7 @@ Item {
         function init() { UnitTheme.reset(); root.clicks = 0; }
 
         function labels(item) {
-            const out = [];
-            const walk = node => { for (const child of node.children) { if (child.role !== undefined && child.visible) out.push(child); walk(child); } };
-            walk(item.contentItem);
-            return out;
+            return displayedTextItems(item.contentItem).filter(child => child.role !== undefined);
         }
         function firstIcon(item) {
             const walk = node => { for (const child of node.children) { if (child.name !== undefined && child.paths !== undefined) return child; const found = walk(child); if (found) return found; } return null; };

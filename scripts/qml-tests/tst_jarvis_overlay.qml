@@ -303,7 +303,7 @@ Item {
             compare(mic.checked, true);
             compare(bubble.active, true, "system mute leaves an open conversation active");
             compare(bubble.stateText, "Microphone muted");
-            const stateLines = all(bubble, []).filter(item => item.text === "Microphone muted" && bubble.drawn(item));
+            const stateLines = displayedTextItems(bubble).filter(item => displayedText(item) === "Microphone muted" && bubble.drawn(item));
             compare(stateLines.length, 1, "the mute reading appears once");
         }
 
@@ -311,7 +311,7 @@ Item {
         // the overlay shown after the service stops wanting it.
         function test_the_menu_keeps_the_overlay_shown() {
             put(root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }));
-            const lines = all(bubble, []).filter(item => item.role !== undefined && item.text === bubble.fault.title && bubble.drawn(item));
+            const lines = displayedTextItems(bubble).filter(item => item.role !== undefined && displayedText(item) === bubble.fault.title && bubble.drawn(item));
             compare(lines.length, 1, "one drawn fault title supplies the click target");
             const line = lines[0];
             mouseClick(line, line.width / 2, line.height / 2, Qt.RightButton);

@@ -33,7 +33,7 @@ import qs.Ui
 // the manager judged (PluginLogic.linkError), draws as a link in it and
 // asks the page to open it through `openLink`, and a page reference in
 // the description (LinkText) asks for its page through `openPage`. A
-// `tooltip` shows on hover and keyboard focus of the label.
+// `tooltip` joins the help its dotted label opens (FormRow).
 Column {
     id: root
 

@@ -141,7 +141,7 @@ Item {
         top: 4
     }
 
-    TestCase {
+    UnitCase {
         name: "spacing"
         when: windowShown
 
@@ -156,7 +156,7 @@ Item {
             return label.x - (icon.mapToItem(item, 0, 0).x + icon.width);
         }
         function hintGap(field, control) {
-            const hint = field.children[2].children[0];
+            const hint = displayedTextItems(field).find(item => item.role === "hint");
             return hint.mapToItem(field, 0, 0).y - control.mapToItem(field, 0, control.height).y;
         }
 
@@ -274,15 +274,15 @@ Item {
             section.rowSpacing = Theme.stack.row;
             const header = describedSection.children[0];
             const first = describedSection.children[1].children[0];
-            const description = header.children[1];
+            const description = displayedTextItems(header).find(item => item.role === "hint");
             compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.space.xl, "a section's first row stands its description gap below its description");
             compare(first.mapToItem(describedSection, 0, 0).y - header.mapToItem(describedSection, 0, header.height).y, 0);
             compare(section.children[1].children[0].mapToItem(section, 0, 0).y - section.children[0].mapToItem(section, 0, section.children[0].height).y, 0);
-            const title = section.children[0].children[0];
+            const title = semanticLabelItems(section)[0];
             compare(section.children[1].children[0].mapToItem(section, 0, 0).y - title.mapToItem(section, 0, title.height).y, Theme.space.lg, "a section without a description keeps its heading's space");
             // A bare heading in a Column takes the Column's spacing out of
             // its own, so the first row still stands the heading's gap.
-            const spaced = spacedHeader.children[1];
+            const spaced = displayedTextItems(spacedHeader).find(item => item.role === "hint");
             compare(spacedRow.mapToItem(spacedColumn, 0, 0).y - spaced.mapToItem(spacedColumn, 0, spaced.height).y, Theme.space.xl, "a heading's first row stands its description gap under it, the Column's spacing within it");
             const inset = Theme.listItem.paddingX + Theme.icon.size.md + Theme.listItem.iconGap;
             compare(disclosed.parent.x, inset);
@@ -301,7 +301,7 @@ Item {
 
         // The bottom of a field's hint or error line in `item`'s frame.
         function lineBottom(field, item) {
-            const line = field.children[2].children[0];
+            const line = displayedTextItems(field).find(child => child.role === "hint");
             return line.mapToItem(item, 0, line.height).y;
         }
         function topIn(row, item) { return row.mapToItem(item, 0, 0).y; }
@@ -328,20 +328,20 @@ Item {
         // `field.gap` under them, and the next row starts a group space
         // under the last of them.
         function test_a_group_space_follows_a_row_with_lines() {
-            const lines = field => field.children[2].children[1].children.filter(child => child.role === "value");
+            const lines = field => displayedTextItems(field).filter(child => child.role === "value");
             const bottom = (item, within) => item.mapToItem(within, 0, item.height).y;
             same(() => lines(linedRow).length, 2, "a line for each of lines");
             same(() => lines(linedRow).every(line => line.visible), true, "the lines show");
             same(() => lines(linedRow)[0].mapToItem(linedRow, 0, 0).x, linedRow.valueX, "the lines start on the value column");
             same(() => topIn(afterLines, linedRows) - bottom(lines(linedRow)[1], linedRows), Theme.stack.group, "the row after a row's lines");
             same(() => lines(linedHinted).length, 1, "one line");
-            const hint = linedHinted.children[2].children[0];
+            const hint = displayedTextItems(linedHinted).find(item => item.role === "hint");
             same(() => hint.mapToItem(linedRows, 0, 0).y - bottom(lines(linedHinted)[0], linedRows), Theme.field.gap, "the hint under the lines");
             same(() => topIn(afterBoth, linedRows) - lineBottom(linedHinted, linedRows), Theme.stack.group, "the row after lines and a hint");
         }
 
         // The label of a row as drawn.
-        function labelOf(field) { return field.children[1].children[0]; }
+        function labelOf(field) { return semanticLabelItems(field).find(item => item.objectName === "fieldLabel"); }
 
         // A label of two lines or an info mark beside the value moves no
         // hint: each starts `field.gap` under the chip, as the one-line
@@ -364,7 +364,7 @@ Item {
         // group space under the label, and the row's ink is the label's.
         function test_a_tall_label_ends_its_row() {
             const label = labelOf(tallLabel);
-            const hint = tallLabel.children[2].children[0];
+            const hint = displayedTextItems(tallLabel).find(item => item.role === "hint");
             const labelBottom = label.mapToItem(labelRows, 0, label.height).y;
             verify(hint.mapToItem(labelRows, 0, hint.height).y < labelBottom, "the hint ends above the label's last line");
             same(() => hintGap(tallLabel, tallChip), Theme.field.gap, "the hint under the chip");

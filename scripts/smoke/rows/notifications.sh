@@ -1424,7 +1424,7 @@ rows = json.loads(t)
 header = next((r for r in rows if r["type"] == "InboxHeader" and r["box"][3] > 0), None)
 if header is None: print("absent"); sys.exit()
 x, y, w, h = header["box"]
-lines = [r["box"] for r in rows if r["type"] == "QQuickText" and r.get("text") in ("Notifications", "History") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
+lines = [r["box"] for r in rows if r["displayedOwner"] and r["words"] in ("Notifications", "History") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
 buttons = [(r["box"], r.get("text")) for r in rows if r["type"] == "PillButton" and r.get("text") in ("Mark all read", "Clear history") and x <= r["box"][0] < x + w and y <= r["box"][1] < y + h]
 if not lines or not buttons: print("incomplete"); sys.exit()
 left = min(r[0] for r in lines) - x
@@ -2558,7 +2558,7 @@ geometry expect_poll "the open inbox stands its first card, the selected one, th
 # A press beside the panel closes it, on the desktop and over a client
 # window (SummonLayer's catcher; rows/surfaces.sh holds the control); a
 # press on the header or on a card does not.
-if summon_drawn panel vgs.notifications && title_box="$(ipc smoke itemGeometry panel vgs.notifications QQuickText Notifications)" && [[ $title_box == \[* ]] && read -r x y < <(panel_point "$title_box" - -); then
+if summon_drawn panel vgs.notifications && title_box="$(ipc smoke itemGeometry panel vgs.notifications DisplayedText Notifications)" && [[ $title_box == \[* ]] && read -r x y < <(panel_point "$title_box" - -); then
   click "$x" "$y" || fail "the press on the panel's header failed"
   pointer_hover_marker "the marker hover after the header press reaches the compositor" "$((x + 1))" "$y"
   expect "a press on the header leaves the inbox open" '"inbox"' read_notes panelMode

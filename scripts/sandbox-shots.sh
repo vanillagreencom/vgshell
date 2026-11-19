@@ -1911,8 +1911,8 @@ print(rows[0]["text"] if rows else "none")')" && [[ $row != none ]]; then
     ok "the probe's page fits its view: no scrolled probe shots"
   fi
   park_pointer
-  # The probe's Label preset select, scrolled into view and opened by a click on
-  # its chevron end: the inline row's right 40 px, one row height tall.
+  # The probe's Label preset select, scrolled into view and opened by clicking
+  # the chevron end of the dropdown box.
   local field
   if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"acme.probe","key":"label"}')" && [[ $field == \[* ]] \
     && area="$(settings_scroll)" && [[ $area == \{* ]] \

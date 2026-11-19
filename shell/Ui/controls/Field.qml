@@ -19,8 +19,8 @@ import qs.Ui
 // feedback is this plain sentence-case line; a chip, a fill or capitals
 // mark only a state the user must act on now. An
 // inline hint starts under the value column, `field.gap` under the value
-// however far the label column reaches, a label of two lines or an info
-// mark beside it, and the field ends with the lower of the hint and the row
+// however far the label column reaches, including a wrapped help label,
+// and the field ends with the lower of the hint and the row
 // box, so a label taller than the value and the hint still ends the row.
 // `inkBelow` is how far above its bottom edge the lowest drawn part
 // ends: the row's, its lines' or its hint's. Width comes from the parent;
@@ -140,28 +140,16 @@ Column {
         id: labelLine
         visible: root.label !== "" && !root.inline
         width: root.bodyWidth
-        height: Math.max(fieldLabel.implicitHeight, topInfo.implicitHeight)
+        height: fieldLabel.implicitHeight
 
-        Label {
+        InfoButton {
             id: fieldLabel
             role: "label"
-            text: root.label
-            width: parent.width - (topInfo.active ? topInfo.width + Theme.space.xs : 0)
-            anchors.verticalCenter: parent.verticalCenter
-            elide: Text.ElideRight
-        }
-
-        Loader {
-            id: topInfo
-            active: root.info !== ""
-            anchors.left: fieldLabel.right
-            anchors.leftMargin: Theme.space.xs
-            anchors.verticalCenter: parent.verticalCenter
-            sourceComponent: InfoButton {
-                title: root.label
-                info: root.info
-                onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
-            }
+            title: root.label
+            info: root.labelTooltip === "" ? root.info : root.info === "" ? root.labelTooltip : root.labelTooltip + "\n" + root.info
+            width: parent.width
+            wrapMode: Text.Wrap
+            onInfoPageActivated: (page, tab) => root.infoPageActivated(page, tab)
         }
     }
 
@@ -172,7 +160,6 @@ Column {
         info: root.info
         labelTooltip: root.labelTooltip
         labelColumn: root.inline
-        textBelow: root.inline && root.subText
         standsWithoutLabel: root.standsWithoutLabel
         placed: root
         Component.onCompleted: infoPageActivated.connect(root.infoPageActivated)

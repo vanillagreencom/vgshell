@@ -326,7 +326,7 @@ left, right = p["x"], p["x"] + p["width"]
 print("tailscale-reason-edges: left-minus-switch-left=%g right-minus-switch-left=%g" % (left, right), file=sys.stderr)
 print("aligned" if right >= 0 else "left")'
 }
-tailscale_setup_opacity() { ipc smoke readMatchingDescendant panel vgs.tailscale Label objectName tailscale-setup-hint opacity; }
+tailscale_setup_opacity() { ipc smoke readMatchingDescendant panel vgs.tailscale DisplayedText objectName tailscale-setup-hint opacity; }
 # Each poll sends at most one Tab until the actual switch holds focus.
 tailscale_switch_focus() {
   if [[ $(ipc smoke activeFocusItem panel vgs.tailscale) == '["Switch",""]' ]]; then echo focused; return; fi
@@ -484,7 +484,7 @@ tailscale_label() {
   case "$1" in
     # LinkText inserts <br> at a drawn line break; compare the notice words.
     tailscale-problem|tailscale-exit-problem) tailscale_drawn panel Callout "$1" | sed 's/<br>/ /g' ;;
-    *) tailscale_drawn panel Label "$1" ;;
+    *) tailscale_drawn panel DisplayedText "$1" ;;
   esac
 }
 tailscale_title() { ipc smoke paneHeader panel vgs.tailscale | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["title"]))'; }

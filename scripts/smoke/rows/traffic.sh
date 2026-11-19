@@ -172,20 +172,20 @@ traffic_click_kept Browser
 click_item panel vgs.traffic ContentRow Player || fail "Traffic Inspect row click failed"
 expect_poll "the Inspect row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Inspect || fail "Traffic Inspect click failed"
-expect_poll "Inspect shows the app's command line" true traffic_popup_reads Label "sleep 600"
-expect "Inspect shows the app's pid" true traffic_popup_reads Label "$traffic_child"
-expect "Inspect shows the app's peer" true traffic_popup_reads Label "198.51.100.1:443"
-expect "Inspect shows the connection's state" true traffic_popup_reads Label "Open"
+expect_poll "Inspect shows the app's command line" true traffic_popup_reads DisplayedText "sleep 600"
+expect "Inspect shows the app's pid" true traffic_popup_reads DisplayedText "$traffic_child"
+expect "Inspect shows the app's peer" true traffic_popup_reads DisplayedText "198.51.100.1:443"
+expect "Inspect shows the connection's state" true traffic_popup_reads DisplayedText "Open"
 type_keys -k Escape
-expect_poll "Escape closes Inspect" false traffic_popup_reads Label "sleep 600"
+expect_poll "Escape closes Inspect" false traffic_popup_reads DisplayedText "sleep 600"
 expect "the service names the row's own pid" "[$traffic_child]" traffic_inspect_pids Player
 expect "a kill of a pid outside the row is refused" "refused: kill=changed" ipc vgs.traffic invoke kill '{"name":"Player","pids":[42]}'
 expect "a refused kill runs no kill" 0 traffic_kills
 click_item panel vgs.traffic ContentRow Player || fail "Traffic Kill row click failed"
 expect_poll "the Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic Kill click failed"
-expect_poll "Kill asks first, naming the app" true traffic_popup_reads Label "Kill Player?"
-expect "the question names the pid" true traffic_popup_reads Label "Process $traffic_child"
+expect_poll "Kill asks first, naming the app" true traffic_popup_reads DisplayedText "Kill Player?"
+expect "the question names the pid" true traffic_popup_reads DisplayedText "Process $traffic_child"
 expect "nothing is signalled before the answer" 0 traffic_kills
 click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic Kill answer failed"
 expect_poll "Kill sends SIGTERM to the row's process" "-TERM $traffic_child" traffic_last_kill
@@ -195,15 +195,15 @@ expect_poll "the panel learns the request was sent" '{"name": "Player", "state":
 click_item panel vgs.traffic ContentRow Player || fail "Traffic cancelled Kill row click failed"
 expect_poll "the cancelled Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic cancelled Kill click failed"
-expect_poll "the cancelled Kill asks first" true traffic_popup_reads Label "Kill Player?"
+expect_poll "the cancelled Kill asks first" true traffic_popup_reads DisplayedText "Kill Player?"
 type_keys -k Return
-expect_poll "Return presses the focused Cancel" false traffic_popup_reads Label "Kill Player?"
+expect_poll "Return presses the focused Cancel" false traffic_popup_reads DisplayedText "Kill Player?"
 expect "a cancelled Kill runs no kill" 1 traffic_kills
 : >"$traffic_dir/kill-fail"
 click_item panel vgs.traffic ContentRow Player || fail "Traffic failing Kill row click failed"
 expect_poll "the failing Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic failing Kill click failed"
-expect_poll "the failing Kill asks first" true traffic_popup_reads Label "Kill Player?"
+expect_poll "the failing Kill asks first" true traffic_popup_reads DisplayedText "Kill Player?"
 type_keys -k Tab -k Return
 expect_poll "Tab and Return press Kill" 2 traffic_kills
 expect_poll "a failed kill reaches the panel" '{"name": "Player", "state": "failed"}' traffic_ending
@@ -231,6 +231,7 @@ import Quickshell
 import "file://'''+sys.argv[2]+'''" as Traffic
 PopupWindow {
     id: win
+    property var reader
     required property var original
     anchor.item: original
     grabFocus: true
@@ -239,13 +240,11 @@ PopupWindow {
     implicitHeight: widget.implicitHeight
     readonly property bool focused: widget.children.some(child => child.activeFocus)
     readonly property bool rateCaseCorrect: {
-        function labels(item) {
-            let found = item.role === "bar" && item.visible && String(item.text).indexOf("/s") >= 0 ? [item] : [];
-            for (const child of item.children || []) found = found.concat(labels(child));
-            return found;
-        }
-        const rates = labels(widget);
-        return rates.length === 2 && rates.every(label => label.font.capitalization === Font.MixedCase);
+        const rates = reader.displayedTextItems(widget).filter(item => item.role === "bar" && reader.displayedText(item).indexOf("/s") >= 0);
+        return rates.length === 2 && rates.every(owner => {
+            const renderer = reader.displayedTextRenderer(owner);
+            return renderer !== null && renderer.font.capitalization === Font.MixedCase;
+        });
     }
     Traffic.Widget {
         id: widget
@@ -260,7 +259,7 @@ PopupWindow {
 }
 ''')
 PY
-expect "the production widget builds in a keyboard popup" ok ipc smoke popupLoad traffic-keyboard "$traffic_dir/keyboard/Keyboard.qml" "$(bar_key)" vgs.traffic '{"original":"@instance"}'
+expect "the production widget builds in a keyboard popup" ok ipc smoke popupLoad traffic-keyboard "$traffic_dir/keyboard/Keyboard.qml" "$(bar_key)" vgs.traffic '{"original":"@instance","reader":"@reader"}'
 expect_poll "the production BarItem holds focus" true ipc smoke popupRead traffic-keyboard focused
 expect_poll "both rendered bar rates keep the lowercase s" true ipc smoke popupRead traffic-keyboard rateCaseCorrect
 type_keys -k Return

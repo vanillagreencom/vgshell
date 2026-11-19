@@ -20,6 +20,8 @@ PopupWindow {
     property bool closing: false
     property bool destroying: false
     property bool grabCounted: false
+    property int modalHolds: 0
+    property bool modalSuspended: false
     property real motionProgress: 0
     readonly property real cardOpacity: card.opacity
     readonly property real cardTranslateY: cardOffset.y
@@ -78,6 +80,14 @@ PopupWindow {
     // a closing frame.
     onVisibleChanged: {
         if (!visible && !destroying) {
+            // A separate modal layer ends the native popup grab. Keep the
+            // plugin alive until the modal releases its hold; the same
+            // PopupWindow can then map again and take its grab back.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/PopupWindow/
+            if (modalHolds > 0 && !closing) {
+                modalSuspended = true;
+                return;
+            }
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
                 const target = returnFocusItem;
                 Qt.callLater(() => {
@@ -92,6 +102,32 @@ PopupWindow {
 
     function focusInitial() {
         slot.focusInitial();
+    }
+
+    // ModalDialog owns this hold before it maps its keyboard-taking layer.
+    // Explicit hide, anchor loss and unload still end the caller normally.
+    function holdForModal() {
+        const owner = popup;
+        modalHolds += 1;
+        let held = true;
+        return () => {
+            if (!held) return;
+            held = false;
+            // A child's teardown can release after its owner is marked.
+            if (owner.destroying !== false) return;
+            owner.modalHolds -= 1;
+            // Return before InfoButton's queued focus restoration and
+            // LayerHost's deferred unmap. A new open or hide can supersede it.
+            Qt.callLater(() => {
+                if (owner.destroying !== false) return;
+                if (owner.modalHolds === 0 && owner.modalSuspended && !owner.closing
+                        && owner.request !== undefined && owner.anchorItem !== null
+                        && slot.listed && !slot.closeCalled) {
+                    owner.modalSuspended = false;
+                    owner.visible = true;
+                }
+            });
+        };
     }
 
     // The grab, not `open`: a tooltip inside the popup still opens.
@@ -126,7 +162,8 @@ PopupWindow {
 
     function finishDismiss() {
         slot.closeInstance();
-        visible = false;
+        if (visible) visible = false;
+        else dismissed();
     }
 
     function closeFromHost() {

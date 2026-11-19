@@ -87,7 +87,7 @@ Item {
     SignalSpy { id: themeUses; target: row; signalName: "useThemeValue" }
     SignalSpy { id: opens; target: row; signalName: "openHyprlandConfig" }
 
-    TestCase {
+    UnitCase {
         name: "valuesourcerow"
         when: windowShown
 
@@ -112,7 +112,7 @@ Item {
             }
             return null;
         }
-        function messageOf(target) { return target.children.find(child => child.link !== undefined && child.role !== undefined); }
+        function messageOf(target) { return displayedTextItems(target, true).find(child => child instanceof LinkText && !(child instanceof InfoButton)); }
         function shownActions() { return ["useHyprlandValue", "useThemeValue"].filter(name => action(name).visible && row.actionItem !== null); }
 
         function test_a_theme_value_is_set_by_theme_in_muted_text() {
