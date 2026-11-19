@@ -8,7 +8,7 @@
 
 **Research**: [VGS-2594](https://linear.app/vanillagreen/issue/VGS-2594), approved design (comments f52e1291, fb4e4753 and 015d8e66), the owner's word through Jarvis on 2026-11-18.
 
-**Supersedes**: [D132](D132-look-owned-glass-inputs.md).
+**Supersedes**: [D132](D132-look-owned-glass-inputs.md) and the glass on/off override in [D104](D104-appearance-values-over-the-theme.md).
 
 **Refines**: [D023](D023-plugin-owned-appearance.md) and [D119](D119-plugin-look-binds-per-surface.md): a file that binds a look may also read `Theme.glassFor`.
 
