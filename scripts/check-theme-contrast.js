@@ -32,9 +32,9 @@
 // reaches. Each ink is judged on the style's body over black, white and
 // coloured busy-ground swatches, Clear's over each swatch as the
 // compositor's layer glass tones it first (HyprlandLayer.clearTone, the
-// named measure of VGS-2594): a notification's text and page link, a
-// launcher row's text and detail on the card and on the cursor's plate,
-// and Jarvis's every line and icon, a caption line at its line's opacity
+// named measure of VGS-2594): a notification's text, page link and header
+// icon inks, a launcher row's text and detail on the card and on the
+// cursor's plate, and Jarvis's every line and icon, a caption line at its line's opacity
 // and an answer's label on each of the answer's own fills, at rest, under
 // the pointer and pressed, over the plate. The confirming answer stands on
 // the theme's accent. An icon button draws no fill of its own, so its
@@ -152,7 +152,8 @@ function inkRatio(look, ground, ink, opacity, fill) {
 // it and the glass, where it has one. Jarvis's line leaving the caption
 // fades out from `words.oldest` and is not a line to read.
 const INKS = {
-    notifications: [["text.foreground"], ["text.body.color"], ["text.link"]],
+    notifications: [["text.foreground"], ["text.body.color"], ["text.link"],
+        ["header.icon.rest"], ["header.icon.active"], ["header.icon.warning"], ["header.icon.history"]],
     launcher: [["text.foreground"], ["text.detail.color"], ["text.link"],
         ["text.foreground", null, "highlight.plate"], ["text.detail.color", null, "highlight.plate"]],
     jarvis: [

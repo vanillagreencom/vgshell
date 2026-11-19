@@ -1681,10 +1681,12 @@ def drawn(v):
     return None
 print(next((json.dumps([v["contentItem.color"], drawn(v)]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"
 }
-note_warning="$(ipc smoke themeValue color.warning)" || fail "the warning token is unreadable"
-note_accent="$(ipc smoke themeValue color.accent)" || fail "the accent token is unreadable"
-# itemValues prints QColor strings without an opaque alpha byte.
-header_tone_want() { python3 -c 'import json,sys; c=json.loads(sys.argv[1]); c="#"+c[3:] if len(c)==9 and c.startswith("#ff") else c; print(json.dumps([c, None]))' "$1"; }
+header_tone_want() { # INK: the header look's checked ink, without a fill
+  local role="look.header.icon.$1"
+  ipc smoke itemValues panel vgs.notifications InboxHeader "$role" | py_reply 'import json,sys; print(json.dumps([json.load(sys.stdin)[0][sys.argv[1]], None]))' "$role"
+}
+note_warning="$(header_tone_want warning)" || fail "the header's warning ink is unreadable"
+note_history="$(header_tone_want history)" || fail "the header's History ink is unreadable"
 click_header_icon() { # LABEL
   local rect x y
   rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton "$(header_label "$1")")" && [[ $rect == \[* ]] || return 1
@@ -1719,8 +1721,8 @@ expect "the Do Not Disturb icon shows and names it off" '["bell", false, "Do Not
 click_header_icon "Do Not Disturb" || fail "the click on the Do Not Disturb icon failed"
 expect_poll "a click on the Do Not Disturb icon turns it on" true state_at dnd
 expect_poll "the Do Not Disturb icon shows it on, checked, and names it" '["bell-off", true, "Do Not Disturb, on"]' header_icon_state "Do Not Disturb"
-expect_poll "Sound off draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Notification sound"
-expect_poll "Do Not Disturb on draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Do Not Disturb"
+expect_poll "Sound off draws a warning glyph without a filled circle" "$note_warning" header_tone "Notification sound"
+expect_poll "Do Not Disturb on draws a warning glyph without a filled circle" "$note_warning" header_tone "Do Not Disturb"
 expect "Sound off and Do Not Disturb on draw the same signal" '[true, true]' header_signals
 expect "the Do Not Disturb icon's tooltip names each state" True tips_differ "$header_tip_dnd_off" "$(header_icon "Do Not Disturb" tooltip)"
 click_header_icon "Notification sound" || fail "the second click on the Sound icon failed"
@@ -1733,7 +1735,7 @@ expect "the History icon is not checked over the Inbox and names it closed" '["r
 click_header_icon History || fail "the click on the History icon failed"
 expect_poll "a click on the History icon shows the History" '"history"' read_notes panelMode
 expect_poll "the History icon is checked over the History and names it open" '["rotate-ccw-clock", true, "History, open"]' header_icon_state History
-expect_poll "History open draws an accent glyph without a filled circle" "$(header_tone_want "$note_accent")" header_tone History
+expect_poll "History open draws its checked glyph ink without a filled circle" "$note_history" header_tone History
 expect_poll "the History's header keeps the same places, with Clear history as its pill" ok checked_header_controls "Clear history"
 expect "the History icon's tooltip names each view" True tips_differ "$header_tip_inbox" "$(header_icon History tooltip)"
 click_header_icon History || fail "the second click on the History icon failed"
@@ -2402,7 +2404,7 @@ sound_state_control() { (failures=0; behaviour_failures=0; expect "the Sound ico
 expect_poll "the control Sound icon reads unchecked" '["volume-off", false, "Notification sound, off"]' header_icon_state "Notification sound"
 expect "control: a Sound icon with no checked state turns the Sound state assertion red" 1 sound_state_control
 expect "Do Not Disturb turns on for the old checked-box control" on notes silence on
-header_box_control() { (failures=0; behaviour_failures=0; expect "Do Not Disturb on draws a warning glyph without a filled circle" "$(header_tone_want "$note_warning")" header_tone "Do Not Disturb" >"$sandbox/header-box-control.log"; echo "$failures"); }
+header_box_control() { (failures=0; behaviour_failures=0; expect "Do Not Disturb on draws a warning glyph without a filled circle" "$note_warning" header_tone "Do Not Disturb" >"$sandbox/header-box-control.log"; echo "$failures"); }
 expect "control: the old filled checked box fails the glyph-only check" 1 header_box_control
 expect "Do Not Disturb turns off after the checked-box control" off notes silence off
 expect "Sound turns on again in the control drawer" on notes sound on

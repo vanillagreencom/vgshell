@@ -132,10 +132,9 @@ try {
         assert.match(proc.stdout, /ok       catalog\//);
     });
 
-    // The notice link as e5d112688 drew it, the theme's accent alone, in a
-    // disposable copy of the check and the files it loads, judged on the
-    // shipped tree: the default's accent on its dark card over white and
-    // a light theme's on its light card over black fall short.
+    // The notice link as e5d112688 drew it, the theme's accent alone.
+    // Where that accent falls short on the card, it also falls short on
+    // the header's checked History glyph, which uses the same ink.
     row("control: a notice link in the accent alone is a shortfall", dir => {
         const copy = path.join(dir, "copy");
         copyCheck(copy);
@@ -149,6 +148,8 @@ try {
         assertStatus(proc, 1);
         assert.match(proc.stdout, /^short    vgs: dark notifications\.text\.link on glass\.fill over #ffffff ratio=3\.35 floor=4\.5$/m);
         assert.match(proc.stdout, /^short    catalog\/flexoki-light: light notifications\.text\.link on glass\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    vgs: dark notifications\.header\.icon\.history on glass\.fill over #ffffff ratio=3\.35 floor=4\.5$/m);
+        assert.match(proc.stdout, /^short    catalog\/flexoki-light: light notifications\.header\.icon\.history on glass\.fill over #000000 ratio=4\.15 floor=4\.5$/m);
     });
 
     // The failure line on the scrim alone, as VGS-1611 judged it, in a

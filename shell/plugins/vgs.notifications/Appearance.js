@@ -272,15 +272,13 @@ var TOKENS = {
         controlsInset: length(10),
         controlsGap: length(8),
         iconGap: length(4),
+        // The icon buttons draw no fill, so their opaque ink is judged on
+        // the same glass ground as the header text.
         icon: {
-            rest: ink(0),
-            hover: ink(0.11),
-            pressed: ink(0.16),
-            checked: color("alpha({palette.accent}, 0.14)"),
-            checkedHover: color("alpha({palette.accent}, 0.22)"),
-            checkedPressed: color("alpha({palette.accent}, 0.3)"),
-            border: color("{palette.accent}"),
-            borderWidth: length(1)
+            rest: color("#b8b8b8"),
+            active: color("{text.foreground}"),
+            warning: color("readable({tone.warning}, {glass.ground}, readable(mix({tone.warning}, {text.foreground}, 0.5), {glass.ground}, {text.foreground}))"),
+            history: color("{text.link}")
         }
     },
 
@@ -309,6 +307,7 @@ var LIGHT = {
     text: {
         foreground: "#2a2a2a"
     },
+    header: { icon: { rest: "#424242" } },
     // Each dark tone darkened along its own hue, not mixed toward the grey
     // foreground, which drains the hue at icon size; success turns from the
     // dark tone's yellow-green to a green so it does not read olive.
@@ -331,6 +330,7 @@ var CLEAR = {
         body: { color: "{text.foreground}" },
         link: "{text.foreground}"
     },
+    header: { icon: { rest: "{text.foreground}", warning: "{text.foreground}" } },
     tone: {
         success: "#e2f2b0",
         warning: "#ffe0a0",

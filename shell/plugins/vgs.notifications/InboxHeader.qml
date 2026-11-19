@@ -82,6 +82,9 @@ Item {
         size: "sm"
         iconName: "settings"
         label: "Settings"
+        restColor: header.look.header.icon.rest
+        activeColor: header.look.header.icon.active
+        ringColor: header.look.header.icon.active
         // The subtitle sits under the gear's line.
         tooltipSide: "right"
         onClicked: header.settingsHost.openSettingsPage()
@@ -105,7 +108,10 @@ Item {
                 iconName: header.sound ? "volume-2" : "volume-off"
                 label: header.sound ? "Mute sound" : "Unmute sound"
                 Accessible.name: "Notification sound" + (header.sound ? ", on" : ", off")
-                tone: header.sound ? "" : "warning"
+                restColor: header.look.header.icon.rest
+                activeColor: header.look.header.icon.active
+                onColor: header.look.header.icon.warning
+                ringColor: header.look.header.icon.active
                 checked: !header.sound
                 onClicked: header.soundRequested(!header.sound)
             }
@@ -115,7 +121,10 @@ Item {
                 iconName: header.dnd ? "bell-off" : "bell"
                 label: header.dnd ? "Allow notifications" : "Do not disturb"
                 Accessible.name: "Do Not Disturb" + (header.dnd ? ", on" : ", off")
-                tone: header.dnd ? "warning" : ""
+                restColor: header.look.header.icon.rest
+                activeColor: header.look.header.icon.active
+                onColor: header.look.header.icon.warning
+                ringColor: header.look.header.icon.active
                 checked: header.dnd
                 onClicked: header.dndRequested(!header.dnd)
             }
@@ -125,7 +134,10 @@ Item {
                 iconName: "rotate-ccw-clock"
                 label: header.history ? "Show unread" : "Show history"
                 Accessible.name: "History" + (header.history ? ", open" : ", closed")
-                tone: header.history ? "accent" : ""
+                restColor: header.look.header.icon.rest
+                activeColor: header.look.header.icon.active
+                onColor: header.look.header.icon.history
+                ringColor: header.look.header.icon.active
                 checked: header.history
                 onClicked: header.modeRequested(header.history ? "inbox" : "history")
             }

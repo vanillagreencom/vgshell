@@ -99,6 +99,24 @@ Item {
             frame.visible = true;
         }
 
+        function test_header_icon_takes_the_glass_style_ink() {
+            compare(UnitTheme.override({ scheme: { mode: "light" }, motion: { scale: 0 } }), "ok");
+            try {
+                compare(Theme.scheme.mode, "light");
+                Theme.appearanceInput = JSON.stringify({ glassStyle: "clear", glassSurfaces: { notifications: "on" } });
+                frame.visible = false;
+                panel.visible = true;
+                mouseMove(scene, scene.width - 1, scene.height - 1);
+                const gear = findChild(panel, "notificationSettingsGear");
+                verify(gear !== null && gear.visible);
+                verify(!gear.hovered && !gear.visualFocus && !gear.down);
+                tryCompare(gear.contentItem, "color", Qt.color("#ffffff"));
+            } finally {
+                Theme.appearanceInput = "";
+                UnitTheme.reset();
+            }
+        }
+
         function descendants(item) {
             const found = [];
             for (const child of item.children) found.push(child, ...descendants(child));
