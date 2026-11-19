@@ -10,9 +10,10 @@ import "../foundation/HintGround.js" as HintGround
 // `Theme.callout.tone`: `danger`, `warning` or `info`, the default; an
 // unknown name is logged and drawn as `info`. The tone supplies the icon
 // when `iconName` is empty. Only the leading icon
-// takes its `foreground`; the title and text use callout.title in
-// bodyStrong and callout.text in body, solved from normal text and muted
-// text to the readability floor on the banner fill. The lines stand
+// takes its `foreground`. The title uses callout.title in bodyStrong.
+// The message uses body, with callout.text below a title and callout.title
+// when it stands alone. These inks solve from normal and muted text to
+// the readability floor on the banner fill. The lines stand
 // `callout.gap` apart, `callout.iconGap`
 // after the icon. The icon centres on the first shown line as a leading
 // icon centres (Label.topForLeadingIcon), the title's, or the text's when
@@ -132,6 +133,7 @@ Rectangle {
 
         Column {
             id: lines
+            readonly property color messageColor: root.title === "" ? Theme.callout.title : Theme.callout.text
             x: Theme.callout.padding + (icon.visible ? icon.width + Theme.callout.iconGap : 0)
             width: Math.max(0, root.width - Theme.callout.padding - x)
             spacing: Theme.callout.gap
@@ -151,7 +153,7 @@ Rectangle {
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
                 role: "body"
-                color: Theme.callout.text
+                color: lines.messageColor
                 linkColor: Theme.callout.link.foreground
                 text: root.plain ? "" : root.message.body
                 wrapAtSpaces: true
@@ -163,7 +165,7 @@ Rectangle {
                 width: Math.max(0, parent.width - (!titleLabel.visible && close.visible ? close.width + Theme.callout.iconGap : 0))
                 visible: text !== ""
                 role: "body"
-                color: Theme.callout.text
+                color: lines.messageColor
                 textFormat: Text.PlainText
                 text: root.plain ? root.text : ""
                 wrapMode: Text.Wrap
