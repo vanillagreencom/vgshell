@@ -162,6 +162,7 @@ Scope {
         { instance: hyprlandSignature, marker: permissionMarker, consent: permissionConsent, user: Capabilities.hyprland.userPermissions }] : null
     // Assigned by renderLayer alone.
     property var rendered: null
+    property var renderedInputs: null
     property int layerGlassRequestedCycle: 0
     readonly property var layerGlassRequest: Capabilities.hyprland.layerGlassRequest
     onLayerGlassRequestChanged: Qt.callLater(root.renderLayer)
@@ -172,6 +173,14 @@ Scope {
     // reaches the machine through renderLayer, after the turn that ended
     // it, so Keep's outputs write in that turn is in the text written.
     readonly property bool trialRunning: Capabilities.monitors.trialState.phase !== "idle"
+    // QML bindings track the requested inputs before the coalesced render
+    // runs (https://quickshell.org/docs/v0.3.1/guide/qml-language).
+    // A held/refused replacement must not certify the old rendered style.
+    readonly property var layerGlassApplication: !trialRunning && admissionReady
+        && renderInputs !== null && renderInputs === renderedInputs
+        && themeAppearance.layerGlass && themeAppearance.layerGlassLoad && themeAppearance.glassEnabled
+        && (layerGlassRequest.generation === 0 || layerGlassRequest.cycle === layerGlassRequestedCycle)
+        && Layer.currentLayerApplied(machine, rendered.text) ? rendered.layerGlassApplication : null
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad
@@ -267,6 +276,7 @@ Scope {
     // and after suppressing a default still present in the loaded old layer.
     Binding { target: Capabilities.hyprland; property: "layerBinds"; value: Layer.boundDescriptions(Layer.resolveBinds(root.sections)) }
     Binding { target: Capabilities.hyprland; property: "permissionState"; value: root.rendered === null ? null : root.rendered.permissions }
+    Binding { target: Capabilities.hyprland; property: "layerGlassApplication"; value: root.layerGlassApplication }
     Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }
     Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections, root.publishedBindPlan) }
     Binding { target: Notices; property: "consentState"; value: root.machine.consent }
@@ -386,7 +396,9 @@ Scope {
             feed({ type: "trial", running: trialRunning });
             return;
         }
-        rendered = Layer.render.apply(null, renderInputs);
+        const inputs = renderInputs;
+        rendered = Layer.render.apply(null, inputs);
+        renderedInputs = inputs;
         feed({ type: "trial", running: trialRunning });
         if (layerGlassRequest.generation !== 0 && layerGlassRequest.cycle !== layerGlassRequestedCycle) {
             layerGlassRequestedCycle = layerGlassRequest.cycle;

@@ -1,9 +1,10 @@
 # Synthetic manager/status proof for the real core and Glass pane. This
 # proves the core transaction and generated calls, never native plugin
-# loading, recursive reload lifetime, before-draw safety or rendered glass.
+# loading, recursive reload lifetime or rendered glass. A refused reload
+# after an eligible Dark state must keep Clear on its opaque path.
 # Polls use expect_poll's 200 ms interval; the manager fixture's 120 s
 # hang guard polls its release file every 50 ms. No latency is measured.
-# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json
+# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js shell/Commons/Theme.qml scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json
 set -euo pipefail
 
 lg_read() { ipc smoke readInstance service acme.appearance "$1"; }
@@ -28,6 +29,23 @@ lg_copy="$home/.config/vgshell/plugins/vgs.glass"
 lg_fixture="$home/.config/vgshell/plugins/acme.appearance"
 lg_user="$home/.config/vgshell/shell.json"
 lg_managed="/var/cache/hyprpm/$(id -un)/HyprGlass/hyprglass.so"
+lg_setting() {
+  python3 - "$lg_user" "$1" "$2" <<'LGSETTING' || return
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text())
+appearance = config.setdefault("appearance", {})
+value = json.loads(sys.argv[3])
+if value is None:
+    appearance.pop(sys.argv[2], None)
+else:
+    appearance[sys.argv[2]] = value
+pending = path.with_suffix(".json.next")
+pending.write_text(json.dumps(config) + "\n")
+pending.replace(path)
+LGSETTING
+  ipc shell reloadConfig
+}
 cp -- "$lg_user" "$sandbox/layer-glass-before.json"
 hypr_lua_save layer-glass
 # Hyprland 0.57.1 reinitializes Lua on reload, and hl.plugin is an ordinary
@@ -101,6 +119,9 @@ case "\$*" in
     [[ ! -f \$state/unsafe ]] || windows=true
     printf '{"schema":1,"version":"1.1.1","versionCheck":"match","active":true,"shaders":"%s","features":{"windows":{"enabled":%s,"active":false,"reason":"disabled"},"layers":{"enabled":true,"active":true,"reason":null}}}\n' "\$(<"\$state/shaders")" "\$windows" ;;
   '-j configerrors') cat "\$state/errors" ;;
+  'reload config-only')
+    if [[ -f \$state/refuse-reload ]]; then echo 'synthetic layer-glass refusal'; exit 1; fi
+    exec $(printf '%q' "$shim/hyprctl.real") "\$@" ;;
   *) exec $(printf '%q' "$shim/hyprctl.real") "\$@" ;;
 esac
 EOF
@@ -153,6 +174,22 @@ expect 'the launcher layer unmaps' ok ipc shell hide overlay vgs.launcher
 expect 'the launcher disables after the layer' ok ipc shell setPluginEnabled vgs.launcher false
 expect 'On preference is saved after verification' true lg_saved
 expect 'the one writer contributes its plugin declaration' present lg_block
+expect 'explicit Dark config reaches the writer' ok lg_setting glassStyle '"dark"'
+expect_poll 'the previous style is Dark' '"dark"' ipc smoke themeValue glassStyle
+expect_poll 'Dark rules are acknowledged and the plugin is eligible' true ipc smoke themeValue layerGlassReady
+lg_refusal='hyprland: reload=failed status=1 reply="synthetic layer-glass refusal"'
+expected_errors+=("$lg_refusal")
+: >"$lg_dir/refuse-reload"
+expect 'Clear is requested while its reload is refused' ok lg_setting glassStyle '"clear"'
+expect_poll 'the new style is Clear' '"clear"' ipc smoke themeValue glassStyle
+expect_log 'the Clear reload was refused' 1 "$lg_refusal"
+expect 'plugin status is read again despite the refused reload' ok lg_refresh
+expect_poll 'the plugin still reports eligible' 'eligible|idle|true' lg_state
+expect 'eligibility cannot authorize unapplied Clear' false ipc smoke themeValue layerGlassReady
+rm -- "$lg_dir/refuse-reload"
+expect 'the current generated layer is retried' ok ipc shell renderHyprland
+expect_poll 'Clear becomes ready after the matching reload' true ipc smoke themeValue layerGlassReady
+expect 'the explicit style is removed' ok lg_setting glassStyle null
 # A queued shell reload may still replay the declaration after the
 # preference is saved. Withhold the synthetic load until the test asks
 # the compositor to replay it.

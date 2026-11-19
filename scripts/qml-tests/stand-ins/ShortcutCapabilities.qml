@@ -37,6 +37,7 @@ QtObject {
         property string layerGlassUser: ""
         property bool layerGlassUserFailed: false
         property var layerGlassPermission: ({ kind: "unread", reason: "" })
+        property var layerGlassApplication: null
         function layerGlassLayerDone(generation, enabled, failure) {}
     }
     readonly property QtObject monitors: QtObject {

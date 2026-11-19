@@ -152,6 +152,9 @@ Scope {
     property int layerGlassGeneration: 0
     property int layerGlassReadGeneration: 0
     property var layerGlassFacts: ({})
+    // The writer's acknowledgement of the current render, or null.
+    property var layerGlassApplication: null
+    property var layerGlassReadApplication: null
     readonly property bool layerGlassHeld: layerGlassOperation.phase !== "idle" || layerGlassIntent || layerGlassClaimed
     readonly property var layerGlass: ({ observed: layerGlassUserFailed && layerGlassIntent
         ? Object.assign({}, layerGlassObserved, { kind: "unread", reason: "The plugin location could not be checked. Check again." })
@@ -161,10 +164,19 @@ Scope {
         reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent })
 
     // Clear draws its faint body only while the compositor's layer glass
-    // shades it: requested, loaded and ready as last read (Theme
-    // layerGlassReady, ThemeLogic.glassFor).
-    Binding { target: Theme; property: "layerGlassInput"; value: root.layerGlassIntent && root.layerGlass.observed.kind === "eligible" }
+    // shades it. A fresh plugin/configerrors read must follow the writer's
+    // acknowledgement of these same rules, not the previous style's.
+    Binding {
+        target: Theme
+        property: "layerGlassInput"
+        value: root.layerGlassIntent && root.layerGlassApplication !== null
+            && root.layerGlassApplication === root.layerGlassReadApplication
+            && root.layerGlassApplication.style === Theme.glassStyle
+            && Theme.appearanceState.values.glassEnabled !== false
+            && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"
+    }
 
+    onLayerGlassApplicationChanged: if (layerGlassApplication !== null && layerGlassHeld) refreshLayerGlass(false)
     onLayerGlassHeldChanged: if (layerGlassHeld) refreshLayerGlass()
     onLayerGlassIntentChanged: {
         if (layerGlassOperation.phase !== "idle" && layerGlassOperation.phase !== "committing"
@@ -180,6 +192,7 @@ Scope {
     function refreshLayerGlass(refreshOptions) {
         if (!active && !layerGlassHeld) return;
         layerGlassObserved = Object.assign({}, layerGlassObserved, { stale: true });
+        layerGlassReadApplication = layerGlassApplication;
         if (refreshOptions !== false) readOptions();
         layerGlassReadGeneration++;
         layerGlassFacts = {};
