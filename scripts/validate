@@ -2480,9 +2480,11 @@ fi
 # row=<label>, or smoke=<row> for a nested smoke row. digest is
 # record_digest's, or - for a row no digest binds, whose line keeps only
 # its seconds. `<run> void` withdraws every line of that run, whose tree
-# changed while it ran. A row whose newest line for its digest is a pass
-# is reused while the commits between that line's point and this run's
-# reach none of its inputs (record_holds). The
+# changed while it ran; a run whose end tree could not be read writes none,
+# so its lines stand on the tree it read at its start, as after a KILL. A
+# row whose newest line for its digest is a pass is reused while the
+# commits between that line's point and this run's reach none of its
+# inputs (record_holds). The
 # nested smoke's rows reach the file through the directory
 # VGS_SMOKE_RESULTS_DIR names, <git-dir>/vgs-validated-smoke/<run>, which
 # holds `<digest> <point> <row>` lines in digests and the runner's per-row
@@ -2827,14 +2829,22 @@ smoke_reuse() {
 # waits for the group too before collecting them as it reaps the leader.
 # Then withdraw this run's lines when its tree changed while it ran, or print
 # `validate: row-records=unwritten` when the withdrawal cannot be written.
-# A KILL runs neither: the next run collects the results, and the lines
-# stand on the tree the run read at its start.
+# An end tree that cannot be read proves no change: the lines stand on the
+# tree the run read at its start, `validate: row-records=kept
+# reason=end-tree-unreadable tree=<start tree>`. Each line's digest binds
+# that tree's content of the row's inputs, so a later run reuses it only
+# where its own read of those inputs gives the same digest. A KILL runs
+# none of this: the next run collects the results, and the lines stand on
+# the tree the run read at its start.
 records_finish() {
   local end
   if [[ -n $smoke_results_dir && -d $smoke_results_dir ]]; then smoke_collect "$smoke_results_dir"; fi
   [[ $records_written == true && $reuse == on ]] || return 0
-  if ! end="$(worktree_tree)"; then end=unreadable; fi
+  end="$(worktree_tree)" || end=unreadable
   if [[ $end == "$pass_tree" ]]; then return 0; fi
+  if [[ $end == unreadable ]]; then
+    printf 'validate: row-records=kept reason=end-tree-unreadable tree=%s\n' "$pass_tree" >&2; return 0
+  fi
   if printf '%s void\n' "$record_run" 2>/dev/null >>"$record_file"; then
     printf 'validate: row-records=void reason=content-changed from=%s to=%s\n' "$pass_tree" "$end" >&2
   else

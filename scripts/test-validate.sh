@@ -3231,7 +3231,11 @@ row_re "control: content that changes during the run no longer keeps the pass un
 # the one that waits; and shape SHAPE, a real producer shape for launcher: skip, a check
 # not measured; partial, a row the attempt left open; outside, a failure
 # outside every row; replay, a failure in a first attempt and a pass when a
-# second replays it; unread, a row whose end reading is missing. The step
+# second replays it; unread, a row whose end reading is missing; noclose,
+# a stand-in that waits and ends on its TERM with no closing reading;
+# tree-fail, which, with the git stand-in reuse_cut takes as its ENV, fails
+# every `git write-tree` once the stand-in that waits has reported, so the
+# run reads its start tree and not its end tree. The step
 # `other` makes other read launcher's file as part of the lane's change.
 # The lane's change stays uncommitted and
 # --changed HEAD scopes both runs to it, so rows run, launcher among them,
@@ -3283,7 +3287,7 @@ for row in $(awk '!/^#/ && NF' "$list"); do
     source "$source_repo/scripts/smoke/judge-reading.sh"
     source "$source_repo/scripts/smoke/teardown.sh"
   elif [[ $row == "$hang" ]]; then
-    trap '[[ $row != "$(knob call)" ]] || calls=$((calls + 1)); close; kill "$waiting" 2>/dev/null; exit 143' TERM
+    trap '[[ $row != "$(knob call)" ]] || calls=$((calls + 1)); [[ -e $git_dir/noclose ]] || close; kill "$waiting" 2>/dev/null; exit 143' TERM
   fi
   if [[ $row == "$hang" ]]; then
     sleep 600 &
@@ -3329,8 +3333,9 @@ SH
   # This fixture also exercises the table row after the nested smoke.
   printf '# lane\n' >>"$dir/scripts/test-qml-smoke.sh"
 }
-# reuse_cut DIR SIGNAL HANG: run `validate qml --changed HEAD` in DIR until
-# the stand-in HANG reports that it waits, then send SIGNAL to validate.
+# reuse_cut DIR SIGNAL HANG [ENV...]: run `validate qml --changed HEAD` in
+# DIR, with each NAME=VALUE of ENV, until the stand-in HANG reports that it
+# waits, then send SIGNAL to validate.
 # A KILL leaves validate's rows going, so the stand-in then gets the TERM
 # that ends it. SIGNAL UNIT stops the run as a unit's stop does
 # (systemd.kill(5), KillMode=control-group): validate runs in a session of
@@ -3344,14 +3349,14 @@ SH
 # reading; validate then ends by itself, red for the stopped row. Asserts
 # the exit SIGNAL gives. HANG `-` lets the run end by itself. The run's log is
 # DIR.cut.log.
-reuse_cut() { # DIR SIGNAL HANG
+reuse_cut() { # DIR SIGNAL HANG [ENV...]
   local dir="$1" signal="$2" git_dir pid tick status=0 want=143 sid stat file leader
-  local -a hung fields members launch=(bash)
+  local -a hung fields members launch=(bash) cut_env=("${@:4}")
   git_dir="$("${base_env[@]}" git -C "$dir" rev-parse --absolute-git-dir)"
   printf '%s\n' "$3" >"$git_dir/hang"
   # -w: setsid forks when its caller leads a group, and then waits for it.
   [[ $signal != UNIT ]] || launch=(setsid -w bash)
-  (cd -- "$dir" && exec "${base_env[@]}" "${launch[@]}" scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
+  (cd -- "$dir" && exec "${base_env[@]}" "${cut_env[@]}" "${launch[@]}" scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
   pid=$!
   if [[ $3 == - ]]; then
     wait "$pid" || true
@@ -3430,11 +3435,17 @@ reuse_cut() { # DIR SIGNAL HANG
       sleep 0.1
     done
   fi
-  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape" "${git_dir:?}/teardown" "${git_dir:?}/controls-started"
+  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape" "${git_dir:?}/teardown" "${git_dir:?}/controls-started" "${git_dir:?}/noclose" "${git_dir:?}/tree-fail"
   [[ $status == "$want" ]] || { fail "$dir: the cut run exited $status, not $want"; sed 's/^/        /' "$dir.cut.log"; }
 }
 smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
 smoke_other="scripts/qml-smoke.sh --rows $smoke_core,launcher,other,$smoke_always,$smoke_tail"
+# The tree-fail knob's git stand-in: it fails `git write-tree` while the
+# knob and the waiting stand-in's report are both in the git directory,
+# and passes every other call through.
+mkdir -p "$tmp/failing-write-tree"
+printf '#!/bin/sh\nif [ "${1-}" = write-tree ] && g="$("%s" rev-parse --absolute-git-dir)" && [ -e "$g/tree-fail" ] && [ -s "$g/hung" ]; then exit 128; fi\nexec "%s" "$@"\n' "$real_git" "$real_git" >"$tmp/failing-write-tree/git"
+chmod +x "$tmp/failing-write-tree/git"
 # Each control's mutant: the file it plants in, the text it replaces and its
 # replacement, keyed by the case's mutant field.
 declare -A reuse_mutant_file=() reuse_mutant_old=() reuse_mutant_new=()
@@ -3449,6 +3460,8 @@ reuse_mutant untraced scripts/validate '    "$record_validate" "$record_untraced
 reuse_mutant fault scripts/validate '  if [[ -n $smoke_read_fault ]]; then' '  if false; then'
 reuse_mutant row-lines scripts/validate '  record_digest "row=${rows[$1]}" "$context" "$lines"' '  record_digest "row=${rows[$1]}" "$context" ""'
 reuse_mutant void scripts/validate '  if [[ $end == "$pass_tree" ]]; then return 0; fi' '  return 0'
+reuse_mutant unread-end scripts/validate '  if [[ $end == unreadable ]]; then' '  if false; then'
+reuse_mutant closing "$judged" '  [[ $closed == true ]]' '  :'
 reuse_mutant status scripts/validate 'case "$1" in 0) echo pass ;; 77) echo skip ;; *) echo fail ;; esac' 'case "$1" in 0|77) echo pass ;; *) echo fail ;; esac'
 reuse_mutant growth "$judged" '      [[ $own == calls ]] || ((calls == ${previous% *})) || return 1' '      :'
 reuse_mutant refused "$judged" '      [[ $own == refused ]] || ((refused == ${previous#* })) || return 1' '      :'
@@ -3525,10 +3538,14 @@ reuse_cases=(
   "control: a changed input no longer reruns a table row|-|-||control-file|row-lines|%validate: reused secs=[0-9]+ row=smoke fatal row controls$^!scripts/test-qml-smoke.sh"
   "a run whose tree changed while it ran leaves nothing to reuse|TERM|fatal-controls|revert|revert||validate: rerun secs=unknown smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_both"
   "control: a run whose tree changed while it ran no longer withdraws its records|TERM|fatal-controls|revert|revert|void|validate: reused secs=3 smoke=launcher^$smoke_none"
+  "a cut run whose end tree cannot be read keeps the rows it finished and reruns the open one|TERM|notifications|tree-fail|tree-fail||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
+  "control: a cut run whose end tree cannot be read withdraws its records|TERM|notifications|tree-fail|tree-fail|unread-end|validate: rerun secs=unknown smoke=launcher^$smoke_both"
+  "an attempt with no closing reading in a run whose end tree cannot be read is no pass|TERM|notifications|tree-fail-noclose|tree-fail||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: an attempt with no closing reading reads as a pass|TERM|notifications|tree-fail-noclose|tree-fail|closing|validate: reused secs=3 smoke=launcher^$smoke_notify"
 )
 reuse_case() { # SPEC
   local name signal hang before after mutant wanted d git_dir panel
-  local -a lines
+  local -a lines cut_env=()
   IFS='|' read -r name signal hang before after mutant wanted <<<"$1"
   d="$tmp/reuse-${name//[^a-z]/-}"
   if [[ -n $mutant ]]; then
@@ -3547,11 +3564,15 @@ reuse_case() { # SPEC
     skip|partial|outside|replay|unread) printf '%s\n' "$before" >"$git_dir/shape" ;;
     skip-controls) : >"$git_dir/skip-controls" ;;
     teardown) : >"$git_dir/teardown" ;;
+    tree-fail*)
+      : >"$git_dir/tree-fail"
+      [[ $before != *-noclose ]] || : >"$git_dir/noclose"
+      cut_env=("PATH=$tmp/failing-write-tree:$(dirname -- "$node_bin"):$PATH") ;;
     harness-line) plant "$d/scripts/smoke/harness.sh" $'# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh\n' '' ;;
     other) plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh' ;;
   esac
   [[ $mutant != reaped && $mutant != deferred ]] || : >"$git_dir/expect-no-wait"
-  reuse_cut "$d" "$signal" "$hang"
+  reuse_cut "$d" "$signal" "$hang" "${cut_env[@]}"
   case "$after" in
     edit) printf 'fix\n' >>"$d/shell/plugins/acme.launcher/Panel.qml" ;;
     row-file) printf '# changed\n' >>"$d/scripts/smoke/rows/launcher.sh" ;;
@@ -3567,6 +3588,11 @@ reuse_case() { # SPEC
       grep -q '^validate: row-records=void reason=content-changed ' "$d.cut.log" ||
         [[ -n $mutant ]] || fail "$name: the cut run withdrew nothing"
       printf '%s\n' "$panel" >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    tree-fail)
+      if [[ -z $mutant ]] && { ! grep -q '^validate: row-records=kept reason=end-tree-unreadable tree=[0-9a-f]' "$d.cut.log" ||
+           grep -q '^validate: row-records=void' "$d.cut.log"; }; then
+        fail "$name: the cut run did not keep its records on its start tree"
+      fi ;;
   esac
   IFS='^' read -r -a lines <<<"$wanted"
   test_area=qml test_args=(--changed HEAD --list)
