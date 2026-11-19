@@ -17,6 +17,7 @@
     {"command": "rclone", "packages": {"pacman": "rclone", "dnf": "rclone", "nix": "rclone"}, "optional": false, "purpose": "Syncs files to and from Google Drive"},
     {"command": "flock", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": false, "purpose": "Lets only one sync of a folder pair run at a time"},
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Runs the sync every hour while you are logged in"},
+    {"command": "loginctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Holds the sign-in notice until you log in"},
     {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": false, "purpose": "Reads the Google Drive keys from the keyring"},
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Tells you when the Google Drive sync needs you"},
     {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": false, "purpose": "Reads the name of the Google account you sign in with"},

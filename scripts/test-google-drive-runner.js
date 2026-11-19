@@ -11,7 +11,10 @@
 // next run resumes; a SIGKILL interruption still fails; pause persists across processes
 // and a paused run copies nothing; an edit saved as a copy ends is kept as
 // `both-changed` by the next run; offline and authorization failures keep
-// the last success; a download that ran to its end past a file Drive could
+// the last success; a keyring locked while logind reads no login session
+// open shows nothing and owes one pass, which the first status in a
+// session starts, while a locked keyring inside a session or with no
+// reading needs a sign-in; a download that ran to its end past a file Drive could
 // not open ends synced with that file and a doubled name to review and
 // keeps that file's baseline, while a network cause in the same lines, an
 // error that names no file and a fatal exit stay a failure; a doubled
@@ -46,9 +49,11 @@
 // RCLONE_* environment, swaps the drive remote for the local backend
 // rooted at the case's fixture Drive and runs the host's rclone, except
 // for `authorize`, which it answers itself with a fixture token, so no
-// browser opens and no consent leaves the machine.
-// No case reaches the user's keyring, systemd manager, rclone config or
-// network.
+// browser opens and no consent leaves the machine. Only the login case
+// stands in `loginctl`, which answers the user's logind State from the
+// case's stub directory; every other case has none.
+// No case reaches the user's keyring, systemd manager, logind, rclone
+// config or network.
 //
 // The controls at the end edit a copy of the runner, one rule at a time,
 // and require the case that rule serves to fail on the copy.
@@ -984,6 +989,90 @@ function caseFailures(runner) {
     cli(v, ["run"], runner);
     cli(v, ["run"], runner);
     assert.deepEqual(status(v, runner).attention, kept, "offline runs keep the conflicts' key");
+}
+
+// logind's answers to the runner's State read (sd_uid_get_state(3)'s
+// words), a read that fails and no loginctl: WAITS is whether a pass that
+// finds the keyring locked waits for the login instead of needing a
+// sign-in.
+const LOGIN_ROWS = [
+    { name: "lingering", answer: "lingering\n", waits: true },
+    { name: "closing", answer: "closing\n", waits: true },
+    { name: "active", answer: "active\n", waits: false },
+    { name: "online", answer: "online\n", waits: false },
+    { name: "an unknown word", answer: "opening\n", waits: false },
+    { name: "a failed read", answer: null, waits: false },
+    { name: "no loginctl", answer: undefined, waits: false }
+];
+
+// loginctl answering `show-user <this uid> --property=State --value` with
+// the stub's login-state file, and exiting 1, as for a user logind does
+// not hold, without one.
+function loginStandIn(w) {
+    write(path.join(w.bin, "loginctl"), `#!${HOST.bash}
+stub=${JSON.stringify(w.stub)}
+[[ $# == 4 && $1 == show-user && $2 == ${process.getuid()} && $3 == --property=State && $4 == --value ]] || exit 64
+[[ -f $stub/login-state ]] || exit 1
+printf '%s' "$(<"$stub/login-state")"
+printf '\n'
+`, 0o755);
+}
+
+function serviceStarts(w) {
+    const file = path.join(w.stub, "systemctl.calls");
+    return fs.existsSync(file) ? read(file).split("\n").filter(l => l === "--user start --no-block vgs-google-drive.service").length : 0;
+}
+
+// The hourly pass of a user manager that lingers can run before login
+// unlocks the keyring. Before login it shows nothing and owes a pass that
+// the shell's first status read in the session starts, once; inside a
+// session, or without a reading, the locked keyring needs a sign-in.
+function caseLoginWait(runner) {
+    for (const row of LOGIN_ROWS) {
+        const w = world();
+        if (row.answer !== undefined) loginStandIn(w);
+        assert.equal(cli(w, ["install"], runner).status, 0);
+        addPair(w, runner);
+        drive(w, "a.txt", "one\n", 1700000000);
+        runOk(w, runner);
+        const before = status(w, runner);
+        write(path.join(w.stub, "secrets", "client-id.locked"), "");
+        if (typeof row.answer === "string") write(path.join(w.stub, "login-state"), row.answer);
+        const calls = rcloneCalls(w).length;
+        const out = cli(w, ["run"], runner);
+        assert.equal(rcloneCalls(w).length, calls, row.name + ": a locked keyring runs no rclone");
+        if (row.waits) {
+            assert.equal(out.stdout, "pair=docs result=waiting\n", row.name + ": waits");
+            assert.equal(out.status, 0, row.name);
+            const waiting = status(w, runner);
+            assert.deepEqual(waiting.pairs, before.pairs, row.name + ": a pass before login shows nothing");
+            assert.equal(waiting.state, before.state, row.name);
+            assert.deepEqual(waiting.attention, before.attention, row.name);
+            // Login: PAM unlocks the keyring and logind reads a session.
+            fs.unlinkSync(path.join(w.stub, "secrets", "client-id.locked"));
+            write(path.join(w.stub, "login-state"), "active\n");
+            const starts = serviceStarts(w);
+            assert.equal(cli(w, ["status", "--quiet"], runner).status, 0);
+            assert.equal(serviceStarts(w), starts + 1, row.name + ": the first status in the session starts the owed pass");
+            assert.equal(cli(w, ["status", "--quiet"], runner).status, 0);
+            assert.equal(serviceStarts(w), starts + 1, row.name + ": an owed pass starts once");
+            drive(w, "b.txt", "two\n", 1700000000);
+            runOk(w, runner);
+            assert.deepEqual(mirrorFiles(w), ["a.txt", "b.txt"], row.name);
+            continue;
+        }
+        assert.equal(out.stdout, "pair=docs result=authorization-required\n", row.name + ": needs a sign-in");
+        assert.equal(out.status, 1, row.name);
+        const s = status(w, runner);
+        assert.equal(s.pairs[0].state, "authorization-required", row.name);
+        assert.equal(s.pairs[0].lastError.kind, "credential-locked", row.name);
+        assert.equal(s.pairs[0].lastSuccess, before.pairs[0].lastSuccess, row.name);
+        assert.deepEqual(s.attention.reasons, ["authorization-required"], row.name);
+        if (row.answer !== undefined) write(path.join(w.stub, "login-state"), "active\n");
+        const starts = serviceStarts(w);
+        assert.equal(cli(w, ["status", "--quiet"], runner).status, 0);
+        assert.equal(serviceStarts(w), starts, row.name + ": a pass not owed is not started");
+    }
 }
 
 const EXCLUDED = ["~$draft.docx", ".~lock.sheet.ods#", "notes.swp", "notes.txt~", ".#notes.txt", "big.iso.partial", "file.crdownload",
@@ -3270,6 +3359,18 @@ async function twoWayControl(name, from, to, fn, assertion) {
 }
 
 async function controls() {
+    await twoWayControl("no session before login",
+        'lingering: "none"', 'lingering: "open"',
+        caseLoginWait, "lingering: waits");
+    await twoWayControl("an unknown session reading keeps the sign-in need",
+        'SESSION_STATES[word] : "unknown"', 'SESSION_STATES[word] : "none"',
+        caseLoginWait, "an unknown word: needs a sign-in");
+    await twoWayControl("status starts the owed pass",
+        "        startOwedPass();\n", "",
+        caseLoginWait, "lingering: the first status in the session starts the owed pass");
+    await twoWayControl("an owed pass starts once",
+        "        delete stored.waitingForLogin;\n", "",
+        caseLoginWait, "lingering: an owed pass starts once");
     await twoWayControl("setup attention includes the stopped pair set",
         'pairs.filter(p => p.initialization.state === "required")',
         'pairs.filter(p => false)',
@@ -3468,6 +3569,7 @@ async function main() {
     await caseInterrupted();
     casePause();
     caseFailures();
+    caseLoginWait();
     caseExclusions();
     caseValidation();
     caseInstall();

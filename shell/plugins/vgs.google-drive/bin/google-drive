@@ -8,10 +8,16 @@
 //   google-drive run [--pair <id>]
 //       the service's ExecStart: each pair, or the one named, under its own
 //       lock. Prints `pair=<id> result=<r>` per pair, r one of idle, paused,
-//       busy, initialization-required, offline, authorization-required, error.
+//       busy, waiting, initialization-required, offline,
+//       authorization-required, error. waiting: the keyring was locked
+//       while logind read no login session open for the user, so the pair
+//       keeps its earlier state and is owed a pass once a session opens.
 //   google-drive status [--quiet]
 //       renders the status record, writes it and prints it as one JSON line
-//       (nothing with --quiet: the service's ExecStopPost).
+//       (nothing with --quiet: the service's ExecStopPost, and the
+//       shell's read as it starts). When a pair is owed a pass and logind
+//       reads a login session open, it first starts the service as start
+//       does and clears what is owed.
 //       The record's `units` is installed, absent or stale (unitsState);
 //       each of its `pairs` carries `remote` and `local` from the pair list.
 //       The record's `attention`, when set, is { reasons, key, notified }:
@@ -678,6 +684,24 @@ function readSecret(tool, account) {
     if (held === "locked") return { kind: "locked" };
     if (held === "unavailable") return { kind: "unavailable", reason: "secret-tool-failed" };
     return got;
+}
+
+// Whether this user has a login session open, from logind's State for the
+// user (loginctl(1) show-user; the words are sd_uid_get_state(3)'s):
+// "open", "none" or "unknown". active and online have a session open,
+// online one not in the foreground; lingering, offline and closing have
+// none. A missing loginctl, a failed read or another word is unknown:
+// without a reading, a locked keyring keeps its sign-in notice and no
+// owed pass starts.
+const SESSION_STATES = { active: "open", online: "open", lingering: "none", offline: "none", closing: "none" };
+
+function loginSession() {
+    const bin = which("loginctl");
+    if (bin === null) return "unknown";
+    const out = run(bin, ["show-user", String(process.getuid()), "--property=State", "--value"], { timeout: 10000, killSignal: "SIGKILL" });
+    if (out.status !== 0) return "unknown";
+    const word = out.stdout.trim();
+    return hasOwn(SESSION_STATES, word) ? SESSION_STATES[word] : "unknown";
 }
 
 // { kind: "found", values: { part: value }, address }, address the
@@ -1830,7 +1854,9 @@ function runPair(pair, control) {
             log("pair=" + pair.id + " error=baseline-evidence-unreadable");
             return "error";
         }
+        let earlier = null;
         let state = withStateLock(() => {
+            earlier = readPairState(pair.id);
             const route = control.twoWaySync ? "two-way" : "copy";
             const begun = Object.assign(readPairState(pair.id), { state: "running", route: route, operation: route, startedAt: now(), lastAttempt: now() });
             writePairState(pair.id, begun);
@@ -1839,6 +1865,17 @@ function runPair(pair, control) {
         });
         const historical = new Set((state.records || []).map(recordKey));
         const credential = readCredential();
+        // A pass before login, from a user manager that lingers, finds the
+        // keyring locked until PAM unlocks it at login: no sign-in need.
+        // The pair keeps what it read before and is owed a pass, which
+        // the first `status` in the session starts (startOwedPass).
+        if (credential.kind === "locked" && loginSession() === "none") {
+            withStateLock(() => {
+                writePairState(pair.id, Object.assign(earlier, { waitingForLogin: true }));
+                writeStatus();
+            });
+            return "waiting";
+        }
         if (credential.kind === "found") {
             const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
             const env = rcloneEnv(credential.values);
@@ -1850,6 +1887,7 @@ function runPair(pair, control) {
             state = failed(state, kind, { account: credential.account, mayHaveChanged: false });
         }
         state.startedAt = null;
+        delete state.waitingForLogin;
         state.records = (state.records || []).map(r => r.operation === undefined && !historical.has(recordKey(r))
             ? Object.assign(r, { operation: state.route }) : r);
         if (state.lastError !== null && state.lastError.operation === undefined) state.lastError.operation = state.route;
@@ -2540,10 +2578,30 @@ function runVerb(words) {
         process.stdout.write("pair=" + pair.id + " result=" + result + "\n");
         log("pair=" + pair.id + " result=" + result);
         if (result === "busy" && exit === 0) exit = EXIT_BUSY;
-        else if (["idle", "paused", "busy"].indexOf(result) === -1) exit = 1;
+        else if (["idle", "paused", "busy", "waiting"].indexOf(result) === -1) exit = 1;
     }
     withStateLock(writeStatus);
     process.exit(exit);
+}
+
+// Starts the pass a pair is owed (runPair's waiting) once logind reads a
+// login session open, then clears what is owed, so each owed pass starts
+// once and a pass that leaves the mark, such as a paused one, starts no
+// other. Under the state lock. A failed start keeps the marks for the
+// next status.
+function startOwedPass() {
+    const owed = readPairs().pairs.filter(p => readPairState(p.id).waitingForLogin === true);
+    if (owed.length === 0 || unitsState() === "absent" || loginSession() !== "open") return;
+    const failure = systemctlFailure(["start", "--no-block", SERVICE]);
+    if (failure !== null) {
+        log("login-pass=failed " + failure);
+        return;
+    }
+    for (const pair of owed) {
+        const stored = readPairState(pair.id);
+        delete stored.waitingForLogin;
+        writePairState(pair.id, stored);
+    }
 }
 
 function statusVerb(words) {
@@ -2562,6 +2620,7 @@ function statusVerb(words) {
                 }));
             }
         }
+        startOwedPass();
         return writeStatus();
     });
     if (words.length === 0) process.stdout.write(JSON.stringify(status) + "\n");
