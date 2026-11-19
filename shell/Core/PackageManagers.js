@@ -179,8 +179,8 @@ var MANAGERS = [
     // system's own repositories. No repository is added. The check prints
     // `arrow` lines for an installed package older than its pin and exits 2
     // while none is installed; an installed one newer than the pin is left
-    // alone. kendex (D126): the v1.22.1 release assets, digests read from
-    // the release on 2026-11-17 and checked against the downloaded files.
+    // alone. kendex (D126): the v1.22.2 release assets, digests read from
+    // the release on 2026-11-19 and checked against the downloaded files.
     {
         id: "deb-file", role: "overlay", family: [], release: null, requires: "apt", binaries: ["apt-get"], elevate: true,
         check: [{ binary: null, argv: ["{pkg}", "file-check", "deb-file"], exits: { "0": "updates", "1": "none", "2": "unused" }, parser: "arrow", timeout: 120 }],
@@ -196,9 +196,9 @@ var MANAGERS = [
             older: "{name}_[^_/]+_[^_/]+\\.deb",
             prune: [["find", "{dir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}", "!", "-name", "{filename}", "-delete"]],
             releases: [
-                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.22.1/", version: "1.22.1", assets: {
-                    amd64: { file: "kendex_1.22.1_amd64.deb", sha256: "3c8eebc7a6fe467ee7149879bb8efa9a7863dadc9ed38d79e6daeae08e9d52d0" },
-                    arm64: { file: "kendex_1.22.1_arm64.deb", sha256: "79b8a50c34d73e60c53372cfb061e6ebf8afe75b84959169c4cbaa99355c9667" } } }
+                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.22.2/", version: "1.22.2", assets: {
+                    amd64: { file: "kendex_1.22.2_amd64.deb", sha256: "7dea767942eae1c84a2eb2b06f5c44dc230b5063cc45ec7980269a7533676dfa" },
+                    arm64: { file: "kendex_1.22.2_arm64.deb", sha256: "0b8e96fbc3cf8e9c876f1109a51f6b3f8198690a0bb1de8aef2ce5ea57d02a71" } } }
             ]
         }
     },
@@ -217,9 +217,9 @@ var MANAGERS = [
             older: "{name}-[^-/]+-[^-/]+\\.[a-z0-9_]+\\.rpm",
             prune: [["find", "{dir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}", "!", "-name", "{filename}", "-delete"]],
             releases: [
-                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.22.1/", version: "1.22.1", assets: {
-                    x86_64: { file: "kendex-1.22.1-1.x86_64.rpm", sha256: "d54fdd0eb01183a9a10d2f4bb4d3c20cab9eb1cbd7a934a8ed4b3906cbe3fa8d" },
-                    aarch64: { file: "kendex-1.22.1-1.aarch64.rpm", sha256: "87038f85331fcbfd05107f445c3787f0c6086ffd549efe10c32f94ec99abccf9" } } }
+                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.22.2/", version: "1.22.2", assets: {
+                    x86_64: { file: "kendex-1.22.2-1.x86_64.rpm", sha256: "b0da838e0bcc8fcbba8b73897d1edc216702164338bd9739ed5716fd33878b06" },
+                    aarch64: { file: "kendex-1.22.2-1.aarch64.rpm", sha256: "277bba50245c0f09ba78a32416310a9c78cccb2529e46c192d11b06842283cd0" } } }
             ]
         }
     },
