@@ -270,8 +270,8 @@ Item {
         // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
     // The plates' layer the host maps under the material namespace, and
-    // whether a plate shows, which keeps that layer mapped. It reads each
-    // plate's own condition, not its `visible`: an Item's `visible` reads its
+    // whether the plates or their anchored menu need that layer mapped.
+    // The plate conditions do not read `visible`: an Item's `visible` reads its
     // effective visibility (QQuickItem::isVisible), which follows the plate
     // window's content item, and Quickshell hides that while the window is
     // hidden (VGS-2594's sandbox run logged platesShown false from the moment
@@ -281,6 +281,7 @@ Item {
     readonly property bool stateShown: hold === null && (!hidden || fault !== null)
         && (stateText !== "" || silenceLine.text !== "" || faultAction.text !== "")
     readonly property bool platesShown: words.count > 0 || iconsShown || hold !== null || stateShown
+        || menuOpened && menuUi.parent === plateBox
     // Whether ITEM and every item over it up to the overlay or the plates'
     // box show.
     function drawn(item) {
@@ -720,14 +721,6 @@ Item {
             width: overlay.width
             height: overlay.height
 
-            // pointer-cursor-exempt: a right click on plate text, which shows no control
-            // keyboard-path: the bar widget's menu holds the same actions
-            TapHandler {
-                acceptedButtons: Qt.RightButton
-                enabled: root.active && plateRoot.parent !== root
-                onTapped: eventPoint => root.openMenu(plateBox, eventPoint.position)
-            }
-
             // The words' card is as wide as the caption's column, so no word
             // moves its sides, and as tall as the lines shown, the newest at
             // its bottom: it follows a new line up as that line lifts the
@@ -997,10 +990,7 @@ Item {
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 enabled: root.active
-                onTapped: eventPoint => {
-                    menuUi.active = true;
-                    menuUi.item.openAt(eventPoint.position.x, eventPoint.position.y);
-                }
+                onTapped: eventPoint => root.openMenu(plateBox, eventPoint.position)
             }
         }
     }

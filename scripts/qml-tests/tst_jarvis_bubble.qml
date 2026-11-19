@@ -609,6 +609,34 @@ Item {
             }
         }
 
+        function test_a_plate_menu_holds_the_lent_layer_after_the_last_plate_hides() {
+            service.sessionState = conversation({ voiceMute: { kind: "on" } });
+            service.values = { transcript: { role: "assistant", gen: service.sessionState.gen, text: "A caption." } };
+            const layer = bubble.plateLayer;
+            const card = findChild(layer, "wordsCard");
+            verify(card !== null);
+            const box = card.parent;
+            layer.parent = root;
+            let menu = null;
+            try {
+                tryCompare(card, "visible", true);
+                verify(bubble.platesShown);
+                bubble.openMenu(box, Qt.point(card.x + card.width / 2, card.y + card.height / 2));
+                menu = collect(box, item => item instanceof Menu, [])[0];
+                verify(menu !== undefined && menu.opened);
+                service.values = {};
+                tryCompare(card, "visible", false);
+                verify(!bubble.iconsShown && !bubble.stateShown && bubble.hold === null);
+                verify(menu.opened && bubble.platesShown, "the menu still needs its parent window");
+                menu.close();
+                menu = null;
+                tryCompare(bubble, "platesShown", false);
+            } finally {
+                if (menu) menu.close();
+                layer.parent = bubble;
+            }
+        }
+
         // The judgement reads the box the overlay draws in at the bottom
         // centre, from the words' card, or from what the orb draws when no
         // words show, down to the text card: a Console that ends just above

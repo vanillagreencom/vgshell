@@ -123,6 +123,7 @@ Scope {
                         function onGrabsChanged() {
                             if (OverlayState.grabs > 0) {
                                 if (win.visible) win.held = true;
+                                if (plates.visible) plates.held = true;
                             } else {
                                 Qt.callLater(win.release);
                             }
@@ -130,7 +131,10 @@ Scope {
                     }
 
                     function release() {
-                        if (OverlayState.grabs === 0) held = false;
+                        if (OverlayState.grabs === 0) {
+                            plates.held = false;
+                            held = false;
+                        }
                     }
 
                     function remap() {
@@ -149,11 +153,11 @@ Scope {
                     // material namespace, so the compositor's layer glass
                     // reaches the plates' faint Clear body and nothing else
                     // the content draws, such as Jarvis's orb
-                    // (HyprlandLayer.MATERIAL_NAMESPACES). It maps only
-                    // while a plate shows (`platesShown`): Quickshell deletes
-                    // a layer's window on every hide and builds a new one on
-                    // every show (WlrLayershell::deleteOnInvisible), so the
-                    // plates' window lives only while they show. The plates
+                    // (HyprlandLayer.MATERIAL_NAMESPACES). `platesShown`
+                    // requests the window for either plates or a popup
+                    // anchored to them (Quickshell 0.3.1 PopupWindow.anchor).
+                    // A grab holds this layer through popup teardown, just
+                    // as it holds the main layer. The plates
                     // move here once, keep the content's coordinates, since
                     // both layers cover the same box, and go back to the
                     // content before it goes. Its input region is the
@@ -163,23 +167,30 @@ Scope {
                         id: plates
                         readonly property Item item: win.content !== null && win.content.plateLayer !== undefined ? win.content.plateLayer : null
                         readonly property bool glassMaterial: true
+                        readonly property bool shown: item !== null && win.visible && !win.hiding && win.content.platesShown === true
+                        property bool held: false
                         property bool framePresented: false
-                        readonly property bool presented: visible && backingWindowVisible && framePresented
+                        readonly property bool presented: shown && backingWindowVisible && framePresented
                         placement: "center"
                         inset: 0
                         screen: win.targetScreen
-                        visible: item !== null && win.visible && !win.hiding && win.content.platesShown === true
-                        inputItems: item !== null && win.content.plateInputItems !== undefined ? win.content.plateInputItems : []
+                        visible: item !== null && win.visible && (shown || held)
+                        contentItem.visible: shown
+                        inputItems: shown && win.content.plateInputItems !== undefined ? win.content.plateInputItems : []
                         WlrLayershell.namespace: "vgs:layer-glass"
                         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
                         onItemChanged: if (item !== null) item.parent = contentItem
-                        onVisibleChanged: framePresented = false
+                        onVisibleChanged: {
+                            framePresented = false;
+                            if (visible && OverlayState.grabs > 0) held = true;
+                        }
+                        onShownChanged: framePresented = false
                         onBackingWindowVisibleChanged: framePresented = false
 
                         Connections {
                             target: plates.item !== null ? plates.item.Window.window : null
                             function onFrameSwapped() {
-                                if (plates.visible && plates.backingWindowVisible) plates.framePresented = true;
+                                if (plates.shown && plates.backingWindowVisible) plates.framePresented = true;
                             }
                         }
                     }
