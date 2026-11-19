@@ -174,7 +174,7 @@ Item {
             compare(words.lineCount, 1);
             compare(footer(callout).visible, false);
             compare(callout.firstStop, words);
-            compare(colour(words.color), colour(Theme.callout.text));
+            compare(colour(words.color), colour(Theme.callout.title));
             compare(colour(words.linkColor), colour(Theme.callout.link.foreground));
             compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding + icon(callout).width + Theme.callout.iconGap, "the line clears its tone's icon");
             callout.linkText = "Turn VPN off";
@@ -191,10 +191,13 @@ Item {
             const words = data.plain ? plainBody(callout) : body(callout);
             const drawn = data.plain ? words : words.children[0];
             compare(drawn.font.weight, Theme.text.body.weight, "a message with no title has regular weight");
+            compare(colour(drawn.color), colour(Theme.callout.title), "a message with no title takes the title ink");
             const centre = words.mapToItem(callout, 0, (words.height + words.inkAbove - words.inkBelow) / 2).y;
             const ratio = words.Screen.devicePixelRatio;
             const snapped = Math.round((centre - icon(callout).height / 2) * ratio) / ratio + icon(callout).height / 2;
             fuzzyCompare(icon(callout).mapToItem(callout, 0, icon(callout).height / 2).y, snapped, 0.01, "the icon shares the single line's ink centre on a device pixel");
+            callout.title = "A title";
+            compare(colour(drawn.color), colour(Theme.callout.text), "a message under a title takes the muted ink");
             callout.destroy();
         }
 

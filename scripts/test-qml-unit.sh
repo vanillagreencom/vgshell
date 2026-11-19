@@ -81,7 +81,8 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
-  "a notice message becomes bold|feedback/Callout.qml|role: \"body\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|role: \"bodyStrong\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
+  "a notice message becomes bold|feedback/Callout.qml|role: \"body\""$'\n'"                color: lines.messageColor"$'\n'"                linkColor:|role: \"bodyStrong\""$'\n'"                color: lines.messageColor"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
+  "a notice without a title draws muted message ink|feedback/Callout.qml|readonly property color messageColor: root.title === \"\" ? Theme.callout.title : Theme.callout.text|readonly property color messageColor: Theme.callout.text|tst_callout.qml|test_the_message_is_the_main_line"
   "a notice icon centres on x-height alone|feedback/Callout.qml|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y, true)|x: Theme.callout.padding"$'\n'"            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)|tst_callout.qml|test_the_message_is_the_main_line"
   "a notice breaks inside a page reference|feedback/Callout.qml|wrapAtSpaces: true|wrapAtSpaces: false|tst_callout.qml|test_a_page_reference_wraps_before_its_words"
   "a notice loses its tone's default icon|feedback/Callout.qml|name: root.iconName !== \"\" ? root.iconName : root.tokens.icon|name: root.iconName|tst_callout.qml|test_the_tone_supplies_its_icon"
@@ -1014,7 +1015,7 @@ mutations=(
   "a moved page action loses its tab target|feedback/Callout.qml|root.pageActivated(modelData.page, modelData.tab)|root.pageActivated(modelData.page, \"\")|tst_callout.qml|test_moved_page_actions_share_the_footer_and_keep_their_routes"
   "a notice's icon ignores its state's ink|feedback/Callout.qml|size: Theme.icon.size.md"$'\n'"            color: root.tokens.foreground|size: Theme.icon.size.md"$'\n'"            color: Theme.color.text|tst_callout.qml"
   "a notice's title bypasses its solved ink|feedback/Callout.qml|role: \"bodyStrong\""$'\n'"                color: Theme.callout.title|role: \"bodyStrong\""$'\n'"                color: Theme.color.text|tst_callout.qml"
-  "a notice's text bypasses its solved ink|feedback/Callout.qml|color: Theme.callout.text"$'\n'"                linkColor:|color: Theme.color.textMuted"$'\n'"                linkColor:|tst_callout.qml"
+  "a notice's text bypasses its solved ink|feedback/Callout.qml|readonly property color messageColor: root.title === \"\" ? Theme.callout.title : Theme.callout.text|readonly property color messageColor: root.title === \"\" ? Theme.callout.title : Theme.color.textMuted|tst_callout.qml"
   "a notice's page link bypasses its solved ink|feedback/Callout.qml|linkColor: Theme.callout.link.foreground|linkColor: Theme.color.accent|tst_callout.qml"
   "a notice's bottom link bypasses its solved inks|feedback/Callout.qml|tokens: Theme.callout.link"$'\n'"                        onClicked: root.activated()|tokens: Theme.rowAction.tone.accent"$'\n'"                        onClicked: root.activated()|tst_callout.qml"
   "a notice's listed link bypasses its solved inks|feedback/Callout.qml|text: modelData"$'\n'"                            tokens: Theme.callout.link|text: modelData"$'\n'"                            tokens: Theme.rowAction.tone.accent|tst_callout.qml"
