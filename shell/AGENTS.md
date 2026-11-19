@@ -2,6 +2,10 @@
 
 The Quickshell shell root.
 
+## Rules
+
+- Call no JavaScript function the shell's Qt 6.12 engine lacks, such as `flatMap` or `trimEnd`: the call throws, and what it feeds draws nothing. `scripts/check-js-engine.py` refuses each call and names a replacement.
+
 ## Read when
 
 - Before changing core boundaries, hosts or capability providers: [overview.md § Core](../docs/architecture/overview.md#core) and [§ Hosts and capabilities](../docs/architecture/overview.md#hosts-and-capabilities).

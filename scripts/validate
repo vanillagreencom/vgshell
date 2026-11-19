@@ -635,6 +635,8 @@ rows=(
   "tools|QML source comment reader controls|python3 scripts/test-qml-source.py|scripts/qml_source.py bin/vgshell-scan bin/lib/dbus_wire.py"
   "tools|smoke edit needles|python3 scripts/check-smoke-needles.py|scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
   "tools|smoke edit needle controls|python3 scripts/test-check-smoke-needles.py|scripts/check-smoke-needles.py scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
+  "tools|JavaScript the engine lacks|python3 scripts/check-js-engine.py|shell/*.qml shell/*.js shell/*/qmldir scripts/*.qml scripts/*/qmldir scripts/qml-tests/*.js scripts/smoke/*.js scripts/shader/*.js scripts/fixtures/keyboard-ui/*.js scripts/qml_source.py bin/vgshell-scan bin/lib/dbus_wire.py"
+  "tools|JavaScript the engine lacks controls|python3 scripts/test-check-js-engine.py|scripts/check-js-engine.py scripts/qml_source.py bin/vgshell-scan bin/lib/dbus_wire.py"
   "repo|whitespace errors against the base|whitespace_check|"
   "repo|every test file has a row|rows_cover_tests|"
   "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"

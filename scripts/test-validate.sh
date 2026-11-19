@@ -1098,9 +1098,11 @@ plan_consumer_case() { # SPEC
   done
 }
 # The needle rows read all product sources to locate each old text in its
-# comment spans, and every row to discover edit calls. Add those commands
-# to each existing fixture's independent expected plan at the tools boundary.
+# comment spans, and every row to discover edit calls. The engine check reads
+# every QML file and the JavaScript QML loads. Add those commands to each
+# existing fixture's independent expected plan at the tools boundary.
 needle_rows=$'python3 scripts/check-smoke-needles.py\npython3 scripts/test-check-smoke-needles.py\n'
+engine_check=$'python3 scripts/check-js-engine.py\n'
 for i in "${!cases[@]}"; do
   IFS='|' read -r case_name case_input case_area _ <<<"${cases[i]}"
   case_plan="${cases[i]#*|*|*|}"
@@ -1108,7 +1110,9 @@ for i in "${!cases[@]}"; do
   if [[ $case_plan != text:* && ( $case_area == all || $case_area == offline || $case_area == tools ) ]]; then
     case "$case_input" in
       scripts/qml_source.py|bin/vgshell-scan|bin/lib/dbus_wire.py)
-        additions=$'python3 scripts/test-qml-source.py\n'"$needle_rows" ;;
+        additions=$'python3 scripts/test-qml-source.py\n'"$needle_rows$engine_check"$'python3 scripts/test-check-js-engine.py\n' ;;
+      shell/*.qml|shell/*.js) additions="$needle_rows$engine_check" ;;
+      scripts/*.qml) additions="$engine_check" ;;
       shell/*|scripts/smoke/rows/*|scripts/smoke/harness.sh|scripts/smoke/tree.sh|scripts/shell_source.py) additions="$needle_rows" ;;
     esac
   fi
@@ -1785,7 +1789,7 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 "${base_env[@]}" git -C "$d" mv shell/Core/Dispatch.js README.md
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
-rename_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
+rename_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$engine_check$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
 if ! rename_plan="$(with_daemon_consumers shell/Core/Dispatch.js offline "$rename_plan")"; then
   fail "the rename's expected consumer plan could not be built"
 fi
