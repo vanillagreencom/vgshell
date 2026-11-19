@@ -128,19 +128,37 @@ Flickable {
         return true;
     }
 
+    // The item the window's focus was last on. Qt clears the window's
+    // activeFocusItem when the window loses the focus, as on a desktop
+    // switch, and hands the focus back to that same item when the window
+    // gets it again (qmltestrunner, Qt 6.12, 2026-11-19): no move of the
+    // focus, so the view stays where the user scrolled it
+    // (tst_scroll_refocus.qml). A hidden area forgets it, so a flyout
+    // shown again starts its list at the top.
+    property Item lastFocus: null
+    onVisibleChanged: if (!visible) lastFocus = null
+
     // Reveal the window's focused item when it lies in the content.
     function revealFocus(focusChanged = false) {
         if (root.Window.window === null) return;
         const item = root.Window.window.activeFocusItem;
+        const before = lastFocus;
+        if (focusChanged) {
+            if (item === null) return;
+            lastFocus = item;
+            if (item === before) return;
+        }
         if (item === null || item === root || contentItem === null || !KeyNavLogic.contains(contentItem, item)) return;
         // A list's FocusScope holds its whole content (tst_scroll.qml's
-        // initial-focus case). Start that composite at the top when it
-        // takes focus, including a retained flyout whose close was canceled.
-        // A shrink keeps the user's scroll position within that list.
+        // initial-focus case). Start that composite at the top when the
+        // focus enters it from outside, including a retained flyout whose
+        // close was canceled. Focus that falls back to it from an item
+        // inside, as when the row that held it leaves, keeps the place
+        // (tst_listfield_remove.qml), and so does a shrink.
         // TextArea is a TextEdit, not a FocusScope, and still needs reveal
         // when its text grows past the viewport (tst_scroll.qml).
         if (item instanceof FocusScope && item.height > contentClip.height) {
-            if (focusChanged) contentY = 0;
+            if (focusChanged && !KeyNavLogic.contains(item, before)) contentY = 0;
             return;
         }
         reveal(item);

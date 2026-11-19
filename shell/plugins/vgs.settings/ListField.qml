@@ -11,6 +11,10 @@ import qs.Ui
 // entry's `defaults` under the lowest whole number no item names. That
 // number is the item's storage key and names nothing the user chose, so no
 // row draws it.
+// Removing an item whose Remove holds the keyboard first hands the
+// keyboard, with the same reason, to the Remove of the item that takes its
+// place, else of the one above it, else to Add, so the focus does not fall
+// back to the page's scope as the item leaves.
 // Every edit sends the whole list through `apply`, which the page writes
 // through the manager's set-setting path, so the configuration's judge
 // sees each change and a refused one leaves the drawn list as it was.
@@ -53,6 +57,12 @@ Column {
         apply(items.concat([Object.assign({ name: freshName() }, JSON.parse(JSON.stringify(spec.defaults)))]));
     }
     function remove(name) {
+        const index = items.findIndex(item => item.name === name);
+        const leaving = index < 0 ? null : itemRows.itemAt(index);
+        if (leaving !== null && leaving.removeAction.activeFocus) {
+            const next = itemRows.itemAt(index + 1 < itemRows.count ? index + 1 : index - 1);
+            (next === null ? addAction : next.removeAction).forceActiveFocus(leaving.removeAction.focusReason);
+        }
         apply(items.filter(item => item.name !== name));
     }
     function setField(name, field, fieldValue) {
@@ -70,6 +80,7 @@ Column {
         visible: root.items.length > 0
 
         Repeater {
+            id: itemRows
             model: ScriptModel {
                 values: root.items
                 objectProp: "name"
@@ -94,6 +105,7 @@ Column {
                 width: groups.width
                 implicitHeight: itemFields.height
 
+                readonly property alias removeAction: remove
                 readonly property real inkAbove: Theme.inkAbove(itemFields)
                 readonly property real inkBelow: Theme.inkBelow(itemFields)
 
@@ -141,6 +153,7 @@ Column {
         label: root.items.length === 0 ? "None yet" : ""
         inline: true
         RowAction {
+            id: addAction
             text: "Add"
             enabled: root.editable
             onClicked: root.add()
