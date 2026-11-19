@@ -19,6 +19,10 @@ Item {
         return shell.appearance.chooseLayerGlass(JSON.parse(args), "layer-glass", "layer-glass-control", result => { root.layerGlassResult = result; });
     }
 
+    function rebuildLayerGlass() {
+        return shell.appearance.rebuildLayerGlass("layer-glass", "layer-glass-control", result => { root.layerGlassResult = result; });
+    }
+
     function refreshLayerGlass() {
         shell.hyprland.refreshLayerGlass();
         return "ok";

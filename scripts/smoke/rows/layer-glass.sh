@@ -10,6 +10,8 @@ set -euo pipefail
 lg_read() { ipc smoke readInstance service acme.appearance "$1"; }
 lg_choose() { ipc smoke invokeInstance service acme.appearance chooseLayerGlass "$1"; }
 lg_state() { lg_read layerGlass | py_reply 'import json,sys; x=json.load(sys.stdin); print(x["observed"]["kind"]+"|"+x["operation"]["phase"]+"|"+str(x["requested"]).lower())'; }
+lg_setup_disabled() { lg_read layerGlass | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["disabledReason"]))'; }
+lg_fresh_observation() { lg_read layerGlass | py_reply 'import json,sys; state=json.load(sys.stdin)["observed"]; print("stale" if state["stale"] else state["kind"])'; }
 lg_saved() { python3 -c 'import json,sys; print(json.dumps((json.load(open(sys.argv[1])).get("appearance") or {}).get("layerGlass")))' "$home/.config/vgshell/shell.json"; }
 lg_block() { if grep -q 'hl.plugin.hyprglass' "$home/.local/state/vgshell/hypr/vgs.lua"; then echo present; else echo absent; fi; }
 lg_refresh() { ipc smoke invokeInstance service acme.appearance refreshLayerGlass ""; }
@@ -136,6 +138,14 @@ expect 'System enables for layer glass' ok ipc shell setPluginEnabled vgs.system
 expect 'the synthetic absence is read' ok lg_refresh
 expect_poll 'synthetic absence starts off by default' 'not-loaded|idle|false' lg_state
 expect 'unset layer glass contributes no plugin declaration' absent lg_block
+expect 'the main Glass switch is turned off' ok lg_setting glassEnabled false
+expect_poll 'the operation lends the pane its disabled reason' True lg_setup_disabled
+expect 'On cannot wait for an excluded draw' 'refused: layer-glass=glass-off' lg_choose true
+expect 'Rebuild cannot wait for an excluded draw' 'refused: layer-glass=glass-off' ipc smoke invokeInstance service acme.appearance rebuildLayerGlass ""
+expect 'Off remains available with the main switch off' ok lg_choose false
+expect_poll 'Off leaves the plugin unloaded and the operation idle' 'not-loaded|idle|false' lg_state
+expect 'the main Glass switch is restored' ok lg_setting glassEnabled null
+expect_poll 'the layer-glass prerequisite is satisfied' False lg_setup_disabled
 expect 'the actual Glass pane opens for layer glass' ok ipc shell summon window vgs.system '{"pane":"vgs.glass"}'
 expect_poll 'the Glass pane mounts for layer glass' '["vgs.glass"]' window_panes
 : >"$lg_dir/hold"
@@ -160,8 +170,17 @@ rm -- "$lg_dir/exit"
 expect 'Off retries the canceled pending unload' ok lg_choose false
 expect_poll 'pending Off verifies the unloaded plugin' 'not-loaded|idle|false' lg_state
 expect 'pending Off removes its applied configuration' absent lg_block
-expect 'a second On starts from the unloaded state' ok lg_choose true
-expect_poll 'second On waits for its first layer draw' 'shaders-pending|verifying|false' lg_state
+expect 'On can wait for shaders with Glass enabled' ok lg_choose true
+expect_poll 'there is a pending verification to cancel' 'shaders-pending|verifying|false' lg_state
+expect 'the main switch turns off during verification' ok lg_setting glassEnabled false
+expect_poll 'turning Glass off cancels the verification and cleans up its first load' 'not-loaded|idle|false' lg_state
+expect 'cancellation does not save On' null lg_saved
+expect 'Glass is restored for the next On' ok lg_setting glassEnabled null
+expect_poll 'On can start again' False lg_setup_disabled
+expect 'Clear is selected for the launcher warm-up' ok lg_setting glassStyle '"clear"'
+expect_poll 'the launcher will map under a whitelisted namespace' '"clear"' ipc smoke themeValue glassStyle
+expect 'On starts again from the unloaded state' ok lg_choose true
+expect_poll 'On waits for its first layer draw' 'shaders-pending|verifying|false' lg_state
 printf 'ready\n' >"$lg_dir/shaders"
 expect 'ready shaders are not read before a layer maps' 'shaders-pending|verifying|false' lg_state
 # A layer that maps and unmaps while shaders read pending has layer glass
@@ -184,7 +203,7 @@ expect 'Clear is requested while its reload is refused' ok lg_setting glassStyle
 expect_poll 'the new style is Clear' '"clear"' ipc smoke themeValue glassStyle
 expect_log 'the Clear reload was refused' 1 "$lg_refusal"
 expect 'plugin status is read again despite the refused reload' ok lg_refresh
-expect_poll 'the plugin still reports eligible' 'eligible|idle|true' lg_state
+expect_poll 'the plugin still reports eligible on a fresh read' eligible lg_fresh_observation
 expect 'eligibility cannot authorize unapplied Clear' false ipc smoke themeValue layerGlassReady
 rm -- "$lg_dir/refuse-reload"
 expect 'the current generated layer is retried' ok ipc shell renderHyprland

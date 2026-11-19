@@ -144,6 +144,7 @@ Scope {
     property bool layerGlassUserFailed: false
     property bool layerGlassClaimed: false
     readonly property bool layerGlassIntent: Theme.appearanceState.values.layerGlass === true
+    readonly property string layerGlassSetupDisabledReason: State.layerGlassSetupDisabledReason(Theme.appearanceState.values.glassEnabled)
     readonly property var layerGlassPermission: State.layerGlassPermission(optionValues, permissionState)
     property var layerGlassObserved: ({ kind: "checking", reason: "Checking plugin state.", loaded: null })
     property var layerGlassOperation: ({ phase: "idle" })
@@ -159,9 +160,12 @@ Scope {
     readonly property var layerGlass: ({ observed: layerGlassUserFailed && layerGlassIntent
         ? Object.assign({}, layerGlassObserved, { kind: "unread", reason: "The plugin location could not be checked. Check again." })
         : layerGlassObserved.loaded === false && layerGlassIntent && layerGlassPermission.kind !== "allowed"
-            ? Object.assign({}, layerGlassObserved, { kind: "permission", reason: layerGlassPermission.reason }) : layerGlassObserved,
+            ? Object.assign({}, layerGlassObserved, { kind: "permission", reason: layerGlassPermission.reason })
+        : layerGlassObserved.kind === "shaders-pending" && layerGlassSetupDisabledReason !== ""
+            ? Object.assign({}, layerGlassObserved, { reason: layerGlassSetupDisabledReason }) : layerGlassObserved,
         operation: { phase: layerGlassOperation.phase,
-        reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent })
+        reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent,
+        disabledReason: layerGlassSetupDisabledReason })
 
     // Clear draws its faint body only while the compositor's layer glass
     // shades it. A fresh plugin/configerrors read must follow the writer's
@@ -178,6 +182,7 @@ Scope {
 
     onLayerGlassApplicationChanged: if (layerGlassApplication !== null && layerGlassHeld) refreshLayerGlass(false)
     onLayerGlassHeldChanged: if (layerGlassHeld) refreshLayerGlass()
+    onLayerGlassSetupDisabledReasonChanged: if (layerGlassSetupDisabledReason !== "") advanceLayerGlass()
     onLayerGlassIntentChanged: {
         if (layerGlassOperation.phase !== "idle" && layerGlassOperation.phase !== "committing"
                 && layerGlassOperation.intent !== layerGlassIntent)
@@ -225,6 +230,7 @@ Scope {
             && layerGlassObserved.kind === "shaders-pending";
         if (previous.phase !== "idle" && !pendingOff) return "refused: layer-glass=busy";
         if (!ctx.active || typeof done !== "function" || typeof enabled !== "boolean") return "refused: layer-glass=caller";
+        if (enabled && layerGlassSetupDisabledReason !== "") return "refused: layer-glass=glass-off";
         const manifest = Registry.manifests[ctx.id];
         if (manifest === undefined || !Registry.isEnabled(ctx.id) || manifest.__revision !== ctx.manifest.__revision) return "refused: layer-glass=plugin";
         const verb = enabled ? (rebuild ? "rebuild" : "prepare") : "disable";
@@ -269,8 +275,21 @@ Scope {
     }
     function advanceLayerGlass() {
         const op = layerGlassOperation;
+        // A verifying operation already knows whether it loaded the
+        // plugin; cancel without waiting for another read or a draw.
+        if (op.phase === "verifying" && op.on && layerGlassSetupDisabledReason !== "") {
+            failLayerGlass(layerGlassSetupDisabledReason);
+            return;
+        }
         if (op.phase === "idle" || layerGlassObserved.stale || optionsPending) return;
         if (!layerGlassValid(op.generation)) { finishLayerGlass(false, "The requesting plugin or saved choice changed."); return; }
+        // Let any started manager or apply finish and be read back first.
+        // A first load that landed still needs the ordinary compensation.
+        if (op.on && layerGlassSetupDisabledReason !== ""
+                && ["checking", "verifying-manager", "verifying-load"].indexOf(op.phase) !== -1) {
+            failLayerGlass(layerGlassSetupDisabledReason);
+            return;
+        }
         const observed = layerGlassObserved;
         if (op.phase === "checking") {
             if (observed.loaded === null || !layerGlassFacts.username.ok) { finishLayerGlass(false, "The plugin could not be checked. Check again."); return; }
@@ -322,7 +341,7 @@ Scope {
                 return;
             }
             // Hyprglass compiles lazily at the first matching layer draw
-            // (v1.1.1 GlassLayerSurface.cpp draw). The Windows pane is a
+            // (v1.1.1 GlassLayerSurface.cpp draw). The Glass pane is a
             // native window, so keep this request for an explicit Check again.
             if (op.on && observed.kind === "shaders-pending") return;
             if (op.on ? observed.kind !== "eligible" : observed.loaded !== false) { failLayerGlass(observed.reason); return; }
@@ -346,7 +365,11 @@ Scope {
         if ((op.phase !== "applying" && op.phase !== "arming") || generation !== op.generation) return;
         if (failure !== "") { failLayerGlass("Layer glass could not be applied. Check your Hyprland configuration."); return; }
         if (enabled !== op.on) { finishLayerGlass(false, "The layer-glass choice changed. Check again."); return; }
-        if (op.phase === "arming") { runLayerGlassManager(op.verb); return; }
+        if (op.phase === "arming") {
+            if (layerGlassSetupDisabledReason !== "") failLayerGlass(layerGlassSetupDisabledReason);
+            else runLayerGlassManager(op.verb);
+            return;
+        }
         layerGlassOperation = Object.assign({}, op, { phase: op.on ? "verifying-load" : "verifying" });
         refreshLayerGlass();
     }

@@ -144,7 +144,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Style"
-                info: "Auto: light glass on a light theme and dark glass on a dark theme. Clear shows the background through the glass and shades it under white text."
+                info: "Sets the glass style for Launcher, Notifications and Jarvis. Auto follows the theme. Clear shows the background through the glass and shades it under white text."
                 Select {
                     objectName: "glassStyle"
                     Accessible.name: "Style"
@@ -254,11 +254,12 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Layer glass"
-                info: "Hyprland bends the background at the edges of Jarvis, notifications and the launcher, and shades Clear glass. On offers to install hyprglass."
+                info: "In Clear, Hyprland bends and shades the background behind Jarvis cards, notifications and the launcher. On offers to install hyprglass."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"
-                    disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
+                    disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first."
+                        : checked || root.layerGlass === null ? "" : root.layerGlass.disabledReason
                     checked: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlassWaiting)
                     onToggled: {
                         const wanted = checked;
@@ -274,7 +275,7 @@ FocusScope {
                 label: "Status"
                 Label {
                     width: parent.width
-                    text: root.layerGlassWaiting ? "Waiting for a panel" : root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
+                    text: root.layerGlassWaiting ? "Waiting for a glass surface" : root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
                         ? "Checking…" : root.layerGlass.observed.kind === "eligible" ? "On"
                             : root.layerGlass.observed.kind === "not-loaded" ? "Off" : "Needs attention"
                 }
@@ -295,7 +296,8 @@ FocusScope {
                         visible: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlass.observed.loaded === true)
                             && root.layerGlass.observed.kind !== "eligible"
                         text: "Rebuild"
-                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first."
+                            : root.layerGlass === null ? "" : root.layerGlass.disabledReason
                         onClicked: root.chooseLayerGlass(true, true)
                     }
                     RowAction {

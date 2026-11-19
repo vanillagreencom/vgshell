@@ -577,6 +577,10 @@ function layerGlassRead(kind, text, failure) {
     if (valid && kind === "errors") return { ok: true, value: value.filter(function (line) { return line !== ""; }) };
     return valid ? read : { ok: false, error: "refused: layer-glass=" + kind + "-shape" };
 }
+function layerGlassSetupDisabledReason(glassEnabled) {
+    return Layer.layerGlassHasDraw(glassEnabled) ? "" : "Turn on Glass first.";
+}
+
 function layerGlassObservation(facts) {
     function result(kind, reason, loaded) { return { kind: kind, reason: reason, loaded: loaded }; }
     if (!facts.plugins || !facts.plugins.ok) return result("unread", "The running plugins could not be read. Check again.", null);
@@ -596,7 +600,10 @@ function layerGlassObservation(facts) {
     if (!status.active || status.shaders === "failed" || status.features.windows.enabled
             || !status.features.layers.enabled || !status.features.layers.active)
         return result("layers-disabled", "Layer glass is not active. Turn it on again or rebuild the plugin.", true);
-    if (status.shaders === "pending") return result("shaders-pending", "Open the launcher, then check again.", true);
+    // Toasts use LayerHost's vgs:layer or vgs:layer-glass, both listed
+    // by Layer.layerGlassNamespaceLines while the main switch is on.
+    if (status.shaders === "pending")
+        return result("shaders-pending", "Show a notification toast, then check again. Turn on Notifications if needed.", true);
     return result("eligible", "On", true);
 }
 function layerGlassCurrent(operation, generation, revision, intent) {

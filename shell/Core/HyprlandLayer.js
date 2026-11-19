@@ -1877,7 +1877,7 @@ function layerGlassLines(theme) {
 // The namespaces layer glass reaches, inside configure(), for THEME's main
 // switch and style.
 function layerGlassNamespaceLines(theme) {
-    if (theme.glassEnabled === false)
+    if (!layerGlassHasDraw(theme.glassEnabled))
         return ['        hg.layer("' + GLASS_OFF_NAMESPACE + '")'];
     var clear = theme.glassStyle === "clear";
     return (clear ? ['        hg.preset("' + CLEAR_PRESET.name + '", { ' + CLEAR_PRESET.values + ' })'] : []).concat([
@@ -1885,6 +1885,12 @@ function layerGlassNamespaceLines(theme) {
     ], MATERIAL_NAMESPACES.map(function (namespace) {
         return '        hg.layer("' + namespace + '", { mask_mode = "contour", mask_threshold = ' + luaNumber(MATERIAL_CUTOFF) + ', preset = "' + (clear ? CLEAR_PRESET.name : "glass") + '" })';
     }));
+}
+
+// The off whitelist contains no mapped namespace. The operation must
+// not start waiting for shaders that only compile on a whitelisted draw.
+function layerGlassHasDraw(glassEnabled) {
+    return glassEnabled !== false;
 }
 
 // The layer's text and the binds, options or appearance owner declarations
