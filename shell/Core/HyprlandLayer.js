@@ -2090,8 +2090,9 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
 // Connect reload; reloaded, whether this run has asked Hyprland to reload,
 // failed reloads included, set by the first reload of either owner and
-// never cleared; appliedText, the bytes acknowledged by a wired reload
-// (not merely on disk); trialHeld; reloadOwed, "" or the owner of the reload a
+// never cleared; reloadedText, the bytes acknowledged by a successful reload
+// (the wiring probe separately confirms Hyprland sources them);
+// trialHeld; reloadOwed, "" or the owner of the reload a
 // trial held; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
@@ -2108,18 +2109,19 @@ function initialState() {
         failure: "",
         reloadOwner: "",
         reloaded: false,
-        appliedText: null,
+        reloadedText: null,
         trialHeld: false,
         reloadOwed: "",
         consent: { phase: "pending", queued: "", failure: "" }
     };
 }
 
-// OnDisk cannot stand in for appliedText: a trial may hold the reload
+// OnDisk cannot stand in for reloadedText: a trial may hold the reload
 // after the rename, and the reload may fail even when the file is current.
 function currentLayerApplied(state, text) {
     return text !== null && state.phase === "idle" && !state.trialHeld && !state.queuedForce
-        && state.reloadOwed === "" && state.failure === "" && state.appliedText === text && state.onDisk === text;
+        && state.reloadOwed === "" && state.failure === "" && state.consent.phase === "wired"
+        && state.reloadedText === text && state.onDisk === text;
 }
 
 function withChanges(state, changes) {
@@ -2225,8 +2227,7 @@ function step(state, event, text) {
         // src/ipc/s1/Commands.cpp); the Lua config emits config.reloaded
         // before returning. State's subsequent configerrors read also
         // has to pass: `ok` alone does not mean the Lua had no errors.
-        state = withChanges(state, { appliedText: event.failure === ""
-            && (state.reloadOwner === "wire" || state.consent.phase === "wired") ? state.onDisk : null });
+        state = withChanges(state, { reloadedText: event.failure === "" ? state.onDisk : null });
         if (state.reloadOwner === "wire") {
             if (event.failure !== "")
                 return idleDecision(consentChanges(state, { phase: "asking", queued: "", failure: event.failure }), event.failure, text, true);

@@ -2303,6 +2303,30 @@ function verifyGlassNamespaces(layer) {
     same(toned([1, 0, 1]), [0.84, 0.056, 0.84], "saturated magenta keeps 80% of its colour and dims a little");
 }
 verifyGlassNamespaces(load(layerFile));
+function verifyLayerApplication(layer) {
+    let state = layer.initialState();
+    const feed = (event, text) => { state = layer.step(state, event, text).state; };
+    for (const [event, text] of WIRED.slice(0, -1)) feed(event, text);
+    same(layer.currentLayerApplied(state, "T1"), false, "a reload without a wiring verdict cannot confirm the layer");
+    feed(probeWired, "T1");
+    same(layer.currentLayerApplied(state, "T1"), true, "startup can confirm the reload that preceded its wiring probe");
+    same(layer.currentLayerApplied(state, "T2"), false, "the current request cannot inherit confirmation of different bytes");
+    feed(trialOn, "T1");
+    same(layer.currentLayerApplied(state, "T1"), false, "a held writer does not publish confirmation");
+    feed(trialOff, "T1");
+    for (const [event, text, ready] of [
+        [render, "T2", false],
+        [mkdirOk, "T2", false],
+        [trialOn, "T2", false],
+        [saved, "T2", false],
+        [trialOff, "T2", false],
+        [reloaded, "T2", true]
+    ]) {
+        feed(event, text);
+        same(layer.currentLayerApplied(state, text), ready, "replacement layer confirmation at " + event.type);
+    }
+}
+verifyLayerApplication(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 // Control: a caption drawn in its fill's own colour.
@@ -2313,6 +2337,7 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    [layerFile, "a different request cannot inherit a reload", "state.reloadedText === text && state.onDisk === text", "true", verifyLayerApplication],
     [layerFile, "preparation withholds the loader", "theme.layerGlassLoad === false ? [] :", "false ? [] :", verifyLayerGlass],
     [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass), paths), lines);", verifyLayerGlass],
     [layerFile, "layer glass retains its declaration with a namespace", "if hl.plugin.hyprglass or ", "if not hl.plugin.hyprglass and ", verifyLayerGlass],
