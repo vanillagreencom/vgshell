@@ -30,6 +30,85 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# Exercise the capture's evidence readers without starting a compositor.
+if python3 - "$repo/scripts/sandbox-shots.sh" "$BASH" "$tmp" <<'PYGLASS'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+source = Path(sys.argv[1]).read_text()
+def function(name):
+    start = source.index(name + '() {')
+    return source[start:source.index('\n}\n', start) + 3]
+
+fixture = r'''
+set -euo pipefail
+SHOT_DIR=$1 glass_style=$2 style_answer=$3 style_status=$4
+ready_answer=$5 ready_status=$6 launcher_answer=$7 launcher_status=$8
+failures=0 draws=0 checks=0
+fail() { failures=$((failures + 1)); }
+hypr() { printf '{}\n'; }
+ipc() {
+  case $3 in
+    glassStyle) printf '%s\n' "$style_answer"; return "$style_status" ;;
+    layerGlassReady) printf '%s\n' "$ready_answer"; return "$ready_status" ;;
+    *) return 2 ;;
+  esac
+}
+plugin_enabled() { [[ $1 == vgs.launcher ]] || return 2; printf '%s\n' "$launcher_answer"; return "$launcher_status"; }
+expect() { [[ $4 != vgs.launcher ]] || draws=$((draws + 1)); }
+expect_poll() {
+  if [[ $3 == ipc ]]; then
+    checks=$((checks + 1))
+    local got
+    if ! got="$("${@:3}")" || [[ $got != "$2" ]]; then fail "$1"; fi
+  fi
+}
+'''
+
+def run(name, body, request, style, style_status, ready, ready_status, launcher='False', launcher_status=0):
+    directory = Path(sys.argv[3]) / name
+    result = subprocess.run(
+        [sys.argv[2], '-c', fixture + body + '\nprintf "%s %s %s\\n" "$failures" "$draws" "$checks"',
+         '_', str(directory), request, style, str(style_status), ready, str(ready_status), launcher, str(launcher_status)],
+        check=True, capture_output=True, text=True, timeout=10)
+    sidecar = directory / 'hyprglass/fixture.shell.json'
+    return result.stdout.strip(), json.loads(sidecar.read_text()) if sidecar.exists() else None
+
+readings = function('glass_readings') + '\nglass_readings fixture\n'
+for name, request, style, style_status, ready, ready_status, expected in (
+    ('clear-ready', 'clear', '"clear"', 0, 'true', 0, ('clear', True)),
+    ('auto-opaque', 'auto', '"dark"', 0, 'false', 0, ('dark', False)),
+    ('style-absent', 'clear', 'absent', 0, 'true', 0, None),
+    ('style-failed', 'clear', '"clear"', 23, 'true', 0, None),
+    ('style-mismatch', 'clear', '"dark"', 0, 'true', 0, None),
+    ('auto-mismatch', 'auto', '"clear"', 0, 'true', 0, None),
+    ('ready-not-bool', 'clear', '"clear"', 0, '"true"', 0, None),
+    ('ready-failed', 'clear', '"clear"', 0, 'true', 23, None),
+    ('clear-not-ready', 'clear', '"clear"', 0, 'false', 0, None),
+):
+    got = run(name, readings, request, style, style_status, ready, ready_status)
+    want = ('1 0 0', None) if expected is None else (
+        '0 0 0', {'glassStyle': expected[0], 'layerGlassReady': expected[1]})
+    assert got == want, (name, got, want)
+
+warm = function('glass_warm_clear') + '\nglass_warm_clear\n'
+for name, launcher, status, ready, ready_status, want in (
+    ('launcher-on', 'True', 0, 'true', 0, '0 1 1'),
+    ('launcher-off', 'False', 0, 'true', 0, '0 0 1'),
+    ('launcher-off-not-ready', 'False', 0, 'false', 0, '1 0 1'),
+    ('launcher-on-read-failed', 'True', 0, 'true', 23, '1 1 1'),
+    ('launcher-read-failed', 'False', 23, 'true', 0, '1 0 0'),
+    ('launcher-absent', 'absent', 0, 'true', 0, '1 0 0'),
+):
+    got = run(name, warm, 'clear', '"clear"', 0, ready, ready_status, launcher, status)
+    assert got == (want, None), (name, got, want)
+PYGLASS
+then ok "glass evidence reaches the verdict only after the IPC reads are checked"
+else fail "glass evidence readback and Clear warm-up"
+fi
+
 # A failed producer must publish no rows, even when it wrote partial output.
 if python3 - "$repo/scripts/sandbox-shots.sh" "$BASH" <<'PYCAUSE'
 from pathlib import Path

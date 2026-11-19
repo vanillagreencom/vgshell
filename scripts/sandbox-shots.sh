@@ -1071,10 +1071,10 @@ fi
 # while Clear is chosen (HyprlandLayer.MATERIAL_NAMESPACES).
 material_ns() { if [[ $glass_style == clear ]]; then echo "$1-glass"; else echo "$1"; fi; }
 # glass_readings NAME: the nested compositor's plugin list, hyprglass
-# status, layers and configuration errors as shot NAME was taken, under
-# hyprglass/.
+# status, layers, configuration errors and shell readbacks for shot NAME,
+# under hyprglass/.
 glass_readings() {
-  local name words
+  local name words style ready
   mkdir -p -- "$SHOT_DIR/hyprglass" || { fail "shot $1: the hyprglass readings have no directory"; return; }
   for name in plugins status layers configerrors; do
     case $name in
@@ -1084,8 +1084,53 @@ glass_readings() {
     esac
     hypr -j "${words[@]}" >"$SHOT_DIR/hyprglass/$1.$name.json" || fail "shot $1: hyprctl ${words[*]} is unreadable"
   done
-  printf '{"glassStyle": %s, "layerGlassReady": %s}\n' "$(ipc smoke themeValue glassStyle)" "$(ipc smoke themeValue layerGlassReady)" \
+  # Probe.themeValue emits JSON.stringify for a present value. Match the
+  # complete literals so an absent value or a diagnostic is not evidence.
+  if ! style="$(ipc smoke themeValue glassStyle)" ||
+      [[ $style != '"light"' && $style != '"dark"' && $style != '"clear"' ]]; then
+    fail "shot $1: the shell's glassStyle is unreadable"
+    return
+  fi
+  case $glass_style in
+    auto)
+      if [[ $style == '"clear"' ]]; then
+        fail "shot $1: glassStyle is $style, expected light or dark for Auto"
+        return
+      fi ;;
+    light|dark|clear)
+      if [[ $style != "\"$glass_style\"" ]]; then
+        fail "shot $1: glassStyle is $style, expected $glass_style"
+        return
+      fi ;;
+  esac
+  if ! ready="$(ipc smoke themeValue layerGlassReady)" || [[ $ready != true && $ready != false ]]; then
+    fail "shot $1: the shell's layerGlassReady is unreadable"
+    return
+  fi
+  if [[ $glass_style == clear && $ready != true ]]; then
+    fail "shot $1: compositor-backed Clear is not ready"
+    return
+  fi
+  printf '{"glassStyle": %s, "layerGlassReady": %s}\n' "$style" "$ready" \
     >"$SHOT_DIR/hyprglass/$1.shell.json" || fail "shot $1: the shell's glass reading is unreadable"
+}
+
+glass_warm_clear() {
+  local launcher
+  if ! launcher="$(plugin_enabled vgs.launcher)" || [[ $launcher != True && $launcher != False ]]; then
+    fail "Clear warm-up: launcher enablement is unreadable"
+    return
+  fi
+  # Hyprglass compiles its shader on the first glass draw. A disabled
+  # launcher cannot supply that draw, but readiness is still required.
+  if [[ $launcher == True ]]; then
+    expect "the launcher opens for hyprglass's first draw" ok ipc vgs.launcher invoke summon '{}'
+  fi
+  expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
+  if [[ $launcher == True ]]; then
+    expect "the launcher closes after hyprglass's first draw" ok ipc shell hide overlay vgs.launcher
+    expect_poll "the launcher's surface is gone before the first scene" 0 layer_count vgs:overlay-glass
+  fi
 }
 # glass_configured: whether the nested hyprglass draws layer glass alone,
 # as the shell's layer glass lines configure it.
@@ -1113,12 +1158,7 @@ PYGLASS
     expect "the nested compositor loads the hyprglass module" ok hypr plugin load "$hyprglass"
     expect "the nested compositor reloads its configuration" ok hypr reload config-only
     expect_poll "the shell's layer glass lines configure the nested module" True glass_configured
-    if [[ $glass_style == clear && "$(plugin_enabled vgs.launcher)" == True ]]; then
-      expect "the launcher opens for hyprglass's first draw" ok ipc vgs.launcher invoke summon '{}'
-      expect_poll "the shell reads the nested compositor's layer glass as ready" true ipc smoke themeValue layerGlassReady
-      expect "the launcher closes after hyprglass's first draw" ok ipc shell hide overlay vgs.launcher
-      expect_poll "the launcher's surface is gone before the first scene" 0 layer_count vgs:overlay-glass
-    fi
+    if [[ $glass_style == clear ]]; then glass_warm_clear; fi
     glass_readings ready
   fi
 fi
