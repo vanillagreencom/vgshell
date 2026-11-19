@@ -212,6 +212,7 @@ mutations=(
   "hidden Jarvis loses its held question and answers|../plugins/vgs.jarvis/Bubble.qml|                visible: root.hold !== null"$'\n'"                spacing: root.look.layout.gap|                visible: root.hold !== null && !root.hidden"$'\n'"                spacing: root.look.layout.gap|tst_jarvis_overlay.qml"
   "hidden Jarvis loses its fault|../plugins/vgs.jarvis/Bubble.qml|fault !== null)|false)|tst_jarvis_overlay.qml"
   "Jarvis's plates ask for their window through its own visibility|../plugins/vgs.jarvis/Bubble.qml|readonly property bool platesShown: words.count > 0|readonly property bool platesShown: plateRoot.visible //|tst_jarvis_prompt.qml|test_hidden_plates_still_ask_for_their_window"
+  "a Jarvis plate menu loses its parent window when the last plate hides|../plugins/vgs.jarvis/Bubble.qml|menuOpened && menuUi.parent === plateBox|false|tst_jarvis_bubble.qml|test_a_plate_menu_holds_the_lent_layer_after_the_last_plate_hides"
   "Jarvis's Key hints opens the Settings tab's top|../plugins/vgs.jarvis/WidgetView.js|tab: \"Settings/Keys\"|tab: \"Keys\"|tst_jarvis_overlay.qml"
   "Jarvis's voice entry mutes the microphone|../plugins/vgs.jarvis/WidgetView.js|intent: \"voice-mute\"|intent: \"microphone-mute\"|tst_jarvis_overlay.qml"
   "Jarvis's orb keeps its first canvas|../plugins/vgs.jarvis/Appearance.js|size: length(255)|size: length(300)|tst_jarvis_overlay.qml"
