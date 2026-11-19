@@ -1,8 +1,8 @@
 # Synthetic manager/status proof for the real core and Glass pane. This
 # proves the core transaction and generated calls, never native plugin
-# loading, recursive reload lifetime or rendered glass. A refused reload
-# or a clean reload without the VGS loader must keep Clear opaque even
-# with eligible shaders. A disposable shell restores the broken gates.
+# loading, recursive reload lifetime or rendered glass. A refused reload,
+# a reload with syntax errors, an unwired reload or a clean reload with an
+# exclusion keeps Clear opaque. Disposable shells restore the broken gates.
 # Polls use expect_poll's 200 ms interval; the manager fixture's 120 s
 # hang guard polls its release file every 50 ms. No latency is measured.
 # inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js shell/Commons/Theme.qml scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json bin/vgshell bin/vgshell-hypr-judge
@@ -32,7 +32,10 @@ lg_assert_setup_blocked() {
   expect 'On cannot wait for an excluded draw' 'refused: layer-glass=glass-off' lg_choose true
 }
 lg_assert_clear_solid() {
-  expect "$1: eligibility cannot authorize Clear" false ipc smoke themeValue layerGlassReady
+  expect_poll "$1: Clear stays solid" false ipc smoke themeValue layerGlassReady
+}
+lg_assert_clear_ready() {
+  expect_poll 'confirmed clean Clear rules and shaders are ready' true ipc smoke themeValue layerGlassReady
 }
 lg_confirm_eligible() {
   expect 'plugin status is read again' ok lg_refresh
@@ -46,15 +49,33 @@ lg_unsource() {
   expect 'unwire removes the sandbox loader' "ok hypr=unwired path=$home/.config/hypr/hyprland.lua" lg_unwire
   expect 'the generated declaration stays on disk' present lg_block
   expect 'a clean external reload no longer sources the generated layer' ok hypr reload config-only
-  expect 'the active Lua state has no material receipt' 'vgs-layer-glass=absent' hypr repl 'hl.__vgs_layer_glass or "vgs-layer-glass=absent"'
   lg_confirm_eligible
 }
-lg_source() {
+lg_restore_wiring() {
   # Keep the fake plugin loader before the VGS include. The CLI's wire
   # would put the include first and allow a native plugin-load request.
   hypr_lua_restore layer-glass-wired || fail 'the synthetic loader and include are restored in order'
   expect 'a clean external reload sources the restored layer' ok hypr reload config-only
-  expect_poll 'the sourced Clear rules and shaders are ready' true ipc smoke themeValue layerGlassReady
+}
+lg_append_config() {
+  local lua="$home/.config/hypr/hyprland.lua"
+  cp -- "$lua" "$lua.next" && printf '\n%s\n' "$1" >>"$lua.next" && mv -T -- "$lua.next" "$lua"
+}
+lg_native_errors() {
+  hypr -j configerrors | py_reply 'import json,sys; print(any(bool(line) for line in json.load(sys.stdin)))'
+}
+lg_syntax_error() {
+  lg_append_config 'local ='
+  expect 'Hyprland acknowledges even a failed Lua reload' ok hypr reload config-only
+  expect 'the plugin state is refreshed after the Lua failure' ok lg_refresh
+  expect_poll 'the plugin remains loaded but the reload has errors' config-error lg_fresh_observation
+  expect 'the compositor still reports the error after VGS reads' True lg_native_errors
+}
+lg_exclusion() {
+  lg_append_config 'local hg = hl.plugin.hyprglass; hg.layer("vgs:overlay-glass", { exclude = true })'
+  expect 'a clean wired reload installs a user exclusion' ok hypr reload config-only
+  lg_confirm_eligible
+  expect 'the exclusion is valid Lua configuration' False lg_native_errors
 }
 lg_dir="$home/.local/state/vgshell/layer-glass-fixture"
 lg_copy="$home/.config/vgshell/plugins/vgs.glass"
@@ -117,7 +138,15 @@ do
     end)
 end
 EOF
-  cat -- "$home/.config/hypr/hyprland.lua"
+  # This row does not hold a display mode. Drop the harness's dynamic
+  # include so the wiring judge can verify all sources in this fixture.
+  python3 - "$home/.config/hypr/hyprland.lua" <<'LGCONFIG'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+needle = "if hold then hold:close(); dofile(hold_file) end\n"
+assert text.count(needle) == 1, needle
+sys.stdout.write(text.replace(needle, "if hold then hold:close() end\n"))
+LGCONFIG
 } >"$home/.config/hypr/hyprland.lua.next"
 mv -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"
 hypr_lua_save layer-glass-wired
@@ -138,7 +167,6 @@ cp -- "$repo/scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh" "$lg_copy/
 cp -- "$lg_copy/tui/layer-glass.sh" "$lg_dir/manager.sh"
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.appearance/." "$lg_fixture/"
 printf 'false\n' >"$lg_dir/loaded"
-printf '[""]\n' >"$lg_dir/errors"
 printf 'pending\n' >"$lg_dir/shaders"
 cat >"$shim/hyprctl.layer-glass" <<EOF
 #!/usr/bin/env bash
@@ -151,7 +179,6 @@ case "\$*" in
     windows=false
     [[ ! -f \$state/unsafe ]] || windows=true
     printf '{"schema":1,"version":"1.1.1","versionCheck":"match","active":true,"shaders":"%s","features":{"windows":{"enabled":%s,"active":false,"reason":"disabled"},"layers":{"enabled":true,"active":true,"reason":null}}}\n' "\$(<"\$state/shaders")" "\$windows" ;;
-  '-j configerrors') cat "\$state/errors" ;;
   'reload config-only')
     if [[ -f \$state/refuse-reload ]]; then echo 'synthetic layer-glass refusal'; exit 1; fi
     exec $(printf '%q' "$shim/hyprctl.real") "\$@" ;;
@@ -238,14 +265,23 @@ lg_refuse_clear() {
 lg_retry_clear() {
   rm -- "$lg_dir/refuse-reload"
   expect 'the current generated layer is retried' ok ipc shell renderHyprland
-  expect_poll 'Clear becomes ready after the matching reload' true ipc smoke themeValue layerGlassReady
+  lg_assert_clear_ready
 }
 lg_refuse_clear
 lg_assert_clear_solid 'refused reload'
 lg_retry_clear
 lg_unsource
 lg_assert_clear_solid 'clean unwired reload'
-lg_source
+lg_restore_wiring
+lg_assert_clear_ready
+lg_syntax_error
+lg_assert_clear_solid 'syntax-error reload'
+lg_restore_wiring
+lg_assert_clear_ready
+lg_exclusion
+lg_assert_clear_solid 'user exclusion'
+lg_restore_wiring
+lg_assert_clear_ready
 expect 'the explicit style is removed' ok lg_setting glassStyle null
 # A queued shell reload may still replay the declaration after the
 # preference is saved. Withhold the synthetic load until the test asks
@@ -287,8 +323,9 @@ edit_tree layer-glass-regressions shell/Core/HyprlandState.qml \
             && root.layerGlassApplication === root.layerGlassReadApplication
             && root.layerGlassApplication.style === Theme.glassStyle
             && root.layerGlassSetupDisabledReason === ""
+            && root.configErrors !== null && root.configErrors.ok && root.configErrors.value.length === 0
             && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"' \
-  'value: root.layerGlassIntent && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"'
+  'value: root.layerGlassIntent && !root.layerGlass.observed.stale && ["eligible", "config-error"].indexOf(root.layerGlass.observed.kind) !== -1'
 stop_shell
 lg_shadow="$(lg_shadow_warning "$sandbox/tree-layer-glass-regressions")"
 expected_errors+=("$lg_shadow")
@@ -316,16 +353,47 @@ lg_refuse_clear
   failures=0; behaviour_failures=0
   lg_assert_clear_solid 'refused reload'
 ) >>"$lg_control_log"
-expect 'control: the refused-reload assertion detects the regression' 1 grep -c '^  FAIL  refused reload: eligibility cannot authorize Clear: got true$' "$lg_control_log"
+expect 'control: the refused-reload assertion detects the regression' 1 grep -c '^  FAIL  refused reload: Clear stays solid: got true want false$' "$lg_control_log"
 lg_retry_clear
 lg_unsource
 (
   failures=0; behaviour_failures=0
   lg_assert_clear_solid 'clean unwired reload'
 ) >>"$lg_control_log"
-expect 'control: the clean-reload assertion detects the regression' 1 grep -c '^  FAIL  clean unwired reload: eligibility cannot authorize Clear: got true$' "$lg_control_log"
+expect 'control: the clean-reload assertion detects the regression' 1 grep -c '^  FAIL  clean unwired reload: Clear stays solid: got true want false$' "$lg_control_log"
+lg_restore_wiring
+lg_syntax_error
+(
+  failures=0; behaviour_failures=0
+  lg_assert_clear_solid 'syntax-error reload'
+) >>"$lg_control_log"
+expect 'control: the failed-reload assertion detects the regression' 1 grep -c '^  FAIL  syntax-error reload: Clear stays solid: got true want false$' "$lg_control_log"
+lg_restore_wiring
+lg_exclusion
+(
+  failures=0; behaviour_failures=0
+  lg_assert_clear_solid 'user exclusion'
+) >>"$lg_control_log"
+expect 'control: the exclusion assertion detects the regression' 1 grep -c '^  FAIL  user exclusion: Clear stays solid: got true want false$' "$lg_control_log"
+lg_restore_wiring
 control_output "$lg_control_log"
-lg_source
+
+copy_tree layer-glass-never-ready
+edit_tree layer-glass-never-ready shell/Core/HyprlandLayer.js \
+  'files.sourcesClear === true' 'files.sourcesClear === false'
+stop_shell
+lg_shadow="$(lg_shadow_warning "$sandbox/tree-layer-glass-never-ready")"
+expected_errors+=("$lg_shadow")
+start_shell "$sandbox/tree-layer-glass-never-ready" "$smoke_log_dir/layer-glass-never-ready-shell.log"
+expect_poll 'the healthy-path mutant reaches the same capability fixture' True record_exists acme.appearance
+lg_confirm_eligible
+lg_healthy_control_log="$smoke_log_dir/layer-glass-healthy-control.log"
+(
+  failures=0; behaviour_failures=0
+  lg_assert_clear_ready
+) >"$lg_healthy_control_log"
+expect 'control: the healthy assertion detects missing confirmation' 1 grep -c '^  FAIL  confirmed clean Clear rules and shaders are ready: got false want true$' "$lg_healthy_control_log"
+control_output "$lg_healthy_control_log"
 stop_shell
 start_shell "$repo" "$smoke_log_dir/layer-glass-restored-shell.log"
 expect_poll 'the real shell has its layer-glass fixture again' True record_exists acme.appearance
