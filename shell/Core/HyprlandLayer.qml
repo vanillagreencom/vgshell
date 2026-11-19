@@ -150,7 +150,7 @@ Scope {
         layerGlassUser: Capabilities.hyprland.layerGlassUser,
         // The Glass page's main switch and the style glass draws in, which
         // the layer glass preset follows.
-        glassEnabled: Theme.appearanceState.values.glassEnabled !== false,
+        glassEnabled: Theme.appearanceState.values.glassEnabled,
         glassStyle: Theme.glassStyle,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
@@ -176,11 +176,33 @@ Scope {
     // QML bindings track the requested inputs before the coalesced render
     // runs (https://quickshell.org/docs/v0.3.1/guide/qml-language).
     // A held/refused replacement must not certify the old rendered style.
-    readonly property var layerGlassApplication: !trialRunning && admissionReady
+    readonly property var layerGlassCandidate: !trialRunning && admissionReady
         && renderInputs !== null && renderInputs === renderedInputs
-        && themeAppearance.layerGlass && themeAppearance.layerGlassLoad && themeAppearance.glassEnabled
         && (layerGlassRequest.generation === 0 || layerGlassRequest.cycle === layerGlassRequestedCycle)
-        && Layer.currentLayerApplied(machine, rendered.text) ? rendered.layerGlassApplication : null
+        && Layer.currentLayerReadyForRead(machine, rendered.text) ? rendered.layerGlassApplication : null
+    property int layerGlassVerification: 0
+    property int layerGlassProbed: 0
+    property var layerGlassProof: null
+    readonly property var layerGlassApplication: layerGlassCandidate !== null && layerGlassProof !== null
+        && layerGlassProof.candidate === layerGlassCandidate ? layerGlassProof : null
+    onLayerGlassCandidateChanged: invalidateLayerGlass()
+
+    function invalidateLayerGlass() {
+        layerGlassProof = null;
+        layerGlassVerification++;
+        if (layerGlassCandidate !== null) Qt.callLater(root.verifyLayerGlass);
+    }
+
+    function verifyLayerGlass() {
+        if (layerGlassCandidate === null || layerGlassVerification === layerGlassProbed || probe.running) return;
+        layerGlassProbed = layerGlassVerification;
+        probe.verification = { generation: layerGlassVerification, candidate: layerGlassCandidate };
+        probe.running = true;
+    }
+
+    function currentVerification(request) {
+        return request.generation === layerGlassVerification && request.candidate === layerGlassCandidate;
+    }
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad
@@ -307,6 +329,9 @@ Scope {
 
     Connections {
         target: Capabilities.hyprland
+        // The socket provides no reload request id. Recheck even the
+        // writer's own reloads, rather than pairing events by arrival order.
+        function onConfigurationReloaded() { root.invalidateLayerGlass(); }
         // QML property change signals are ordinary signals. Coalesce requests
         // after the current resolver callback has settled its publication:
         // https://quickshell.org/docs/v0.3.1/guide/qml-language
@@ -490,6 +515,17 @@ Scope {
         onSaveFailed: error => root.feed({ type: "saveFailed", failure: "write=failed path=" + root.path + " error=" + error })
     }
 
+    // Notification only: the existing `hypr state` probe still decides
+    // wiring. FileView.fileChanged also covers atomic file replacement.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/#signal.fileChanged
+    FileView {
+        path: root.themeAppearance.layerGlass ? Paths.configHome + "/hypr/hyprland.lua" : ""
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: root.invalidateLayerGlass()
+    }
+
     Process {
         id: mkdir
         command: ["mkdir", "-p", "--", root.dir]
@@ -528,6 +564,7 @@ Scope {
         id: probe
         command: [root.runner, "hypr", "state"]
         property var completion: null
+        property var verification: null
         stdout: StdioCollector { id: probeOut }
         stderr: StdioCollector { id: probeErr }
         onExited: (code, status) => { completion = { code: code, status: status }; }
@@ -543,7 +580,21 @@ Scope {
             else if (done.code !== 0) failure = "probe=failed status=" + done.code + (said === "" ? "" : " " + said);
             else if (m === null) failure = "probe=unreadable reply=" + JSON.stringify(probeOut.text.trim());
             else answer = m[1];
-            root.feed({ type: "probeDone", answer: answer, failure: failure });
+            const request = verification;
+            verification = null;
+            if (request === null) root.feed({ type: "probeDone", answer: answer, failure: failure });
+            else if (root.currentVerification(request) && answer === "wired")
+                layerGlassReceipt.read(Layer.LAYER_GLASS_RECEIPT_REQUEST, request);
+            Qt.callLater(root.verifyLayerGlass);
+        }
+    }
+
+    HyprctlReader {
+        id: layerGlassReceipt
+        label: "layer-glass-receipt"
+        onReadDone: (request, text, failure) => {
+            if (root.currentVerification(request) && failure === "" && Layer.layerGlassReceiptMatches(request.candidate, text))
+                root.layerGlassProof = { candidate: request.candidate, style: request.candidate.style };
         }
     }
 

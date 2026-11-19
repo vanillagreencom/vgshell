@@ -156,6 +156,7 @@ Scope {
     // The writer's acknowledgement of the current render, or null.
     property var layerGlassApplication: null
     property var layerGlassReadApplication: null
+    signal configurationReloaded()
     readonly property bool layerGlassHeld: layerGlassOperation.phase !== "idle" || layerGlassIntent || layerGlassClaimed
     readonly property var layerGlass: ({ observed: layerGlassUserFailed && layerGlassIntent
         ? Object.assign({}, layerGlassObserved, { kind: "unread", reason: "The plugin location could not be checked. Check again." })
@@ -176,7 +177,7 @@ Scope {
         value: root.layerGlassIntent && root.layerGlassApplication !== null
             && root.layerGlassApplication === root.layerGlassReadApplication
             && root.layerGlassApplication.style === Theme.glassStyle
-            && Theme.appearanceState.values.glassEnabled !== false
+            && root.layerGlassSetupDisabledReason === ""
             && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"
     }
 
@@ -532,6 +533,7 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
+                root.configurationReloaded();
                 if (root.layerGlassHeld) root.refreshLayerGlass(false);
                 // Hyprland 0.57 builds its bind map from the global input:kb_*
                 // options at group 0 and rebuilds it only through

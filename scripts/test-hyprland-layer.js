@@ -2226,9 +2226,9 @@ function verifyLayerGlass(layer) {
     const render = (enabled, load, permit) => layer.render([], input(enabled, load, permit), "vgs", 1);
     for (const enabled of [undefined, false]) assert.doesNotMatch(render(enabled).text, /hyprglass/, "Off leaves no VGS plugin declaration");
     const on = render(true, true, true).text;
-    const block = layer.layerGlassLines(input(true, true, true)).join("\n");
+    const block = layer.layerGlassBlock(input(true, true, true)).lines.join("\n");
     const blockAt = on.indexOf(block);
-    const callbackAt = on.indexOf('    hl.on("config.reloaded", function()');
+    const callbackAt = on.indexOf('    hl.on("config.reloaded", function()\n');
     assert.ok(blockAt >= 0 && blockAt < callbackAt, "the emitted block runs during parsing before the general reload callback");
     const preparing = render(true, false, true).text;
     assert.doesNotMatch(preparing, /hl\.plugin\.load\(/, "a reload during preparation never loads a binary");
@@ -2263,16 +2263,21 @@ do
         end
     }
     ${present ? 'hl.plugin.hyprglass = module("parse-")' : ""}
-    ${layer.layerGlassLines(input(true, loading, permit)).join("\n")}
+    ${layer.layerGlassBlock(input(true, loading, permit)).lines.join("\n")}
     assert(#declarations == ${loading && (present || permit) ? 1 : 0})
     assert((hl.plugin.hyprglass ~= nil) == ${present})
     assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer,parse-layer,parse-layer,parse-layer" : ""}")
+    assert(hl.${layer.LAYER_GLASS_RECEIPT} == nil, "parse does not confirm the reload")
     assert(#callbacks == 1)
     seen = {}
     hl.plugin.hyprglass = module("reload-")
     callbacks[1]()
     callbacks[1]()
     assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-layer,reload-layer,reload-layer,reload-config,reload-layer,reload-layer,reload-layer,reload-layer")
+    assert((hl.${layer.LAYER_GLASS_RECEIPT} ~= nil) == ${loading}, "only a draw-capable configuration confirms the reload")
+    hl.plugin.hyprglass = nil
+    callbacks[1]()
+    assert(hl.${layer.LAYER_GLASS_RECEIPT} == nil, "no material calls means no receipt")
 end`).join("\n");
     const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
         env: { PATH: process.env.PATH, VGS_TEST_RUN: "1" } });
@@ -2284,8 +2289,8 @@ verifyLayerGlass(load(layerFile));
 // off lists one namespace no surface uses, so no layer gets glass; Clear
 // defines its preset and hands it to the material namespaces alone.
 function verifyGlassNamespaces(layer) {
-    const lines = values => layer.layerGlassLines(Object.assign({}, theme, { layerGlass: true, layerGlassLoad: true, layerGlassPermit: true, layerGlassUser: "test-user" }, values))
-        .filter(line => /hg\.(layer|preset)\(/.test(line)).map(line => line.trim());
+    const block = values => layer.layerGlassBlock(Object.assign({}, theme, { layerGlass: true, layerGlassLoad: true, layerGlassPermit: true, layerGlassUser: "test-user" }, values));
+    const lines = values => block(values).lines.filter(line => /^        hg\.(layer|preset)\(/.test(line)).map(line => line.trim());
     const material = preset => ["vgs:layer-glass", "vgs:overlay-glass", "vgs:panel-glass"].map(namespace => 'hg.layer("' + namespace + '", { mask_mode = "contour", mask_threshold = 0.04, preset = "' + preset + '" })');
     const passive = 'hg.layer("vgs:layer", { mask_mode = "contour", mask_threshold = 0.7, preset = "glass" })';
     same(lines({ glassEnabled: true, glassStyle: "dark" }), [passive, ...material("glass")], "Dark: the passive layer and the material layers on the glass preset");
@@ -2293,6 +2298,12 @@ function verifyGlassNamespaces(layer) {
     same(lines({ glassEnabled: true, glassStyle: "clear" }), ['hg.preset("vgs-clear", { inherits = "glass", brightness = 1, contrast = 1, saturation = 0.8, vibrancy = 0, adaptive_dim = 0.53, adaptive_boost = 0, noise_strength = 0, refraction_strength = 0.4, tint_color = 0xffffff00 })',
         passive, ...material("vgs-clear")], "Clear: its tone preset, on the material layers alone");
     same(lines({ glassEnabled: false, glassStyle: "clear" }), ['hg.layer("vgs:glass-off")'], "the main switch off lists no surface's namespace");
+    same(block({ glassEnabled: false, glassStyle: "clear" }).application, null, "an excluded draw cannot be acknowledged");
+    const dark = block({ glassStyle: "dark" }).application;
+    const clear = block({ glassStyle: "clear" }).application;
+    same(layer.layerGlassReceiptMatches(clear, clear.receipt), true, "the current material rules were sourced");
+    same(layer.layerGlassReceiptMatches(clear, dark.receipt), false, "an earlier material request is no proof");
+    same(layer.layerGlassReceiptMatches(clear, "vgs-layer-glass=absent"), false, "a reload without the layer is no proof");
     // Clear's tone, transcribed from hyprglass's shader: white dims to
     // 255 * 0.47 = 119.85; black stays black; a mid grey under the curve's
     // start, 0.2, keeps its value; magenta keeps 80% of its colour.
@@ -2303,16 +2314,16 @@ function verifyGlassNamespaces(layer) {
     same(toned([1, 0, 1]), [0.84, 0.056, 0.84], "saturated magenta keeps 80% of its colour and dims a little");
 }
 verifyGlassNamespaces(load(layerFile));
-function verifyLayerApplication(layer) {
+function verifyLayerReadAdmission(layer) {
     let state = layer.initialState();
     const feed = (event, text) => { state = layer.step(state, event, text).state; };
     for (const [event, text] of WIRED.slice(0, -1)) feed(event, text);
-    same(layer.currentLayerApplied(state, "T1"), false, "a reload without a wiring verdict cannot confirm the layer");
+    same(layer.currentLayerReadyForRead(state, "T1"), false, "the writer is still probing");
     feed(probeWired, "T1");
-    same(layer.currentLayerApplied(state, "T1"), true, "startup can confirm the reload that preceded its wiring probe");
-    same(layer.currentLayerApplied(state, "T2"), false, "the current request cannot inherit confirmation of different bytes");
+    same(layer.currentLayerReadyForRead(state, "T1"), true, "a settled writer can read evidence from the compositor");
+    same(layer.currentLayerReadyForRead(state, "T2"), false, "the writer's bytes must match the request");
     feed(trialOn, "T1");
-    same(layer.currentLayerApplied(state, "T1"), false, "a held writer does not publish confirmation");
+    same(layer.currentLayerReadyForRead(state, "T1"), false, "a held writer cannot start confirmation");
     feed(trialOff, "T1");
     for (const [event, text, ready] of [
         [render, "T2", false],
@@ -2323,10 +2334,10 @@ function verifyLayerApplication(layer) {
         [reloaded, "T2", true]
     ]) {
         feed(event, text);
-        same(layer.currentLayerApplied(state, text), ready, "replacement layer confirmation at " + event.type);
+        same(layer.currentLayerReadyForRead(state, text), ready, "replacement layer read admission at " + event.type);
     }
 }
-verifyLayerApplication(load(layerFile));
+verifyLayerReadAdmission(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 // Control: a caption drawn in its fill's own colour.
@@ -2337,11 +2348,11 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
-    [layerFile, "a different request cannot inherit a reload", "state.reloadedText === text && state.onDisk === text", "true", verifyLayerApplication],
+    [layerFile, "different on-disk bytes cannot be confirmed", 'state.reloadOwed === "" && state.failure === "" && state.onDisk === text;', 'state.reloadOwed === "" && state.failure === "";', verifyLayerReadAdmission],
     [layerFile, "preparation withholds the loader", "theme.layerGlassLoad === false ? [] :", "false ? [] :", verifyLayerGlass],
-    [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass), paths), lines);", verifyLayerGlass],
+    [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass.lines, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass.lines), paths), lines);", verifyLayerGlass],
     [layerFile, "layer glass retains its declaration with a namespace", "if hl.plugin.hyprglass or ", "if not hl.plugin.hyprglass and ", verifyLayerGlass],
-    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", configure)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
+    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", function() configure(true) end)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
     [layerFile, "layer glass keeps windows globally disabled", "hg.config({ enabled = false, layers = { enabled = true } })", "hg.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
     [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
     [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],
@@ -2553,7 +2564,7 @@ const CONTROLS = [
     [layerFile, "capture wraps binds", "hl.bind = function(keys, dispatcher, opts)", "hl.bind = capture.bind --"],
     [layerFile, "capture tracks overlay layers", "namespaces[layer.namespace] and layer.mapped", "false"],
     [layerFile, "capture tracks a glass material overlay", "namespaces: [\"vgs:overlay\", \"vgs:overlay-glass\"],", "namespaces: [\"vgs:overlay\"],"],
-    [layerFile, "the main switch off lists no surface's namespace", "if (theme.glassEnabled === false)", "if (false)", verifyGlassNamespaces],
+    [layerFile, "the main switch off lists no surface's namespace", "if (!layerGlassHasDraw(theme.glassEnabled))", "if (false)", verifyGlassNamespaces],
     [layerFile, "Clear's preset reaches the material layers", "preset = \"' + (clear ? CLEAR_PRESET.name : \"glass\") + '\" })';", "preset = \"glass\" })';", verifyGlassNamespaces],
     [layerFile, "Clear's tone dims bright backdrops", "var dim = CLEAR_TONE.brightness * (1 - CLEAR_TONE.adaptive_dim * curve);", "var dim = CLEAR_TONE.brightness;", verifyGlassNamespaces],
     [layerFile, "Clear's tone takes colour away", "(luminance + (c - luminance) * CLEAR_TONE.saturation)", "c", verifyGlassNamespaces],

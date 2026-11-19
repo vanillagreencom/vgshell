@@ -1852,26 +1852,45 @@ function layerGlassPath(username) {
     return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
         ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
 }
-function layerGlassLines(theme) {
-    if (theme.layerGlass !== true) return [];
+// Hyprland v0.57.1 ConfigManager::reload resets its Lua state on a clean
+// reload, and non-interactive `repl` returns the Lua value on stdout
+// (src/ipc/s1/Commands.cpp and hyprctl/src/main.cpp). A receipt placed
+// in that state after the material calls proves more than `reload`'s `ok`
+// or the presence of the source line.
+var LAYER_GLASS_RECEIPT = "__vgs_layer_glass";
+var LAYER_GLASS_RECEIPT_REQUEST = ["hyprctl", "repl", 'hl.' + LAYER_GLASS_RECEIPT + ' or "vgs-layer-glass=absent"'];
+
+function layerGlassReceiptMatches(application, text) {
+    return text.trim() === application.receipt;
+}
+
+function layerGlassBlock(theme) {
+    if (theme.layerGlass !== true) return { lines: [], application: null };
     var path = layerGlassPath(theme.layerGlassUser);
     if (path === null)
         throw new Error("HyprlandLayer: layer glass has no managed username");
     // A preparation/rebuild can span another theme or config reload.
     // Keep the safe configuration but withhold loading throughout it.
     var load = theme.layerGlassLoad === false ? [] : ['if hl.plugin.hyprglass or ' + (theme.layerGlassPermit === true ? "true" : "false") + ' then hl.plugin.load("' + path + '") end'];
-    return load.concat([
+    var configuration = ["        hg.config({ enabled = false, layers = { enabled = true } })"].concat(layerGlassNamespaceLines(theme));
+    var application = theme.layerGlassLoad !== false && layerGlassHasDraw(theme.glassEnabled)
+        ? { style: theme.glassStyle, receipt: "vgs-layer-glass=" + JSON.stringify(configuration.join("\n")) } : null;
+    var acknowledge = application === null ? [] : [
+        "        if reloaded then hl." + LAYER_GLASS_RECEIPT + " = " + JSON.stringify(application.receipt) + " end"
+    ];
+    var lines = load.concat([
         "do",
-        "    local function configure()",
+        "    local function configure(reloaded)",
+        "        hl." + LAYER_GLASS_RECEIPT + " = nil",
         "        local hg = hl.plugin.hyprglass",
-        "        if not hg then return end",
-        "        hg.config({ enabled = false, layers = { enabled = true } })"
-    ].concat(layerGlassNamespaceLines(theme), [
+        "        if not hg then return end"
+    ].concat(configuration, acknowledge, [
         "    end",
         "    configure()",
-        '    hl.on("config.reloaded", configure)',
+        '    hl.on("config.reloaded", function() configure(true) end)',
         "end"
     ]));
+    return { lines: lines, application: application };
 }
 
 // The namespaces layer glass reaches, inside configure(), for THEME's main
@@ -1942,7 +1961,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var plan = bindPlan === undefined ? resolveBinds(sections)
         : bindPlan === null ? resolveBinds(sections, null, "core") : bindPlan;
     var switches = groupSwitches(sections);
-    var layerGlass = layerGlassLines(theme);
+    var layerGlass = layerGlassBlock(theme);
     var applied = [];
     var groups = [];
     var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); }, glow: function () { return glowLines(theme); } };
@@ -2033,11 +2052,11 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         "",
         START_LINE,
         ""
-    ].concat(layerGlass, appliedLines(applied, paths), lines);
+    ].concat(layerGlass.lines, appliedLines(applied, paths), lines);
     lines = lines.concat([""], padSweepLines());
     return {
         text: lines.join("\n") + "\n",
-        layerGlassApplication: { style: theme.glassStyle },
+        layerGlassApplication: layerGlass.application,
         plan: plan,
         conflicts: plan.conflicts,
         appearanceConflicts: switches.conflicts,
@@ -2090,9 +2109,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
 // Connect reload; reloaded, whether this run has asked Hyprland to reload,
 // failed reloads included, set by the first reload of either owner and
-// never cleared; reloadedText, the bytes acknowledged by a successful reload
-// (the wiring probe separately confirms Hyprland sources them);
-// trialHeld; reloadOwed, "" or the owner of the reload a
+// never cleared; trialHeld; reloadOwed, "" or the owner of the reload a
 // trial held; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
@@ -2109,19 +2126,17 @@ function initialState() {
         failure: "",
         reloadOwner: "",
         reloaded: false,
-        reloadedText: null,
         trialHeld: false,
         reloadOwed: "",
         consent: { phase: "pending", queued: "", failure: "" }
     };
 }
 
-// OnDisk cannot stand in for reloadedText: a trial may hold the reload
-// after the rename, and the reload may fail even when the file is current.
-function currentLayerApplied(state, text) {
+// Only a settled writer may ask the compositor which material rules ran.
+// The file may already be current when the reload is still owed or refused.
+function currentLayerReadyForRead(state, text) {
     return text !== null && state.phase === "idle" && !state.trialHeld && !state.queuedForce
-        && state.reloadOwed === "" && state.failure === "" && state.consent.phase === "wired"
-        && state.reloadedText === text && state.onDisk === text;
+        && state.reloadOwed === "" && state.failure === "" && state.onDisk === text;
 }
 
 function withChanges(state, changes) {
@@ -2223,11 +2238,6 @@ function step(state, event, text) {
         return idleDecision(withChanges(state, { stale: true, failedText: state.pending }), event.failure, text, true);
     case "reloadDone":
         expectPhase(state, event, "reloading");
-        // The IPC handler calls reload before replying (Hyprland v0.57.1,
-        // src/ipc/s1/Commands.cpp); the Lua config emits config.reloaded
-        // before returning. State's subsequent configerrors read also
-        // has to pass: `ok` alone does not mean the Lua had no errors.
-        state = withChanges(state, { reloadedText: event.failure === "" ? state.onDisk : null });
         if (state.reloadOwner === "wire") {
             if (event.failure !== "")
                 return idleDecision(consentChanges(state, { phase: "asking", queued: "", failure: event.failure }), event.failure, text, true);
