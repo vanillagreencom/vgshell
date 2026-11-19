@@ -39,6 +39,9 @@ lg_confirm_eligible() {
   expect_poll 'the plugin still reports eligible on a fresh read' eligible lg_fresh_observation
 }
 lg_unwire() { "${shell_env[@]}" "$repo/bin/vgshell" hypr unwire; }
+lg_shadow_warning() {
+  python3 -c 'import re,sys; print(r"WARN qml: plugins: hidden by a higher-precedence plugin with the same id: vgs\.glass at " + re.escape(sys.argv[1]) + "$")' "$1/shell/plugins/vgs.glass"
+}
 lg_unsource() {
   expect 'unwire removes the sandbox loader' "ok hypr=unwired path=$home/.config/hypr/hyprland.lua" lg_unwire
   expect 'the generated declaration stays on disk' present lg_block
@@ -128,8 +131,8 @@ for tool in hyprpm cpio cmake pkg-config g++ gcc; do
 done
 # The private Glass copy replaces its manager script below and deliberately
 # shadows the shipped plugin. Declare only that shipped path's collision.
-lg_shadow_warning="$(python3 -c 'import re,sys; print(r"WARN qml: plugins: hidden by a higher-precedence plugin with the same id: vgs\.glass at " + re.escape(sys.argv[1]) + "$")' "$repo/shell/plugins/vgs.glass")"
-expected_errors+=("$lg_shadow_warning")
+lg_shadow="$(lg_shadow_warning "$repo")"
+expected_errors+=("$lg_shadow")
 cp -R -- "$repo/shell/plugins/vgs.glass/." "$lg_copy/"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh" "$lg_copy/tui/layer-glass.sh"
 cp -- "$lg_copy/tui/layer-glass.sh" "$lg_dir/manager.sh"
@@ -287,6 +290,8 @@ edit_tree layer-glass-regressions shell/Core/HyprlandState.qml \
             && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"' \
   'value: root.layerGlassIntent && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"'
 stop_shell
+lg_shadow="$(lg_shadow_warning "$sandbox/tree-layer-glass-regressions")"
+expected_errors+=("$lg_shadow")
 start_shell "$sandbox/tree-layer-glass-regressions" "$smoke_log_dir/layer-glass-regressions-shell.log"
 expect_poll 'the mutant can reach the same capability fixture' True record_exists acme.appearance
 expect 'the main Glass switch is off in the setup control' ok lg_setting glassEnabled false
