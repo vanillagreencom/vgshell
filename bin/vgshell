@@ -2964,6 +2964,11 @@ case "$cmd" in
         if [[ $# -ne 3 ]]; then printf 'vgshell: refused: arguments=%s want=3\nVGS needs the shortcut file, line and key or restore text. Check the command help for the accepted options.\n' "$#" >&2; try_help; exit 2; fi
         exec node "$hypr_judge" "$sub" "$config_home" "$state_home/vgshell" "$@"
         ;;
+      state)
+        if [[ $# -eq 1 && $1 == --layer-glass ]]; then
+          exec node "$hypr_judge" state "$config_home" "$state_home/vgshell" --layer-glass
+        fi
+        ;;
     esac
     if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
     case "$sub" in

@@ -182,6 +182,7 @@ Scope {
         && Layer.currentLayerReadyForRead(machine, rendered.text) ? rendered.layerGlassApplication : null
     property int layerGlassVerification: 0
     property int layerGlassProbed: 0
+    property bool layerGlassReloadObserved: false
     property var layerGlassProof: null
     readonly property var layerGlassApplication: layerGlassCandidate !== null && layerGlassProof !== null
         && layerGlassProof.candidate === layerGlassCandidate ? layerGlassProof : null
@@ -190,13 +191,13 @@ Scope {
     function invalidateLayerGlass() {
         layerGlassProof = null;
         layerGlassVerification++;
-        if (layerGlassCandidate !== null) Qt.callLater(root.verifyLayerGlass);
+        if (layerGlassReloadObserved && layerGlassCandidate !== null) Qt.callLater(root.verifyLayerGlass);
     }
 
     function verifyLayerGlass() {
-        if (layerGlassCandidate === null || layerGlassVerification === layerGlassProbed || probe.running) return;
+        if (!layerGlassReloadObserved || layerGlassCandidate === null || layerGlassVerification === layerGlassProbed || probe.running) return;
         layerGlassProbed = layerGlassVerification;
-        probe.verification = { generation: layerGlassVerification, candidate: layerGlassCandidate };
+        probe.verification = { generation: layerGlassVerification, candidate: layerGlassCandidate, text: rendered.text };
         probe.running = true;
     }
 
@@ -331,7 +332,10 @@ Scope {
         target: Capabilities.hyprland
         // The socket provides no reload request id. Recheck even the
         // writer's own reloads, rather than pairing events by arrival order.
-        function onConfigurationReloaded() { root.invalidateLayerGlass(); }
+        function onConfigurationReloaded() {
+            root.layerGlassReloadObserved = true;
+            root.invalidateLayerGlass();
+        }
         // QML property change signals are ordinary signals. Coalesce requests
         // after the current resolver callback has settled its publication:
         // https://quickshell.org/docs/v0.3.1/guide/qml-language
@@ -523,7 +527,10 @@ Scope {
         preload: false
         watchChanges: true
         printErrors: false
-        onFileChanged: root.invalidateLayerGlass()
+        onFileChanged: {
+            root.layerGlassReloadObserved = false;
+            root.invalidateLayerGlass();
+        }
     }
 
     Process {
@@ -562,7 +569,7 @@ Scope {
 
     Process {
         id: probe
-        command: [root.runner, "hypr", "state"]
+        command: verification === null ? [root.runner, "hypr", "state"] : [root.runner, "hypr", "state", "--layer-glass"]
         property var completion: null
         property var verification: null
         stdout: StdioCollector { id: probeOut }
@@ -573,6 +580,15 @@ Scope {
             const done = completion;
             completion = null;
             const said = (probeOut.text + probeErr.text).trim();
+            const request = verification;
+            verification = null;
+            if (request !== null) {
+                if (root.currentVerification(request) && done !== null && done.code === 0
+                        && Layer.layerGlassFilesMatch(request.text, probeOut.text))
+                    root.layerGlassProof = { candidate: request.candidate, style: request.candidate.style };
+                Qt.callLater(root.verifyLayerGlass);
+                return;
+            }
             let failure = "";
             let answer = "";
             const m = /^ok hypr=(wired|unwired|absent) path=/.exec(probeOut.text.trim());
@@ -580,21 +596,8 @@ Scope {
             else if (done.code !== 0) failure = "probe=failed status=" + done.code + (said === "" ? "" : " " + said);
             else if (m === null) failure = "probe=unreadable reply=" + JSON.stringify(probeOut.text.trim());
             else answer = m[1];
-            const request = verification;
-            verification = null;
-            if (request === null) root.feed({ type: "probeDone", answer: answer, failure: failure });
-            else if (root.currentVerification(request) && answer === "wired")
-                layerGlassReceipt.read(Layer.LAYER_GLASS_RECEIPT_REQUEST, request);
+            root.feed({ type: "probeDone", answer: answer, failure: failure });
             Qt.callLater(root.verifyLayerGlass);
-        }
-    }
-
-    HyprctlReader {
-        id: layerGlassReceipt
-        label: "layer-glass-receipt"
-        onReadDone: (request, text, failure) => {
-            if (root.currentVerification(request) && failure === "" && Layer.layerGlassReceiptMatches(request.candidate, text))
-                root.layerGlassProof = { candidate: request.candidate, style: request.candidate.style };
         }
     }
 

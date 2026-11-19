@@ -64,6 +64,18 @@ check "the symlink stays a link to the same file" test "$(readlink -- "$cfg/hypr
 check "the linked file takes the line first" wired_first "$tmp/dotfiles/hyprland.lua" "$tmp/linked-own"
 check "the linked file keeps its mode" test "$(stat -c %a -- "$tmp/dotfiles/hyprland.lua")" == 600
 
+# Clear's wiring check follows a literal include but never executes it.
+# A companion source can veto even though the canonical loader is wired.
+cfg="$tmp/cfg-glass"; mkdir -p -- "$cfg/hypr" "$(dirname -- "$layer")"
+printf 'generated glass\n' >"$layer"
+printf '%s\n%s\n' "$line" "dofile(\"$cfg/hypr/glass.lua\")" >"$cfg/hypr/hyprland.lua"
+printf '%s\n' 'hg.layer("waybar")' >"$cfg/hypr/glass.lua"
+inst "layer glass reads the exact wired bytes" "$cfg" "$rt_empty" 0 '{"wiring":"wired","sourcesClear":true,"text":"generated glass\n"}' "" hypr state --layer-glass
+printf '%s\n' 'hg.layer("waybar", { exclude = true })' >"$cfg/hypr/glass.lua"
+inst "layer glass refuses an exclusion in a sourced file" "$cfg" "$rt_empty" 0 '{"wiring":"wired","sourcesClear":false,"text":null}' "" hypr state --layer-glass
+printf '%s\n%s\n' "$line" "dofile(\"$cfg/hypr/absent.lua\")" >"$cfg/hypr/hyprland.lua"
+inst "layer glass cannot confirm an unreadable source" "$cfg" "$rt_empty" 0 '{"wiring":"wired","sourcesClear":false,"text":null}' "" hypr state --layer-glass
+
 # Refusals: a hyprland.lua that cannot be read, a state directory no Lua
 # string can hold, and bad invocations.
 cfg="$tmp/cfg-dir"; mkdir -p "$cfg/hypr/hyprland.lua"

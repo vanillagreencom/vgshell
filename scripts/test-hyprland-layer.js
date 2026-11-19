@@ -191,18 +191,25 @@ function verifyUserBindLifecycle() {
         bindsFailure: "", bindsPending: false, userBindsPending: false, layerBinds: [], State: state, console: { error: error => calls.push(error) },
         bindsReader: { read: (...args) => calls.push(["binds", ...args]) },
         userBindsReader: { read: (...args) => calls.push(["user", ...args]) },
-        readDevices: () => {}, readOptions: () => {}, readUserValues: () => {}, readPermissions: () => {}
+        configurationReloaded: () => {}, readDevices: () => {}, readOptions: () => {},
+        readUserValues: () => calls.push(["userValues"]), readPermissions: () => calls.push(["permissions"]),
+        configErrorsReader: { read: (...args) => calls.push(["errors", ...args]) }, finishLayerGlassRead: () => {}
     });
     context.root = context;
-    vm.runInContext(method(stateSource, "same") + "\n" + method(stateSource, "readBinds"), context);
+    vm.runInContext(["same", "readBinds", "readConfigErrors", "finishConfigErrors"].map(name => method(stateSource, name)).join("\n"), context);
     const reload = stateSource.match(/function onRawEvent\(event\) \{([\s\S]*?)\n        \}\n    \}/);
     assert.ok(reload, "the production reload handler is available");
     vm.runInContext("(function(event) {" + reload[1] + "})({name:'configreloaded'})", context);
     assert.equal(context.keymapRevision, 1, "reload invalidates key identities");
     same([context.bindsPending, context.userBindsPending], [true, true],
         "reload marks both readings pending before a replacement read");
-    same(calls, [["binds", state.BINDS_REQUEST, null], ["user", state.USER_BINDS_REQUEST, null]],
-        "reload requests both existing readers");
+    same(calls, [["binds", state.BINDS_REQUEST, null], ["errors", state.LAYER_GLASS_REQUESTS.errors, 1]],
+        "reload reads errors before running Lua diagnostics");
+    context.finishConfigErrors(1, '["syntax error"]', "");
+    same(calls.length, 2, "Lua diagnostics cannot clear the failed reload");
+    context.finishConfigErrors(1, '[""]', "");
+    same(calls.slice(2), [["userValues"], ["user", state.USER_BINDS_REQUEST, null], ["permissions"]],
+        "a clean reload allows Lua diagnostics");
     const callback = stateSource.match(/id: bindsReader[\s\S]*?onReadDone: \(request, text, failure\) => \{([\s\S]*?)\n        \}\n    \}/);
     assert.ok(callback, "production binds callback is available");
     const bind = { submap: "", key: "S", keycode: 0, modmask: 65, description: "Move window down" };
@@ -2267,17 +2274,12 @@ do
     assert(#declarations == ${loading && (present || permit) ? 1 : 0})
     assert((hl.plugin.hyprglass ~= nil) == ${present})
     assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer,parse-layer,parse-layer,parse-layer" : ""}")
-    assert(hl.${layer.LAYER_GLASS_RECEIPT} == nil, "parse does not confirm the reload")
     assert(#callbacks == 1)
     seen = {}
     hl.plugin.hyprglass = module("reload-")
     callbacks[1]()
     callbacks[1]()
     assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-layer,reload-layer,reload-layer,reload-config,reload-layer,reload-layer,reload-layer,reload-layer")
-    assert((hl.${layer.LAYER_GLASS_RECEIPT} ~= nil) == ${loading}, "only a draw-capable configuration confirms the reload")
-    hl.plugin.hyprglass = nil
-    callbacks[1]()
-    assert(hl.${layer.LAYER_GLASS_RECEIPT} == nil, "no material calls means no receipt")
 end`).join("\n");
     const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
         env: { PATH: process.env.PATH, VGS_TEST_RUN: "1" } });
@@ -2299,11 +2301,15 @@ function verifyGlassNamespaces(layer) {
         passive, ...material("vgs-clear")], "Clear: its tone preset, on the material layers alone");
     same(lines({ glassEnabled: false, glassStyle: "clear" }), ['hg.layer("vgs:glass-off")'], "the main switch off lists no surface's namespace");
     same(block({ glassEnabled: false, glassStyle: "clear" }).application, null, "an excluded draw cannot be acknowledged");
-    const dark = block({ glassStyle: "dark" }).application;
-    const clear = block({ glassStyle: "clear" }).application;
-    same(layer.layerGlassReceiptMatches(clear, clear.receipt), true, "the current material rules were sourced");
-    same(layer.layerGlassReceiptMatches(clear, dark.receipt), false, "an earlier material request is no proof");
-    same(layer.layerGlassReceiptMatches(clear, "vgs-layer-glass=absent"), false, "a reload without the layer is no proof");
+    const text = block({ glassStyle: "clear" }).lines.join("\n") + "\n";
+    for (const [label, files, ready] of [
+        ["healthy", { wiring: "wired", sourcesClear: true, text }, true],
+        ["unwired", { wiring: "unwired", sourcesClear: true, text }, false],
+        ["excluded", { wiring: "wired", sourcesClear: false, text }, false],
+        ["changed bytes", { wiring: "wired", sourcesClear: true, text: text.slice(0, -1) }, false],
+        ["missing bytes", { wiring: "wired", sourcesClear: true, text: null }, false],
+        ["unreadable", null, false]
+    ]) same(layer.layerGlassFilesMatch(text, JSON.stringify(files)), ready, "layer-glass file evidence: " + label);
     // Clear's tone, transcribed from hyprglass's shader: white dims to
     // 255 * 0.47 = 119.85; black stays black; a mid grey under the curve's
     // start, 0.2, keeps its value; magenta keeps 80% of its colour.
@@ -2352,7 +2358,9 @@ const CONTROLS = [
     [layerFile, "preparation withholds the loader", "theme.layerGlassLoad === false ? [] :", "false ? [] :", verifyLayerGlass],
     [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass.lines, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass.lines), paths), lines);", verifyLayerGlass],
     [layerFile, "layer glass retains its declaration with a namespace", "if hl.plugin.hyprglass or ", "if not hl.plugin.hyprglass and ", verifyLayerGlass],
-    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", function() configure(true) end)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
+    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", configure)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
+    [layerFile, "layer glass refuses an exclusion", " && files.sourcesClear === true", "", verifyGlassNamespaces],
+    [layerFile, "layer glass can confirm healthy files", 'files.wiring === "wired"', "false", verifyGlassNamespaces],
     [layerFile, "layer glass keeps windows globally disabled", "hg.config({ enabled = false, layers = { enabled = true } })", "hg.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
     [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
     [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],

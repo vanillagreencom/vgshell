@@ -1852,16 +1852,15 @@ function layerGlassPath(username) {
     return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
         ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
 }
-// Hyprland v0.57.1 ConfigManager::reload resets its Lua state on a clean
-// reload, and non-interactive `repl` returns the Lua value on stdout
-// (src/ipc/s1/Commands.cpp and hyprctl/src/main.cpp). A receipt placed
-// in that state after the material calls proves more than `reload`'s `ok`
-// or the presence of the source line.
-var LAYER_GLASS_RECEIPT = "__vgs_layer_glass";
-var LAYER_GLASS_RECEIPT_REQUEST = ["hyprctl", "repl", 'hl.' + LAYER_GLASS_RECEIPT + ' or "vgs-layer-glass=absent"'];
-
-function layerGlassReceiptMatches(application, text) {
-    return text.trim() === application.receipt;
+// The wiring judge returns exact UTF-8 bytes only after inspecting the
+// user's sources. Missing, unread and mismatched evidence cannot pass.
+function layerGlassFilesMatch(expected, reply) {
+    try {
+        var files = JSON.parse(reply);
+        return files !== null && files.wiring === "wired" && files.sourcesClear === true && files.text === expected;
+    } catch (e) {
+        return false;
+    }
 }
 
 function layerGlassBlock(theme) {
@@ -1872,22 +1871,18 @@ function layerGlassBlock(theme) {
     // A preparation/rebuild can span another theme or config reload.
     // Keep the safe configuration but withhold loading throughout it.
     var load = theme.layerGlassLoad === false ? [] : ['if hl.plugin.hyprglass or ' + (theme.layerGlassPermit === true ? "true" : "false") + ' then hl.plugin.load("' + path + '") end'];
-    var configuration = ["        hg.config({ enabled = false, layers = { enabled = true } })"].concat(layerGlassNamespaceLines(theme));
     var application = theme.layerGlassLoad !== false && layerGlassHasDraw(theme.glassEnabled)
-        ? { style: theme.glassStyle, receipt: "vgs-layer-glass=" + JSON.stringify(configuration.join("\n")) } : null;
-    var acknowledge = application === null ? [] : [
-        "        if reloaded then hl." + LAYER_GLASS_RECEIPT + " = " + JSON.stringify(application.receipt) + " end"
-    ];
+        ? { style: theme.glassStyle } : null;
     var lines = load.concat([
         "do",
-        "    local function configure(reloaded)",
-        "        hl." + LAYER_GLASS_RECEIPT + " = nil",
+        "    local function configure()",
         "        local hg = hl.plugin.hyprglass",
-        "        if not hg then return end"
-    ].concat(configuration, acknowledge, [
+        "        if not hg then return end",
+        "        hg.config({ enabled = false, layers = { enabled = true } })"
+    ].concat(layerGlassNamespaceLines(theme), [
         "    end",
         "    configure()",
-        '    hl.on("config.reloaded", function() configure(true) end)',
+        '    hl.on("config.reloaded", configure)',
         "end"
     ]));
     return { lines: lines, application: application };

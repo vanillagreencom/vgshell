@@ -32,6 +32,8 @@
 // `hypr=wiring-file-absent`.
 //
 // `state` is read-only and prints `ok hypr=wired|unwired|absent path=<file>`.
+// With --layer-glass it answers JSON instead: the wiring verdict, whether
+// the user's sources permit Clear, and the generated layer's exact text.
 // Prints `ok hypr=wired|unwired|unchanged path=<file>` for edits. Every refusal is one
 // line on stderr and exit 1: `vgshell: refused: hypr=wiring-file-absent
 // path=<file>` for `wire` with no hyprland.lua, `hypr=unreadable` or
@@ -53,9 +55,10 @@ const DONE = { wire: "wired", unwire: "unwired" };
 const BIND_EDITS = { "remove-bind": true, "restore-bind": true };
 
 const [verb, configHome, stateDir, ...extra] = process.argv.slice(2);
+const glassState = verb === "state" && extra.length === 1 && extra[0] === "--layer-glass";
 if ((verb !== "state" && EDITS[verb] === undefined && BIND_EDITS[verb] === undefined) || typeof configHome !== "string" || typeof stateDir !== "string"
-    || extra.length !== (BIND_EDITS[verb] === undefined ? 0 : 3)) {
-    process.stderr.write("vgshell-hypr-judge: usage: vgshell-hypr-judge state|wire|unwire CONFIG_HOME STATE_DIR\n"
+    || (!glassState && extra.length !== (BIND_EDITS[verb] === undefined ? 0 : 3))) {
+    process.stderr.write("vgshell-hypr-judge: usage: vgshell-hypr-judge state|wire|unwire CONFIG_HOME STATE_DIR [--layer-glass for state]\n"
         + "       vgshell-hypr-judge remove-bind|restore-bind CONFIG_HOME STATE_DIR FILE LINE KEY|UNDO\n");
     process.exit(2);
 }
@@ -91,6 +94,43 @@ function bindEdit(layer) {
         process.stdout.write("ok hypr=bind-restored path=" + target + " line=" + placed + "\n");
 }
 
+// Do not run Lua to learn what it sources. Follow literal absolute dofile
+// paths; relative, dynamic or module lookups have no verifiable inventory
+// here. Treat any use of an exclusion key as a veto, even if conditional
+// or supplied through an alias of hg.layer.
+function clearSources(file, text, loader, seen) {
+    if (seen.has(file)) return true;
+    if (seen.size >= 64) return false;
+    seen.add(file);
+    for (const raw of text.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (line === loader) continue;
+        if (/\bexclude\b/.test(line)) return false;
+        if (line.startsWith("--")) continue;
+        const source = /^(?:pcall\(\s*dofile\s*,\s*|dofile\s*\(\s*)(["'])(\/[^"'\\]+)\1\s*\)\s*;?\s*$/.exec(line);
+        if (source !== null) {
+            const target = fs.realpathSync(source[2]);
+            if (!fs.statSync(target).isFile() || !clearSources(target, fs.readFileSync(target, "latin1"), "", seen)) return false;
+        } else if (/\b(?:dofile|loadfile|require|package)\b|(?:^|[^.\w])load\b/.test(line)) return false;
+    }
+    return true;
+}
+
+function layerGlassState(wiring, file, text, loader, layer) {
+    const result = { wiring, sourcesClear: false, text: null };
+    if (wiring !== "wired") return result;
+    try {
+        result.sourcesClear = clearSources(file, text, loader, new Set());
+        if (!result.sourcesClear || !fs.lstatSync(layer).isFile()) return result;
+        const bytes = fs.readFileSync(layer);
+        const decoded = bytes.toString("utf8");
+        if (Buffer.from(decoded, "utf8").equals(bytes)) result.text = decoded;
+    } catch (e) {
+        // A missing/unreadable source or generated file cannot authorize.
+    }
+    return result;
+}
+
 main(() => {
     const layer = path.join(stateDir, "hypr", "vgs.lua");
     // The path sits inside a double-quoted Lua string, which a quote, a
@@ -106,16 +146,20 @@ main(() => {
     }
     if (verb === "state") {
         let text;
+        let source;
         try {
-            text = fs.readFileSync(fs.realpathSync(file), "latin1");
+            source = fs.realpathSync(file);
+            text = fs.readFileSync(source, "latin1");
         } catch (e) {
             if (e.code === "ENOENT") {
-                process.stdout.write("ok hypr=absent path=" + file + "\n");
+                process.stdout.write(glassState ? '{"wiring":"absent","sourcesClear":false,"text":null}\n' : "ok hypr=absent path=" + file + "\n");
                 return;
             }
             refuse("hypr=unreadable path=" + file + " error=" + e.code, "unreadable");
         }
-        process.stdout.write("ok hypr=" + (render.wiredText(text, line, undefined) === null ? "wired" : "unwired") + " path=" + file + "\n");
+        const wiring = render.wiredText(text, line, undefined) === null ? "wired" : "unwired";
+        process.stdout.write(glassState ? JSON.stringify(layerGlassState(wiring, source, text, line, layer)) + "\n"
+            : "ok hypr=" + wiring + " path=" + file + "\n");
         return;
     }
     let changed = false;

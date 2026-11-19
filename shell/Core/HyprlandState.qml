@@ -88,14 +88,16 @@ Scope {
     property int keyRequestSerial: 0
     readonly property bool resolvingKeys: keyResolution !== null || keyResolver.running
     property int keymapRevision: 0
+    // The errors belong to the latest observed reload, not to whichever
+    // Lua state remains after it. An unread result is not a clean reload.
+    property var configErrors: null
 
     onActiveChanged: {
         if (active) {
             readDevices();
             readOptions();
-            readUserValues();
             readBinds();
-            readPermissions();
+            readConfigErrors();
             return;
         }
         const token = keyResolution === null ? null : keyResolution.token;
@@ -115,6 +117,7 @@ Scope {
         bindsPending = false;
         userBindsPending = false;
         userPermissions = null;
+        configErrors = null;
     }
 
     // The capability for one instance; it holds nothing to release.
@@ -178,6 +181,7 @@ Scope {
             && root.layerGlassApplication === root.layerGlassReadApplication
             && root.layerGlassApplication.style === Theme.glassStyle
             && root.layerGlassSetupDisabledReason === ""
+            && root.configErrors !== null && root.configErrors.ok && root.configErrors.value.length === 0
             && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"
     }
 
@@ -213,12 +217,19 @@ Scope {
             if (facts.username.ok) layerGlassUser = facts.username.value;
             layerGlassUserFailed = layerGlassUser === "" && !facts.username.ok;
         }
-        const keys = ["username", "plugins", "status", "errors"];
+        const keys = ["username", "plugins", "status"];
         const next = keys.indexOf(request.key) + 1;
         if (next < keys.length) {
             layerGlassReader.read(State.LAYER_GLASS_REQUESTS[keys[next]], { generation: request.generation, key: keys[next] });
             return;
         }
+        finishLayerGlassRead();
+    }
+
+    function finishLayerGlassRead() {
+        if (!layerGlassObserved.stale || configErrors === null || layerGlassFacts.status === undefined) return;
+        const facts = Object.assign({}, layerGlassFacts, { errors: configErrors });
+        layerGlassFacts = facts;
         let observed = State.layerGlassObservation(facts);
         if (layerGlassOperation.phase === "idle" && observed.loaded === true && layerGlassClaimed && !layerGlassIntent)
             observed = { kind: "residual", loaded: true, reason: "The plugin is still loaded. Turn it off to finish cleanup." };
@@ -474,7 +485,25 @@ Scope {
         bindsPending = true;
         userBindsPending = true;
         bindsReader.read(State.BINDS_REQUEST, null);
-        userBindsReader.read(State.USER_BINDS_REQUEST, null);
+    }
+
+    function readConfigErrors() {
+        configErrorsReader.read(State.LAYER_GLASS_REQUESTS.errors, keymapRevision);
+    }
+
+    function finishConfigErrors(revision, text, failure) {
+        if (!active || revision !== keymapRevision) return;
+        const errors = State.layerGlassRead("errors", text, failure);
+        configErrors = errors;
+        // Hyprland v0.57.1's Lua eval clears the configerrors buffer
+        // (ConfigManager::eval). Run the existing Lua diagnostics only
+        // after a clean read and never on an unread or failed reload.
+        if (errors.ok && errors.value.length === 0) {
+            readUserValues();
+            userBindsReader.read(State.USER_BINDS_REQUEST, null);
+            readPermissions();
+        }
+        finishLayerGlassRead();
     }
 
     function readPermissions() {
@@ -533,6 +562,7 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
+                root.configErrors = null;
                 root.configurationReloaded();
                 if (root.layerGlassHeld) root.refreshLayerGlass(false);
                 // Hyprland 0.57 builds its bind map from the global input:kb_*
@@ -545,9 +575,8 @@ Scope {
                 root.keymapRevision++;
                 root.readDevices();
                 root.readOptions();
-                root.readUserValues();
                 root.readBinds();
-                root.readPermissions();
+                root.readConfigErrors();
             } else if (event.name === "activelayout") {
                 root.readDevices();
             } else if ((event.name === "openlayer" || event.name === "closelayer") && root.layerGlassHeld
@@ -555,6 +584,12 @@ Scope {
                 shadersDrawn.restart();
             }
         }
+    }
+
+    HyprctlReader {
+        id: configErrorsReader
+        label: "configerrors"
+        onReadDone: (request, text, failure) => root.finishConfigErrors(request, text, failure)
     }
 
     // hyprglass builds its shaders on the first draw of a layer it glasses
