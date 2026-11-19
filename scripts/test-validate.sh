@@ -707,7 +707,7 @@ cases=(
   "settings-reply-fixture|scripts/smoke/fixtures/plugins/acme.hyprland/manifest.json|logic|$settings_reply_row"
   "settings-reply-layer-binding|shell/Core/HyprlandLayer.qml|logic|"$'node scripts/test-hyprland-layer.js\n'"$settings_reply_row"
   "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row"$'node scripts/test-google-drive-logic.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"$'\nnode scripts/test-voice-logic.js'
-  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows"$'node scripts/test-check-theme-contrast.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_package_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_debug_row"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
@@ -1405,6 +1405,36 @@ PYHOME
   "${base_env[@]}" git -C "$d" add scripts/validate
   "${base_env[@]}" git -C "$d" commit -q -m control
   row "control: the omitted Home input loses selection for $home_input" "$d" 0 "" "!node scripts/test-jarvis-home.js"
+done
+
+# Each contrast input also reaches another row, so unknown-input fallback
+# cannot stand in for the contrast row's own selection edge.
+contrast_inputs=(shell/Commons/Glass.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/plugins/vgs.launcher/Appearance.js)
+for input in "${contrast_inputs[@]}"; do
+  d="$tmp/plan-contrast-${input##*/}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$input")"
+  printf 'changed\n' >"$d/$input"
+  test_area=logic
+  test_args=(--changed HEAD --list)
+  row "theme contrast is selected for $input" "$d" 0 "" \
+    'node scripts/test-check-theme-contrast.js' '!validate: selection=full'
+  python3 - "$d/scripts/validate" "$input" <<'PYCONTRASTEDGE'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "logic|theme contrast controls|')]
+edge = ' ' + sys.argv[2] + ' '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, ' ', 1), 1)
+assert changed != source
+path.write_text(changed)
+PYCONTRASTEDGE
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: the omitted input loses theme contrast selection for $input" "$d" 0 "" \
+    '!node scripts/test-check-theme-contrast.js' '!validate: selection=full'
 done
 
 # The desktop package entry loads each helper before confirming its page open.
