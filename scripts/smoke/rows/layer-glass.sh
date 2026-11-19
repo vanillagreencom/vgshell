@@ -1,10 +1,11 @@
 # Synthetic manager/status proof for the real core and Glass pane. This
 # proves the core transaction and generated calls, never native plugin
 # loading, recursive reload lifetime or rendered glass. A refused reload
-# after an eligible Dark state must keep Clear on its opaque path.
+# or a clean reload without the VGS loader must keep Clear opaque even
+# with eligible shaders. A disposable shell restores the broken gates.
 # Polls use expect_poll's 200 ms interval; the manager fixture's 120 s
 # hang guard polls its release file every 50 ms. No latency is measured.
-# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js shell/Commons/Theme.qml scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json
+# inputs: shell/plugins/vgs.glass/* shell/plugins/vgs.system/* shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* shell/Core/HyprctlReader.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/Notices.qml shell/Commons/ThemeLogic.js shell/Commons/Theme.qml scripts/smoke/fixtures/plugins/acme.appearance/* scripts/smoke/fixtures/tui/vgs.glass/tui/layer-glass.sh scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.launcher/manifest.json bin/vgshell bin/vgshell-hypr-judge
 set -euo pipefail
 
 lg_read() { ipc smoke readInstance service acme.appearance "$1"; }
@@ -26,6 +27,32 @@ except ValueError:
     print(False)' <"$lg_dir/calls"; }
 lg_reason() { lg_read layerGlass | py_reply 'import json,sys; print(json.load(sys.stdin)["observed"]["reason"])'; }
 lg_cause_retained() { lg_read layerGlass | py_reply 'import json,sys; print(bool(sys.argv[1]) and sys.argv[1] in json.load(sys.stdin)["operation"]["reason"])' "$lg_failure"; }
+lg_assert_setup_blocked() {
+  expect_poll 'the operation lends the pane its disabled reason' True lg_setup_disabled
+  expect 'On cannot wait for an excluded draw' 'refused: layer-glass=glass-off' lg_choose true
+}
+lg_assert_clear_solid() {
+  expect "$1: eligibility cannot authorize Clear" false ipc smoke themeValue layerGlassReady
+}
+lg_confirm_eligible() {
+  expect 'plugin status is read again' ok lg_refresh
+  expect_poll 'the plugin still reports eligible on a fresh read' eligible lg_fresh_observation
+}
+lg_unwire() { "${shell_env[@]}" "$repo/bin/vgshell" hypr unwire; }
+lg_unsource() {
+  expect 'unwire removes the sandbox loader' "ok hypr=unwired path=$home/.config/hypr/hyprland.lua" lg_unwire
+  expect 'the generated declaration stays on disk' present lg_block
+  expect 'a clean external reload no longer sources the generated layer' ok hypr reload config-only
+  expect 'the active Lua state has no material receipt' 'vgs-layer-glass=absent' hypr repl 'hl.__vgs_layer_glass or "vgs-layer-glass=absent"'
+  lg_confirm_eligible
+}
+lg_source() {
+  # Keep the fake plugin loader before the VGS include. The CLI's wire
+  # would put the include first and allow a native plugin-load request.
+  hypr_lua_restore layer-glass-wired || fail 'the synthetic loader and include are restored in order'
+  expect 'a clean external reload sources the restored layer' ok hypr reload config-only
+  expect_poll 'the sourced Clear rules and shaders are ready' true ipc smoke themeValue layerGlassReady
+}
 lg_dir="$home/.local/state/vgshell/layer-glass-fixture"
 lg_copy="$home/.config/vgshell/plugins/vgs.glass"
 lg_fixture="$home/.config/vgshell/plugins/acme.appearance"
@@ -53,8 +80,8 @@ hypr_lua_save layer-glass
 # Hyprland 0.57.1 reinitializes Lua on reload, and hl.plugin is an ordinary
 # table (ConfigManager.cpp registerPluginLuaFunctionInState). A fixture
 # namespace and declaration-only loader prevent any real binary load.
-# The core's exact loading line stays present; its wiring judge observes
-# line presence. The namespace is an explicit stand-in, not something the
+# Until the unwire case, the core's exact loading line stays present; its
+# wiring judge observes line presence. The namespace is a stand-in, not something the
 # declaration creates. The fixture event and status shim own synthetic
 # compositor facts; they do not model native loading or recursive reloads.
 {
@@ -90,6 +117,7 @@ EOF
   cat -- "$home/.config/hypr/hyprland.lua"
 } >"$home/.config/hypr/hyprland.lua.next"
 mv -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"
+hypr_lua_save layer-glass-wired
 expect 'the nested compositor loads the synthetic Lua namespace' ok hypr reload config-only
 lg_glass_was="$(plugin_enabled vgs.glass | tr '[:upper:]' '[:lower:]')"
 lg_system_was="$(plugin_enabled vgs.system | tr '[:upper:]' '[:lower:]')"
@@ -139,8 +167,7 @@ expect 'the synthetic absence is read' ok lg_refresh
 expect_poll 'synthetic absence starts off by default' 'not-loaded|idle|false' lg_state
 expect 'unset layer glass contributes no plugin declaration' absent lg_block
 expect 'the main Glass switch is turned off' ok lg_setting glassEnabled false
-expect_poll 'the operation lends the pane its disabled reason' True lg_setup_disabled
-expect 'On cannot wait for an excluded draw' 'refused: layer-glass=glass-off' lg_choose true
+lg_assert_setup_blocked
 expect 'Rebuild cannot wait for an excluded draw' 'refused: layer-glass=glass-off' ipc smoke invokeInstance service acme.appearance rebuildLayerGlass ""
 expect 'Off remains available with the main switch off' ok lg_choose false
 expect_poll 'Off leaves the plugin unloaded and the operation idle' 'not-loaded|idle|false' lg_state
@@ -193,21 +220,29 @@ expect 'the launcher layer unmaps' ok ipc shell hide overlay vgs.launcher
 expect 'the launcher disables after the layer' ok ipc shell setPluginEnabled vgs.launcher false
 expect 'On preference is saved after verification' true lg_saved
 expect 'the one writer contributes its plugin declaration' present lg_block
-expect 'explicit Dark config reaches the writer' ok lg_setting glassStyle '"dark"'
-expect_poll 'the previous style is Dark' '"dark"' ipc smoke themeValue glassStyle
-expect_poll 'Dark rules are acknowledged and the plugin is eligible' true ipc smoke themeValue layerGlassReady
 lg_refusal='hyprland: reload=failed status=1 reply="synthetic layer-glass refusal"'
 expected_errors+=("$lg_refusal")
-: >"$lg_dir/refuse-reload"
-expect 'Clear is requested while its reload is refused' ok lg_setting glassStyle '"clear"'
-expect_poll 'the new style is Clear' '"clear"' ipc smoke themeValue glassStyle
-expect_log 'the Clear reload was refused' 1 "$lg_refusal"
-expect 'plugin status is read again despite the refused reload' ok lg_refresh
-expect_poll 'the plugin still reports eligible on a fresh read' eligible lg_fresh_observation
-expect 'eligibility cannot authorize unapplied Clear' false ipc smoke themeValue layerGlassReady
-rm -- "$lg_dir/refuse-reload"
-expect 'the current generated layer is retried' ok ipc shell renderHyprland
-expect_poll 'Clear becomes ready after the matching reload' true ipc smoke themeValue layerGlassReady
+lg_refuse_clear() {
+  expect 'explicit Dark config reaches the writer' ok lg_setting glassStyle '"dark"'
+  expect_poll 'the previous style is Dark' '"dark"' ipc smoke themeValue glassStyle
+  expect_poll 'Dark rules are acknowledged and the plugin is eligible' true ipc smoke themeValue layerGlassReady
+  : >"$lg_dir/refuse-reload"
+  expect 'Clear is requested while its reload is refused' ok lg_setting glassStyle '"clear"'
+  expect_poll 'the new style is Clear' '"clear"' ipc smoke themeValue glassStyle
+  expect_log 'the Clear reload was refused' 1 "$lg_refusal"
+  lg_confirm_eligible
+}
+lg_retry_clear() {
+  rm -- "$lg_dir/refuse-reload"
+  expect 'the current generated layer is retried' ok ipc shell renderHyprland
+  expect_poll 'Clear becomes ready after the matching reload' true ipc smoke themeValue layerGlassReady
+}
+lg_refuse_clear
+lg_assert_clear_solid 'refused reload'
+lg_retry_clear
+lg_unsource
+lg_assert_clear_solid 'clean unwired reload'
+lg_source
 expect 'the explicit style is removed' ok lg_setting glassStyle null
 # A queued shell reload may still replay the declaration after the
 # preference is saved. Withhold the synthetic load until the test asks
@@ -237,6 +272,61 @@ rm -- "$lg_dir/unsafe" "$lg_dir/disable-exit"
 expect 'Off cleans the declined compensation' ok lg_choose false
 expect_poll 'compensation cleanup verifies unloaded state' 'not-loaded|idle|false' lg_state
 expect 'compensation cleanup removes the generated block' absent lg_block
+
+# These mutations affect separate gates. The same predicates used above
+# must fail at the named assertions, not because a fixture failed to load.
+copy_tree layer-glass-regressions
+edit_tree layer-glass-regressions shell/Core/HyprlandState.qml \
+  'readonly property string layerGlassSetupDisabledReason: State.layerGlassSetupDisabledReason(Theme.appearanceState.values.glassEnabled)' \
+  'readonly property string layerGlassSetupDisabledReason: ""'
+edit_tree layer-glass-regressions shell/Core/HyprlandState.qml \
+  'value: root.layerGlassIntent && root.layerGlassApplication !== null
+            && root.layerGlassApplication === root.layerGlassReadApplication
+            && root.layerGlassApplication.style === Theme.glassStyle
+            && root.layerGlassSetupDisabledReason === ""
+            && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"' \
+  'value: root.layerGlassIntent && !root.layerGlass.observed.stale && root.layerGlass.observed.kind === "eligible"'
+stop_shell
+start_shell "$sandbox/tree-layer-glass-regressions" "$smoke_log_dir/layer-glass-regressions-shell.log"
+expect_poll 'the mutant can reach the same capability fixture' True record_exists acme.appearance
+expect 'the main Glass switch is off in the setup control' ok lg_setting glassEnabled false
+expect_poll 'the setup control observes Glass off' false ipc smoke themeValue appearanceState.values.glassEnabled
+printf 'pending\n' >"$lg_dir/shaders"
+lg_control_log="$smoke_log_dir/layer-glass-regressions.log"
+(
+  failures=0; behaviour_failures=0
+  lg_assert_setup_blocked
+) >"$lg_control_log"
+expect 'control: the disabled-reason assertion fails' 1 grep -c '^  FAIL  the operation lends the pane its disabled reason: got False ' "$lg_control_log"
+expect 'control: On is wrongly accepted with Glass off' 1 grep -c '^  FAIL  On cannot wait for an excluded draw: got ok$' "$lg_control_log"
+expect_poll 'the admitted setup really waits for an excluded draw' 'shaders-pending|verifying|false' lg_state
+expect 'Off cancels the setup control' ok lg_choose false
+expect_poll 'the setup control leaves the plugin unloaded' 'not-loaded|idle|false' lg_state
+expect 'the main Glass switch returns for the Clear control' ok lg_setting glassEnabled null
+printf 'ready\n' >"$lg_dir/shaders"
+expect 'the Clear control starts with saved layer glass' ok lg_setting layerGlass true
+expect_poll 'the Clear control starts from a loaded plugin' 'eligible|idle|true' lg_state
+lg_refuse_clear
+(
+  failures=0; behaviour_failures=0
+  lg_assert_clear_solid 'refused reload'
+) >>"$lg_control_log"
+expect 'control: the refused-reload assertion detects the regression' 1 grep -c '^  FAIL  refused reload: eligibility cannot authorize Clear: got true$' "$lg_control_log"
+lg_retry_clear
+lg_unsource
+(
+  failures=0; behaviour_failures=0
+  lg_assert_clear_solid 'clean unwired reload'
+) >>"$lg_control_log"
+expect 'control: the clean-reload assertion detects the regression' 1 grep -c '^  FAIL  clean unwired reload: eligibility cannot authorize Clear: got true$' "$lg_control_log"
+control_output "$lg_control_log"
+lg_source
+stop_shell
+start_shell "$repo" "$smoke_log_dir/layer-glass-restored-shell.log"
+expect_poll 'the real shell has its layer-glass fixture again' True record_exists acme.appearance
+expect 'the real shell turns off the Clear control plugin' ok lg_choose false
+expect_poll 'the Clear control leaves the plugin unloaded' 'not-loaded|idle|false' lg_state
+
 expect 'the layer-glass fixture disables' ok ipc shell setPluginEnabled acme.appearance false
 expect 'the Glass fixture disables before removal' ok ipc shell setPluginEnabled vgs.glass false
 expect_poll 'the appearance fixture is destroyed' False record_exists acme.appearance
