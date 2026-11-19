@@ -148,7 +148,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Style"
-                info: "Sets the glass style for Launcher, Notifications and Jarvis. Auto follows the theme. Clear shows the background through the glass and shades it under white text."
+                info: "Style applies to the launcher, notifications and Jarvis. Auto follows your theme. When layer glass is ready, Clear shows the background behind white text."
                 Select {
                     objectName: "glassStyle"
                     Accessible.name: "Style"
@@ -261,7 +261,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Layer glass"
-                info: "In Clear, Hyprland bends and shades the background behind Jarvis cards, notifications and the launcher. On offers to install hyprglass."
+                info: "When ready, layer glass bends the background at Jarvis card edges. In Clear, it also bends the background at launcher and notification edges and shades it behind white text."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"
