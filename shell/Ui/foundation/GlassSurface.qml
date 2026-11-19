@@ -84,14 +84,13 @@ Item {
     // `lit` blends only the edge lights to the theme's accent, leaving
     // the static rim neutral even on a critical notification; `edgeBoost`
     // multiplies both lights and `edgeSpin` adds orbits a second;
-    // `edgeShown` false hides it. A surface that can stay up all day sets
-    // `paced`, and the light moves at most its material's `edge.frameRate`
-    // frames a second.
+    // `edgeShown` false hides it. The light moves at the material's
+    // `edge.frameRate` unless a bounded interaction needs display-rate motion.
     property bool lit: false
     property real edgeBoost: 1
     property real edgeSpin: 0
     property bool edgeShown: true
-    property bool paced: false
+    property bool paced: true
     // The rim's drawn width while glass is on, held to a quarter of the
     // surface's short side.
     // Layouts that size the plate from its content reserve this width,

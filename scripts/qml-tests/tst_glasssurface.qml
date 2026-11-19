@@ -290,9 +290,8 @@ Item {
             compare([styled.rim, styled.contentInset], [0, 0], "no rim without glass");
         }
 
-        // The edge light moves on drawn glass that shows, at every frame or
-        // paced, and stands still at motion scale 0, while hidden and on
-        // solid glass. `lit` blends it to the accent.
+        // The edge light moves at the paced rate by default. It stands still
+        // at motion scale 0, while hidden and on solid glass.
         function test_the_edge_light_runs_only_while_it_shows() {
             verify(styled.lightsRunning);
             compare(passOf(styled).uEdge.w, 1, "the lights show");
@@ -305,9 +304,8 @@ Item {
             verify(!styled.lightsRunning, "motion off stills the light");
             UnitTheme.reset();
             const before = styled.phase;
-            styled.paced = true;
-            tryVerify(() => styled.phase !== before, 1000, "a paced light still moves");
-            styled.paced = false;
+            compare(styled.paced, true, "an idle surface does not request display-rate motion");
+            tryVerify(() => styled.phase !== before, 1000, "the default paced light still moves");
 
             UnitTheme.override({ motion: { scale: 0 } });
             try {
