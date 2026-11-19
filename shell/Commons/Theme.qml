@@ -49,6 +49,11 @@ Singleton {
     // The style glass draws in: Light, Dark or Clear, Auto being the
     // theme's mode (ThemeLogic.glassStyle).
     readonly property string glassStyle: ThemeLogic.glassStyle(appearanceState.values, scheme.mode)
+    // Keep the Glass page's model stable while the choices change.
+    readonly property var glassSurfaceRows: ThemeLogic.glassSurfaceRows()
+    function glassSurfaceChoice(surface) {
+        return ThemeLogic.glassSurfaceChoice(appearanceState.values, surface);
+    }
     // Glass, the one shared glass material (Glass.js), in glassStyle,
     // resolved as a plugin's own look is. GlassSurface of qs.Ui draws it on
     // a styled surface, and `themeGlass` on any other.

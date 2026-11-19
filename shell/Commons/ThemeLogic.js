@@ -1606,6 +1606,21 @@ var GLASS_SURFACES = {
 var GLASS_CONTROLS = "controls";
 var GLASS_CHOICES = ["on", "off"];
 
+function glassSurfaceRows() {
+    return Object.freeze(Object.keys(GLASS_SURFACES).map(function (id) {
+        return Object.freeze({ id: id, defaultOn: GLASS_SURFACES[id].on });
+    }));
+}
+
+// The saved preference survives the master switch and still shows in Settings.
+function glassSurfaceChoice(values, surface) {
+    if (!hasOwn(GLASS_SURFACES, surface))
+        throw new Error("theme: glass surface " + JSON.stringify(surface) + " unknown");
+    var entry = GLASS_SURFACES[surface];
+    var saved = isPlainObject(values.glassSurfaces) && hasOwn(values.glassSurfaces, surface) ? values.glassSurfaces[surface] : undefined;
+    return saved === undefined ? entry.on : saved === "on";
+}
+
 // The roles that round while their surface draws glass, by GLASS_SURFACES
 // id, and the token that holds their corner then. A panel keeps
 // `surface.radius`, the square edge of the bar it is attached to, and a
@@ -1646,12 +1661,10 @@ function glassStyle(values, mode) {
 function glassFor(values, surface, context) {
     var themed = context.mode === "light" ? "light" : "dark";
     if (surface === GLASS_CONTROLS) return { on: false, style: themed, drawable: false, themed: true };
-    if (!hasOwn(GLASS_SURFACES, surface))
-        throw new Error("theme: glass surface " + JSON.stringify(surface) + " unknown");
+    var choice = glassSurfaceChoice(values, surface);
     var entry = GLASS_SURFACES[surface];
     var style = entry.styled === true ? glassStyle(values, context.mode) : themed;
-    var saved = isPlainObject(values.glassSurfaces) && hasOwn(values.glassSurfaces, surface) ? values.glassSurfaces[surface] : undefined;
-    var on = values.glassEnabled !== false && (saved === undefined ? entry.on : saved === "on");
+    var on = values.glassEnabled !== false && choice;
     var drawable = on && entry.opaque !== true && (style !== "clear" || (context.layerGlass === true && context.material === true));
     return { on: on, style: style, drawable: drawable, themed: entry.styled !== true };
 }

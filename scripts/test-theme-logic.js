@@ -1491,6 +1491,17 @@ function verifyAppearance(judge) {
         assert.equal(result.hyprland.glow, want, "window glow under " + JSON.stringify(user));
         assert.equal(result.sources.windowGlow, user.windowGlow === undefined ? "hyprland" : "user", "glow source under " + JSON.stringify(user));
     }
+    const surfaceRows = plain(judge.glassSurfaceRows());
+    assert.deepEqual(surfaceRows.map(row => row.id).sort(), Object.keys(judge.GLASS_SURFACES).sort(), "every registered surface has a Settings row");
+    for (const [id, defaultOn] of [["launcher", true], ["windows", false]])
+        assert.deepEqual(surfaceRows.find(row => row.id === id), { id, defaultOn }, id + " publishes its shipped default");
+    for (const [values, id, want] of [
+        [{ glassEnabled: false }, "launcher", true],
+        [{ glassEnabled: false }, "windows", false],
+        [{ glassEnabled: false, glassSurfaces: { windows: "on" } }, "windows", true],
+        [{ glassEnabled: false, glassSurfaces: { launcher: "off" } }, "launcher", false]
+    ]) assert.equal(judge.glassSurfaceChoice(values, id), want, id + " Settings choice survives master off: " + JSON.stringify(values));
+
     // glassFor, the one deciding place. Each row: [values, surface, context,
     // want { on, style, drawable }]. A styled surface takes the page's
     // style, Auto the theme's mode and never Clear; any other surface the
@@ -2483,9 +2494,10 @@ const CONTROLS = [
     ["appearance hyprland source", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
     ["appearance hyprland source on a group member alone", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";"],
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
-    ["the main switch turns every surface off", "var on = values.glassEnabled !== false && (", "var on = ("],
-    ["a surface's saved choice wins over its default", "(saved === undefined ? entry.on : saved === \"on\")", "entry.on"],
-    ["a surface without a saved choice takes its default", "(saved === undefined ? entry.on : saved === \"on\")", "(saved === \"on\")"],
+    ["the main switch turns every surface off", "var on = values.glassEnabled !== false && choice;", "var on = choice;"],
+    ["a surface's saved choice wins over its default", 'return saved === undefined ? entry.on : saved === "on";', "return entry.on;"],
+    ["a surface without a saved choice takes its default", 'return saved === undefined ? entry.on : saved === "on";', 'return saved === "on";'],
+    ["an unlabelled registered surface still gets a Settings row", "Object.keys(GLASS_SURFACES).map(function (id)", 'Object.keys(GLASS_SURFACES).filter(function (id) { return id !== "clipboard"; }).map(function (id)'],
     ["a styled surface takes the page's style", "var style = entry.styled === true ? glassStyle(values, context.mode) : themed;", "var style = themed;"],
     ["any other surface takes the theme's mode", "var style = entry.styled === true ? glassStyle(values, context.mode) : themed;", "var style = glassStyle(values, context.mode);"],
     ["Auto never picks Clear", "return mode === \"light\" ? \"light\" : \"dark\";", "return \"clear\";"],

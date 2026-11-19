@@ -43,20 +43,24 @@ FocusScope {
         { label: "Dark", value: "dark" },
         { label: "Clear", value: "clear" }
     ]
-    // The rows a user turns on or off, as ThemeLogic.GLASS_SURFACES names
-    // them, in the order the page lists them, each with its default.
-    readonly property var rows: [
-        { id: "windows", label: "Windows", on: false, info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "." },
-        { id: "tooltips", label: "Tooltips", on: false, info: "Tooltips keep a solid ground in every style, so their text reads on any background." },
-        { id: "flyouts", label: "Widget flyouts", on: false, info: "" },
-        { id: "menus", label: "Menus", on: false, info: "Menus include the list a choice opens." },
-        { id: "launcher", label: "Launcher", on: true, info: "" },
-        { id: "notifications", label: "Notifications", on: true, info: "" },
-        { id: "jarvis", label: "Jarvis", on: true, info: "Jarvis's cards take glass. The orb never does." },
-        { id: "dialogs", label: "Dialogs", on: false, info: "" },
-        { id: "indicators", label: "On-screen indicators", on: false, info: "On-screen indicators include the volume and brightness levels and the display messages." },
-        { id: "clipboard", label: "Clipboard", on: false, info: "" }
-    ]
+    // Copy and order only; an entry added to Theme still gets a switch.
+    readonly property var rowCopy: ({
+        windows: { label: "Windows", info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "." },
+        tooltips: { label: "Tooltips", info: "Tooltips keep a solid ground in every style, so their text reads on any background." },
+        flyouts: { label: "Widget flyouts" },
+        menus: { label: "Menus", info: "Menus include the list a choice opens." },
+        launcher: { label: "Launcher" },
+        notifications: { label: "Notifications" },
+        jarvis: { label: "Jarvis", info: "Jarvis's cards take glass. The orb never does." },
+        dialogs: { label: "Dialogs" },
+        indicators: { label: "On-screen indicators", info: "On-screen indicators include the volume and brightness levels and the display messages." },
+        clipboard: { label: "Clipboard" }
+    })
+    readonly property var rows: {
+        const order = Object.keys(rowCopy);
+        const position = id => Object.prototype.hasOwnProperty.call(rowCopy, id) ? order.indexOf(id) : order.length;
+        return Theme.glassSurfaceRows.slice().sort((a, b) => position(a.id) - position(b.id));
+    }
     readonly property string styleShown: typeof values.glassStyle === "string" ? values.glassStyle : "auto"
     readonly property bool clearWaits: glassOn && Theme.glassStyle === "clear" && !Theme.layerGlassReady
 
@@ -73,21 +77,19 @@ FocusScope {
         return value === undefined ? appearance.unset(key) : appearance.set(key, value);
     }
 
-    // The saved map with ROW at ON, holding only rows off their default,
-    // or undefined for none.
-    function surfacesWith(row, on) {
-        const next = Object.assign({}, saved);
-        if (on === row.on) delete next[row.id];
+    function setSurface(next, row, on) {
+        if (on === row.defaultOn) delete next[row.id];
         else next[row.id] = on ? "on" : "off";
-        return Object.keys(next).length > 0 ? next : undefined;
     }
 
-    function isOn(row) {
-        return saved[row.id] === undefined ? row.on : saved[row.id] === "on";
+    function writeSurfaces(next) {
+        return write("glassSurfaces", Object.keys(next).length > 0 ? next : undefined);
     }
 
     function choose(row, on) {
-        let reply = write("glassSurfaces", surfacesWith(row, on));
+        const next = Object.assign({}, saved);
+        setSurface(next, row, on);
+        let reply = writeSurfaces(next);
         if (reply === "ok" && remembered[row.id] !== undefined) {
             const kept = Object.assign({}, remembered);
             delete kept[row.id];
@@ -97,8 +99,10 @@ FocusScope {
     }
 
     function restore() {
-        const next = Object.assign({}, saved, remembered);
-        let reply = write("glassSurfaces", next);
+        const next = Object.assign({}, saved);
+        for (const row of rows)
+            if (remembered[row.id] !== undefined) setSurface(next, row, remembered[row.id] === "on");
+        let reply = writeSurfaces(next);
         if (reply === "ok") reply = write("glassRememberedChoices", undefined);
         answer(reply);
     }
@@ -183,20 +187,23 @@ FocusScope {
                 model: root.rows
 
                 FormRow {
+                    id: surfaceRow
                     required property var modelData
+                    readonly property var presentation: Object.prototype.hasOwnProperty.call(root.rowCopy, modelData.id)
+                        ? root.rowCopy[modelData.id] : null
                     width: surfaceOptions.width
-                    label: modelData.label
-                    info: modelData.info
+                    label: presentation === null ? modelData.id : presentation.label
+                    info: presentation === null ? "" : presentation.info || ""
                     onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                     Switch {
                         objectName: "glass-" + modelData.id
                         size: "sm"
-                        Accessible.name: modelData.label
+                        Accessible.name: surfaceRow.label
                         disabledReason: root.offReason
-                        checked: root.isOn(modelData)
+                        checked: Theme.glassSurfaceChoice(modelData.id)
                         onToggled: {
                             const wanted = checked;
-                            checked = Qt.binding(() => root.isOn(modelData));
+                            checked = Qt.binding(() => Theme.glassSurfaceChoice(modelData.id));
                             root.choose(modelData, wanted);
                         }
                     }
@@ -211,7 +218,7 @@ FocusScope {
                 Switch {
                     size: "sm"
                     Accessible.name: "Glow"
-                    disabledReason: root.glassOn && root.isOn(root.rows[0]) ? "" : "Turn on glass for Windows first."
+                    disabledReason: Theme.glassFor("windows").on ? "" : "Turn on glass for Windows first."
                     checked: root.values.windowGlow === true
                     onToggled: {
                         const wanted = checked;
