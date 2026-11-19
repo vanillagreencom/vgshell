@@ -43,4 +43,4 @@ The audio services read configuration at their own start. The plugin does not re
 
 ## Look
 
-[Appearance.js](Appearance.js) owns the plugin's values under the shared [appearance contract](../../../docs/architecture/design-system.md#appearance). Toasts draw in the passive layer and the summoned panel takes the keyboard, both under the glass material namespace the manifest's `glassMaterial` asks for. The cards are the shared `GlassSurface`, which draws the edge light. The manifest declares blur for both layers.
+[Appearance.js](Appearance.js) owns the notification look. Notifications share the Glass page's Style with the launcher and Jarvis. `GlassSurface` draws each card. Toasts draw in the passive layer and the summoned panel takes the keyboard. The manifest declares blur for both and sets `glassMaterial`, so the hosts map them under [material namespaces](../../../docs/architecture/design-system.md#glass-plates-over-wallpaper) only in Clear. Layer glass can bend the background at their edges only under those namespaces.

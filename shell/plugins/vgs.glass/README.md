@@ -8,10 +8,10 @@ Glass lets you choose where glass appears and how it looks: on the launcher, not
 
 - A Glass section under Appearance in the System Settings window.
 - One switch turns glass on or off everywhere and keeps your other choices.
-- Style: Auto, Light, Dark or Clear. Auto follows your theme: light glass on a light theme and dark glass on a dark theme.
+- Choose Auto, Light, Dark or Clear for the launcher, notifications and Jarvis. Auto follows your theme.
 - Clear shows the background through the glass with white text, and Hyprland shades the glass over a bright background so the text stays readable.
 - A switch for each surface: windows, tooltips, widget flyouts, menus, the launcher, notifications, Jarvis, dialogs, on-screen indicators and the clipboard. Buttons, switches and fields take the look of the card they are on.
-- Optional layer glass, which bends the background at the edges of glass cards, installed when you turn it on.
+- Optional layer glass. The launcher and notifications bend the background at their edges only in Clear.
 
 ## Setup
 

@@ -2,10 +2,10 @@
 # hyprpm owns binaries and elevation; the core alone writes configuration.
 set -euo pipefail
 finish() { printf 'layer-glass: category=%s\n' "$1"; [[ $# == 1 ]] || printf '%s\n' "$2" >&2; exit "${3:-1}"; }
-[[ $# == 1 && $1 =~ ^(prepare|rebuild|enable|disable)$ ]] || finish invalid-request 'Open Windows and try again.' 2
-[[ -n ${VGS_TUI_LIB:-} ]] || finish presenter-missing 'Open this setup from Windows.' 2
+[[ $# == 1 && $1 =~ ^(prepare|rebuild|enable|disable)$ ]] || finish invalid-request 'Open Appearance → Glass and try again.' 2
+[[ -n ${VGS_TUI_LIB:-} ]] || finish presenter-missing 'Open this setup from Appearance → Glass.' 2
 root=${VGS_TUI_LIB%/bin/lib/tui.sh}
-[[ $root != "$VGS_TUI_LIB" ]] || finish presenter-missing 'Open this setup from Windows.' 2
+[[ $root != "$VGS_TUI_LIB" ]] || finish presenter-missing 'Open this setup from Appearance → Glass.' 2
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 verb=$1
@@ -89,10 +89,10 @@ mutate() {
   # update has no repository argument (hyprpm v0.57.1 main.cpp). Never
   # rebuild, update or load another repository as part of this request.
   [[ $1 != update || $inventory == only ]] || finish unrelated-rebuild 'Hyprglass cannot be rebuilt without changing your other plugins. No plugins were updated.'
-  [[ $1 != enable || $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Windows.'
+  [[ $1 != enable || $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Appearance → Glass.'
   vgs_tui_commands "hyprpm $*"
   hyprpm "$@" || status=$?
-  [[ $status != 130 ]] || finish interrupted 'The plugin manager was interrupted. Check its state in Windows.' 130
+  [[ $status != 130 ]] || finish interrupted 'The plugin manager was interrupted. Check its state in Appearance → Glass.' 130
   [[ $status == 0 ]] || finish manager-failed 'The plugin manager could not complete this step. Check its details above.'
   snapshot
 }
@@ -101,7 +101,7 @@ vgs_tui_header 'Layer glass'
 if [[ $verb == disable ]]; then
   printf '%s\n' 'Turn off all hyprglass effects, including those configured outside VGS. The plugin stays installed.'
 elif [[ $verb == enable ]]; then
-  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Windows.'
+  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Appearance → Glass.'
   printf '%s\n' 'Finish turning on layer glass. Turning it off later also turns off hyprglass effects configured outside VGS.'
 else
   printf '%s\n' 'Turn on glass for VGS panels. Turning it off later also turns off hyprglass effects configured outside VGS.'
@@ -121,7 +121,7 @@ vgs_tui_confirm "$question" --default=false || answer=$?
 case $answer in
   0) ;;
   1) finish canceled 'No changes were requested.' 10 ;;
-  130) finish interrupted 'Setup was interrupted. Check its state in Windows.' 130 ;;
+  130) finish interrupted 'Setup was interrupted. Check its state in Appearance → Glass.' 130 ;;
   *) finish consent-unavailable 'Could not confirm this change.' ;;
 esac
 if [[ $verb == disable ]]; then
@@ -130,19 +130,19 @@ if [[ $verb == disable ]]; then
 elif [[ $verb == enable ]]; then
   # Enabling reconciles every managed plugin. Only register a target the
   # core already loaded and configured; reconciliation then skips its load.
-  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Windows.'
+  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'Layer glass setup could not finish. Try On again in Appearance → Glass.'
   if [[ $managed != enabled ]]; then mutate enable hyprglass; fi
-  [[ $observed == loaded && $managed == enabled ]] || finish not-enabled 'The plugin manager could not confirm your choice. Check again in Windows.'
+  [[ $observed == loaded && $managed == enabled ]] || finish not-enabled 'The plugin manager could not confirm your choice. Check again in Appearance → Glass.'
 elif [[ $verb == rebuild || $managed == absent || $managed == failed ]]; then
   # update reconciles enabled entries, including a failed build's hidden
   # enabled flag. Disable every existing target before either update path.
   if [[ $managed != absent ]]; then
     mutate disable hyprglass
   fi
-  [[ $observed == unloaded ]] || finish residual-load 'The plugin is still on. Try Off again in Windows.'
+  [[ $observed == unloaded ]] || finish residual-load 'The plugin is still on. Try Off again in Appearance → Glass.'
   if [[ $verb == rebuild ]]; then mutate update --force; else mutate update; fi
   if [[ $managed == absent ]]; then mutate add https://github.com/hyprnux/hyprglass; fi
   [[ $managed != failed && $managed != absent ]] || finish build-failed 'The plugin did not build. Check its details above before rebuilding.'
-  [[ $managed == disabled && $observed == unloaded ]] || finish unexpected-load 'Layer glass setup could not finish. Check again in Windows.'
+  [[ $managed == disabled && $observed == unloaded ]] || finish unexpected-load 'Layer glass setup could not finish. Check again in Appearance → Glass.'
 fi
 finish manager-complete 'VGS will continue the layer-glass request.' 0
