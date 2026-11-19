@@ -3582,7 +3582,7 @@ capture_state_case() { # SCRIPT
 import pathlib,sys
 script,harness,dst=map(pathlib.Path,sys.argv[1:])
 parts=[]
-for source,names in ((script,("capture_mode_name","capture_theme_check","capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
+for source,names in ((script,("capture_mode_name","capture_theme_check","capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","ground_image","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
     text=source.read_text()
     for name in names:
         start=text.index("\n"+name+"() {")+1
@@ -3624,6 +3624,7 @@ PY
   env -i PATH="$PATH" "$BASH" -c '
     set -euo pipefail
     at="$1" repo="$2" checkout="$2" home="$1/home" SHOT_DIR="$1/shots" capture_source=fixture-sha settings_kind=window main_name=WAYLAND-1
+    ground=""
     node_bin="$(command -v node)"
     enable_ids=(vgs.gallery vgs.fonts vgs.lock vgs.jarvis)
     disable_ids=(vgs.notifications vgs.devtools vgs.themes vgs.bar)
@@ -3648,7 +3649,7 @@ PY
     expect() { local label="$1" want="$2" got; shift 2; got="$("$@")" && [[ $got == "$want" ]] || fail "$label: $got != $want"; }
     expect_poll() { expect "$@"; }
     pixel() { echo 112233; }
-    bg_state_names() { :; }
+    bg_state_names() { [[ $1 == "$repo/themes/vgs/backgrounds/black.png" ]]; }
     background_image_on() { fail "an off Themes service was read"; }
     source "$at/helpers.sh"
     lock_row_quiet
