@@ -2,7 +2,7 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/smoke/user-config.sh bin/lib/qml-library.js shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -23,7 +23,8 @@ cp -- "$jarvis_key_config" "$sandbox/jarvis-key-config-before.json"
 cp -- "$jarvis_key_lua" "$sandbox/jarvis-key-lua-before"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
-python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
+jarvis_key_downs="$jarvis_key_gates/reducer-downs.jsonl"
+python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" "$jarvis_key_downs" <<'PY'
 from pathlib import Path
 import json,sys
 p=Path(sys.argv[1])
@@ -31,6 +32,24 @@ s=p.read_text()
 needle='if (message.type === "intent") {\n                    intentIdentity(message);'
 assert s.count(needle)==1
 record='\n                    fs.appendFileSync('+json.dumps(sys.argv[2])+', JSON.stringify(message.intent) + "\\n");'
+s=s.replace(needle,needle+record)
+# Record the exact monotonic receipt passed to the real reducer and the state
+# the reducer actually returned. The raw intent log above is still independent.
+needle='const Session = Protocol.Session;'
+assert s.count(needle)==1
+record="""
+    const reduceKeyEvent = Session.reduce;
+    Session.reduce = (state, event, restart) => {
+        const result = reduceKeyEvent(state, event, restart);
+        if (event.type === "talk-down") {
+            const after = result.state;
+            const row = { at: event.at, bound: Session.TOGGLE_DEBOUNCE_MS,
+                accepted: after.input.kind === "held" && after.input.since === event.at,
+                ignored: result.effects.length === 0 && JSON.stringify(after) === JSON.stringify(state) };
+            fs.appendFileSync(RECEIPTS, JSON.stringify(row) + "\\n");
+        }
+        return result;
+    };""".replace("RECEIPTS",json.dumps(sys.argv[3]))
 p.write_text(s.replace(needle,needle+record))
 PY
 jarvis_gate="$sandbox/jarvis-key-startup-gate"
@@ -99,9 +118,48 @@ jarvis_key_wait_past() { # AT MS
   local left=$(( $1 + $2 - $(now_ms) ))
   (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
 }
-jarvis_key_talk_down() { hold_send "down 133" "down 44"; jarvis_key_down_at="$(now_ms)"; }
+# Every independent press starts after the reducer's repeat interval. The
+# explicit repeat inputs below use the physical sender directly.
+jarvis_key_spacing="$("$node_bin" -e '
+const [library, file] = process.argv.slice(1);
+const ms = require(library).load(file).TOGGLE_DEBOUNCE_MS;
+if (!Number.isSafeInteger(ms) || ms <= 0) throw new Error("jarvis-keys: invalid Session debounce");
+console.log(ms / 1000);' "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/Session.js")"
+jarvis_key_talk_down() {
+  sleep "$jarvis_key_spacing"
+  hold_send "down 133" "down 44"
+  jarvis_key_down_at="$(now_ms)"
+}
 jarvis_key_talk_up() { hold_send "up 44" "up 133"; }
-jarvis_key_tap() { hold_send "down 133" "down 44" "up 44" "up 133"; }
+jarvis_key_tap() { jarvis_key_talk_down; jarvis_key_talk_up; }
+jarvis_key_down_count() { wc -l <"$jarvis_key_downs"; }
+jarvis_key_check_pair() { # distinct|inside
+  expect_poll "both $1 physical presses reach the Session reducer" 2 jarvis_key_down_count
+  if python3 - "$jarvis_key_downs" "$1" <<'PY'
+import json,sys
+from pathlib import Path
+rows=[json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
+if len(rows)!=2:
+    raise SystemExit("jarvis-keys: down receipt count="+str(len(rows)))
+first,second=rows
+delta=second["at"]-first["at"]
+bound=first["bound"]
+pair=sys.argv[2]
+print("jarvis-keys: reducer-pair="+pair+" "+json.dumps(
+    {"source":"Session.reduce event.at","first":first,"second":second,"delta_ms":delta,"bound_ms":bound}), flush=True)
+if first["bound"]!=second["bound"] or not first["accepted"] or first["ignored"]:
+    raise SystemExit("first physical down was not accepted under the same bound")
+if pair=="distinct":
+    valid=delta>=bound and second["accepted"] and not second["ignored"]
+else:
+    valid=0<=delta<bound and second["ignored"] and not second["accepted"]
+if not valid:
+    raise SystemExit("physical down timing or reducer outcome differed")
+PY
+  then ok "$1 presses have the required receipt times and reducer outcomes"
+  else fail "$1 presses have the wrong receipt times or reducer outcomes"
+  fi
+}
 jarvis_key_stop() { hold_send "down 133" "down 37" "down 53" "up 53" "up 37" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
 jarvis_key_commit_control() {
@@ -367,6 +425,7 @@ expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 # The checked hold leaves the conversation open after the reply. A silent
 # short tap closes it using the engine's explicit final-empty outcome.
 expect "the held reply keeps its conversation" active jarvis_key_state conversation
+: >"$jarvis_key_downs"
 jarvis_key_gate silent-capture
 jarvis_key_tap
 expect_poll "a silent short tap closes the conversation" ended jarvis_key_state conversation
@@ -379,10 +438,20 @@ rm -f -- "$jarvis_key_gates/silent-capture"
 jarvis_key_gate silent-capture
 jarvis_key_talk_down
 expect_poll "a long silent hold first acquires capture" open jarvis_key_state capture
+jarvis_key_check_pair distinct
 jarvis_key_wait_past "$jarvis_key_down_at" 800
 jarvis_key_talk_up
 expect_poll "a long silent release ends the call" ended jarvis_key_state conversation
 expect_poll "a long silent release retires its recorder" closed jarvis_key_state capture
+
+# A separate pair comes from the same physical keyboard, with no spacing
+# inside it. Its second press must reach Session and leave it unchanged.
+: >"$jarvis_key_downs"
+jarvis_key_gate silent-capture
+jarvis_key_tap
+hold_send "down 133" "down 44" "up 44" "up 133"
+jarvis_key_check_pair inside
+expect_poll "the inside-bound pair leaves a closed conversation" ended jarvis_key_state conversation
 jarvis_key_hold false
 jarvis_key_talk_down
 expect_poll "default Talk opens a conversation" listening jarvis_key_state phase
@@ -395,14 +464,12 @@ jarvis_key_gate brain
 expect_poll "the answer speaks" speaking jarvis_key_state phase
 jarvis_key_gate played
 expect_poll "default Talk listens after its answer" listening jarvis_key_state phase
-sleep 0.25 # A distinct press comes after the native repeat-collapse bound.
 jarvis_key_talk_down
 jarvis_key_talk_up
 expect_poll "the next press commits confirmed empty input and closes its conversation" ended jarvis_key_state conversation
 expect_poll "closing releases capture" closed jarvis_key_state capture
 expect "closing leaves no fault" none jarvis_key_state fault
 
-sleep 0.25 # A distinct press comes after the native repeat-collapse bound.
 jarvis_key_talk_down
 jarvis_key_talk_up
 expect_poll "a new default conversation listens" listening jarvis_key_state phase
