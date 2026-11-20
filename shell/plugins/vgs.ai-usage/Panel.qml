@@ -386,11 +386,14 @@ Item {
                             bottomPadding: metered && index < usageRows.limits.length - 1 ? Theme.stack.inline : 0
                         }
                     }
-                    // Plain, under the card's own accent eyebrow title.
+                    // A muted capital label, apart from the card's accent
+                    // eyebrow title and the body rows; one space step
+                    // closer to the limit rows than a page heading.
                     SectionHeader {
                         visible: usageRows.details.length > 0
                         text: "Details"
-                        titleRole: "bodyStrong"
+                        titleRole: "label"
+                        spaceAbove: Theme.stack.heading - Theme.space.xs
                     }
                     Repeater {
                         model: usageRows.details
