@@ -4,7 +4,7 @@
 The suite installs this file as DATA/venv/bin/python. It speaks the sidecar wire
 from shell/plugins/vgs.jarvis/backend/local-speech.py's header (2026-10-02),
 written independently of LocalSpeech.js. DATA/scenario.json scripts it:
-  start: "ready" | "held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
+  start: "ready" | "held" | "request-held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
   utterances: per end, {speech} answered ended | {failed} | {exit} | {stall}
     | {final} answered with the retired final transcript, a protocol violation;
     optional streaming: {partials:[{text,rev}], turnEnd:true} answered on
@@ -111,8 +111,9 @@ if start == "garbage":
     sys.stdout.buffer.write(struct.pack(">II", 2, 0) + b"[]")
     sys.stdout.buffer.flush()
     time.sleep(60)
-send({"type": "ready"})
-record({"ready": True})
+if start != "request-held":
+    send({"type": "ready"})
+    record({"ready": True})
 if start == "foreign-id":
     send({"type": "ended", "id": 99, "speech": True})
 
@@ -122,6 +123,17 @@ received = {}
 listening = {}
 checking = {}
 checks = list(scenario.get("checks", []))
+
+
+def request_ready():
+    if start == "request-held":
+        # The test observes the logged request before releasing ready.
+        with (data / "ready-gate").open("rb") as gate:
+            gate.read(1)
+        send({"type": "ready"})
+        record({"ready": True})
+
+
 while True:
     prefix = read(8)
     if prefix is None:
@@ -182,6 +194,7 @@ while True:
         crossings = sum(1 for a, b in zip(samples, samples[1:]) if (a < 0) != (b < 0))
         rms = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.0
         record({"end": ident, "samples": len(samples), "crossings": crossings, "rms": rms})
+        request_ready()
         action = utterances.pop(0)
         if action.get("stall"):
             continue
@@ -195,6 +208,7 @@ while True:
             send({"type": "failed", "id": ident, "cause": action["failed"]})
     elif kind == "speak":
         record({"speak": ident, "text": payload.decode(), "speaker": header["speaker"]})
+        request_ready()
         action = speech.pop(0)
         if action.get("stall"):
             continue

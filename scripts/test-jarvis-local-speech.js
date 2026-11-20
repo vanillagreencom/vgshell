@@ -368,13 +368,17 @@ async function speaking(folder) {
 async function speechWaits(folder) {
     for (const [kind, scenario, cause, observed] of [
         ["ready", { start: "silent" }, "ready-timeout", log => start(log) !== undefined],
-        ["end", { utterances: [{ stall: true }] }, "end-timeout", log => log.some(entry => entry.end)],
-        ["synthesis", { speech: [{ stall: true }] }, "synthesis-timeout", log => log.some(entry => entry.speak)]
+        ["end", { start: "request-held", utterances: [{ stall: true }] }, "end-timeout", log => log.some(entry => entry.end)],
+        ["synthesis", { start: "request-held", speech: [{ stall: true }] }, "synthesis-timeout", log => log.some(entry => entry.speak)]
     ]) {
         const timers = new Set();
         const clock = { set: (fn, ms) => { const timer = { fn, ms }; timers.add(timer); return timer; },
             clear: timer => timers.delete(timer) };
-        const w = runtime(scenario), speech = adapter(folder, w, clock);
+        const w = runtime(scenario);
+        if (kind !== "ready")
+            assert.equal(require("node:child_process").spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])",
+                path.join(w.local, "ready-gate")], { env: { PATH: process.env.PATH } }).status, 0);
+        const speech = adapter(folder, w, clock);
         let release;
         const held = new Promise(resolve => { release = resolve; });
         const input = kind === "ready" ? (async function* () { await held; yield { content: Buffer.alloc(4800) }; })() : frames(Buffer.alloc(4800));
@@ -382,10 +386,19 @@ async function speechWaits(folder) {
             : speech.transcribe(input));
         result.catch(() => {});
         try {
-            await until(() => observed(w.log()), kind, OBSERVE_MS);
+            if (kind !== "ready") {
+                // Hold ready past the request log: the old wait must read
+                // both deadlines before the adapter can clear ready's.
+                await until(() => observed(w.log()), kind, OBSERVE_MS);
+                assert.throws(() => assert.equal([...timers].length, 1, kind),
+                    { code: "ERR_ASSERTION", actual: 2, expected: 1 }, kind + " old wait control");
+                console.log("control=old " + kind + " wait detected: actual=2 expected=1");
+                fs.writeFileSync(path.join(w.local, "ready-gate"), "R");
+            }
+            await until(() => observed(w.log()) && (kind === "ready" || speech.status().kind === "ready"), kind, OBSERVE_MS);
             const pending = [...timers];
-            assert.equal(pending.length, 1);
-            assert.equal(pending[0].ms, 60000);
+            assert.equal(pending.length, 1, kind);
+            assert.equal(pending[0].ms, 60000, kind);
             pending[0].fn();
             await assert.rejects(result, error => error.code === cause);
             assert.equal(timers.size, 0);
