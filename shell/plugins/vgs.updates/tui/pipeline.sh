@@ -76,10 +76,9 @@
 #      output names each failed part, its cause and its next step
 #  18. the outcome file $(updates_state_dir)/outcome.json, written by
 #      rename when the run ends however it ends, which the Updates window
-#      shows until the next run replaces it: `{ ended, text }`, `ended`
-#      `finished` with an empty `text`, `failed` with the first failed
-#      part's result line as `text`, or `stopped` with "You stopped the
-#      update during <part>.";
+#      shows until the next run replaces it: version 1, `ended`, a separate
+#      `title` and `text`, `remedy` and `endedAt` (epoch milliseconds).
+#      Restart-only remedies expire after the matching shell start or boot;
 #      a run that ends at the start question writes none
 #
 # The package steps are the package-manager table's own plans, read with
@@ -169,7 +168,7 @@ _updates_failed() { # STATUS
   # A fault after the run reached its end, such as a failed reboot, keeps
   # the end the run recorded.
   [[ -z $_updates_part_now || -f $_updates_run_dir/ended ]] ||
-    _updates_ended failed "${_updates_failed_first:-$_updates_part_now$_updates_uncaused}"
+    _updates_ended failed "${_updates_failed_title:-$_updates_part_now failed}" "${_updates_failed_text:-VGS could not find the cause. Update again.}" "${_updates_failed_remedy:-}"
   _updates_result_list
   vgs_tui_failed "$_updates_log" "The update stopped. Try again from Updates."
 }
@@ -181,21 +180,22 @@ _updates_part() { # PART
   printf '%s\n' "$1" >"$_updates_run_dir/part"
 }
 
-# How the run ended, `finished` or `failed`, and TEXT, the sentence a
-# failed run's outcome shows; written once the run reached its end or its
-# error trap.
-_updates_ended() { # finished|failed TEXT
-  printf '%s %s\n' "$1" "$2" >"$_updates_run_dir/ended"
+# The final outcome facts survive the credential subshell. A restart
+# resolves the whole run only while no other part failed.
+_updates_ended() { # finished|failed TITLE TEXT REMEDY
+  local remedy="$4"
+  [[ $1 != failed || ${#_updates_failed_parts[@]} -le 1 ]] || remedy=""
+  printf '%s\n' "$1" "$2" "$3" "$remedy" >"$_updates_run_dir/ended"
 }
 
-# Adds LINE, the result of PART, which failed, to the result list. The
-# first one also goes to the run's folder for _updates_outcome_write.
-_updates_fail() { # PART LINE
+# The terminal keeps the full result line; the window gets independent
+# title and action text from the first failed producer, without splitting it.
+_updates_fail() { # PART LINE TITLE TEXT [REMEDY]
   _updates_results+=("$2")
   _updates_failed_parts+=("$1")
-  [[ -z $_updates_failed_first ]] || return 0
-  _updates_failed_first="$2"
-  printf '%s\n' "$2" >"$_updates_run_dir/failed"
+  [[ -z $_updates_failed_title ]] || return 0
+  _updates_failed_title="$3" _updates_failed_text="$4" _updates_failed_remedy="${5:-}"
+  printf '%s\n' "$3" "$4" "${5:-}" >"$_updates_run_dir/failed"
 }
 
 # The outcome file, written by rename so the service never reads half, from
@@ -210,23 +210,25 @@ _updates_fail() { # PART LINE
 # this trap. One that ended before its first part leaves the check to the
 # end of its TUI.
 _updates_outcome_write() { # STATUS
-  local status="$1" dir="$_updates_run_dir" part ended="" text=""
+  local status="$1" dir="$_updates_run_dir" part ended="" title="" text="" remedy="" fields=()
   [[ -f $dir/part ]] || return 0
   read -r part <"$dir/part"
   if [[ -f $dir/ended ]]; then
-    read -r ended text <"$dir/ended"
+    mapfile -t fields <"$dir/ended"
+    ended="${fields[0]}" title="${fields[1]}" text="${fields[2]}" remedy="${fields[3]}"
   elif [[ $status == 129 || $status == 130 || $status == 143 ]]; then
-    ended=stopped text="You stopped the update during $part. Nothing after it ran."
+    ended=stopped title="Update stopped during $part" text="Nothing after it ran."
   elif [[ -f $dir/failed ]]; then
     ended=failed
-    read -r text <"$dir/failed"
+    mapfile -t fields <"$dir/failed"
+    title="${fields[0]}" text="${fields[1]}" remedy="${fields[2]}"
   elif [[ $status != 0 ]]; then
-    ended=failed text="$part$_updates_uncaused"
+    ended=failed title="$part failed" text="VGS could not find the cause. Update again."
   fi
   if [[ -n $ended ]]; then
-    node -e 'const fs = require("node:fs"); const [file, ended, text] = process.argv.slice(1);
-fs.writeFileSync(file + "." + process.pid, JSON.stringify({ ended, text }) + "\n");
-fs.renameSync(file + "." + process.pid, file);' "$(updates_state_dir)/outcome.json" "$ended" "$text" ||
+    flock -w 10 "$(updates_state_dir)/outcome.lock" node -e 'const fs = require("node:fs"); const [file, ended, title, text, remedy] = process.argv.slice(1);
+fs.writeFileSync(file + "." + process.pid, JSON.stringify({ version: 1, ended, title, text, remedy, endedAt: Date.now() }) + "\n");
+fs.renameSync(file + "." + process.pid, file);' "$(updates_state_dir)/outcome.json" "$ended" "$title" "$text" "$remedy" ||
       _updates_diagnostic "updates: outcome=unwritten exit=$?"
   fi
   [[ -f $dir/checked ]] || _updates_recheck
@@ -622,13 +624,13 @@ _updates_source() { # ID LABEL ARGV...
   _updates_diagnostic "updates: failed source=$id exit=$status"
   if [[ -n $_updates_unworded ]]; then
     _updates_diagnostic "updates: unworded source=$id refusal=$_updates_unworded"
-    _updates_fail "$part" "$part$_updates_uncaused"
+    _updates_fail "$part" "$part$_updates_uncaused" "$part failed" "VGS could not find the cause. Update again."
   else
     local cause="${_updates_cause:-exit $status}"
     [[ $cause == *[.!?] ]] || cause+="."
     local next=""
     [[ -z $_updates_next ]] || next=" Next: $_updates_next"
-    _updates_fail "$part" "$part failed. $cause$next"
+    _updates_fail "$part" "$part failed. $cause$next" "$part failed" "$cause$next"
   fi
   _updates_results+=("${_updates_review_results[@]}")
   vgs_tui_warn "$part failed. The rest of the update goes on."
@@ -722,6 +724,7 @@ _updates_plan() { # ID
 # as a source step does.
 _updates_pending() { # SOURCE
   local out facts key value status=0
+  _updates_pending_count=""
   out="$("$_updates_vgshell" pkg check --json --source "$1")" || status=$?
   case "$status" in
     129|130|143) _updates_diagnostic "updates: stopped check=$1 exit=$status"; exit "$status" ;;
@@ -734,7 +737,7 @@ _updates_pending() { # SOURCE
   while read -r key value; do
     case "$key" in
       error) _updates_diagnostic "updates: check=failed source=$1 error=$value"; return 2 ;;
-      count) [[ $value != 0 ]] || return 1 ;;
+      count) _updates_pending_count="$value"; [[ $value != 0 ]] || return 1 ;;
     esac
   done <<<"$facts"
 }
@@ -1028,7 +1031,8 @@ _updates_main() {
   # now running, whether a reboot read warned, and the file a failed source
   # step's output is cut into: one file, since the lock holds one run at a
   # time.
-  _updates_results=() _updates_failed_parts=() _updates_failed_first="" _updates_part_now="" _updates_reboot_warned=0 _updates_rebooted=0
+  _updates_results=() _updates_failed_parts=() _updates_part_now="" _updates_reboot_warned=0 _updates_rebooted=0
+  _updates_failed_title="" _updates_failed_text="" _updates_failed_remedy=""
   _updates_cause_file="$state/.step-output"
   trap '_updates_failed $?' ERR
 
@@ -1164,11 +1168,24 @@ _updates_main() {
       # and no other primary's row says its check reads fresh state, so
       # their system step always runs. A source of its own runs its step.
       status=0
-      [[ $mode != all || $id != "$primary" || $id != pacman ]] || _updates_pending "$id" || status=$?
+      local system_plan="$label: install available updates" count_status=0
+      if [[ $id == "$primary" ]] && { [[ $mode == all && $id == pacman ]] || [[ $more == 1 ]]; }; then
+        _updates_pending "$id" || count_status=$?
+        if [[ $mode == all && $id == pacman ]]; then status="$count_status"; fi
+        if [[ $more == 1 ]]; then
+          if [[ -n $_updates_pending_count ]]; then
+            local update_word=updates
+            [[ $_updates_pending_count != 1 ]] || update_word=update
+            system_plan="System: $_updates_pending_count $update_word. System packages update first so package versions stay compatible."
+          else
+            system_plan="System: update count unavailable. System packages update first so package versions stay compatible."
+          fi
+        fi
+      fi
       case "$status" in
-        0) kept+=("$id"); plan+=("$label: install available updates") ;;
+        0) kept+=("$id"); plan+=("$system_plan") ;;
         1)
-          if [[ $more == 1 ]]; then kept+=("$id"); plan+=("$label: install available updates")
+          if [[ $more == 1 ]]; then kept+=("$id"); plan+=("$system_plan")
           else plan+=("$label: current")
           fi ;;
         *)
@@ -1309,7 +1326,7 @@ _updates_main() {
   # so a run cancelled at its question writes no outcome.
   if [[ $system_unread == 1 ]]; then
     _updates_part "System packages"
-    _updates_fail "System packages" "System packages failed. VGS could not check them for updates. Next: update again later."
+    _updates_fail "System packages" "System packages failed. VGS could not check them for updates. Next: update again later." "System packages could not update" "VGS could not check them for updates. Update again later."
   fi
 
   local rebuild_run="$rebuild"
@@ -1337,7 +1354,7 @@ _updates_main() {
     done
     if [[ ${#skipped[@]} -gt 0 ]]; then
       _updates_part "System packages"
-      _updates_fail "System packages" "VGS could not get permission to change the system, so it skipped $skipped_text. Next: update again and enter your password."
+      _updates_fail "System packages" "VGS could not get permission to change the system, so it skipped $skipped_text. Next: update again and enter your password." "System packages could not update" "VGS could not get permission to change the system, so it skipped $skipped_text. Update again and enter your password."
     fi
   fi
   # A failed snapshot said what went wrong; it does not block the update,
@@ -1502,19 +1519,26 @@ _updates_main() {
   if [[ ${#_updates_failed_parts[@]} -gt 0 ]]; then ended=failed; fi
   # The question and recheck can be interrupted after the package work
   # ends; neither interruption changes the run's recorded outcome.
-  if [[ $ended == failed ]]; then _updates_ended failed "$_updates_failed_first"; else _updates_ended finished ""; fi
+  if [[ $ended == failed ]]; then _updates_ended failed "$_updates_failed_title" "$_updates_failed_text" "$_updates_failed_remedy"; else _updates_ended finished "" "" ""; fi
   local reboot_status=0
   _updates_reboot "${_updates_core[@]}" || reboot_status=$?
   if [[ $_updates_rebooted == 0 && -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
     _updates_part "Shell restart"
     vgs_tui_step "Restarting the shell on the updated VGS"
-    "$_updates_vgshell" restart || {
-      _updates_diagnostic "updates: restart=failed exit=$?"
-      _updates_fail "Shell restart" "VGS could not restart. Restart the computer when you are ready."
+    local restart_status=0 restart_first=""
+    "$_updates_vgshell" restart >"$_updates_run_dir/restart-output" 2>&1 || restart_status=$?
+    cat -- "$_updates_run_dir/restart-output"
+    IFS= read -r restart_first <"$_updates_run_dir/restart-output" || :
+    if [[ $restart_status == 69 && $restart_first == 'vgshell: refused: hyprland=unreachable' ]]; then
+      _updates_results+=("The shell restarts at your next login.")
+      if [[ $ended == finished ]]; then _updates_ended finished "" "The shell restarts at your next login." shell-restart; fi
+    elif [[ $restart_status != 0 ]]; then
+      _updates_diagnostic "updates: restart=failed exit=$restart_status"
+      _updates_fail "Shell restart" "VGS could not restart. Restart the computer when you are ready." "VGS could not restart" "Restart the computer when you are ready." computer-restart
       vgs_tui_warn "VGS could not restart. Restart the computer when you are ready."
       ended=failed
-      _updates_ended failed "$_updates_failed_first"
-    }
+      _updates_ended failed "$_updates_failed_title" "$_updates_failed_text" "$_updates_failed_remedy"
+    fi
   fi
   # The replacement service must own the check and its run-end
   # suppression. After Reboot succeeds, the EXIT writer asks it instead.

@@ -127,7 +127,7 @@ FocusScope {
         subtitle: [
             Column {
                 width: layout.contentWidth
-                spacing: Theme.row.lineGap
+                spacing: layout.bodySpacing
 
                 Row {
                     width: parent.width
@@ -156,14 +156,16 @@ FocusScope {
                         }
                     }
                 }
-                // How the last update run failed or stopped, kept until the
-                // next run's outcome replaces it. The footer's Open last log
+                // How the last update run failed or stopped. The service
+                // clears a restart-only result after the restart. Open last log
                 // is its action, so the notice has none.
                 Callout {
                     width: parent.width
                     visible: root.outcome !== null && root.outcome.ended !== "finished"
                     tone: visible && root.outcome.ended === "stopped" ? "warning" : "danger"
+                    title: visible ? root.outcome.title : ""
                     text: visible ? root.outcome.text : ""
+                    plain: true
                 }
                 Label {
                     width: parent.width

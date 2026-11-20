@@ -36,6 +36,7 @@ Item {
     // The last update run's outcome, UpdatesLogic.runOutcome of
     // outcome.json, null before one is read.
     property var lastRun: null
+    readonly property var shellStartedAt: /^\d+$/.test(Quickshell.env("VGSHELL_STARTED_AT")) ? Number(Quickshell.env("VGSHELL_STARTED_AT")) : null
     // The TUI state this instance last read, null before the first read.
     property var lastTuiState: null
     property string checkFailure: ""
@@ -95,7 +96,7 @@ Item {
         if (shell === null) return;
         const state = shell.tui.state;
         if (Logic.tuiRunEnded(lastTuiState, state)) {
-            outcomeReader.reload();
+            readOutcome();
             if (runChecked) runChecked = false;
             else requestCheck("tui");
         }
@@ -123,7 +124,7 @@ Item {
         // config edit or reload (plugin API, status.handleChoice).
         shell.status.handleChoice("rebootNotice", value => root.takeRebootRequest(value));
         cacheReader.path = statusPath;
-        outcomeReader.path = outcomePath;
+        readOutcome();
         bootReader.path = bootPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
@@ -293,11 +294,17 @@ Item {
         publishNow();
     }
 
+    function readOutcome() {
+        if (outcomeReader.running) { outcomeReader.queued = true; return; }
+        outcomeReader.command = [String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, ""), Quickshell.shellDir + "/../bin/lib/qml-library.js", "outcome", outcomePath];
+        outcomeReader.running = true;
+    }
+
     function publishNow(completed) {
         if (shell === null) return false;
         const notice = Logic.rebootNoticeValue(rebootStep);
         const values = Object.assign(Logic.publishValues(snapshot, completed === true ? false : checking, Date.now(), currentIntervalMs, checkFailure, aurCommand, admission),
-            { admission: admission, lastRun: lastRun },
+            { admission: admission, lastRun: Logic.pendingOutcome(lastRun, shellStartedAt, bootedAt) },
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         const next = Object.assign({}, reported);
@@ -332,14 +339,26 @@ Item {
         }
     }
 
-    // Reads the last run's outcome when start() sets its path and again at
-    // each TUI end; it watches nothing, since only a run writes the file.
-    FileView {
+    // Reads once at start and each TUI end. The runtime reader migrates the
+    // file before the pure current-format judge accepts it.
+    // Process collectors finish before exited/running=false:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+    Process {
         id: outcomeReader
-        printErrors: false
-        onLoaded: root.takeOutcome(Logic.runOutcome(text()))
-        onLoadFailed: error => {
-            if (error !== FileViewError.FileNotFound) console.warn("updates: outcome unreadable: " + error);
+        property bool queued: false
+        property var completion: null
+        stdout: StdioCollector { id: outcomeOut }
+        stderr: StdioCollector { id: outcomeErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            if (done !== null && done.code === 0) {
+                if (outcomeOut.text.trim() === "null") { root.lastRun = null; root.publishNow(); }
+                else root.takeOutcome(Logic.runOutcome(outcomeOut.text));
+            } else console.warn("updates: outcome unreadable: " + (done === null ? "start=failed" : "exit=" + done.code) + " " + outcomeErr.text.trim());
+            if (queued) { queued = false; root.readOutcome(); }
         }
     }
 
@@ -349,6 +368,7 @@ Item {
             root.bootedAt = Logic.parseBootTime(text());
             root.bootRead = true;
             if (root.bootedAt === null) console.warn("updates: boot time unreadable");
+            root.publishNow();
             root.maybeCheck();
         }
         onLoadFailed: error => {

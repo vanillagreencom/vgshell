@@ -50,7 +50,7 @@ fi
 if [[ ${1:-} != ipc && ${1:-} != log ]]; then
   lock_line=""
   [[ -r ${XDG_RUNTIME_DIR:?}/vgshell.lock ]] && IFS= read -r lock_line <"$XDG_RUNTIME_DIR/vgshell.lock"
-  printf 'pid=%s runner=%s disable=%s no_popup=%s reconnect=%s lock=%s args=%s\n' "$$" "${VGSHELL_RUNNER_PID:-unset}" "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" "${QS_PIPEWIRE_IMMEDIATE_RECONNECT:-unset}" "${lock_line:-empty}" "$*" >"${STUB_RECORD:?}"
+  printf 'pid=%s runner=%s disable=%s no_popup=%s reconnect=%s startedAt=%s lock=%s args=%s\n' "$$" "${VGSHELL_RUNNER_PID:-unset}" "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" "${QS_PIPEWIRE_IMMEDIATE_RECONNECT:-unset}" "${VGSHELL_STARTED_AT:-unset}" "${lock_line:-empty}" "$*" >"${STUB_RECORD:?}"
   [[ -n ${STUB_LOCK_EMPTY:-} ]] && : >"$XDG_RUNTIME_DIR/vgshell.lock"
   [[ -n ${STUB_SHELL_HOLD:-} ]] && exec sleep "$STUB_SHELL_HOLD"
   exit 0
@@ -87,6 +87,7 @@ chmod +x "$tmp/qs"
 cat >"$tmp/hyprctl" <<'EOF2'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${STUB_HYPR_CALLS:-/dev/null}"
+if [[ -n ${STUB_REQUIRE_SIGNATURE:-} && ${1:-} != instances && ${HYPRLAND_INSTANCE_SIGNATURE:-} != sig-start ]]; then exit 78; fi
 if [[ ${1:-} == -j && ${2:-} == version ]]; then
   printf '{\n    "branch": "stub",\n    "version": "%s",\n    "dirty": false\n}\n' "${STUB_HYPR_VERSION:-0.57.0}"
   exit "${STUB_HYPR_VERSION_EXIT:-0}"
@@ -208,9 +209,11 @@ start_fake_shell() { # NAME RUNTIME_DIR RECORD
 
 run_restart_capture() { # RUNTIME_DIR RECORD DISPATCH REPLY [ENV...]
   local rt="$1" record="$2" dispatch="$3" reply="$4" bin="${RESTART_BIN:-$repo/bin/vgshell}"
+  local args=("${RESTART_VERB:-restart}")
+  [[ ${RESTART_VERB:-restart} != reset ]] || args+=(--yes)
   shift 4
   set +e
-  restart_out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt" STUB_RECORD="$record" STUB_SHELL_HOLD=60 STUB_HYPR_DISPATCH="$dispatch" STUB_HYPR_LAUNCH="$repo/bin/vgshell" STUB_REPLY="$reply" "$@" "$bin" restart 2>"$tmp/err")"
+  restart_out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt" STUB_RECORD="$record" STUB_SHELL_HOLD=60 STUB_HYPR_DISPATCH="$dispatch" STUB_HYPR_LAUNCH="$repo/bin/vgshell" STUB_REPLY="$reply" "$@" "$bin" "${args[@]}" 2>"$tmp/err")"
   restart_status=$?
   set -e
   restart_err=""
@@ -742,7 +745,7 @@ if [[ ! -e $dispatch ]]; then ok "a locked-unanswered restart never dispatches";
 rt_restart_lua="$tmp/rt-restart-lua"; dispatch="$tmp/dispatch-lua"
 start_fake_shell "restart lua fixture starts a shell" "$rt_restart_lua" "$tmp/record-lua-old"
 old_pid="$fake_pid"
-run_restart_capture "$rt_restart_lua" "$tmp/record-lua-new" "$dispatch" false STUB_ARGS="$tmp/args-lua"
+run_restart_capture "$rt_restart_lua" "$tmp/record-lua-new" "$dispatch" false STUB_ARGS="$tmp/args-lua" HYPRLAND_INSTANCE_SIGNATURE= STUB_REQUIRE_SIGNATURE=1 STUB_HYPR_CALLS="$tmp/restart-discovery"
 wait "$fake_runner" 2>/dev/null || true
 if [[ $restart_status == 0 && $restart_out =~ ^ok\ pid=([0-9]+)$ ]]; then
   new_pid="${BASH_REMATCH[1]}"; started_pids+=("$new_pid"); ok "restart prints the relaunched pid"
@@ -756,6 +759,20 @@ if [[ "$(cat "$dispatch")" == "$lua_request" ]]; then ok "restart uses the Lua H
 if [[ -n $new_pid && "$(cat "$tmp/args-lua")" == "ipc --pid $new_pid call shell guarded" ]]; then ok "restart waits for the new guarded shell"; else fail "lua guarded check: $(cat "$tmp/args-lua" 2>/dev/null || echo absent)"; fi
 new_record="$(cat "$tmp/record-lua-new")"
 if [[ $(record_runner "$new_record") == "$new_pid" ]] && run_has_file_watcher_env "$new_record"; then ok "the relaunched shell gets the runner and watcher environment"; else fail "new shell record: $new_record"; fi
+if [[ $new_record =~ startedAt=[1-9][0-9]{12} ]]; then ok "the shell receives its own start time for outcome expiry"; else fail "new shell start time: $new_record"; fi
+if grep -qxF 'instances -j' "$tmp/restart-discovery"; then ok "restart discovers a desktop from an outside terminal"; else fail "restart did not discover its desktop"; fi
+
+rt_reset_outside="$tmp/rt-reset-outside"; dispatch="$tmp/dispatch-reset-outside"
+start_fake_shell "outside reset fixture starts a shell" "$rt_reset_outside" "$tmp/record-reset-old"
+reset_runner="$fake_runner"; reset_old_pid="$fake_pid"
+RESTART_VERB=reset run_restart_capture "$rt_reset_outside" "$tmp/record-reset-new" "$dispatch" false \
+  HOME="$tmp/reset-home" XDG_CONFIG_HOME="$tmp/reset-home/.config" XDG_STATE_HOME="$tmp/reset-home/.local/state" XDG_DATA_HOME="$tmp/reset-home/.local/share" XDG_CACHE_HOME="$tmp/reset-home/.cache" \
+  HYPRLAND_INSTANCE_SIGNATURE= STUB_REQUIRE_SIGNATURE=1 STUB_HYPR_CALLS="$tmp/reset-discovery"
+wait "$reset_runner" 2>/dev/null || true
+if [[ $restart_status == 0 && $restart_out =~ ok\ pid=([0-9]+) ]]; then
+  reset_new_pid="${BASH_REMATCH[1]}"; started_pids+=("$reset_new_pid")
+  if [[ ! -d /proc/$reset_old_pid && -d /proc/$reset_new_pid ]] && grep -qxF 'instances -j' "$tmp/reset-discovery"; then ok "reset discovers the desktop and replaces its shell from an outside terminal"; else fail "outside reset did not replace the discovered desktop shell"; fi
+else fail "outside reset: exit=$restart_status out=[$restart_out] stderr=[$restart_err]"; fi
 
 rt_restart_guarded_retry="$tmp/rt-restart-guarded-retry"; dispatch="$tmp/dispatch-guarded-retry"; guarded_count="$tmp/guarded-count"
 start_fake_shell "restart guarded-retry fixture starts a shell" "$rt_restart_guarded_retry" "$tmp/record-guarded-retry-old"

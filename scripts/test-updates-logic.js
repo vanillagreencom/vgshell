@@ -254,10 +254,25 @@ function verify(logic) {
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
   // The last run's outcome.json: a valid file is the published value, a
   // malformed one none.
-  const stopped = { ended: "stopped", text: "You stopped the update during Flatpak. Nothing after it ran." };
+  const stopped = { version: 1, ended: "stopped", title: "Update stopped during Flatpak", text: "Nothing after it ran.", remedy: "", endedAt: 1000 };
   same(logic.runOutcome(JSON.stringify(stopped) + "\n"), stopped);
-  same(logic.runOutcome(JSON.stringify({ ended: "finished", text: "" })), { ended: "finished", text: "" });
-  for (const text of ["", "{", JSON.stringify({ ended: "ended", text: stopped.text }), JSON.stringify({ ended: "failed", text: "" })])
+  const finished = { version: 1, ended: "finished", title: "", text: "", remedy: "", endedAt: 1000 };
+  same(logic.runOutcome(JSON.stringify(finished)), finished);
+  const restart = { version: 1, ended: "failed", title: "VGS could not restart", text: "Restart the computer when you are ready.", remedy: "computer-restart", endedAt: 1000 };
+  same(logic.migrateOutcome({ ended: "failed", text: "VGS could not restart. Restart the computer when you are ready." }, 1000.9), restart);
+  const legacy = "The update failed. A package supplied more detail.";
+  same(logic.migrateOutcome({ ended: "failed", text: legacy }, 1000), Object.assign({}, restart, { title: "Update failed", text: legacy, remedy: "" }));
+  for (const [outcome, start, boot, visible] of [
+    [restart, 999, 500, true], [restart, 1001, 500, false], [restart, null, 1001, false],
+    [Object.assign({}, restart, { remedy: "shell-restart" }), 1001, 500, false],
+    [Object.assign({}, restart, { remedy: "" }), 1001, 1001, true], [stopped, 1001, 1001, true],
+    [restart, null, null, true], [restart, 1000, 1000, true]
+  ]) same(logic.pendingOutcome(outcome, start, boot), visible ? outcome : null, "only a completed restart clears its remedy");
+  for (const source of ["aur", "verified-file", "deb-file", "rpm-file"]) {
+    same(logic.rowReading({ source, count: 1, error: null, packages: [] }).detail,
+      "System packages update first so package versions stay compatible.", "single-package update discloses the joined system step");
+  }
+  for (const text of ["", "{", JSON.stringify(Object.assign({}, stopped, { ended: "ended" })), JSON.stringify({ ended: "failed", text: "" })])
     assert.equal(logic.runOutcome(text), null, "a malformed outcome is refused: " + text);
   verifyView(logic);
   verifySelf(logic);
@@ -296,7 +311,7 @@ function verifySelf(logic) {
     const row = Object.assign({ values: values }, logic.windowRows(values).find(r => r.source === "vgs"));
     same({ updatable: row.updatable, badgeTone: row.badgeTone }, want, name);
     assert.equal(Object.hasOwn(row, "secondary"), false, name);
-    assert.equal(row.detail !== "", (note !== null && note.kind !== "aurUpgrade") || count === null, name + ": a note or a failure has its detail");
+    assert.equal(row.detail !== "", note !== null || count === null || (status.package === "vgshell-git" && count > 0), name + ": a note, joined system step or failure has its detail");
     assert.equal(row.lines.length, count !== null && status.behind === true ? 1 : 0, name);
     seen[name] = row;
   }
@@ -308,7 +323,7 @@ function verifySelf(logic) {
   same(logic.tuiRequest("source", setup.source), { name: "update-source", args: ["vgs"] }, "helper setup uses the existing floating TUI");
   same([setup.values.pending, logic.widgetView(setup.values, true).hidden], [1, false], "helper setup counts as an available update");
   const unreached = seen["a compare GitHub cannot answer"];
-  assert.equal(seen["paru's tracked vgshell-git offers Update"].detail, "", "the New badge and Update action need no detail");
+  assert.equal(seen["paru's tracked vgshell-git offers Update"].detail, "System packages update first so package versions stay compatible.", "the VGS row discloses the joined system step before starting");
   // The `aurCommand` setting is read when the service publishes, not in the
   // snapshot. Each row: [name, package, aurCommand, published reason].
   const helperless = Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" });
@@ -638,7 +653,7 @@ const controls = [
   ["the checked line reads the shared wording at now", "return \"Checked \" + timeText(lastCheck, now);", "return \"Checked \" + timeText(lastCheck, lastCheck);"],
   ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],
   ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(count),", "badge: badgeText(count),"],
-  ["only a source with updates offers Update", 'return Object.assign(badge, { updatable: row.count > 0, detail: "" });', 'return Object.assign(badge, { updatable: true, detail: "" });'],
+  ["only a source with updates offers Update", 'return Object.assign(badge, { updatable: row.count > 0, detail: row.count > 0 && systemFirst ? SYSTEM_FIRST_TEXT : "" });', 'return Object.assign(badge, { updatable: true, detail: row.count > 0 && systemFirst ? SYSTEM_FIRST_TEXT : "" });'],
   ["a known failure cause is the row's detail", "detail: errorText(error, true) };", "detail: \"\" };"],
   ["a row's failure adds no recovery instructions", "detail: errorText(error, true) };", "detail: errorText(error) };"],
   ["the window ending names Refresh, not Open", 'return cause + " " + RETRY_ENDINGS[ending][inWindow === true ? "window" : "hint"];', 'return cause + " " + RETRY_ENDINGS[ending].hint;'],
@@ -706,7 +721,10 @@ const controls = [
   ["a notice without a change offers no choice", 'if (value === null || value === undefined || typeof value.action !== "string") return [];', 'if (value === null || value === undefined) return [];'],
   ["a request names the offered change", "&& request === value.action;", "&& request !== \"\";"],
   ["only a needed unanswered choice offers restart notices", 'step.state === "needed" && answered !== true', 'answered !== true'],
-  ["an outcome names how the run ended", "RUN_ENDINGS.indexOf(value.ended) < 0 ||", ""],
+  ["an outcome names how the run ended", "value.version !== 1 || RUN_ENDINGS.indexOf(value.ended) < 0 ||", "value.version !== 1 ||"],
+  ["a newer shell clears restart-only results", 'if (typeof startedAt === "number" && startedAt > outcome.endedAt) return null;', ""],
+  ["a newer boot clears restart-only results", 'if (typeof bootedAt === "number" && bootedAt > outcome.endedAt) return null;', ""],
+  ["other failures survive a restart", 'if (outcome === null || outcome.remedy === "") return outcome;', 'if (outcome === null) return outcome;'],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 

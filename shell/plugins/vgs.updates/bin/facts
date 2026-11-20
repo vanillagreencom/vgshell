@@ -40,12 +40,15 @@
 //       `reboot <name>` per changed package UpdatesLogic.rebootPackages
 //       keeps by the reboot hook at path HOOK, `-` when there is none,
 //       and the running kernel VERSION, a /proc/version path
+//   facts <loader> outcome <file>   the last run's outcome JSON; converts
+//       older saved outcomes in place before judging the current format
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
 // and exit 2 for a bad invocation, 1 for an answer it cannot read. A value
 // holding a control character is refused, since the lines are the protocol.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const cp = require("node:child_process");
 
 function refuse(first, status) {
     process.stderr.write("updates-facts: refused: " + first + "\n");
@@ -87,6 +90,55 @@ function logic() {
 }
 
 switch (verb) {
+case "outcome": {
+    if (!source || !path.isAbsolute(source)) refuse("outcome=want-absolute-path", 2);
+    try { fs.lstatSync(source); }
+    catch (error) {
+        if (error.code === "ENOENT") { process.stdout.write("null\n"); process.exit(0); }
+        refuse("outcome=unreadable cause=" + error.code, 1);
+    }
+    // The pipeline publishes under this same short lock. A startup
+    // migration must never replace an outcome a finishing run just wrote.
+    const result = cp.spawnSync("flock", ["-w", "10", "-E", "75", path.join(path.dirname(source), "outcome.lock"), process.execPath, __filename, loaderPath, "outcome-held", source],
+        { stdio: "inherit", timeout: 15000 });
+    if (result.error || result.signal) refuse("outcome=lock-unavailable", 1);
+    if (result.status === 75) refuse("outcome=busy", 1);
+    process.exit(result.status);
+    break;
+}
+// Private continuation of outcome's lock holder, never called by a view.
+case "outcome-held": {
+    if (!source || !path.isAbsolute(source)) refuse("outcome=want-absolute-path", 2);
+    let fd;
+    try { fd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+    catch (error) {
+        if (error.code === "ENOENT") { process.stdout.write("null\n"); process.exit(0); }
+        refuse("outcome=unreadable cause=" + error.code, 1);
+    }
+    try {
+        let bytes, modifiedAt;
+        try {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile() || stat.uid !== process.getuid()) refuse("outcome=unsafe", 1);
+            modifiedAt = stat.mtimeMs;
+            bytes = fs.readFileSync(fd, "utf8");
+        } finally { fs.closeSync(fd); }
+        const before = JSON.parse(bytes), judge = logic();
+        const converted = judge.migrateOutcome(before, modifiedAt);
+        const current = judge.runOutcome(JSON.stringify(converted));
+        if (current === null) refuse("outcome=malformed", 1);
+        if (before.version !== current.version) {
+            const pending = source + "." + process.pid;
+            fs.writeFileSync(pending, JSON.stringify(current) + "\n", { mode: 0o600, flag: "wx" });
+            fs.renameSync(pending, source);
+        }
+        process.stdout.write(JSON.stringify(current) + "\n");
+        process.exit(0);
+    } catch (error) {
+        refuse("outcome=unreadable cause=" + (error.code || error.name), 1);
+    }
+    break;
+}
 case "detect": {
     const answer = json();
     if (!isObject(answer) || !Array.isArray(answer.overlays) || !Array.isArray(answer.sources)) refuse("detect=malformed", 1);

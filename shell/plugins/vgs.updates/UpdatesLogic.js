@@ -494,10 +494,23 @@ function shouldRunCheck(snapshot, checking, now, interval, failedAt, bootedAt) {
 // record can be listed after a later run's end.
 
 // TEXT, the last update run's outcome.json (tui/pipeline.sh), as the
-// service publishes it: { ended, text }, `ended` finished, failed or
-// stopped and `text` the sentence of a failed or stopped run, empty for a
-// finished one; null for a file that is not one.
+// service publishes it. The producer keeps the failure's title separate
+// from its next step; remedy names only a restart that resolves the whole run.
 var RUN_ENDINGS = ["finished", "failed", "stopped"];
+function migrateOutcome(value, modifiedAt) {
+    if (!isPlainObject(value) || value.version !== undefined) return value;
+    if (RUN_ENDINGS.indexOf(value.ended) < 0 || typeof value.text !== "string"
+            || (value.ended !== "finished" && value.text === "")
+            || typeof modifiedAt !== "number" || !isFinite(modifiedAt) || modifiedAt < 0) return null;
+    // D107: the old writer supplied one sentence. Preserve unknown text
+    // whole; only its exact restart-only result has a known remedy.
+    var restart = value.ended === "failed" && value.text === "VGS could not restart. Restart the computer when you are ready.";
+    return { version: 1, ended: value.ended,
+        title: restart ? "VGS could not restart" : value.ended === "failed" ? "Update failed" : value.ended === "stopped" ? "Update stopped" : "",
+        text: restart ? "Restart the computer when you are ready." : value.text,
+        remedy: restart ? "computer-restart" : "", endedAt: Math.floor(modifiedAt) };
+}
+
 function runOutcome(text) {
     var value;
     try {
@@ -505,8 +518,18 @@ function runOutcome(text) {
     } catch (e) {
         return null;
     }
-    if (!isPlainObject(value) || RUN_ENDINGS.indexOf(value.ended) < 0 || typeof value.text !== "string" || (value.text === "" && value.ended !== "finished")) return null;
-    return { ended: value.ended, text: value.text };
+    if (!isPlainObject(value) || value.version !== 1 || RUN_ENDINGS.indexOf(value.ended) < 0 || typeof value.text !== "string"
+            || typeof value.title !== "string" || (value.ended !== "finished" && (value.title === "" || value.text === ""))
+            || ["", "shell-restart", "computer-restart"].indexOf(value.remedy) < 0
+            || typeof value.endedAt !== "number" || !isFinite(value.endedAt) || value.endedAt < 0 || Math.floor(value.endedAt) !== value.endedAt) return null;
+    return { version: 1, ended: value.ended, title: value.title, text: value.text, remedy: value.remedy, endedAt: value.endedAt };
+}
+
+function pendingOutcome(outcome, startedAt, bootedAt) {
+    if (outcome === null || outcome.remedy === "") return outcome;
+    if (typeof bootedAt === "number" && bootedAt > outcome.endedAt) return null;
+    if (typeof startedAt === "number" && startedAt > outcome.endedAt) return null;
+    return outcome;
 }
 
 function tuiRunEnded(previous, current) {
@@ -857,6 +880,8 @@ function sourceChipCount(row) {
     return row.count !== null && row.note ? Math.max(1, row.count) : row.count;
 }
 
+var SYSTEM_FIRST_TEXT = "System packages update first so package versions stay compatible.";
+
 // A row's badge, Update and detail: an error first, then the VGS
 // row's note, then the count. The window wraps unique detail under the row.
 function rowReading(row) {
@@ -869,15 +894,17 @@ function rowReading(row) {
     var badge = { badge: badgeText(count), badgeTone: count > 0 ? "accent" : "neutral" };
     if (note !== null) {
         switch (note.kind) {
-        case "installHelper": return Object.assign(badge, { updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. The update window asks for your password if needed." });
+        case "installHelper": return Object.assign(badge, { updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. " + SYSTEM_FIRST_TEXT });
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
             return Object.assign(badge, { updatable: false, detail: SELF_REASON_TEXT[note.reason] });
-        case "aurUpgrade": return Object.assign(badge, { updatable: true, detail: "" });
+        case "aurUpgrade": return Object.assign(badge, { updatable: true, detail: SYSTEM_FIRST_TEXT });
         default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason");
         }
     }
-    return Object.assign(badge, { updatable: row.count > 0, detail: "" });
+    var systemFirst = ["aur", "verified-file", "deb-file", "rpm-file"].indexOf(row.source) !== -1
+        || row.source === "vgs" && (row.packages || []).some(function (pkg) { return pkg.name === "vgshell-git"; });
+    return Object.assign(badge, { updatable: row.count > 0, detail: row.count > 0 && systemFirst ? SYSTEM_FIRST_TEXT : "" });
 }
 
 // The window's rows, one per published source in the service's order:

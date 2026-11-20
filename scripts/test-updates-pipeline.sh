@@ -158,7 +158,10 @@ case "$1 $2" in
   "pkg ensure-helper")
     [ ! -e "$FIX/fail-ensure-helper" ] || exit 1
     [ ! -e "$FIX/skip-ensure-helper" ] || printf "vgshell: package-review: paru skipped: the review flagged a planted download.\n" >&2 ;;
-  "restart ") [ ! -e "$FIX/fail-restart" ] || exit 1 ;;
+  "restart ")
+    if [ -e "$FIX/no-desktop" ]; then printf "vgshell: refused: hyprland=unreachable\n" >&2; exit 69; fi
+    if [ -e "$FIX/restart-unavailable" ]; then printf "vgshell: refused: ipc=unavailable\n" >&2; exit 69; fi
+    [ ! -e "$FIX/fail-restart" ] || exit 1 ;;
   "power reboot") [ ! -e "$FIX/fail-reboot" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
@@ -486,6 +489,14 @@ pipeline() {
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
+outcome_is() { # ENDED TITLE TEXT REMEDY
+  "$node_bin" - "$outcome" "$@" <<'JS'
+const assert = require("node:assert/strict"), fs = require("node:fs");
+const [file,ended,title,text,remedy] = process.argv.slice(2), value = JSON.parse(fs.readFileSync(file,"utf8"));
+assert.ok(Number.isSafeInteger(value.endedAt) && value.endedAt > 0, "outcome: run end time");
+assert.deepEqual(value, {version:1, ended, title, text, remedy, endedAt:value.endedAt});
+JS
+}
 seq_is() { [[ "$(cat "$tmp/seq")" == "$(printf '%s\n' "$@")" ]]; } # LINE...
 seq_tail_is() { [[ "$(tail -n "$#" "$tmp/seq")" == "$(printf '%s\n' "$@")" ]]; } # LINE...
 has_call() { grep -qxF -- "$1" "$tmp/seq"; }
@@ -636,8 +647,7 @@ row_failure() {
   assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
   assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
-  assert "the outcome is the first failed part's result line" json_is "$outcome" \
-    'd == {"ended": "failed", "text": "mise failed. error: failed to install crush. Next: update again."}'
+  assert "the outcome separates the first failure and its cause" outcome_is failed "mise failed" "error: failed to install crush. Next: update again." ""
 }
 # A failed theme change and AUR build skip the VGS rebuild and leave one
 # end block after the shell restart and reboot answer. These wording
@@ -748,6 +758,7 @@ row_cause() {
   assert "a refusal with only its key reads without the key" result_has "Flatpak failed, and VGS could not find the cause. Next: update again. mise installed."
   assert "a refusal with only its key puts the key in the developer log" diag_has "updates: unworded source=flatpak refusal=step=failed exit=1"
   assert "a refusal with only its key is a failed part" result_has "Failed parts: Flatpak"
+  assert "an unworded failure stores its own title and next step" outcome_is failed "Flatpak failed" "VGS could not find the cause. Update again." ""
   # pacman's English errors read as VGS's sentences.
   local fixture sentence
   while IFS='|' read -r fixture sentence; do
@@ -788,6 +799,9 @@ row_system_failed() {
       assert "$fixture still updates a plugin" result_has "Plugin acme.one installed."
     fi
     assert "$fixture lists the clean-up skipped with its cause" result_has "Orphaned packages skipped. $cause, and clean-up runs only after a system upgrade."
+    if [[ $fixture == unread-pacman ]]; then
+      assert "an unread system check stores its own title and next step" outcome_is failed "System packages could not update" "VGS could not check them for updates. Update again later." ""
+    fi
   done <<'ROWS'
 fail-pacman|1|The system upgrade failed
 decline-pacman|0|You declined the system upgrade
@@ -932,8 +946,7 @@ row_stopped() {
   assert "a failed custom-command consent fails the package part" test "$status" == 1
   assert "the custom-command failure keeps the other results" out_has "Theme night installed."
   assert "the custom-command failure asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
-  assert "the custom-command outcome names the failed part" json_is "$outcome" \
-    'd == {"ended": "failed", "text": "AUR packages failed. exit 3. Next: update again."}'
+  assert "the custom-command outcome names the failed part" outcome_is failed "AUR packages failed" "exit 3. Next: update again." ""
 }
 # A Ctrl-C in a source step ends the run with 130 and drops the credential.
 row_interrupted() {
@@ -943,8 +956,7 @@ row_interrupted() {
   assert "an interrupted step ends the run with 130" test "$status" == 130
   assert "an interrupted step runs no later source" no_call "vgshell pkg run upgrade --manager flatpak"
   assert "an interrupted step drops the credential, then asks its one check" seq_tail_is "sudo -k" "vgshell ipc call vgs.updates invoke check run"
-  assert "an interrupted step's outcome names the part it stopped in" json_is "$outcome" \
-    'd == {"ended": "stopped", "text": "You stopped the update during System packages. Nothing after it ran."}'
+  assert "an interrupted step's outcome names the part it stopped in" outcome_is stopped "Update stopped during System packages" "Nothing after it ran." ""
   assert "an interrupted step's outcome is written before its check" test -e "$fix/outcome-at-check"
 }
 row_reboot() {
@@ -957,7 +969,7 @@ row_reboot() {
   assert "plugins alone still update their pending plugin" has_call "vgshell plugin update acme.one"
   # One changed kernel and VGS package, with the owner's end choices.
   local choice expected args
-  for choice in reboot later failed-reboot yes failed-restart interrupted failed-question interrupted-restart; do
+  for choice in reboot later failed-reboot yes failed-restart no-desktop restart-unavailable interrupted failed-question interrupted-restart; do
     reset_fix
     reboot_hook
     touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/check-on-terminal"
@@ -969,6 +981,8 @@ row_reboot() {
       failed-reboot) touch "$fix/fail-reboot" ;;
       yes) args=(-y) ;;
       failed-restart) echo 1 >"$fix/answer-reboot"; touch "$fix/fail-restart"; expected=1 ;;
+      no-desktop) echo 1 >"$fix/answer-reboot"; touch "$fix/no-desktop" ;;
+      restart-unavailable) echo 1 >"$fix/answer-reboot"; touch "$fix/restart-unavailable"; expected=1 ;;
       interrupted) echo 130 >"$fix/answer-reboot"; expected=130 ;;
       failed-question) echo 2 >"$fix/answer-reboot"; expected=2 ;;
       interrupted-restart) echo 130 >"$fix/answer-reboot"; touch "$fix/fail-restart"; expected=130 ;;
@@ -1010,12 +1024,15 @@ else:
     assert recheck < result, "result list must follow recheck"
     assert text.index("Restarting the shell on the updated VGS") < recheck, "recheck must follow restart"
 PY
-    if [[ $choice == failed-restart || $choice == interrupted-restart ]]; then
+    if [[ $choice == failed-restart || $choice == interrupted-restart || $choice == restart-unavailable ]]; then
       assert "a restart failure after the recorded end is a failed result" result_has "VGS could not restart. Restart the computer when you are ready."
-      assert "a restart failure replaces the finished outcome" json_is "$outcome" \
-        'd == {"ended": "failed", "text": "VGS could not restart. Restart the computer when you are ready."}'
+      assert "a restart failure replaces the finished outcome" outcome_is failed "VGS could not restart" "Restart the computer when you are ready." computer-restart
+    elif [[ $choice == no-desktop ]]; then
+      assert "an unreachable desktop leaves the update finished" outcome_is finished "" "The shell restarts at your next login." shell-restart
+      assert "an unreachable desktop adds a nonfailed result" result_has "The shell restarts at your next login."
+      assert "an unreachable desktop counts no failed part" out_lacks "parts failed"
     else
-      assert "$choice keeps the finished run's outcome" json_is "$outcome" 'd == {"ended": "finished", "text": ""}'
+      assert "$choice keeps the finished run's outcome" outcome_is finished "" "" ""
     fi
   done
 }
@@ -1626,6 +1643,7 @@ row_doas() {
   assert "a refused password is the result's one line for the system" result_has "VGS could not get permission to change the system, so it skipped system packages and AUR packages. Next: update again and enter your password. VGS installed. Flatpak installed."
   assert "a refused password runs no system, AUR or snapshot step" test "$(grep -c -e 'pkg run upgrade --manager pacman' -e 'pkg run upgrade --manager aur' -e 'snapper -c' "$tmp/seq")" == 0
   assert "a refused password still runs Flatpak" has_call "vgshell pkg run upgrade --manager flatpak"
+  assert "a permission refusal stores its own title and next step" outcome_is failed "System packages could not update" "VGS could not get permission to change the system, so it skipped system packages and AUR packages. Update again and enter your password." ""
 }
 # update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
@@ -1633,6 +1651,7 @@ row_doas() {
 row_vgs_only() {
   reset_fix
   self_json package '"vgshell-git"' rebuild
+  check_json pacman 123 null
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   PIPE_PATH="$snapper_dir" pipeline update-source.sh vgs
   assert "a VGS rebuild alone exits 0" test "$status" == 0
@@ -1640,6 +1659,12 @@ row_vgs_only() {
   assert "a VGS rebuild alone drops the credential after it" before "vgshell pkg run reinstall --manager aur vgshell-git" "sudo -k"
   assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
   assert "a VGS rebuild alone upgrades the system before the rebuild" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg run reinstall --manager aur vgshell-git"
+  # The terminal plan is the product's result before permission is asked.
+  assert "the single VGS plan discloses the system count and partial-upgrade reason" "$node_bin" - "$tmp/out" <<'JS'
+const assert=require("node:assert/strict"),fs=require("node:fs");
+const text=fs.readFileSync(process.argv[2],"utf8").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,"").replace(/\s+/g," ");
+assert.ok(text.includes("System: 123 updates. System packages update first so package versions stay compatible."));
+JS
 }
 # The new helper step runs through stand-ins only. A failed install skips
 # the VGS rebuild with its cause, and the rest of the run goes on.
@@ -2056,6 +2081,35 @@ if [[ $# -gt 0 ]]; then
   rows_done test-updates-pipeline
   exit
 fi
+row_outcome_migration() {
+  reset_fix
+  mkdir -p "${outcome%/*}"
+  local facts="${PLUGIN:-$plugin}/bin/facts"
+  # The actual reader must persist the conversion, preserve the original
+  # file time as run end, and never accept the old shape directly.
+  assert "the outcome reader migrates each old ending in place" "${base_env[@]}" "$node_bin" - "$facts" "$tree/bin/lib/qml-library.js" "$outcome" <<'JS'
+const assert=require("node:assert/strict"),fs=require("node:fs"),cp=require("node:child_process");
+const [facts,loader,file]=process.argv.slice(2);
+for(const [ended,text,title,body,remedy] of [
+ ["finished","","","",""],
+ ["failed","VGS could not restart. Restart the computer when you are ready.","VGS could not restart","Restart the computer when you are ready.","computer-restart"],
+ ["failed","AUR packages failed. A URL can include a full stop.","Update failed","AUR packages failed. A URL can include a full stop.",""],
+ ["stopped","You stopped the update during System packages. Nothing after it ran.","Update stopped","You stopped the update during System packages. Nothing after it ran.",""]
+]){
+ fs.writeFileSync(file,JSON.stringify({ended,text}));fs.utimesSync(file,1234567,1234567);
+ const answer=cp.spawnSync(process.execPath,[facts,loader,"outcome",file],{env:{PATH:"/usr/bin:/bin",VGS_TEST_RUN:"1"},encoding:"utf8",timeout:10000});
+ assert.equal(answer.status,0,answer.stderr);
+ const want={version:1,ended,title,text:body,remedy,endedAt:1234567000};
+ assert.deepEqual(JSON.parse(answer.stdout),want);
+ assert.deepEqual(JSON.parse(fs.readFileSync(file,"utf8")),want,"outcome migration persisted");
+}
+fs.writeFileSync(file,JSON.stringify({version:99,ended:"finished",text:""}));
+const future=cp.spawnSync(process.execPath,[facts,loader,"outcome",file],{env:{PATH:"/usr/bin:/bin",VGS_TEST_RUN:"1"},encoding:"utf8",timeout:10000});
+assert.notEqual(future.status,0,"future outcome refused");
+assert.equal(JSON.parse(fs.readFileSync(file,"utf8")).version,99,"future outcome preserved");
+JS
+}
+row_outcome_migration
 row_pty_shell; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
@@ -2153,6 +2207,9 @@ control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-question '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control reboot-from-earlier-upgrade '  _updates_reboot "${_updates_core[@]}"' '  _updates_reboot Hyprland' row_reboot
 control reboot-still-restarts '        _updates_rebooted=1' '        :' row_reboot
+control no-desktop-is-failure 'if [[ $restart_status == 69 && $restart_first ==' 'if [[ $restart_status == 1 && $restart_first ==' row_reboot
+control outcome-migration-not-persisted 'if (before.version !== current.version)' 'if (false)' row_outcome_migration bin/facts
+control system-plan-silent 'system_plan="System: $_updates_pending_count $update_word. System packages update first so package versions stay compatible."' 'system_plan="System: install available updates"' row_vgs_only
 control custom-config-lost 'custom_config_args=(--config "$custom_config")' 'custom_config_args=()' row_helper_configs
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck' '  :' row_reboot
