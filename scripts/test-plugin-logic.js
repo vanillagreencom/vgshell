@@ -666,7 +666,7 @@ function suite(ctx, configLogic, check) {
         m.schema.side = { type: "enum", label: "Side", options: [{ value: "local", label: "Local" }, { value: "a", label: "A" }] };
     })), "/p");
     const jarvis = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, "vgs.jarvis", "manifest.json"))), "/p").manifest;
-    check("fieldRows: the shipped toggle leads Voice", [jarvis.fieldRows.filter(row => row.section === "Voice")[0].key, jarvis.schema.holdToTalk.type, jarvis.settings.holdToTalk], ["holdToTalk", "boolean", false]);
+    check("fieldRows: the shipped toggle leads Keys", [jarvis.fieldRows.filter(row => row.section === "Keys")[0].key, jarvis.schema.holdToTalk.type, jarvis.settings.holdToTalk], ["holdToTalk", "boolean", false]);
     for (const [name, manifest, enabled, key, want] of [
         ["an Add entry opens its screen", offered.manifest, true, "voice", { ok: true, kind: "tui", name: "add-voice" }],
         ["an Add entry of a plugin that is off", offered.manifest, false, "voice", { ok: false, answer: "refused: tui=add-voice reason=disabled" }],

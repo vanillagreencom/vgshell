@@ -340,18 +340,16 @@ function startTextInfo(layers, causes, home) {
     }).join("\n") + ".";
 }
 // The Instructions row from SHOWN, the daemon's instructions message, and
-// CAUSES, its last answer's, an optional Setup step: the home's whole
-// AGENTS.md as the row's lines, its non-blank lines up to the daemon's
-// bound (JarvisProtocol INSTRUCTIONS_LINES), with Edit; a last line says
-// when the file holds more. Without a home the row links the Home folder
-// field, and a home Jarvis cannot read defers to the Home folder step,
-// which says what to change. An AGENTS.md over its budget adds a line and
-// keeps the row's reading: Jarvis still reads it whole.
-var INSTRUCTIONS_MORE = "More lines follow in AGENTS.md";
+// CAUSES, its last answer's, an optional Setup step: a home's AGENTS.md
+// that holds text reads Set, with Edit, and shows none of the file's
+// text, which Edit opens (owner, Slack 1795157103.587369). Without a home
+// the row links the Home folder field, and a home Jarvis cannot read
+// defers to the Home folder step, which says what to change. An AGENTS.md
+// over its budget adds a line and keeps the row's reading: Jarvis still
+// reads it whole.
 function instructionsRow(shown, causes, home) {
     var file = homeReference("AGENTS.md", home, "/AGENTS.md");
-    var value = shown.kind === "text" ? { tone: "ok", text: "Set", hint: "From " + file + " in your Home folder", action: true,
-            lines: shown.more ? shown.lines.concat([INSTRUCTIONS_MORE]) : shown.lines.slice() }
+    var value = shown.kind === "text" ? { tone: "ok", text: "Set", hint: "From " + file + " in your Home folder", action: true }
         : shown.kind === "empty" ? { tone: "info", text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", action: true }
         : shown.kind === "none" ? { tone: "info", text: "No home folder", available: false,
             hint: "Choose where to keep your instructions with [Home folder](page:vgs.jarvis/Settings/home)" }
@@ -360,7 +358,7 @@ function instructionsRow(shown, causes, home) {
         : null;
     if (value === null) throw new Error("jarvis-setup: instructions=" + shown.kind + " unexpected");
     if (shown.kind === "text" && causes.indexOf("guidance=agents-over-budget") !== -1)
-        return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),
+        return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],
             info: budgetInfo(["guidance=agents-over-budget"], home) });
     return value;
 }
@@ -382,8 +380,15 @@ function homeCaution(cause) {
 // home step is done: Done, with each budget in its info and an open action
 // on the chosen file, or the folder when several exceed a budget; a voice
 // rules file Jarvis did not load adds its line, and opens the skills folder
-// where no budget names a file.
+// where no budget names a file. With no folder chosen, HOME `empty`, the
+// daemon answers with no home cause, since voice and the AI model need no
+// folder; the step then waits on nothing and offers no action, as the
+// Instructions and Jarvis session rows beside it read, and its one line
+// says what a folder adds.
+var HOME_NONE = { tone: "info", text: "No folder chosen", available: false,
+    hint: "Voice works without a [Home folder](page:vgs.jarvis/Settings/home), but a Jarvis session needs one" };
 function homeDone(causes, home) {
+    if (home && home.kind === "empty") return HOME_NONE;
     var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
     var rules = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(VOICE_RULES, cause); });
     var ready = home && home.kind === "ready";
@@ -906,8 +911,7 @@ function fleetRoute(value, homeReady, main) {
 // The Jarvis session row (the manifest's sessionStart): what the Jarvis
 // package's session command answers, in the page's words. Each sentence is
 // the owner's (VGS-1439, 2026-10-12; the no-home one, which links the Home
-// folder field as the Instructions row does and leaves that row's badge the
-// one place the Home group says no folder is chosen, VGS-1785).
+// folder field as the Instructions row does, VGS-1785).
 var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
 // Each block of session-control.js, by its row: { text, hint, action },
 // `action` the row's action, absent where the hint's link is the way on.

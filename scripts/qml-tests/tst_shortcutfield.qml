@@ -21,7 +21,8 @@ import qs.Unit
 // field asks nothing, and the field is one Tab stop. A shortcut's alternative keys draw as one
 // group each with a separator between them, in one box that grows in height
 // within its allocation, with no button over a cap; a click on one, or Left and Right, picks the one edited, a combo
-// and Delete name it, and add() edits a new one after the last. The
+// and Delete name it, and add() edits a new one after the last, its first
+// chord captured after a click on the caller's own button. The
 // capture here records what the field asks and names keys with the core's
 // own judge. A field naming a plugin bind draws the hint its capture's
 // `conflicts` answers for the first alternative another holder asks for.
@@ -100,6 +101,21 @@ Item {
     }
     // As narrow as the gallery's focus example, after the column's Tab chain.
     ShortcutField { id: narrow; y: column.height; width: Theme.size.panel.sm / 2; capture: capture }
+    // A bind row's Add another key, as Settings' KeyField passes it in
+    // `actions`: shown only by its own case, so no other case's Tab chain
+    // or click reaches it.
+    ShortcutField {
+        id: adder
+        visible: false
+        z: 1
+        width: parent.width
+        keys: ["SUPER+M"]
+        capture: capture
+        actions: [
+            IconButton { id: addAnother; iconName: "plus"; label: "Add another key"; size: "sm"; onClicked: adder.add() }
+        ]
+        onCommitted: (key, index) => root.events = root.events.concat(["committed " + key + " " + index])
+    }
 
     UnitCase {
         name: "shortcutfield"
@@ -132,6 +148,8 @@ Item {
             narrow.width = Theme.size.panel.sm / 2;
             narrow.current = 0;
             narrow.stopTyping();
+            adder.visible = false;
+            adder.stopTyping();
             mouseMove(before);
             before.forceActiveFocus(Qt.TabFocusReason);
             // Ending typing can leave its tool-row width until the next
@@ -862,6 +880,18 @@ Item {
             keyClick(Qt.Key_Escape);
             compare(pair.capturing, false);
             compare(pair.editing, 1, "a cancelled new alternative leaves the last one edited");
+        }
+
+        // The plus takes the click's focus inside the field's scope; the
+        // first chord after it still reaches the new key's capture.
+        function test_add_another_key_captures_the_first_chord() {
+            adder.visible = true;
+            verify(waitForPolish(root.Window.window));
+            mouseClick(addAnother);
+            compare(adder.capturing, true, "the plus starts the new key's capture");
+            keyClick(Qt.Key_K, Qt.MetaModifier);
+            compare(JSON.stringify(root.events), JSON.stringify(["committed SUPER+K 1"]), "the first chord after the plus is the new key");
+            compare(adder.capturing, false);
         }
 
         function test_the_hint_names_the_alternative_another_holder_asks_for() {

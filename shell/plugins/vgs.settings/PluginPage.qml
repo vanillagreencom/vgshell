@@ -42,9 +42,14 @@ FocusScope {
     // having no settings.
     readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && !keysDrawn && paneHolder === null && settingsRows.length === 0
     // Whether the page draws its Keys section: the plugin has a bind,
-    // PluginLogic.bindRows', a declared key or a pad's. bin/lib/page-rows.js
-    // asks the same judge.
-    readonly property bool keysDrawn: row !== null && row.binds.length > 0
+    // PluginLogic.bindRows', a declared key or a pad's, which
+    // bin/lib/page-rows.js asks the same judge, or a setting the section
+    // places (`keyFields`).
+    readonly property bool keysDrawn: row !== null && (row.binds.length > 0 || keyFields.length > 0)
+    // The settings of schema group "Keys", drawn at the top of the Keys
+    // section ahead of the shortcuts, each on its own row, since each
+    // changes how a key works (VGS-2655); no group section draws them.
+    readonly property var keyFields: row === null ? [] : row.fieldRows.filter(field => field.section === "Keys" && !field.list && placed(field)).map(field => field.key)
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -126,7 +131,7 @@ FocusScope {
     readonly property var sections: {
         if (row === null) return [];
         const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
-        for (const field of row.fieldRows.filter(field => field.section !== "" && placed(field))) {
+        for (const field of row.fieldRows.filter(field => field.section !== "" && field.section !== "Keys" && placed(field))) {
             let section = out.find(s => s.group === field.section);
             if (section === undefined) {
                 section = { group: field.section, keys: [], builtin: null };
@@ -886,6 +891,30 @@ FocusScope {
                         // says why the limit exists.
                         info: page.panel === null || !page.panel.capture ? ""
                             : "Other shortcuts stop working while this field listens.\nIt stops after " + Math.round(page.panel.capture.timeoutMs / 1000) + " seconds so your shortcuts work again."
+
+                        Repeater {
+                            model: ScriptModel {
+                                values: page.keyFields
+                            }
+                            ChoiceField {
+                                required property string modelData
+                                width: body.width
+                                pluginId: page.row.id
+                                key: modelData
+                                spec: page.row.schema[modelData]
+                                value: page.row.settings[modelData]
+                                choices: page.row.settingChoices[modelData] || []
+                                problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
+                                editable: page.editable
+                                edits: unsaved
+                                onApply: v => { if (page !== null && page.row !== null) page.writeField(key, null, v); }
+                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                onAddWanted: if (page !== null && page.row !== null) page.panel.addChoice(pluginId, key)
+                                onPreviewWanted: value => { if (page !== null && page.row !== null) page.panel.previewChoice(pluginId, key, value); }
+                            }
+                        }
 
                         Repeater {
                             model: ScriptModel {

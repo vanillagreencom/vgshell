@@ -16,12 +16,14 @@ import "../foundation/LineBreak.js" as LineBreak
 // A page reference in the text, `[words](page:<plugin id>)` or
 // `[words](page:<plugin id>/<tab>)`, or a file reference,
 // `[words](file:<encoded path>)`, which PageReference.js reads, draws its words
-// alone, as a link while the text holds no `link` words and the reference
-// names a page or a file, so an owner's fixed `link` gives way in a text
-// that does not cite it, and activating it emits `pageActivated` with that
-// page and tab, "" for no tab, in place of `activated`: a file
-// reference's page is `file:<path>`. The owner hands it on to the core's
-// one reference route, which opens a page in Settings and a file or folder
+// alone, as a link where the reference names a page or a file and its
+// words are no `link` occurrence's, so a text can hold the owner's
+// `link` and a reference to another page, as a Settings hint that cites a
+// website and another field does, and an owner's fixed `link` gives way in
+// a text that does not cite it. Activating a reference emits
+// `pageActivated` with its page and tab, "" for no tab, in place of
+// `activated`: a file reference's page is `file:<path>`. The owner hands
+// it on to the core's one reference route, which opens a page in Settings and a file or folder
 // through the core edit route (`shell.tui.edit`); a reference to no page,
 // as `[words](page:)`, reads as its words.
 // The focus ring goes round the selected link's words, `linkBox`, not
@@ -75,7 +77,15 @@ T.Control {
     // the page reference.
     readonly property bool cited: link !== "" && plain.indexOf(link) !== -1
     readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
-    readonly property var links: cited ? explicitLinks() : references.links.filter(item => item.page !== "")
+    // Every link in text order: the `link` occurrences, and each page
+    // reference whose words none of them covers.
+    readonly property var links: {
+        const own = cited ? explicitLinks() : [];
+        const pages = references.links.filter(item => item.page !== "" && !own.some(mine => item.start < mine.end && mine.start < item.end));
+        return own.concat(pages).sort((a, b) => a.start - b.start);
+    }
+    // Every link is an occurrence of `link`, one target wherever it is.
+    readonly property bool oneTarget: cited && links.every(item => item.page === "")
     property int currentLink: 0
     property bool tabLinked: false
     // One link whose words are the whole text.
@@ -258,7 +268,7 @@ T.Control {
     onLinksChanged: syncLinks()
     onClicked: {
         const target = links[currentLink];
-        if (target !== undefined && !cited && target.page !== "") pageActivated(target.page, target.tab);
+        if (target !== undefined && target.page !== "") pageActivated(target.page, target.tab);
         else activated();
     }
 
@@ -299,7 +309,7 @@ T.Control {
 
     // Qt Keys accepts handled events before the control's default handler:
     // https://doc.qt.io/qt-6/qml-qtquick-keys.html#key-handling-priorities
-    Keys.onPressed: event => { event.accepted = !cited && links.length > 1 && navigation.handle(event); }
+    Keys.onPressed: event => { event.accepted = !oneTarget && links.length > 1 && navigation.handle(event); }
 
 
     Keys.onReturnPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }
@@ -397,7 +407,7 @@ T.Control {
         acceptedButtons: Qt.LeftButton
         onPressed: mouse => { mouse.accepted = root.onWords(mouse.x, mouse.y); }
         onClicked: mouse => {
-            root.currentLink = root.cited ? 0 : root.linkAt(mouse.x, mouse.y);
+            root.currentLink = root.oneTarget ? 0 : root.linkAt(mouse.x, mouse.y);
             root.forceActiveFocus(Qt.MouseFocusReason);
             root.clicked();
         }

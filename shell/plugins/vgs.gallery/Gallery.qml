@@ -392,8 +392,10 @@ Item {
                 // SavedSlider beside its reading; a release keeps the value.
                 // Its slider is the Slider whose focus example stands below.
                 SavedSlider { id: savedSample; property real kept: 12; width: parent.width; from: 0; to: 32; shown: kept; formatValue: value => Math.round(value) + " px"; onSaved: value => savedSample.kept = value }
-                // NumberSettingField: presets with Custom… and its slider
-                // row, a bounded number's slider, and a read-only field.
+                // NumberSettingField: presets with Custom… and its custom
+                // row, a text field, since 1 to 600 seconds is too many
+                // steps for a slider, a bounded number's slider, and a
+                // read-only field.
                 // A choice writes the sample's value.
                 Column {
                     width: parent.width

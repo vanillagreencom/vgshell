@@ -11,6 +11,15 @@ import qs.Ui
 // neither presets nor bounds a text field. A unit makes the value read as
 // a quantity (SettingValues.quantityText).
 //
+// A bounded number whose `step` cuts its range into more steps than a
+// slider can pick one by one, `typedRange`, takes a text field in the
+// slider's place, in either row: its widest rail, `control.maxWidth` less
+// the reading's least room and its gap, gives each step under `stepRoom`
+// pixels (docs/architecture/design-system.md § Settings pages). Its hint
+// then states the range, and Enter on a value outside it, or on no
+// number, writes nothing and draws the refusal in the error line until
+// the text changes.
+//
 // A Select or a Slider writes at once, through `apply`, and writes nothing
 // for the value held. A text field keeps what is typed until it is saved:
 // Enter in it writes it, a loss of focus writes nothing, and Escape puts
@@ -53,6 +62,19 @@ Column {
     // The custom editor appeared and waits to be brought into view.
     property bool revealPending: false
     readonly property bool bounded: spec.min !== undefined && spec.max !== undefined
+    // The pixels of rail a slider gives each step for a pointer to pick it
+    // alone: at two, a press a pixel off its aim still lands on the step.
+    readonly property real stepRoom: 2
+    readonly property real widestRail: Theme.control.maxWidth - Theme.size.control.lg - Theme.field.labelGap
+    readonly property bool typedRange: bounded && spec.step > 0 && (spec.max - spec.min) / spec.step * stepRoom > widestRail
+    // The range a typed bounded number takes, in the unit it is typed in.
+    readonly property string rangeSpan: typedRange ? amount(spec.min) + " to " + amount(spec.max) + (spec.unit === undefined ? "" : unitSuffix(spec.unit)) : ""
+    readonly property string rangeText: "From " + rangeSpan
+    // What a typed bounded number's text field adds to the entry's hint:
+    // the range, as a sentence of its own after a hint.
+    readonly property string rangeSuffix: !typedRange ? "" : hint === "" ? rangeText : ". " + rangeText + "."
+    // The refusal of the text a typed bounded number holds, "" for none.
+    property string refusal: ""
     // A list-like `presets`, as a spec read through a view's modelData
     // holds it (SettingValues.presetRows).
     readonly property bool hasPresets: spec.presets !== undefined && spec.presets !== null && typeof spec.presets.length === "number"
@@ -95,6 +117,15 @@ Column {
     }
 
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
+    // V with grouped thousands and the step's decimals, as the range reads:
+    // Number.toLocaleString(locale, format, precision)
+    // (https://doc.qt.io/qt-6/qml-qtqml-number.html#toLocaleString-method).
+    function amount(v) {
+        const decimals = String(spec.step).indexOf(".") === -1 ? 0 : String(spec.step).length - String(spec.step).indexOf(".") - 1;
+        return Number(v).toLocaleString(Qt.locale("en_US"), "f", decimals);
+    }
+    // A typed number keeps the unit it is stored in: seconds stay seconds.
+    function unitSuffix(unit) { return unit === "%" || unit === "×" ? unit : " " + unit; }
     // Only the user's Custom… choice brings the row into view: a custom
     // value the field loads with, or another page writes, moves no page,
     // as Power's section, which a reveal would scroll from the row the
@@ -124,9 +155,17 @@ Column {
     }
     // Write the text of `input`. The owner's reply comes back before
     // `apply` returns, so the value is the typed one exactly when the write
-    // was accepted; the field then shows what the configuration holds.
+    // was accepted; the field then shows what the configuration holds. A
+    // typed bounded number outside its range is refused here: the core
+    // judges a setting's type alone, and its plugin reads what it holds
+    // (docs/architecture/configuration.md § Layers and settings).
     function commit(input) {
         const typed = SettingValues.typedNumber(input.text);
+        if (typedRange && !(typed >= spec.min && typed <= spec.max)) {
+            refusal = "Enter a number from " + rangeSpan;
+            return;
+        }
+        refusal = "";
         apply(typed);
         if (typed !== value) return;
         input.text = heldText;
@@ -139,10 +178,10 @@ Column {
         label: root.label
         info: root.info
         labelTooltip: root.tooltip
-        hint: root.customVisible ? "" : root.warning !== "" ? root.warning : root.hint
+        hint: root.customVisible ? "" : root.warning !== "" ? root.warning : root.hint + (root.hasPresets ? "" : root.rangeSuffix)
         hintLink: root.customVisible || root.warning !== "" ? "" : root.hintLink
         hintTone: root.warning !== "" ? "warning" : ""
-        error: root.problem
+        error: root.problem !== "" ? root.problem : root.customVisible ? "" : root.refusal
         inline: true
         onHintLinkActivated: root.hintLinkActivated()
         onHintPageActivated: (page, tab) => root.pageActivated(page, tab)
@@ -151,7 +190,7 @@ Column {
         Loader {
             id: loader
             width: parent.width
-            sourceComponent: root.hasPresets ? presetChoice : root.bounded ? slider : text
+            sourceComponent: root.hasPresets ? presetChoice : root.bounded && !root.typedRange ? slider : text
         }
     }
 
@@ -160,8 +199,9 @@ Column {
         width: root.width
         visible: root.customVisible
         label: ""
-        hint: root.warning !== "" ? root.warning : root.hint
+        hint: root.warning !== "" ? root.warning : root.hint + root.rangeSuffix
         hintLink: root.warning !== "" ? "" : root.hintLink
+        error: root.refusal
         hintTone: root.warning !== "" ? "warning" : ""
         onHintLinkActivated: root.hintLinkActivated()
         onHintPageActivated: (page, tab) => root.pageActivated(page, tab)
@@ -171,7 +211,7 @@ Column {
             id: customLoader
             width: parent.width
             active: root.allowCustom
-            sourceComponent: root.bounded ? slider : customText
+            sourceComponent: root.bounded && !root.typedRange ? slider : customText
         }
     }
 
@@ -189,6 +229,7 @@ Column {
         escapeReverts: true
         committedText: field.heldText
         onAccepted: field.save()
+        onTextChanged: if (field.refusal !== undefined) field.refusal = ""
         Component.onCompleted: text = field.heldText
         Connections {
             target: draft.field

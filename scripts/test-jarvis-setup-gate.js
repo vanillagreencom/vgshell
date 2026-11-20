@@ -1746,14 +1746,15 @@ function verifyOverBudget(gate, serviceSource) {
     assert.equal(all.setupHome.file, "/home/user/Fixture/", "several cautions offer the chosen folder");
     assert.equal(judge.statusWrite(manifest, {}, "setupHome", all.setupHome).ok, true, "the judge accepts the step that names every text");
     // The daemon's instructions message for each kind (JarvisProtocol
-    // instructionsText): the whole file's non-blank lines, headings
-    // included.
+    // instructionsText): a file with text reads Set and the row shows none
+    // of its lines, whatever the message carries; a file over its budget
+    // adds its one line.
     const text = { kind: "text", lines: ["# Jarvis", "Answer in short sentences.", "## Tools"], more: false };
     for (const [label, shown, causes, want] of [
-        ["the whole file", text, [], ["ok", "Set", 3, "done"]],
-        ["a file with more lines than the message holds", { ...text, more: true }, [], ["ok", "Set", 4, "done"]],
-        ["a file over its budget", text, ["guidance=agents-over-budget"], ["ok", "Set", 4, "done"]],
-        ["a file beside another text over its budget", text, ["guidance=memory-over-budget"], ["ok", "Set", 3, "done"]],
+        ["a file with text", text, [], ["ok", "Set", undefined, "done"]],
+        ["a file with more lines than the message holds", { ...text, more: true }, [], ["ok", "Set", undefined, "done"]],
+        ["a file over its budget", text, ["guidance=agents-over-budget"], ["ok", "Set", 1, "done"]],
+        ["a file beside another text over its budget", text, ["guidance=memory-over-budget"], ["ok", "Set", undefined, "done"]],
         ["an empty file", { kind: "empty" }, [], ["info", "Your instructions are empty", undefined, "optional"]],
         ["no home", { kind: "none" }, [], ["info", "No home folder", undefined, "unavailable"]],
         ["a home Jarvis cannot read", { kind: "unreadable" }, [], ["info", "Cannot be read", undefined, "unavailable"]]]) {
@@ -1771,8 +1772,8 @@ function verifyOverBudget(gate, serviceSource) {
         assert.deepEqual(offered, shown.kind === "text" || shown.kind === "empty" ? { ok: true, kind: "tui", name: "edit-instructions" }
             : { ok: false, answer: "refused: action=instructions reason=not-offered" }, label + ": Edit opens the whole file while there is one");
         if (shown.kind === "text") {
-            const over = causes.includes("guidance=agents-over-budget") ? 1 : 0;
-            assert.deepEqual(row.lines.slice(over, over + shown.lines.length), shown.lines, label + ": every line of the file shows, headings included");
+            const drawn = [row.text, row.hint, ...(row.lines || [])];
+            assert.deepEqual(shown.lines.filter(line => drawn.some(words => words.includes(line))), [], label + ": the row shows none of the file's text");
             assert.equal(pageReference.file(pageReference.parse(row.hint).page), "/home/user/Fixture/AGENTS.md", label + ": the row names the home's AGENTS.md");
         }
         if (shown.kind === "empty") assert.equal(pageReference.file(pageReference.parse(row.hint).page), "/home/user/Fixture/AGENTS.md", label + ": the row names the empty file");
@@ -1928,6 +1929,31 @@ function verifyHomeSetup(gate) {
             const links = [value.hint, value.info].filter(text => text !== undefined).map(text => pageReference.parse(text)).filter(link => link.page !== "");
             assert.deepEqual(links.map(link => link.tab), ["Settings/mainHost"], label + ": the other route's setting is linked");
         }
+}
+
+// With no Home folder chosen, HOME `empty`, the daemon answers with no home
+// cause, since voice and the AI model need no folder. The Home folder step,
+// the Instructions row and the Jarvis session row then agree: none reads
+// Done, none waits on the user, so Setup needs nothing while voice and the
+// AI model read Ready, and the Home folder step's one line links the
+// folder field.
+function verifyNoHome(gate) {
+    const none = { kind: "empty" };
+    const values = plain(gate.readiness({ kind: "answered", causes: [] }, none));
+    const rows = {
+        ...values,
+        instructions: plain(gate.instructionsRow({ kind: "none" }, [], none)),
+        sessionStart: plain(gate.sessionStart(false, { kind: "blocked", block: "no-home" }))
+    };
+    for (const [key, value] of Object.entries(rows))
+        assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, key + ": the judge accepts the row with no Home folder");
+    const status = judge.statusRows(manifest, rows);
+    const reading = key => settings.stepReading(status.find(entry => entry.key === key), jarvisOn);
+    assert.deepEqual(["setupHome", "instructions", "sessionStart"].map(reading), ["unavailable", "unavailable", "optional"],
+        "no Home folder: the three rows agree that no folder is set up");
+    assert.deepEqual([values.setup.tone, settings.setupNeeds(status, [], true).open], ["ok", false], "no Home folder: Setup needs nothing while voice works");
+    assert.deepEqual([oneSentence(rows.setupHome.hint), settingLinks(rows.setupHome.hint)], [true, ["home"]],
+        "no Home folder: the step's one line links the Home folder field");
 }
 
 // Production path and editor-completion callbacks, with no filesystem or
@@ -2267,6 +2293,7 @@ function verify(gate) {
     verifyOverBudget(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyHomeDrift(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyHomeSetup(gate);
+    verifyNoHome(gate);
     verifyLimitPresentation(gate);
     verifySession(gate);
     verifyOneSessionJudgement(gate);
@@ -2712,7 +2739,7 @@ const CONTROLS = [
     ["a voice rules file not loaded holds its step", "Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause) || Object.prototype.hasOwnProperty.call(VOICE_RULES, cause);",
         "Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause);", "voice rules not loaded reads Ready"],
     ["a voice rules file not loaded adds no line", "if (rules.length === 0) return value;", "return value;", "voice rules not loaded reads Ready"],
-    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),\n            info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a file over its budget"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a file over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
     ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    if (rules.length === 0)', 'delete value.action;\n    }\n    if (rules.length === 0)', "the caution carries its file action"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
@@ -2798,7 +2825,8 @@ const CONTROLS = [
     ["behind offers no Update", 'var update = { tone: "warning", text: TO_DO, lines: lines, action: "update" };', "var update = { tone: \"warning\", text: TO_DO, lines: lines };", "behind: the action the step offers"],
     ["a missing kendex reads as current", '    "kendex-missing": "kendex is not installed",', '    "kendex-missing": "Packages up to date",', "kendex-missing: the reading never reads as current"],
     ["a missing kendex links no tools", '    if (kind === "kendex-missing") return Object.assign({}, value, { lines: lines, hint: TOOLS_HINT });\n', "", "kendex-missing: the step links the required tools"],
-    ["the instructions drop the file's first line", "lines: shown.more ? shown.lines.concat([INSTRUCTIONS_MORE]) : shown.lines.slice() }", "lines: shown.lines.slice(1) }", "the whole file"],
+    ["the Instructions row shows the file's text", 'hint: "From " + file + " in your Home folder", action: true }', 'hint: "From " + file + " in your Home folder", action: true, lines: shown.lines.slice() }', "a file with text"],
+    ["no Home folder reads Done", '    if (home && home.kind === "empty") return HOME_NONE;\n', "", "no Home folder: the three rows agree that no folder is set up"],
     ["an empty file offers no Edit", 'text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", action: true }', 'text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", available: false }', "an empty file"],
     ["a folder that is no home offers no Set up", '    "home=not-set-up": { setup: true },\n', "", "home=not-set-up"],
     ["a main's home is never offered", 'return homeSetupRoute(main) === "clone" ? { tone: "warning", text: TO_DO, action: "clone", hint: HOME_CLONE }', 'return false ? { tone: "warning", text: TO_DO, action: "clone", hint: HOME_CLONE }', "beside a main: the step's action"],

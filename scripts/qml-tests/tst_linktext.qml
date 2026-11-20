@@ -140,6 +140,18 @@ Item {
         text: "[notes](page:vgs.voice) or [notes](page:acme.models)."
         link: "notes"
     }
+    // The owner's link beside a page reference, as a Settings hint cites a
+    // website and another field.
+    LinkText {
+        id: mixed
+        y: 680
+        width: 400
+        wrapMode: Text.Wrap
+        text: "Get a key at Key site, then pick it in [Voice key](page:acme.models/Settings/voiceAccount)."
+        link: "Key site"
+    }
+    SignalSpy { id: mixedPages; target: mixed; signalName: "pageActivated" }
+    SignalSpy { id: mixedActivated; target: mixed; signalName: "activated" }
     SignalSpy { id: multiplePages; target: multiple; signalName: "pageActivated" }
     SignalSpy { id: explicitPages; target: explicit; signalName: "pageActivated" }
     SignalSpy { id: explicitActivated; target: explicit; signalName: "activated" }
@@ -286,6 +298,29 @@ Item {
             multiplePages.clear();
             keyClick(Qt.Key_Right);
             compare(multiplePages.count, 0, "navigation opens no target");
+        }
+
+        function test_a_link_and_a_page_reference_each_draw_and_follow() {
+            compare(mixed.plain, "Get a key at Key site, then pick it in Voice key.");
+            compare(JSON.stringify(mixed.links.map(item => item.words)), JSON.stringify(["Key site", "Voice key"]));
+            compare((labelOf(mixed).text.match(/<font color=/g) || []).length, 2, "both links draw");
+            tryVerify(() => [0, 1].every(index => mixed.underlined.some(span => span.index === index)));
+            mixedPages.clear();
+            mixedActivated.clear();
+            for (const index of [0, 1]) {
+                const span = mixed.underlined.find(span => span.index === index);
+                mouseClick(mixed, (span.left + span.right) / 2, (span.line + 0.5) * mixed.linePitch);
+            }
+            compare(mixedActivated.count, 1, "the owner's link follows its own route");
+            compare(mixedPages.count, 1, "the page reference opens its field");
+            compare(mixedPages.signalArguments[0][0], "acme.models");
+            compare(mixedPages.signalArguments[0][1], "Settings/voiceAccount");
+            mixed.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Home);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Right);
+            keyClick(Qt.Key_Return);
+            compare([mixedActivated.count, mixedPages.count], [2, 2], "the keyboard reaches and follows each link");
         }
 
         function test_an_explicit_link_keeps_its_activation() {

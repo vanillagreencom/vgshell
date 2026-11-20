@@ -194,8 +194,12 @@ FocusScope {
         start();
     }
 
+    // The box takes the keys the capture reads. A caller's own tool, such
+    // as an Add another key button in `actions`, holds this scope's focus
+    // after its click, so focusing the scope alone would leave the keys on
+    // that tool.
     function add() {
-        root.forceActiveFocus(Qt.TabFocusReason);
+        box.forceActiveFocus(Qt.TabFocusReason);
         edit(keys.length);
     }
 

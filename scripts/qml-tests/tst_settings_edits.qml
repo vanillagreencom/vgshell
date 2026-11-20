@@ -21,7 +21,8 @@ import "../../shell/plugins/vgs.settings"
 // so the default keys show at once. The add button and the reset keep their
 // places as they come and go, the reset last, so a row with the default
 // keys leaves no gap between its icons, and the add button hides while the
-// text entry is open. A plugin page draws one Keys row per shortcut, every
+// text entry is open. A setting of schema group Keys draws once, as the
+// first row of the Keys section. A plugin page draws one Keys row per shortcut, every
 // alternative key in its one field: Delete on one writes the keys left, the
 // add button and a pressed combo write the list with the new key, Use my
 // binding removes the key a user bind holds, and the reset sends undefined.
@@ -413,6 +414,28 @@ Item {
             compare(input.text, "73", "a loss of focus keeps the text");
             compare(root.writes, []);
             verify(gap.edited, "and the edit");
+        }
+
+        // A setting of schema group "Keys" is the first row of the plugin's
+        // Keys section, on its own row ahead of the shortcuts, and no group
+        // section of its own draws it.
+        function test_a_keys_group_setting_is_the_first_row_of_keys() {
+            const original = root.pageRow;
+            root.pageRow = Object.assign({}, original, {
+                schema: { hold: { type: "boolean", label: "Hold to talk", group: "Keys" }, level: { type: "boolean", label: "Level", group: "Voice" } },
+                settings: { hold: false, level: true }
+            });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            tryVerify(() => keyFields(page).length === 1);
+            const keys = descendants(page).filter(child => child instanceof Section && child.title === "Keys");
+            compare(keys.length, 1, "one Keys section");
+            const holds = descendants(page).filter(child => child instanceof SettingField && child.key === "hold");
+            compare(holds.length, 1, "the setting draws once");
+            verify(descendants(keys[0]).indexOf(holds[0]) !== -1, "inside the Keys section");
+            const top = item => item.mapToItem(keys[0], 0, 0).y;
+            tryVerify(() => top(holds[0]) + holds[0].height <= top(keyFields(page)[0]), 1000, "ahead of the shortcuts, on its own row");
+            releasePage(page, original);
         }
 
         // A status reading, such as the graphics card a GPU switch needs,
