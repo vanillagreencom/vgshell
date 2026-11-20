@@ -127,6 +127,17 @@ Scope {
     function toggle(id, payloadJson, origin) {
         if (PluginLogic.hasOwn(instances, id) && PluginLogic.hasOwn(closingReaders, id) && closingReaders[id]())
             return summon(id, payloadJson, origin);
+        if (PluginLogic.hasOwn(instances, id)) {
+            const request = requests[id];
+            // An existing application window can be behind a task terminal.
+            // Qt's attached Window is its native QQuickWindow; active reads
+            // keyboard activation, unlike QsWindow.visible, which reads mapping.
+            // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-prop
+            if (PluginLogic.summonSurface(kind, request.anchored, request.presentation) === "window") {
+                const window = instances[id].Window.window;
+                if (window === null || !window.active) return summon(id, payloadJson, origin);
+            }
+        }
         return PluginLogic.hasOwn(instances, id) ? hide(id) : summon(id, payloadJson, origin);
     }
 

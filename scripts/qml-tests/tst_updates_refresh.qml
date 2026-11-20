@@ -63,6 +63,7 @@ Item {
         function startup() {
             reader(service.statusPath).finishRead(snapshot(97));
             reader(service.bootPath).finishRead("btime 1\n");
+            process("outcome").finish(0, 0, "null", "");
         }
         function init() {
             ProcessRegistry.clear(); root.values = {}; root.observed = []; root.handlers = {}; root.refuseKey = "";
@@ -82,6 +83,26 @@ Item {
         }
         function sourceRows() {
             return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
+        }
+        function test_last_run_keeps_title_and_sentence_apart() {
+            root.values = { pending: 1, checking: false, lastCheck: Date.now(),
+                checkState: { tone: "ok", text: "Updates available" },
+                sources: [{ source: "pacman", label: "System", count: 1, error: null, packages: [] }],
+                lastRun: { version: 1, ended: "failed", title: "VGS could not restart",
+                    text: "Restart the computer when you are ready.", remedy: "computer-restart", endedAt: Date.now() } };
+            const labels = displayedTextItems(view);
+            const title = labels.find(item => displayedText(item) === root.values.lastRun.title);
+            const sentence = labels.find(item => displayedText(item) === root.values.lastRun.text);
+            verify(title !== undefined && sentence !== undefined, "the banner renders both stored fields");
+            compare(title.role, "bodyStrong");
+            compare(sentence.role, "body");
+            compare(sentence.textFormat, Text.PlainText);
+            const banner = descendants(view).find(item => item.title === root.values.lastRun.title && item.plain === true);
+            verify(banner !== undefined);
+            const count = labels.find(item => displayedText(item) === "1 update");
+            verify(count !== undefined);
+            const countBottom = count.mapToItem(banner.parent, 0, count.height).y;
+            verify(banner.y - countBottom >= Theme.stack.page, "the banner keeps the window's block spacing above it");
         }
         // VGS-2622's product result: a short failed-check count beside an
         // upright time in the shared muted ink.
@@ -250,8 +271,9 @@ Item {
             endRun(1);
             compare(service.checking, false, "the run's end starts no third check");
             compare(checks().length, 0);
-            reader(service.outcomePath).finishRead(JSON.stringify({ ended: "failed", text: "Flatpak failed." }));
-            compare(root.values.lastRun, { ended: "failed", text: "Flatpak failed." }, "the run's outcome is published");
+            const outcome = { version: 1, ended: "failed", title: "Flatpak failed", text: "Update again.", remedy: "", endedAt: 1000 };
+            process("outcome").finish(0, 0, JSON.stringify(outcome), "");
+            compare(root.values.lastRun, outcome, "the run's outcome is published");
             endRun(2);
             admission(4);
             compare(checks().length, 1, "a run that asked no check gets one at its end");

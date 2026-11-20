@@ -2399,6 +2399,7 @@ reset_lock_wait_s=10
 reset_run() { # KEY STEP
   local status=0
   if shell_pid >/dev/null 2>&1; then
+    select_hyprland_instance
     preflight
     theme_lock_hold "$1" -w "$reset_lock_wait_s"
     shell_restart "$2"
@@ -2579,6 +2580,8 @@ shell_launch() {
   (
     printf '%s\n' "$BASHPID" >&9
     exec 9>&-
+    export VGSHELL_STARTED_AT
+    VGSHELL_STARTED_AT="$(date +%s%3N)"
     VGSHELL_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
   ) &
   shell_child=$!
@@ -2741,6 +2744,7 @@ case "$cmd" in
     fi
     # Before the stop: the relaunched `vgshell run` would refuse below the
     # floor and leave no shell.
+    select_hyprland_instance
     preflight
     shell_restart
     ;;

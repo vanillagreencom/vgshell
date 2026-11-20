@@ -65,7 +65,7 @@
 # after each choice. Update all while unanswered opens the offer
 # without a run. Keep and dismissal start the update; VGS only starts it
 # after the held setup terminal ends. A saved answer starts it directly.
-# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
+# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -805,6 +805,56 @@ expect_poll "a pending check draws the accent count" '["pending", "refresh-cw", 
 expect "the widget draws the icon in the accent colour with the count" '["refresh-cw", "accent", "7"]' widget_drawn
 expect "the tooltip lists every source's count" '[2, 1, 1, 1, 1, 1, 0]' widget_tip_values
 expect "the tooltip ends with the check's time" True widget_tip_last
+
+# A mapped window behind a failed task's close prompt is summoned and
+# raised by one bar click. Only an already active window toggles closed.
+updates_click_task() {
+  local updates_click_kitty updates_click_address updates_click_before
+  updates_click_kitty="$(command -v kitty)" || { printf 'qml-smoke: status=not-measured missing=kitty\n'; return 77; }
+  fresh_updates "the task-terminal click"
+  cat >"$updates_state/close-prompt.sh" <<'CLOSEPROMPT'
+#!/usr/bin/env bash
+printf 'The task failed. Press any key to close.\n'
+printf ready >"$1"
+read -rsn1
+CLOSEPROMPT
+  spawn_display "$updates_state/close-prompt.log" "${shell_env[@]}" -- "$updates_click_kitty" --config NONE -o confirm_os_window_close=0 -o shell_integration=disabled --class org.vgs.tui --title 'Updates task' /usr/bin/bash "$updates_state/close-prompt.sh" "$updates_state/close-prompt.ready" || return 1
+  updates_click_prompt() { [[ -f $updates_state/close-prompt.ready ]] && active_window || echo waiting; }
+  expect_poll "the failed task holds its close prompt in front of Updates" '["org.vgs.tui", "Updates task"]' updates_click_prompt
+  [[ $(updates_click_prompt) == '["org.vgs.tui", "Updates task"]' ]] || return 1
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "one bar click keeps the obscured Updates window mapped" open updates_open
+  updates_keyboard "the bar click over the task terminal"
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "a bar click closes Updates when it is already in front" closed updates_open
+  updates_click_address="$(hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.tui" and c.get("title")=="Updates task"]; print(v[0]["address"] if len(v)==1 else "none")')" || return 1
+  [[ $updates_click_address == 0x* ]] || return 1
+  expect "the owned close-prompt terminal closes" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$updates_click_address\" })"
+  updates_click_terminal_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c.get("class")=="org.vgs.tui" and c.get("title")=="Updates task" for c in json.load(sys.stdin)))'; }
+  expect_poll "the close-prompt terminal is gone" 0 updates_click_terminal_count
+
+  # A real core refusal reaches the widget: the disposable plugin declares
+  # no window kind. Its one click must produce exactly one reason line.
+  cp -- "$updates_dir/manifest.json" "$updates_state/click-manifest.json"
+  python3 - "$updates_dir/manifest.json" <<'REFUSAL'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+value['kinds'].remove('window'); del value['entryPoints']['window']
+value['capabilities'].remove('run'); del value['capabilityKinds']
+p.write_text(json.dumps(value))
+REFUSAL
+  rescan "the refused window declaration is scanned"
+  expect_poll "the widget remains built without its window kind" '"vgs.updates"' ipc smoke readInstance "$widget_key" vgs.updates moduleName
+  updates_click_before="$(log_lines 'updates widget: window refused: kind=window id=vgs.updates')" || return 1
+  expected_errors+=('updates widget: window refused: kind=window id=vgs\.updates')
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "a click that cannot open Updates logs one reason" "$((updates_click_before + 1))" log_lines 'updates widget: window refused: kind=window id=vgs.updates'
+  cp -- "$updates_state/click-manifest.json" "$updates_dir/manifest.json"
+  rescan "the normal window declaration is restored"
+  expect_poll "the restored Updates service is idle" idle updates_idle
+}
+updates_click_task
 
 # The window: one row per source with its count and its own Update when it
 # has updates; a click on a row lists its packages.

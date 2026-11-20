@@ -328,7 +328,15 @@ function runtimeRoot() { return runtimeFolder(true); }
 function workRoot(reviewed = false) { return ownedFolder(path.join(runtimeFolder(reviewed), "package-review")); }
 function agentHome() { return ownedFolder(path.join(workRoot(true), "agent")); }
 function createRun(prefix = "review-") {
-    const dir = fs.mkdtempSync(path.join(ownedFolder(path.join(runtimeRoot(), "updates")), prefix));
+    const updates = path.join(runtimeRoot(), "updates");
+    try { fs.mkdirSync(updates, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
+    // D107: older update checks made this owned folder with their umask.
+    // Only this owner creates it; refuse links and foreign ownership before
+    // chmod, including when its old mode grants no read or search permission.
+    ownedDirectory(updates, 0);
+    fs.chmodSync(updates, 0o700);
+    ownedDirectory(updates);
+    const dir = fs.mkdtempSync(path.join(updates, prefix));
     fs.chmodSync(dir, 0o700);
     return dir;
 }

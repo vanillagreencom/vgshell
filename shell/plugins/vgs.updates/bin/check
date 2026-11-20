@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vgs.updates check runner.
 # Usage: check --vgshell /absolute/path/to/vgshell
-# It holds $XDG_RUNTIME_DIR/vgshell/updates/check.lock, starts the four read-only
+# It holds $XDG_RUNTIME_DIR/vgshell/updates-check.lock, starts the four read-only
 # vgshell probes concurrently in separate process groups, normalizes them through
 # NormalizeCheck.js, atomically writes $XDG_STATE_HOME/vgshell/updates/status.json
 # and prints the same JSON. TERM, INT and HUP send TERM to every live probe
@@ -17,9 +17,9 @@ source "${vgshell%/*}/lib/owned-group.sh"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 runtime_dir="${XDG_RUNTIME_DIR:-$state_home}"
 state_dir="$state_home/vgshell/updates"
-lock_dir="$runtime_dir/vgshell/updates"
+lock_dir="$runtime_dir/vgshell"
 mkdir -p -- "$state_dir" "$lock_dir"
-lock="$lock_dir/check.lock"
+lock="$lock_dir/updates-check.lock"
 status_file="$state_dir/status.json"
 script="$(readlink -f -- "${BASH_SOURCE[0]}")"
 plugin_dir="$(cd -- "$(dirname -- "$script")/.." && pwd)"
