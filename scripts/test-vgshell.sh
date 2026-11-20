@@ -619,28 +619,56 @@ done
 printf -v nix_guard_line '  [[ $executable == %q/* && ! -e %q ]] || return 0' "$nix_store" "$nix_marker"
 nix_copy="$(pre_copy '  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] || return 0' "$nix_guard_line")"
 ln -s -- "$repo/bin/vgshell-pkg" "${nix_copy%/*}/vgshell-pkg"
-nix_host_rows() { # BIN: structured refusal and no engine invocation, including --version
+nix_host_rows() { # BIN [restart-reset]: refuse before engine or session discovery
   local bin="$1" mode os verb route status engine_path rt got first case_no=0
+  local -a args
   while IFS='|' read -r mode os verb route; do
+    if [[ $verb == restart || $verb == reset ]]; then
+      [[ ${2:-launch} == restart-reset ]] || continue
+    else
+      [[ ${2:-launch} != restart-reset ]] || continue
+    fi
     case_no=$((case_no + 1))
-    rt="$tmp/nix-rt-$case_no"
+    rt="$tmp/nix-rt-${2:-launch}-$case_no"
     mkdir -p "$rt"
+    args=("$verb")
+    if [[ $verb == reset ]]; then
+      args+=(--yes)
+      printf '%s\n' "$$" >"$rt/vgshell.lock"
+    fi
     printf 'ID=%s\n' "$os" >"$tmp/nix-os-release"
     if [[ $mode == direct ]]; then engine_path="$nix_store/engine/bin"; else engine_path="$tmp/nix-link"; fi
-    rm -f -- "$tmp/nix-calls"
+    rm -f -- "$tmp/nix-calls" "$tmp/nix-hypr-calls"
     status=0
-    got="$("${base_env[@]}" PATH="$engine_path:$tmp/nix-managers:$base_path" XDG_RUNTIME_DIR="$rt" STUB_QS_CALLS="$tmp/nix-calls" \
-      bwrap --ro-bind / / --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "$verb" 2>&1)" || status=$?
+    got="$("${base_env[@]}" PATH="$engine_path:$tmp/nix-managers:$base_path" XDG_RUNTIME_DIR="$rt" STUB_QS_CALLS="$tmp/nix-calls" STUB_HYPR_CALLS="$tmp/nix-hypr-calls" \
+      bwrap --ro-bind / / --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "${args[@]}" 2>&1)" || status=$?
     first="${got%%$'\n'*}"
-    [[ $status == 78 && $first == "vgshell: refused: install=nix host=unsupported route=$route" && ! -e $tmp/nix-calls && ! -e $rt/vgshell.lock ]] || return 1
+    [[ $status == 78 && $first == "vgshell: refused: install=nix host=unsupported route=$route" && ! -e $tmp/nix-calls && ! -e $tmp/nix-hypr-calls ]] || return 1
+    if [[ $verb == reset ]]; then
+      [[ $(cat "$rt/vgshell.lock") == "$$" ]] || return 1
+    else
+      [[ ! -e $rt/vgshell.lock ]] || return 1
+    fi
   done <<'NIX_ROWS'
 direct|arch|run|aur
 direct|fedora|start|fedora
 direct|debian|restart|curl
+direct|debian|reset|curl
 link|arch|run|aur
 NIX_ROWS
 }
 check "Nix launches refuse unsupported hosts before any engine call" nix_host_rows "$nix_copy"
+check "Nix restart and reset refuse unsupported hosts before session discovery" nix_host_rows "$nix_copy" restart-reset
+# Restore the pre-fix entry order in the disposable runner: preflight
+# still refuses Nix, but session discovery runs first for these two verbs.
+nix_entry_mutant="$(pre_copy '  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] || return 0' "$nix_guard_line" \
+  $'select_hyprland_instance() {\n  nix_host_check\n' $'select_hyprland_instance() {\n')"
+ln -s -- "$repo/bin/vgshell-pkg" "${nix_entry_mutant%/*}/vgshell-pkg"
+if nix_host_rows "$nix_entry_mutant" restart-reset; then
+  fail "control: pre-fix Nix restart/reset entry order passes"
+else
+  ok "control: pre-fix Nix restart/reset entry order fails before-discovery row"
+fi
 : >"$nix_marker"
 nix_status=0
 nix_out="$("${base_env[@]}" PATH="$nix_store/engine/bin:$base_path" STUB_QS_CALLS="$tmp/nix-calls" "$nix_copy" run 2>&1)" || nix_status=$?
@@ -773,6 +801,24 @@ if [[ $restart_status == 0 && $restart_out =~ ok\ pid=([0-9]+) ]]; then
   reset_new_pid="${BASH_REMATCH[1]}"; started_pids+=("$reset_new_pid")
   if [[ ! -d /proc/$reset_old_pid && -d /proc/$reset_new_pid ]] && grep -qxF 'instances -j' "$tmp/reset-discovery"; then ok "reset discovers the desktop and replaces its shell from an outside terminal"; else fail "outside reset did not replace the discovered desktop shell"; fi
 else fail "outside reset: exit=$restart_status out=[$restart_out] stderr=[$restart_err]"; fi
+
+# The outside-terminal probes must reject the pre-fix missing-selection
+# behavior, at the Hyprland floor rather than a neighbouring refusal.
+selection_mutant="$(pre_copy $'select_hyprland_instance() {\n' $'select_hyprland_instance() {\n  return 0\n')"
+rt_selection_control="$tmp/rt-selection-control"
+start_fake_shell "outside-terminal control starts a shell" "$rt_selection_control" "$rt_selection_control/record-old"
+selection_old_pid="$fake_pid"
+for verb in restart reset; do
+  dispatch="$rt_selection_control/dispatch-$verb"
+  RESTART_BIN="$selection_mutant" RESTART_VERB="$verb" run_restart_capture "$rt_selection_control" "$rt_selection_control/record-$verb" "$dispatch" false \
+    HOME="$tmp/selection-home" XDG_CONFIG_HOME="$tmp/selection-home/.config" XDG_STATE_HOME="$tmp/selection-home/.local/state" XDG_DATA_HOME="$tmp/selection-home/.local/share" XDG_CACHE_HOME="$tmp/selection-home/.cache" \
+    HYPRLAND_INSTANCE_SIGNATURE= STUB_REQUIRE_SIGNATURE=1
+  if [[ $restart_status == 78 && $restart_err == 'vgshell: refused: preflight=hyprland have=unknown need=0.57.0' && -n $selection_old_pid && -d /proc/$selection_old_pid && ! -e $dispatch ]]; then
+    ok "control: missing selection fails the $verb outside-terminal probe"
+  else
+    fail "missing-selection $verb: exit=$restart_status stderr=[$restart_err]"
+  fi
+done
 
 rt_restart_guarded_retry="$tmp/rt-restart-guarded-retry"; dispatch="$tmp/dispatch-guarded-retry"; guarded_count="$tmp/guarded-count"
 start_fake_shell "restart guarded-retry fixture starts a shell" "$rt_restart_guarded_retry" "$tmp/record-guarded-retry-old"

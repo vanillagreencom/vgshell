@@ -354,11 +354,15 @@ IFS= read -r -d '' runner_now <<'VGSHELL' || :
   (
     printf '%s\n' "$BASHPID" >&9
     exec 9>&-
+    export VGSHELL_STARTED_AT
+    VGSHELL_STARTED_AT="$(date +%s%3N)"
     VGSHELL_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
   ) &
 VGSHELL
 IFS= read -r -d '' runner_inherited <<'VGSHELL' || :
   printf '%s\n' "$$" >&9
+  export VGSHELL_STARTED_AT
+  VGSHELL_STARTED_AT="$(date +%s%3N)"
   VGSHELL_RUNNER_PID=$$ QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec qs -p "$shell_dir"
 VGSHELL
 inherited_bin="$sandbox/tree-inherited/bin/vgshell"

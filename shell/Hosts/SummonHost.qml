@@ -135,7 +135,11 @@ Scope {
             // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-prop
             if (PluginLogic.summonSurface(kind, request.anchored, request.presentation) === "window") {
                 const window = instances[id].Window.window;
-                if (window === null || !window.active) return summon(id, payloadJson, origin);
+                if (window === null || !window.active) {
+                    // open() accepts a new request; raising keeps the current page and edits.
+                    focusOpen(id);
+                    return "ok";
+                }
             }
         }
         return PluginLogic.hasOwn(instances, id) ? hide(id) : summon(id, payloadJson, origin);

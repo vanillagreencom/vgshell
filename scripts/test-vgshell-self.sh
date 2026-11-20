@@ -207,7 +207,7 @@ for v in "$version_text" "$release" 0.0.8 0.0.7; do ln -s "$tmp/retained-store" 
 fake_shell=$!
 trap 'kill "$fake_shell" "$www_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
 printf '%s\n' "$fake_shell" >"$rt_running/vgshell.lock"
-inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$running_data")
+inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$running_data" HYPRLAND_INSTANCE_SIGNATURE=fixture-self)
 INST_BIN="$running_data/vgshell/current/bin/vgshell" inst "an update beside a running shell restarts it, refused here below the floor" "$cfg" "$rt_running" 78 \
   "ok updated=vgshell from=$version_text to=$release path=$running_data/vgshell/$release" "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" self update
 check "the update beside a running shell names the new tree" has_line "ok updated=vgshell from=$version_text to=$release path=$running_data/vgshell/$release"
@@ -551,7 +551,7 @@ cp -- "$(dirname -- "$(dirname -- "$control_bin")")/bin/lib/self.js" "$blind_dat
 blind_shell=$!
 trap 'kill "$fake_shell" "$blind_shell" "$www_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
 printf '%s\n' "$blind_shell" >"$rt_running/vgshell.lock"
-inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$blind_data")
+inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$blind_data" HYPRLAND_INSTANCE_SIGNATURE=fixture-self)
 INST_BIN="$blind_data/vgshell/current/bin/vgshell" inst "the shell-blind mutant updates beside the running shell" "$cfg" "$rt_running" 78 "$any_out" "$any_out" self update
 check "and removes the running shell's tree, which the row above keeps" test ! -e "$blind_data/vgshell/0.0.8"
 kill "$blind_shell" 2>/dev/null || true
@@ -861,7 +861,7 @@ printf '{"tag_name":"v%s","assets":[{"name":"%s","browser_download_url":"%s/dl/%
 rm -- "$repair_data/vgshell/$version_text/$repair_file"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
 repair_base_env=("${base_env[@]}")
-base_env+=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
+base_env+=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data" HYPRLAND_INSTANCE_SIGNATURE=fixture-self)
 wait "$fake_shell" 2>/dev/null || true
 "$stubs/qs" -p "$repair_data/vgshell/0.0.8/shell" &
 fake_shell=$!

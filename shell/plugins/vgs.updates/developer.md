@@ -14,7 +14,7 @@ The runner's full package list stays in the status file. Published rows are boun
 
 The service waits for cache and boot readings before scheduling. It publishes the cached snapshot, checks when due and accepts an explicit request. Requests during a refresh's startup reads, connectivity admission or check execution join that refresh. An update run asks its own check at its end. The end of its TUI then starts no second check; a TUI whose run asked none starts one. A run's check or TUI end that arrives during a refresh queues one replacement instead, since that refresh may have read the packages before the run's last step. The checking mask stays in place across these phases and any queued replacement, and clears only after the result fields publish successfully. A check process failure retains the snapshot and schedules a retry.
 
-At start and at each TUI end the service reads the pipeline's [outcome file](pipeline.md#outcomes-and-transcript) and publishes it as `lastRun`. The window shows a failed or stopped run's sentence until the next run replaces it.
+At start and at each TUI end the service reads the pipeline's [outcome file](pipeline.md#outcomes-and-transcript) and publishes the pending outcome as `lastRun`, under the pipeline's [Completion rules](pipeline.md#completion).
 
 `UpdatesLogic` owns cache age, prior-boot handling, retry timing, TUI-end detection and the outcome judge. A new service instance does not treat old ended TUIs as new runs.
 
