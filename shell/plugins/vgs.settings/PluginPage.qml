@@ -476,7 +476,7 @@ FocusScope {
             revealing = "";
             return;
         }
-        const found = [revealTab === "Settings" ? settingsPage : revealTab === "Setup" ? setupPage : detailsPage];
+        const found = [revealTab === "Settings" ? settingsPage : revealTab === "Setup" ? setupHolder : detailsPage];
         for (let i = 0; i < found.length; i++) {
             const item = found[i];
             if ((item.fieldKey === revealing || item.statusKey === revealing) && item.visible) {
@@ -565,9 +565,22 @@ FocusScope {
 
                 Menu {
                     id: menu
+                    property bool prepared: false
+                    function prepare() { prepared = true; }
+                    // Install hover observers once, after every entry exists.
+                    // Updating them per insertion rebuilt the earlier ones.
+                    pointers.active: false
+                    onSurfaceChanged: if (surface !== null) {
+                        prepare();
+                        pointers.active = true;
+                    }
+                    Connections {
+                        target: !menu.prepared && page.visible ? page.Window.window : null
+                        function onFrameSwapped() { Qt.callLater(menu.prepare); }
+                    }
                     Repeater {
                         model: ScriptModel {
-                            values: page.panel.plugins
+                            values: menu.prepared ? page.panel.plugins : []
                             objectProp: "id"
                         }
                         MenuItem {
@@ -733,7 +746,42 @@ FocusScope {
                     // Keyed models keep each section, field and key row
                     // while the manager's rows are replaced, so an edit in
                     // progress survives an unrelated change.
+                    Connections {
+                        target: page.visible && !groups.prefetched ? page.Window.window : null
+                        function onFrameSwapped() { Qt.callLater(groups.extend); }
+                    }
+                    Connections {
+                        target: page.visible && groups.loaded < groups.count ? page.Window.window : null
+                        function onActiveFocusItemChanged() {
+                            const edge = groups.itemAt(groups.needed - 1);
+                            for (let at = target.activeFocusItem; at; at = at.parent) {
+                                if (at === edge) {
+                                    groups.limit = groups.needed + 1;
+                                    break;
+                                }
+                                // A backward Tab from the footer needs the
+                                // last group and its complete geometry now.
+                                if (at.parent === settingsPage) {
+                                    const order = settingsPage.children;
+                                    if (order.indexOf(at) > order.indexOf(groups)) groups.limit = groups.count;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     Repeater {
+                        id: groups
+                        property int limit: 1
+                        property int loaded: 0
+                        property bool prefetched: false
+                        function extend() { prefetched = true; }
+                        readonly property int needed: {
+                            const all = page.sections;
+                            const key = page.panel.openingField;
+                            const target = key ? all.findIndex(group => group.keys.includes(key)
+                                || (group.lists || []).includes(key)) : -1;
+                            return target === -1 ? all.length : Math.min(all.length, Math.max(limit, target + 1));
+                        }
                         model: ScriptModel {
                             values: page.sections
                             objectProp: "group"
@@ -741,81 +789,125 @@ FocusScope {
                         Section {
                             id: section
                             required property var modelData
+                            required property int index
                             width: body.width
-                            title: section.modelData.group
+                            title: modelData.group
+                            visible: index <= groups.needed || rows.status === Loader.Ready
 
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.builtin === null ? [] : [section.modelData.builtin]
-                                    objectProp: "id"
+                            // Keep headings in their original Column so they
+                            // measure the ink above them. Incubate offscreen
+                            // rows; an on-screen row or a Tab target is ready
+                            // synchronously, even during incubation.
+                            Loader {
+                                id: rows
+                                width: section.width
+                                active: section.index < groups.needed || groups.prefetched
+                                asynchronous: section.index >= groups.needed
+                                property bool counted: false
+                                onStatusChanged: {
+                                    if (counted === (status === Loader.Ready)) return;
+                                    counted = status === Loader.Ready;
+                                    groups.loaded += counted ? 1 : -1;
                                 }
-                                SettingField {
-                                    required property var modelData
-                                    pluginId: modelData.id
-                                    spec: ({ type: "boolean", label: SettingValues.PAGE_LABELS.showOnBar })
-                                    value: modelData.placed
-                                    editable: page.editable
-                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                                Component.onDestruction: if (counted && groups) groups.loaded--
+                                sourceComponent: section.contents
+                            }
+                            Item {
+                                id: pendingRows
+                                visible: rows.status !== Loader.Ready && section.index === groups.needed
+                                width: section.width
+                                height: page.maximumHeight
+                                function fillView() {
+                                    if (visible && section.y > 0
+                                            && mapToItem(layout.scrollArea, 0, 0).y < layout.scrollArea.height)
+                                        groups.limit = section.index + 1;
+                                }
+                                Connections {
+                                    target: pendingRows.visible ? section : null
+                                    function onYChanged() { pendingRows.fillView(); }
+                                }
+                                Connections {
+                                    target: pendingRows.visible ? layout.scrollArea : null
+                                    function onContentYChanged() { pendingRows.fillView(); }
+                                    function onHeightChanged() { pendingRows.fillView(); }
                                 }
                             }
 
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.keys
-                                }
-                                ChoiceField {
-                                    required property string modelData
-                                    width: section.width
-                                    pluginId: page.row.id
-                                    key: modelData
-                                    reference: page.fieldRow(modelData).reference
-                                    idleField: page.idleFieldOf(modelData)
-                                    spec: reference ? ({}) : page.row.schema[modelData]
-                                    value: reference ? undefined : page.row.settings[modelData]
-                                    choices: page.row.settingChoices[modelData] || []
-                                    problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
-                                    editable: page.editable || reference
-                                    edits: unsaved
-                                    onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
-                                    onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
-                                    onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
-                                    onAddWanted: if (page !== null && page.row !== null) page.panel.addChoice(pluginId, key)
-                                    onPreviewWanted: value => { if (page !== null && page.row !== null) page.panel.previewChoice(pluginId, key, value); }
-                                }
-                            }
-
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.lists || []
-                                }
-                                Section {
-                                    id: groupedListSection
-                                    required property string modelData
-                                    // The key a page reference names the list by (revealField).
-                                    readonly property string fieldKey: modelData
-                                    width: section.width
-                                    title: page.row.schema[modelData].label
-                                    description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
-                                    onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                    info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
-
-                                    ListField {
-                                        width: groupedListSection.width
-                                        pluginId: page.row.id
-                                        key: groupedListSection.modelData
-                                        spec: page.row.schema[groupedListSection.modelData]
-                                        value: page.row.settings[groupedListSection.modelData]
-                                        choices: page.row.settingChoices[groupedListSection.modelData] || []
+                            property Component contents: Column {
+                                spacing: section.rowSpacing
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: section.modelData.builtin === null ? [] : [section.modelData.builtin]
+                                        objectProp: "id"
+                                    }
+                                    SettingField {
+                                        required property var modelData
+                                        pluginId: modelData.id
+                                        spec: ({ type: "boolean", label: SettingValues.PAGE_LABELS.showOnBar })
+                                        value: modelData.placed
                                         editable: page.editable
+                                        onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                                    }
+                                }
+
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: section.modelData.keys
+                                    }
+                                    ChoiceField {
+                                        required property string modelData
+                                        width: section.width
+                                        pluginId: page.row.id
+                                        key: modelData
+                                        reference: page.fieldRow(modelData).reference
+                                        idleField: page.idleFieldOf(modelData)
+                                        spec: reference ? ({}) : page.row.schema[modelData]
+                                        value: reference ? undefined : page.row.settings[modelData]
+                                        choices: page.row.settingChoices[modelData] || []
+                                        problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
+                                        editable: page.editable || reference
                                         edits: unsaved
-                                        onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                        onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
                                         onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                         onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                        onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                        onAddWanted: if (page !== null && page.row !== null) page.panel.addChoice(pluginId, key)
+                                        onPreviewWanted: value => { if (page !== null && page.row !== null) page.panel.previewChoice(pluginId, key, value); }
                                     }
-                                    ChoiceExtras {
-                                        width: groupedListSection.width
-                                        key: groupedListSection.modelData
+                                }
+
+                                Repeater {
+                                    model: ScriptModel {
+                                        values: section.modelData.lists || []
+                                    }
+                                    Section {
+                                        id: groupedListSection
+                                        required property string modelData
+                                        // The key a page reference names the list by (revealField).
+                                        readonly property string fieldKey: modelData
+                                        width: section.width
+                                        title: page.row.schema[modelData].label
+                                        description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                                        onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                        info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+
+                                        ListField {
+                                            width: groupedListSection.width
+                                            pluginId: page.row.id
+                                            key: groupedListSection.modelData
+                                            spec: page.row.schema[groupedListSection.modelData]
+                                            value: page.row.settings[groupedListSection.modelData]
+                                            choices: page.row.settingChoices[groupedListSection.modelData] || []
+                                            editable: page.editable
+                                            edits: unsaved
+                                            onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                            onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
+                                            onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                        }
+                                        ChoiceExtras {
+                                            width: groupedListSection.width
+                                            key: groupedListSection.modelData
+                                        }
                                     }
                                 }
                             }
@@ -950,9 +1042,25 @@ FocusScope {
                 // (https://doc.qt.io/qt-6/qml-qtquick-item.html#parent-prop,
                 // https://doc.qt.io/qt-6/qml-qtquick-column.html).
                 Column {
-                    id: setupPage
+                    id: setupHolder
+                    property bool visited: false
+                    Binding on visited {
+                        when: page.row !== null && (page.tab === "Setup" || !page.panel.openingField)
+                        value: true
+                        restoreMode: Binding.RestoreNone
+                    }
                     spacing: Theme.stack.page
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab !== "Settings") Qt.callLater(page.revealField)
+                    Loader {
+                        active: setupHolder.visited && page.hasSetup
+                        width: parent.width
+                        sourceComponent: tabs.setupBody
+                    }
+                }
+
+                property Component setupBody: Column {
+                    id: setupPage
+                    spacing: Theme.stack.page
 
                     // While the plugin is off, the tab opens with one Turn on
                     // for every step, through the Enabled switch's route
@@ -1045,13 +1153,24 @@ FocusScope {
                     }
                 }
 
-                Column {
+                Loader {
                     id: detailsPage
+                    property bool visited: false
+                    Binding on visited {
+                        when: page.row !== null && (page.tab === "Details" || !page.panel.openingField)
+                        value: true
+                        restoreMode: Binding.RestoreNone
+                    }
                     // The strip's last page beside a Setup tab, as declared.
-                    parent: page.hasSetup ? settingsPage.parent : setupPage
+                    parent: page.hasSetup ? settingsPage.parent : setupHolder
                     // The strip shows and hides its own pages alone, and hid
                     // this one as its third.
-                    onParentChanged: if (parent === setupPage) visible = true
+                    onParentChanged: if (parent === setupHolder) visible = true
+                    active: visited
+                    sourceComponent: tabs.detailsBody
+                }
+
+                property Component detailsBody: Column {
                     spacing: Theme.stack.page
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab === "Details") Qt.callLater(page.revealField)
 

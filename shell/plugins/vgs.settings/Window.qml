@@ -86,6 +86,9 @@ FocusScope {
     property string page: ""
     // The plugin page drawn, kept while it slides out on a pop.
     property string drawn: ""
+    // The requested field is known before selecting its plugin creates the
+    // Settings groups. An empty key opens the complete page normally.
+    property string openingField: ""
     // A line the list shows over the search field, such as a deep link to
     // an id no plugin has.
     property string notice: ""
@@ -105,7 +108,8 @@ FocusScope {
     // The Keys row whose user line waits on the removal prompt, and that
     // line, as { field, row }, or null.
     property var removal: null
-    property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
+    readonly property Item list: listLoader.item
+    property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? (list ? list.initialFocus : null) : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     // The tallest the window opens, which each page takes as its
@@ -117,7 +121,7 @@ FocusScope {
     // setVisibleDirect, QTBUG-126704), and a FloatingWindow takes a new
     // implicit size only while hidden (floatingwindow.cpp trySetHeight), so
     // fitWindow() asks Hyprland for it after a page change.
-    implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))
+    implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? (list ? list.fitHeight : 0) : detail.fitHeight))
     // The page shown, as a page change resizes the window: the list, or a
     // plugin id and its tab.
     readonly property string shownPage: page === "" ? "" : page + "/" + detail.tab
@@ -354,12 +358,15 @@ FocusScope {
     }
 
     function showList(reason) {
+        listLoader.active = true;
         page = "";
         list.focusSearch(reason);
     }
 
     function show(id, reason, tab) {
         notice = "";
+        const place = PageReference.place(tab || "Settings");
+        openingField = drawn === "" && place.tab === "Settings" ? place.key : "";
         drawn = id;
         page = id;
         detail.open(reason === undefined ? Qt.TabFocusReason : reason, tab === undefined ? "Settings" : tab);
@@ -628,14 +635,19 @@ FocusScope {
             // The page not shown is hidden once the slide ends, so Tab,
             // Shift+Tab and the pointer reach the shown page alone; both
             // draw while they slide.
-            ListPage {
-                id: list
-                panel: root
-                maximumHeight: root.maxHeight
+            // A direct page link never needs the plugin list. First open
+            // mounts it synchronously; subsequent visits keep its search.
+            Loader {
+                id: listLoader
+                active: false
                 width: root.width
                 height: root.height
                 visible: root.page === "" || slide.running
                 focus: root.page === ""
+                sourceComponent: ListPage {
+                    panel: root
+                    maximumHeight: root.maxHeight
+                }
             }
 
             PluginPage {
