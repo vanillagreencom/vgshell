@@ -94,7 +94,7 @@ scripts/check-install-tree.sh --write "$PWD/tmp/install-tree" /usr   # after a s
 scripts/measure-shader.sh --calibrate scripts/shader/ceilings.json --runs 3   # the shader ceilings
 ```
 
-The plugin table comes from the manifests, including their descriptions. Regenerate it when a plugin is added, removed, renamed or its description changes. The root README uses the Themes browser image from the same screenshot table as the plugin READMEs. Regenerate affected scenes with `scripts/readme-shots.sh SCENE`; do not hand-edit the generated plugin table or rendered images. [`scripts/check-readme.js`](scripts/check-readme.js) and [`scripts/check-readme-images.py`](scripts/check-readme-images.py) check consistency.
+The plugin table comes from the manifests, including their descriptions. Regenerate it when a plugin is added, removed, renamed or its description changes. The root README opens on `docs/images/vgs-tour.gif`, a hand-made tour of real desktop screenshots that the screenshot table does not make. Regenerate affected scenes with `scripts/readme-shots.sh SCENE`; do not hand-edit the generated plugin table or rendered images. [`scripts/check-readme.js`](scripts/check-readme.js) and [`scripts/check-readme-images.py`](scripts/check-readme-images.py) check consistency.
 
 Use a fresh scratch `DESTDIR` for install-tree staging.
 

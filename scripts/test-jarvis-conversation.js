@@ -26,6 +26,13 @@ function contract(logic) {
     assert.deepEqual(log, [entry(1, "assistant", "hello", "final"), entry(1, "assistant", "again", "partial")]);
     log = logic.update(log, entry(1, "user", "typed", "final"));
     assert.deepEqual(log, [entry(1, "assistant", "hello", "final"), entry(1, "assistant", "again", "partial"), entry(1, "user", "typed", "final")], "role change appends");
+    const first = { ...entry(1, "user", "keep", "partial"), origin: "3:first" };
+    const draft = { ...entry(1, "user", "uncertain", "partial"), origin: "3:draft" };
+    const retract = { ...draft, stage: "final", text: "" };
+    const overlapping = logic.update(logic.update([], first), draft);
+    assert.deepEqual(overlapping, [first, draft], "each native input owns a preview");
+    assert.deepEqual(logic.update(overlapping.concat([log[0]]), retract), [first, log[0]], "only the empty completion's own provisional row is removed");
+    assert.deepEqual(logic.update([first], retract), [first], "a retraction creates no row");
     let genLog = logic.update([entry(1, "assistant", "old", "partial")], entry(2, "assistant", "new", "partial"));
     assert.deepEqual(genLog, [entry(1, "assistant", "old", "partial"), entry(2, "assistant", "new", "partial")], "generation change appends");
     let many = [];
@@ -156,6 +163,7 @@ try {
         assert.throws(() => faultContract(load(historyCopy, historyModules)), assert.AssertionError, "control: " + name + " must fail");
         controls++;
     }
+    control("retract-empty", 'if (next.text === "") rows.splice(index, 1);', 'if (next.text === "") rows[index] = next;');
     control("replace-open", "if (last !== null && open(last) && sameSegment(last, next))", "if (false && last !== null && open(last) && sameSegment(last, next))");
     control("close-final", "return entry.stage === \"partial\";", "return true;");
     control("same-role", "a.gen === b.gen && a.role === b.role", "a.gen === b.gen");

@@ -2,7 +2,7 @@
 
 A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and windows on each screen, and every part of it is a plugin you can turn on or off.
 
-![VGS: the bar and the theme browser on the desktop](docs/images/plugins/vgs.themes-browser.webp)
+![A tour of VGS: the AI Usage panel with notifications and settings, the theme browser, Capture and the launcher](docs/images/vgs-tour.gif)
 
 ## Features
 

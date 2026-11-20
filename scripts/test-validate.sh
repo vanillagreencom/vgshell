@@ -639,11 +639,11 @@ jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-j
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
 dispatch_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
-session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
+session_plan=$'scripts/test-flake.sh\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 jarvis_key_plan="${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-orb_shader_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-flake.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+orb_shader_plan=$'scripts/test-flake.sh\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
 orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\nscripts/test-gpu-fence.sh\n'"$repo_plan"
 shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
 keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
@@ -735,7 +735,7 @@ cases=(
   "real-displayed-text|shell/plugins/vgs.screensaver/logo.txt|all|text:python3 scripts/check-user-commands.py"$'\nwhitespace_check\nmd_refs_check'
   "version|VERSION|offline|$version_plan"
   "licence|LICENSE|all|text:python3 scripts/check-user-commands.py"$'\nwhitespace_check\nmd_refs_check'
-  "flake|flake.nix|all|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-flake.sh'
+  "flake|flake.nix|all|scripts/test-flake.sh"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "flake-offline|flake.nix|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "installer|packaging/install-system.sh|offline|$installer_plan"
   "portal-config|packaging/xdg-desktop-portal/hyprland-portals.conf|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$repo_plan"
@@ -5018,6 +5018,96 @@ for declaration in @alone ""; do
     ok "control: the row without @alone runs beside the others"
   else
     fail "control: the row without @alone still ran by itself"
+  fi
+done
+
+# Rows start while their weights fit the core count, which OMP_NUM_THREADS
+# sets for nproc, and VGS_VALIDATE_JOBS=32 never binds. Each row adds the
+# weight its arguments name to the weight in flight under a lock, records
+# the sum and holds it 0.5 s, so rows started too eagerly are seen
+# together. A row given PEERS first waits up to 5 s for that many rows of
+# its weight to have started, which proves rows still run at once; one
+# that gives up marks the run, and the rows after it give up at once.
+weigh_rows() { # DIR ROW...
+  jobs_fixture "$1" test-weigh.sh "${@:2}" <<'SH'
+#!/bin/sh
+exec 9>.git/weigh.lock
+flock 9
+sum=$(($(cat .git/in-flight 2>/dev/null || echo 0) + $2))
+echo "$sum" >.git/in-flight
+echo "$sum" >>.git/sums
+: >".git/started-$2-$1"
+flock -u 9
+i=0
+while [ -n "$3" ] && [ "$(ls .git | grep -c "^started-$2-")" -lt "$3" ]; do
+  if [ -e .git/alone ] || [ "$i" -ge 50 ]; then : >.git/alone; echo "weigh: $1 ran alone"; exit 1; fi
+  sleep 0.1
+  i=$((i + 1))
+done
+sleep 0.5
+flock 9
+echo $(($(cat .git/in-flight) - $2)) >.git/in-flight
+SH
+}
+heavy=('"tools|heavy a|scripts/test-weigh.sh a 3 2|%weight=3"' '"tools|heavy b|scripts/test-weigh.sh b 3 2|%weight=3"')
+for name in c d e f; do heavy+=("\"tools|heavy $name|scripts/test-weigh.sh $name 3|%weight=3\""); done
+heavy+=('"tools|whole g|scripts/test-weigh.sh g 8|%weight=all"' '"tools|over h|scripts/test-weigh.sh h 8|%weight=12"')
+# weigh_peak DIR: the most weight the rows saw in flight.
+weigh_peak() { sort -n -- "$1/.git/sums" | tail -n 1; }
+d="$tmp/weigh-heavy"; weigh_rows "$d" "${heavy[@]}"
+row "heavy rows on 8 cores pass" "$d" 0 "OMP_NUM_THREADS=8 VGS_VALIDATE_JOBS=32" "validate: ok"
+peak="$(weigh_peak "$d")" || peak=unreadable
+# The rows declared heavier than 8 count as 8, so they run at all.
+if [[ $peak == 8 && -e $d/.git/started-8-g && -e $d/.git/started-8-h ]]; then
+  ok "heavy rows on 8 cores never hold more than 8 in flight"
+else
+  fail "heavy rows on 8 cores: peak=$peak, or a row heavier than the cores never started"
+fi
+d="$tmp/weigh-heavy-control"; weigh_rows "$d" "${heavy[@]}"
+plant "$d/scripts/validate" '((weight_in_flight + row_weight[selected[k]] <= cores)) || return 0' ':'
+commit "$d" unweighed
+row "control: heavy rows without the weight bound pass" "$d" 0 "OMP_NUM_THREADS=8 VGS_VALIDATE_JOBS=32" "validate: ok"
+peak="$(weigh_peak "$d")" || peak=unreadable
+if [[ $peak =~ ^[0-9]+$ ]] && ((peak > 8)); then ok "control: without the bound, heavy rows hold $peak in flight"; else fail "control: the unweighed copy held peak=$peak"; fi
+light=()
+for name in a b c d; do light+=("\"tools|light $name|scripts/test-weigh.sh $name 1 4|\""); done
+d="$tmp/weigh-light"; weigh_rows "$d" "${light[@]}"
+row "four light rows run at once on 8 cores" "$d" 0 "OMP_NUM_THREADS=8 VGS_VALIDATE_JOBS=32" "validate: ok"
+d="$tmp/weigh-light-control"; weigh_rows "$d" "${light[@]}"
+row_re "control: four light rows cannot meet on 2 cores" "$d" 1 "OMP_NUM_THREADS=2 VGS_VALIDATE_JOBS=32" "~ ran alone" "~validate: failed=light a"
+d="$tmp/weigh-refused"; jobs_fixture "$d" test-weigh.sh '"tools|zero|scripts/test-weigh.sh|%weight=0"' <<<$'#!/bin/sh\nexit 0'
+row "a weight of 0 is refused" "$d" 2 "" "validate: refused: weight=0 row=zero"
+
+# Rows start heaviest first, table order breaking ties, and an @alone row
+# keeps its place in the table. On 8 cores each row of weight 8 runs
+# alone and c runs alone, so the starts form one sequence: b before a, c
+# after both, e before d. The rows still print in table order. The control
+# is a copy that starts rows in table order.
+order_rows() { # DIR
+  jobs_fixture "$1" test-mark.sh '"tools|mark a|scripts/test-mark.sh a|"' '"tools|mark b|scripts/test-mark.sh b|%weight=8"' \
+    '"tools|mark c|scripts/test-mark.sh c|@alone"' '"tools|mark d|scripts/test-mark.sh d|"' \
+    '"tools|mark e|scripts/test-mark.sh e|%weight=8"' <<<$'#!/bin/sh\necho "$1" >>.git/marks'
+}
+for variant in "" control; do
+  d="$tmp/start-order${variant:+-$variant}"; order_rows "$d"
+  if [[ $variant == control ]]; then
+    plant "$d/scripts/validate" 'for k in "${start_order[@]}"; do' 'for k in "${!selected[@]}"; do'
+    commit "$d" table-order
+  fi
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" OMP_NUM_THREADS=8 VGS_VALIDATE_JOBS=32 bash scripts/validate tools --full 2>&1)" || status=$?
+  marks="$(tr '\n' ' ' <"$d/.git/marks")" || marks=unreadable
+  printed="$(grep '^== ' <<<"$out" | tr '\n' ' ')" || printed=""
+  if [[ -z $variant ]]; then
+    if [[ $status == 0 && $marks == "b a c e d " && $printed == "== mark a == mark b == mark c == mark d == mark e " ]]; then
+      ok "rows start heaviest first around an @alone row and print in table order"
+    else
+      fail "start order: exit=$status starts [$marks] printed [$printed]"
+    fi
+  elif [[ $status == 0 && $marks == "a b c d e " ]]; then
+    ok "control: a copy that starts in table order starts a first"
+  else
+    fail "control: the table-order copy: exit=$status starts [$marks]"
   fi
 done
 

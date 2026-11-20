@@ -98,8 +98,19 @@ if name == "pw-record":
         while True:
             os.write(1, b"\0" * 65536)
     try:
+        written = 0
         while not (home / "capture-ends").exists():
-            os.write(1, (b"\0\0" if (home / "capture-silent").exists() else b"\0\x40") * 240)
+            # capture-speech shapes the level as words with gaps: 40 ms of
+            # digital silence in each 250 ms, the first from 20 ms. A gate
+            # that reads speech as a level above the room's floor hears it;
+            # the constant level without it is a room that never goes quiet.
+            gap = (home / "capture-speech").exists() and 2 <= written % 25 < 6
+            # capture-room fills every quiet stretch with a steady level
+            # above the cloud gate's quiet-room level: a room that is never
+            # silent, under the words and after them.
+            quiet = b"\0\x08" if (home / "capture-room").exists() else b"\0\0"
+            os.write(1, (quiet if gap or (home / "capture-silent").exists() else b"\0\x40") * 240)
+            written += 1
             time.sleep(0.01)  # Synthetic PCM clock, never a real audio device.
     except BrokenPipeError:
         sys.exit(0)

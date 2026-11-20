@@ -525,7 +525,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         captured: event => {
             const result = audit === null ? { kind: "refuse", cause: "writer-absent" } : audit.capture(event);
             if (result.kind !== "recorded") diagnostic("jarvis: audit=write kind=capture cause=" + result.cause);
-            diagnostic("jarvis: info capture=closed gen=" + event.gen + " op=" + event.op
+            diagnostic("jarvis: info capture=" + (event.unbroken === true ? "unbroken" : "closed") + " gen=" + event.gen + " op=" + event.op
                 + " frames=" + event.frames + " peak=" + event.peak + " forwarded=" + event.forwarded);
         },
         echo: reading => {
@@ -547,7 +547,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     } };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
-            revision: context.revision, role: e.role,
+            revision: context.revision, role: e.role, origin: e.origin,
             text: e.text.replace(/[\x00-\x1f\x7f]/g, " ").slice(-Protocol.TRANSCRIPT_CHARS), stage: e.stage, rev: e.rev });
     };
     const runner = new SessionRunner(Session, ports, {
