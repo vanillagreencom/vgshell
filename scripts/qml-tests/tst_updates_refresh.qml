@@ -10,7 +10,7 @@ import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
 // Drive the production service, window and each separately observed status
 // write. Processes and startup reads finish only when the case answers them.
-// inputs: shell/plugins/vgs.updates/* scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
+// inputs: shell/plugins/vgs.updates/* shell/Hosts/SummonHost.qml scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
 Item {
     id: root
     width: 900
@@ -84,12 +84,65 @@ Item {
         function sourceRows() {
             return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
         }
+        function test_inactive_toggle_preserves_the_open_window_data() {
+            return [{ tag: "raise", control: false }, { tag: "replayed-open-control", control: true }];
+        }
+        function test_inactive_toggle_preserves_the_open_window(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"), false);
+            request.send();
+            verify(request.responseText.length > 0, "read the production host");
+            // Mount the shipped owner methods, as tst_polkit_prompt does;
+            // native mapping/activation is covered by the Updates smoke row.
+            const parts = request.responseText.split("\n    Variants {");
+            compare(parts.length, 2);
+            let methods = parts[0];
+            const registration = "    Component.onCompleted: Plugins.registerHost(kind, host)";
+            compare(methods.split(registration).length, 2);
+            methods = methods.replace(registration, "");
+            const raise = 'focusOpen(id);\n                    return "ok";';
+            compare(methods.split(raise).length, 2, "the control reaches the inactive branch");
+            if (data.control) methods = methods.replace(raise, "return summon(id, payloadJson, origin);");
+            const host = Qt.createQmlObject(methods.replace("required property string kind", 'property string kind: "window"') + "\n}", root,
+                Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"));
+            // A hidden native window supplies Qt's real inactive attached
+            // Window; no compositor or invented active-property stand-in.
+            // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-prop
+            const inactive = createTemporaryQmlObject('import QtQuick; import QtQuick.Window; Window { visible: false }', root);
+            try {
+                view.parent = inactive.contentItem;
+                compare(view.Window.window.active, false);
+                view.problem = "Keep the current refusal visible.";
+                host.requests = { "vgs.updates": { payloadJson: "{}", anchored: false } };
+                host.instances = { "vgs.updates": view };
+                host.openIds = ["vgs.updates"];
+                let focused = 0;
+                host.rememberFocuser("vgs.updates", () => { focused += 1; });
+                compare(host.toggle("vgs.updates", "{}", null), "ok");
+                compare(focused, 1, "the existing window is handed to its activation owner once");
+                compare(host.openIds, ["vgs.updates"], "activation keeps the existing host entry");
+                compare(host.instances["vgs.updates"], view);
+                if (data.control) expectFailContinue("", "replaying open resets the existing window's state");
+                compare([view.problem, view.requestState], ["Keep the current refusal visible.", "idle"]);
+                compare(host.summon("vgs.updates", "{}", null), "ok", "explicit summon still delivers its opening request");
+                compare(view.problem, "");
+                compare(view.view.state, "checking");
+                compare(focused, 2);
+            } finally {
+                host.destroy();
+                view.parent = root;
+            }
+        }
         function test_last_run_keeps_title_and_sentence_apart() {
             root.values = { pending: 1, checking: false, lastCheck: Date.now(),
                 checkState: { tone: "ok", text: "Updates available" },
                 sources: [{ source: "pacman", label: "System", count: 1, error: null, packages: [] }],
                 lastRun: { version: 1, ended: "failed", title: "VGS could not restart",
                     text: "Restart the computer when you are ready.", remedy: "computer-restart", endedAt: Date.now() } };
+            // Columns apply child visibility and size changes during polish.
+            // Wait for all nested positioners before measuring their gap:
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(view.Window.window));
             const labels = displayedTextItems(view);
             const title = labels.find(item => displayedText(item) === root.values.lastRun.title);
             const sentence = labels.find(item => displayedText(item) === root.values.lastRun.text);
@@ -215,7 +268,10 @@ Item {
         function test_open_waits_for_startup_and_never_unmasks_a_mixed_result() {
             view.open("{}");
             compare(view.view.state, "checking", "the opening frame is masked before startup reads answer");
-            compare(ProcessRegistry.processes.filter(row => row.running).length, 0);
+            // The independent last-run read may run while refresh admission waits.
+            compare(checks().length, 0, "startup reads precede every check");
+            compare(ProcessRegistry.processes.filter(row => row.running && row.command.some(arg => String(arg).endsWith("connectivity.js"))).length,
+                0, "startup reads precede connectivity admission");
             startup();
             compare(checks().length, 0, "admission precedes every check");
             admission(4);

@@ -498,9 +498,21 @@ widget_setting() { ipc smoke readInstance "$widget_key" vgs.updates settings | p
 updates_rows() { ipc smoke readInstance window vgs.updates rows | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 print(json.dumps([[r["source"], r["updatable"], len(r["lines"]), bool(r["more"])] for r in rows]))'; }
-updates_package_lines() { ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
+updates_package_lines() { # SOURCE_LABEL [all-control]
+  ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-print(sum(1 for r in rows if r["displayedOwner"] and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
+sources=[i for i,r in enumerate(rows) if r["type"] == "Disclosure" and r.get("text") == sys.argv[1]]
+if len(sources) != 1:
+    print("unread: source=%s matches=%d" % (sys.argv[1], len(sources))); sys.exit()
+def inside(j):
+    while j != -1:
+        if j == sources[0]: return True
+        j=rows[j]["parent"]
+    return False
+# Other sources may already expose packages beside their unique detail.
+# Count displayed code lines inside the selected source, not the window.
+print(sum(1 for i,r in enumerate(rows) if r["displayedOwner"] and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and (sys.argv[2] == "all-control" or inside(i))))' "$1" "${2:-}"
+}
 updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 # Open the window with a click on the widget, unless it is open: the
 # click toggles it.
@@ -865,8 +877,14 @@ updates_keyboard "the shortcut's keys"
 expect_poll "the shortcut opens with primary focus and no ring" '[false, false, true]' updates_focused
 forget_record
 type_keys -k Left || fail "sending Left to the updates row control failed"
+expect_poll "the collapsed System row exposes no package lines" 0 updates_package_lines System
 type_keys -k Space || fail "sending Space to expand the first updates row failed"
-expect_poll "Space expands the first updates row's package lines" 2 updates_package_lines
+expect_poll "Space expands the first updates row's package lines" 2 updates_package_lines System
+expect "AUR exposes its own package beside the system-first detail" 1 updates_package_lines AUR
+updates_unscoped_package_control() {
+  (failures=0 behaviour_failures=0; expect "the System package count" 2 updates_package_lines System all-control >"$smoke_log_dir/updates-unscoped-packages-control.log"; echo "$failures")
+}
+expect "control: counting another source fails the same System package assertion" 1 updates_unscoped_package_control
 expect "control: Left on the source row runs no TUI" absent launched
 forget_record
 type_keys -k Tab -k Return || fail "sending Tab and Return to the source Update button failed"
@@ -891,7 +909,7 @@ open_updates
 expect_poll "the window draws one row per source" \
   '[["pacman", true, 2, false], ["aur", true, 1, false], ["flatpak", true, 1, false], ["mise", true, 1, false], ["vgs", true, 1, false], ["plugins", true, 1, false], ["themes", false, 0, false]]' updates_rows
 click_in window:Updates window vgs.updates NavigationRow System || fail "the click on the window's System row failed"
-expect_poll "a click on a row lists its packages" 2 updates_package_lines
+expect_poll "a click on a row lists its packages" 2 updates_package_lines System
 # The window's geometry with a row expanded: each source row's last
 # trailing item, the chevron, the Update button or the count badge, ends on
 # that row's right content edge. The footer's buttons lie inside the

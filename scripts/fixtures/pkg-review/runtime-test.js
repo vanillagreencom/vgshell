@@ -322,6 +322,10 @@ try{
  const repo=path.resolve(__dirname,"../../..");
  for(const [name,needle,replacement,rerun,fails,file="bin/lib/pkg-review.js"] of [
   ["updates-mode","fs.chmodSync(updates, 0o700);","void updates;",owner=>updatesRoot("control-updates-mode",owner),/^updates review: admitted after check:/],
+  ["updates-link",
+   "const stat = fs.lstatSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode) || fs.realpathSync(dir) !== dir)",
+   "const stat = fs.statSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode))",
+   owner=>unsafeUpdatesRoot("link","control-updates-link",owner),/^link: unsafe updates root refused$/],
   ["updates-foreign","!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode)","!stat.isDirectory() || (stat.mode & forbiddenMode)",owner=>unsafeUpdatesRoot("foreign","control-updates-foreign",owner),/^foreign: unsafe updates root refused$/],
   ["tracking-old-shape","!Array.isArray(state[base])","!Array.isArray(state[base]?.repos)",owner=>devel(develCurrent,"control-tracking-old-shape",owner),/^devel-paru-2.2.0: untracked devel base result$/,"bin/vgshell-pkg"],
   // helperReviewCovered's named-target branch, which reinstall takes.

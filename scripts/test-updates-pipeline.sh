@@ -319,8 +319,9 @@ case "$1 ${3:-}" in
   "--repo SigLevel") [ ! -e "$FIX/siglevel-$2" ] || cat "$FIX/siglevel-$2" ;;
   "SigLevel ") echo PackageRequired ;;
 esac'
-# flock records its call and runs the real one.
-stub "$stubs" flock "exec '$tools/flock' \"\$@\""
+# No sequence assertion observes flock. Its fixed node program can contain
+# newlines, which this line-based command log cannot represent.
+ln -s -- "$tools/flock" "$stubs/flock"
 # The real vgshell IPC command judges qs output and emits its keyed
 # multiline refusal. Its instance lock names this still-live suite.
 stub "$stubs" qs 'if [ -e "$FIX/qs-reply" ]; then cat "$FIX/qs-reply"; exit 0; fi
@@ -484,7 +485,7 @@ pipeline() {
     exit 1
   fi
   local filtered=0
-  grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
+  grep -v -e '^df ' -e '^gum style' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
@@ -1954,7 +1955,7 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
+  grep -v -e '^df ' -e '^gum style' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }

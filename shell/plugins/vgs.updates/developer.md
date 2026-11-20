@@ -16,7 +16,7 @@ The service waits for cache and boot readings before scheduling. It publishes th
 
 The service watches pacman's log for an install outside the Updates window. Once the log has been quiet for five seconds after a change, the service reads it and requests one check when a `transaction completed` line appeared since its last read. The log's content at the service's first read starts no check. While an Update all or Update one source run has not yet asked its own check, the service requests none, since that check follows the run's last package step. When the run asks its check, and at the end of a TUI whose run asked none, the service reads the log again without judging it. After the run's check, an install from another terminal is checked even while the run's window stays open, and the log viewer suppresses nothing. A completed transaction that arrives during a refresh queues one replacement, as a run's check does.
 
-At start and at each TUI end the service reads the pipeline's [outcome file](pipeline.md#outcomes-and-transcript) and publishes it as `lastRun`. The window shows a failed or stopped run's sentence until the next run replaces it.
+At start and at each TUI end the service reads the pipeline's [outcome file](pipeline.md#outcomes-and-transcript) and publishes the pending outcome as `lastRun`, under the pipeline's [Completion rules](pipeline.md#completion).
 
 `UpdatesLogic` owns cache age, prior-boot handling, retry timing, TUI-end detection and the outcome judge. A new service instance does not treat old ended TUIs as new runs.
 
