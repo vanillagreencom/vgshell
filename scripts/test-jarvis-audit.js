@@ -639,17 +639,20 @@ world(() => {
             const cases = [
                 [{ gen: 2, op: 5, frames: 0, peak: 0, forwarded: 0 }, "no-audio"],
                 [{ gen: 2, op: 6, frames: 48000, peak: 128, forwarded: 0 }, "below-gate"],
-                [{ gen: 4, op: 14, frames: 48000, peak: 8192, forwarded: 4800 }, "audio"]
+                [{ gen: 4, op: 14, frames: 48000, peak: 8192, forwarded: 4800 }, "audio"],
+                // Audio's report of an input its gate found no pause in.
+                [{ gen: 4, op: 15, frames: 148800, peak: 9000, forwarded: 144000, unbroken: true }, "unbroken"]
             ];
             for (const [facts] of cases)
                 assert.equal(writer.capture({ ...facts, transcript: "PRIVATE", device: "PRIVATE" }).kind, "recorded");
-            assert.deepEqual(records(root).map(({ time, ...row }) => row), cases.map(([facts, outcome]) => ({ kind: "capture", ...facts, outcome })),
+            assert.deepEqual(records(root).map(({ time, ...row }) => row),
+                cases.map(([{ unbroken, ...facts }, outcome]) => ({ kind: "capture", ...facts, outcome })),
                 "capture diagnostics retain numbers and categories, never transcript or device text");
             assert.deepEqual(writer.failures(), [], "an empty capture is evidence, not a fabricated provider fault");
             fsFault("writeSync", () => { throw Object.assign(new Error("fixture audit failure"), { code: "EIO" }); }, () => {
                 assert.equal(writer.capture(cases[0][0]).kind, "refuse", "capture audit failure returns a cause without throwing");
             });
-            for (const fields of [{ frames: -1 }, { forwarded: 48001 }, { peak: 32769 }, { gen: -1 }, { op: 0 }])
+            for (const fields of [{ frames: -1 }, { forwarded: 48001 }, { peak: 32769 }, { gen: -1 }, { op: 0 }, { unbroken: false }])
                 assert.equal(writer.capture({ ...cases[2][0], ...fields }).kind, "refuse");
         });
     }
@@ -737,6 +740,7 @@ world(() => {
         ["fault status listed", "status: record.status ?? null,", "status: null,", checkFaultRow],
         ["vision signal producer shape", 'value.code === undefined && typeof value.signal === "string"',
             'value.code === null && typeof value.signal === "string"', checkVisionReason],
+        ["capture unbroken", ': unbroken === true ? "unbroken" : "audio"', ': "audio"', captureFacts],
         ["capture keys", 'Object.keys(capture).sort().join(",") !== "box,bytes,height,masks,scale,sha256,width"', "false", checkCapture],
         ["capture scope", 'if (kind !== "action" || !Object.hasOwn(Tools.TABLE, tool) || Tools.TABLE[tool].executor !== "vision"', "if (false", checkCapture],
         ["capture digest", "!/^[0-9a-f]{64}$/.test(capture.sha256)", "false", checkCapture],

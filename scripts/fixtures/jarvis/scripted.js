@@ -7,6 +7,8 @@
 // port hands each turn to the daemon's real chained engine. Its scripted
 // driver answers one reply per reply gate, so the words the bubble draws are
 // the sentences the engine released and captioned.
+// An input-unbroken or input-sound gate, 2026-11-20, dispatches that sound
+// reading for the open capture, as Audio reports it.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -26,13 +28,15 @@ let record = null;
 // Set once the engine copy selects the chained plan.
 let chained = false;
 
-function ports(root, engine, state) {
+function ports(root, engine, state, input = () => {}) {
     fs.mkdirSync(root, { recursive: true });
     gatesRoot = root;
     const waiting = new Map();
     let collect = null;
     let capture = null;
     let captureMode = null;
+    // The open capture's effect, whose identity its sound readings carry.
+    let opened = null;
     let feedback = null;
     record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
@@ -45,7 +49,14 @@ function ports(root, engine, state) {
             fs.writeFileSync(path.join(root, "device-gone"), "");
             const failed = capture;
             capture = null;
+            opened = null;
             failed('device-lost target="fixture.mic" from=default microphones=0[]');
+        }
+        for (const type of ["input-unbroken", "input-sound"]) {
+            const reading = path.join(root, type);
+            if (opened === null || !fs.existsSync(reading)) continue;
+            fs.unlinkSync(reading);
+            input({ type, gen: opened.gen, op: opened.op, device: "fixture.mic" });
         }
         for (const [gate, done] of waiting) {
             const file = path.join(root, gate);
@@ -75,12 +86,13 @@ function ports(root, engine, state) {
                 record("capture-open", e);
                 captureMode = e.mode;
                 if (fs.existsSync(path.join(root, "device-gone"))) wait("device-back", done);
-                else { capture = failed; done(); }
+                else { capture = failed; opened = e; done(); }
             },
             collect: (e, done) => { record("collect", e); collect = done; },
             close: (e, done) => {
                 record("capture-close", e);
                 capture = null;
+                opened = null;
                 gates.drop("device-back");
                 const final = collect;
                 collect = null;
@@ -335,7 +347,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     const changes = [
         ['engine: engine.engine(),', "engine: " + JSON.stringify(engine) + ","],
         ['audio.playbackSource = engine.playbackSource;',
-            'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine, () => runner.state);\n' +
+            'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine, () => runner.state, event => runner.dispatch(event));\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
             '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });']
     ];

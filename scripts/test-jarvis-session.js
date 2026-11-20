@@ -695,6 +695,20 @@ const table = [
         const ended = step(logic, quiet.state, event("toggle", 400));
         assert.deepEqual(ended.state.sound, { kind: "none" });
     }],
+    ["unbroken-input", logic => {
+        const s = duplexListening(logic, false);
+        const unbroken = step(logic, s, callback("input-unbroken", s.capture, 30, { device: "fixture.mic" }));
+        assert.deepEqual(unbroken.state.sound, { kind: "unbroken" });
+        assert.deepEqual([unbroken.state.fault.kind, unbroken.state.conversation.kind, unbroken.state.capture.kind, unbroken.state.quiet.deadline],
+            ["none", "active", "open", s.quiet.deadline], "an input with no pause is a reading: no fault, no close and no activity");
+        assert.equal(logic.validate(unbroken.state), true, "the reading travels on the state wire");
+        const paused = step(logic, unbroken.state, callback("input-sound", s.capture, 31, { device: "fixture.mic" }));
+        assert.deepEqual(paused.state.sound, { kind: "none" }, "the pause ends the reading");
+        const old = step(logic, s, callback("input-unbroken", { ...s.capture, op: s.capture.op + 1 }, 32, { device: "other" }));
+        assert.deepEqual([old.state.sound, old.state.stale], [s.sound, s.stale + 1], "another capture's report is stale");
+        const ended = step(logic, unbroken.state, event("toggle", 400));
+        assert.deepEqual(ended.state.sound, { kind: "none" });
+    }],
     ["collection-delay", logic => {
         let s = listening(logic);
         s = step(logic, s, event("talk-up", 610)).state;
@@ -1578,7 +1592,7 @@ const events = copy(Session.EVENTS);
 for (const required of ["talk-down", "talk-up", "stop", "capture-opened", "capture-closed", "final", "confirm", "deadline", "input-silent", "speech-input-ended"])
     assert.equal(events.includes(required), true, required);
 const owners = {
-    "capture-opened": "capture", "capture-closed": "capture", "capture-failed": "capture", "input-silent": "capture", "input-sound": "capture",
+    "capture-opened": "capture", "capture-closed": "capture", "capture-failed": "capture", "input-silent": "capture", "input-sound": "capture", "input-unbroken": "capture",
     partial: "turn", final: "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "conversation-reset": "turn", cancelled: "turn", play: "turn", feedback: "turn",
     "playback-failed": "playback", played: "playback", flushed: "playback", tool: "turn", "tool-done": "action", approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", "approval-input-failed": "approval",
     speak: "speech", "speech-due": "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", delegation: "speech", "speech-input-ended": "speech",
@@ -1682,6 +1696,7 @@ try {
         ["quiet-partial", 'if (String(e.text).trim() !== "") activity(s, e.at);', 'if (false) activity(s, e.at);', "quiet-activity", 2],
         ["observation-fault", 's.sound = e.type === "input-silent" ? { kind: "silent", device: e.device } : { kind: "none" };',
             's.sound = e.type === "input-silent" ? { kind: "silent", device: e.device } : { kind: "none" }; s.fault = { kind: "error", reason: "silent", category: "other" };', "digital-silence"],
+        ["unbroken-reading", 's.sound = { kind: "unbroken" };', 'void e;', "unbroken-input"],
         ["collection-false-deadline", 'if (s.turn.kind === "collecting") s.turn.deadline = null;', 'if (s.turn.kind === "collecting") s.turn.deadline = e.at + COLLECTION_TIMEOUT_MS;', "collection-delay"],
         ["indicator", ': s.indicator.kind === "shown");', ': (true || s.indicator.kind === "shown"));', "indicator-admission"],
         ["show-handoff", 's.indicator.kind === "shown" || !canCapture(s) ? "shown" : "showing"', '"shown"', "show-handoff"],

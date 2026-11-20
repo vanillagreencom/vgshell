@@ -190,6 +190,18 @@ function microphoneMuted(value) {
     return value.muted;
 }
 
+// The overlay's line for SOUND, Session's sound region: what the open
+// microphone sends that keeps Jarvis from hearing a turn, and where to
+// change it. "" while the sound gives no such reading.
+function inputLine(sound) {
+    switch (sound === null || typeof sound !== "object" ? undefined : sound.kind) {
+    case "none": return "";
+    case "silent": return "Jarvis hears no sound from " + sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)";
+    case "unbroken": return "Jarvis cannot tell when you stop speaking. Turn on [Hold to talk](page:vgs.jarvis/Settings/holdToTalk) or [lower the microphone level](page:vgs.sound).";
+    default: refuse("sound", sound);
+    }
+}
+
 // Whether GATE, Session's gate region, is down.
 function gateDown(gate) {
     switch (gate === null || typeof gate !== "object" ? undefined : gate.kind) {

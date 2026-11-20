@@ -118,7 +118,8 @@
 # with Tab's focus on the first card's, its menu opened by Enter, and the
 # dropdown after Enter on Hide; jarvis-keys captures Jarvis's Keys section and, on a
 # tree that has it, the former Talk mode field. jarvis-states captures the
-# real widget and overlay at ready, listening, idle, thinking, speaking,
+# real widget and overlay at ready, listening, listening to an input with no
+# pause, idle, thinking, speaking,
 # confirmation, fault and not-set-up, plus the console's matching asks
 # count. It uses the existing scripted daemon ports and package-command
 # fixture. A disposable Service substitutes ready/unmuted and ready/muted microphone
@@ -5370,6 +5371,19 @@ print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if 
   expect_poll "the scripted capture opens after presentation" open jarvis_capture_state capture
   expect_poll "the listening orb draws" listening jarvis_capture_look
   jarvis_capture_tip "$1-listening"
+  # The listening orb while its capture finds no pause in the input. A tree
+  # that reports it draws the report's line; an older tree draws the orb
+  # alone.
+  if tree_has shell/plugins/vgs.jarvis/Session.js '"input-unbroken"'; then
+    : >"$gates/input-unbroken"
+    expect_poll "the scripted capture reports an input with no pause" unbroken jarvis_capture_state sound
+    expect_poll "the overlay draws the report's line" 1 ipc smoke layerItemsWith vgs.jarvis LinkText visible true
+  fi
+  take "jarvis-states-$1-unbroken"
+  if tree_has shell/plugins/vgs.jarvis/Session.js '"input-unbroken"'; then
+    : >"$gates/input-sound"
+    expect_poll "the scripted pause ends the report" none jarvis_capture_state sound
+  fi
   box="$(control_box vgs:layer vgs.jarvis ParticleOrb active true)" || return 1
   box="$(centre_of "$box")" || return 1
   [[ $box != none ]] || { fail "the Jarvis orb has no hover point"; return 1; }

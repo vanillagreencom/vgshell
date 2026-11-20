@@ -7,7 +7,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Audio.js");
-const { Audio } = require(file);
+const { Audio, PCM_RATE } = require(file);
 const EchoCancel = require("../shell/plugins/vgs.jarvis/backend/EchoCancel.js");
 require("../shell/plugins/vgs.jarvis/backend/Core.js").use(tree);
 
@@ -227,9 +227,10 @@ async function capture(w) {
         "fixture descendant actually holds its lock");
 }
 
-// Exercise Audio's real capture feed with a held recorder close. No child or
-// device runs; the fake boundary supplies only raw PCM and its exit receipt.
-async function cloudInput(Implementation = Audio) {
+// Audio's real capture feed of a cloud voice with a held recorder close. No
+// child or device runs; the fake boundary supplies only raw PCM and its exit
+// receipt. MODE is the capture's: a conversation or a held Talk.
+function cloudRig(Implementation, mode = "conversation") {
     const writes = [], ends = [], readings = [], failures = [], captures = [];
     let finish;
     const closed = new Promise(resolve => { finish = resolve; });
@@ -251,9 +252,27 @@ async function cloudInput(Implementation = Audio) {
         for (let at = 0; at < bytes.length; at += 2) bytes.writeInt16LE(value, at);
         return bytes;
     };
+    // COUNT 20 ms frames of one level, or the recorder's own read of BYTES.
     const send = (value, count) => { for (let i = 0; i < count; i++) stdout.emit("data", pcm(value)); };
+    const read = bytes => stdout.emit("data", bytes);
+    const open = () => audio.openCapture({ gen: 3, op: 7, mode }, () => {}, reason => failures.push(reason));
+    // The samples the gate forwarded.
+    const sent = () => writes.reduce((sum, bytes) => sum + bytes.length, 0) / 2;
+    // The recorder's close, acknowledged at once: its result.
+    const close = async () => {
+        let result = null;
+        const ending = audio.capturePort.close({ gen: 3, op: 8, target: 7 }, value => { result = value; }, error => { throw error; });
+        finish();
+        await ending;
+        return result;
+    };
+    return { audio, owner, feed, writes, ends, readings, failures, captures, finish, pcm, send, read, open, sent, close };
+}
+
+async function cloudInput(Implementation = Audio) {
+    const { audio, owner, feed, writes, ends, readings, failures, captures, finish, pcm, send, open } = cloudRig(Implementation);
     try {
-        await audio.openCapture({ gen: 3, op: 7, mode: "conversation" }, () => {}, reason => failures.push(reason));
+        await open();
         send(0, 110);
         // A count, not deepEqual against []: on a forwarded gate Node v26.13.0
         // builds that AssertionError's diff over every frame, 2.9 GiB for 20
@@ -285,6 +304,104 @@ async function cloudInput(Implementation = Audio) {
         assert.equal(feed.destroyed, true);
         assert.deepEqual(failures, []);
     } finally { finish(); await audio.close("test-end"); }
+}
+
+// Generated stand-in audio, never a recording: a room whose 20 ms peaks
+// vary between 1500 and 2200 of 32768, every one above the quiet-room level,
+// then ten 160 ms voiced bursts with 60 ms gaps over that room, then the
+// room alone. A seeded generator gives every run the same samples. speech is
+// the first voiced sample and the one after the last.
+function roomSpeech() {
+    const FRAME = PCM_RATE / 50, lead = 60, bursts = 10, tail = 100;
+    let seed = 0x2654;
+    const random = () => {
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        return (seed >>> 0) / 0x100000000;
+    };
+    const samples = new Int16Array((lead + bursts * 11 + tail) * FRAME);
+    let room = 0;
+    for (let i = 0; i < samples.length; i++) {
+        const at = Math.floor(i / FRAME) - lead;
+        if (i % FRAME === 0) room = 1500 + 700 * random();
+        const voiced = at >= 0 && at < bursts * 11 && at % 11 < 8;
+        samples[i] = Math.round(room * (2 * random() - 1) + (voiced ? 12000 * Math.sin(2 * Math.PI * 150 * i / PCM_RATE) : 0));
+    }
+    return { pcm: Buffer.from(samples.buffer), speech: [lead * FRAME, (lead + bursts * 11 - 3) * FRAME] };
+}
+
+// A turn spoken over steady room noise louder than the quiet-room level
+// (VGS-2654): the room alone leaves nothing, and the turn ends within a
+// second of the last word. The recorder's reads vary in size and break
+// frames, as a pipe's do.
+async function noisyInput(Implementation = Audio) {
+    const { audio, writes, ends, failures, captures, finish, read, open, sent, close } = cloudRig(Implementation);
+    const { pcm, speech } = roomSpeech();
+    const sizes = [482, 480, 250, 730, 1000];
+    let reads = 0;
+    const feedTo = (from, to) => {
+        for (let at = from; at < to;) {
+            const samples = Math.min(sizes[reads++ % sizes.length], to - at);
+            read(pcm.subarray(at * 2, (at + samples) * 2));
+            at += samples;
+        }
+    };
+    try {
+        await open();
+        feedTo(0, speech[0]);
+        assert.equal(writes.length, 0, "a room louder than the quiet-room level stays on this computer");
+        feedTo(speech[0], speech[1]);
+        assert.equal(ends.length, 0, "the gaps between words end no input");
+        const spoken = sent();
+        assert.equal(spoken, speech[1] - speech[0], "the spoken turn is forwarded whole");
+        feedTo(speech[1], pcm.length / 2);
+        assert.equal(ends.length, 1, "the turn ends over the same room once the speaker stops");
+        assert.ok(sent() - spoken >= PCM_RATE / 5 && sent() - spoken <= PCM_RATE,
+            "the turn ends after its hangover, within a second of the last word: " + (sent() - spoken));
+        assert.deepEqual(await close(), { speech: true }, "the ended turn's audio was queued for the provider");
+        assert.deepEqual(captures.map(({ peak, ...facts }) => facts), [{ gen: 3, op: 7, frames: pcm.length / 2, forwarded: sent() }],
+            "the room before and after the turn was recorded and never forwarded");
+        assert.deepEqual(failures, []);
+    } finally { finish(); await audio.close("test-end"); }
+}
+
+// Sound with no pause the level rule can find: 180 ms above the room's
+// level, then 20 ms at it, again and again. After six seconds of one input,
+// an open conversation reports it once, with its capture facts for the
+// audit, and the next pause ends the report. A held Talk reports nothing.
+async function unbrokenInput(Implementation = Audio) {
+    const sound = (rig, frames) => { for (let i = 0; i < frames; i++) rig.send(i % 10 === 9 ? 600 : 12000, 1); };
+    const reports = rig => rig.readings.filter(value => value.type === "input-unbroken");
+    const open = cloudRig(Implementation);
+    try {
+        await open.open();
+        open.send(600, 1);
+        sound(open, 299);
+        assert.deepEqual([open.writes.length, reports(open).length, open.captures.length], [299, 0, 0], "under six seconds reports nothing");
+        open.send(12000, 1);
+        assert.deepEqual(reports(open), [{ type: "input-unbroken", gen: 3, op: 7, device: "fixture.mic" }],
+            "six seconds of one input report it to the conversation");
+        assert.deepEqual(open.captures, [{ gen: 3, op: 7, frames: 301 * 480, peak: 12000, forwarded: 300 * 480, unbroken: true }],
+            "the audit takes the capture's facts so far");
+        sound(open, 200);
+        assert.deepEqual([reports(open).length, open.captures.length, open.ends.length], [1, 1, 0], "one input reports once");
+        open.send(600, 11);
+        assert.equal(open.ends.length, 1, "a pause ends the input");
+        assert.deepEqual(open.readings.map(value => value.type), ["input-unbroken", "input-sound"], "the pause ends the report");
+        assert.deepEqual(open.readings.at(-1), { type: "input-sound", gen: 3, op: 7, device: "fixture.mic" });
+        sound(open, 300);
+        assert.deepEqual([reports(open).length, open.captures.length], [2, 2], "the next input with no pause reports again");
+        await open.close();
+        assert.equal(open.captures.at(-1).unbroken, undefined, "the close records the capture as any other");
+        assert.deepEqual(open.failures, []);
+    } finally { open.finish(); await open.audio.close("test-end"); }
+    const held = cloudRig(Implementation, "hold");
+    try {
+        await held.open();
+        held.send(600, 1);
+        sound(held, 400);
+        assert.deepEqual([held.writes.length, held.readings, held.captures], [400, [], []],
+            "a held Talk ends its turn at the release, so its input reports nothing");
+    } finally { held.finish(); await held.audio.close("test-end"); }
 }
 
 async function trigger(Implementation, type) {
@@ -320,6 +437,8 @@ async function inside() {
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
     await cloudInput();
+    await noisyInput();
+    await unbrokenInput();
     await echoRoutes();
     echoInstallation();
     await firstPlayback();
@@ -963,6 +1082,10 @@ async function inside() {
         'if (false && (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id))) return "links-missing";', echoRoutes);
     await control("echo-semantic-selection", 'if (settings?.microphone !== state.settings.microphone || settings?.speaker !== state.settings.speaker)',
         'if (settings !== state.settings)', echoRoutes);
+    // Today's defect: a fixed level reads the whole room as speech.
+    await control("cloud-room-floor", "Math.max(CLOUD_SPEECH_PEAK, floor * CLOUD_SPEECH_RATIO)", "CLOUD_SPEECH_PEAK", noisyInput);
+    await control("unbroken-report", "gate.open >= CLOUD_UNBROKEN_FRAMES", "false", unbrokenInput);
+    await control("unbroken-held", ' && e.mode === "conversation"', "", unbrokenInput);
     await control("silent-hint", "capture.frames >= SILENT_FRAMES", "false", cloudInput);
     await control("native-close-result", "speech: capture.gate.committed", "speech: false", cloudInput);
     await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',

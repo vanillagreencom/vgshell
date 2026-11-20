@@ -2,7 +2,7 @@
  "source": {
   "schema": "realtime.schema.json",
   "fetched": "2026-10-09",
-  "kind": "A Realtime session made by hand from the documented event shapes. No account data and no provider recording. Old-reply PCM is 0x11 bytes, new-reply PCM 0x22."
+  "kind": "A Realtime session made by hand from the documented event shapes. No account data and no provider recording. Old-reply PCM is 0x11 bytes, new-reply PCM 0x22. turn-early puts an item's first partial text before its commit acknowledgement, the order the console rows of VGS-2663 showed on 2026-11-19."
  },
  "scripts": {
   "created": [
@@ -133,6 +133,46 @@
     "item_id": "item_user_2",
     "content_index": 0,
     "transcript": "Stop. What changed?",
+    "usage": {
+     "type": "duration",
+     "seconds": 2
+    }
+   }
+  ],
+  "turn-early": [
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_early_delta_0",
+    "item_id": "item_user_early",
+    "content_index": 0,
+    "delta": "check with"
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_early_delta_1",
+    "item_id": "item_user_early",
+    "content_index": 0,
+    "delta": " main brain"
+   },
+   {
+    "type": "input_audio_buffer.committed",
+    "event_id": "evt_item_user_early_committed",
+    "item_id": "item_user_early",
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_early_delta_2",
+    "item_id": "item_user_early",
+    "content_index": 0,
+    "delta": " tonight"
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.completed",
+    "event_id": "evt_item_user_early_completed",
+    "item_id": "item_user_early",
+    "content_index": 0,
+    "transcript": "Check with main brain tonight.",
     "usage": {
      "type": "duration",
      "seconds": 2

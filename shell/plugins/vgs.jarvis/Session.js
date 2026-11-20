@@ -33,7 +33,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
-    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound", "input-unbroken",
     "preview", "speech-input-ended", "new-conversation", "conversation-reset"
 ];
 
@@ -1065,6 +1065,12 @@ function reduce(state, e, restartFor) {
         if (typeof e.device !== "string" || e.device === "") throw new Error("jarvis: session=input-device");
         s.sound = e.type === "input-silent" ? { kind: "silent", device: e.device } : { kind: "none" };
         break;
+    // Audio's level gate has found no pause in the open input, so its turn
+    // cannot end by itself: a reading the overlay words, never a fault.
+    case "input-unbroken":
+        if (!live(s, e, "capture", ["open"])) { stale(s); break; }
+        s.sound = { kind: "unbroken" };
+        break;
     case "speech-input-ended":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
         if (typeof e.empty !== "boolean") throw new Error("jarvis: session=input-ended");
@@ -1125,7 +1131,7 @@ var REGIONS = {
     fault: { none: "", error: "reason category", "voice-connection": "reason category" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
-    quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
+    quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device", unbroken: "" },
     indicator: { gone: "", shown: "" }, barIndicator: { gone: "", present: "gen", listening: "gen" },
     visibility: { shown: "", showing: "", hidden: "" }, duplex: { half: "", full: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },

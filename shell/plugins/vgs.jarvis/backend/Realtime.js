@@ -284,6 +284,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             for (const capture of [...session.commits, ...session.inputs.values()]) capture.discarded = true;
             session.commits = [];
             session.inputs.clear();
+            session.early.clear();
             session.pending = [];
             session.pendingBytes = 0;
             if (interrupted) {
@@ -471,12 +472,16 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         // item it leaves gets its caption from its completed transcript.
         if (segment !== null && segment.source !== source) segment = session.segments[role] = null;
         if (segment === null && text.trim() === "") return;
+        // The characters of this source that full captions before the open
+        // one have closed.
+        let closed = segment === null ? 0 : segment.closed;
         while (text !== "") {
             if (segment !== null && segment.text.length === captionLimit) {
                 conclude(session, role);
                 segment = null;
+                closed += captionLimit;
             }
-            if (segment === null) segment = session.segments[role] = { source, text: "" };
+            if (segment === null) segment = session.segments[role] = { source, text: "", closed };
             const room = captionLimit - segment.text.length;
             segment.text += text.slice(0, room);
             text = text.slice(room);
@@ -489,6 +494,18 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         session.segments[role] = null;
         emit(session, role, segment.text, "final");
         if (role === "assistant") tally(session, segment.text);
+    }
+    // The transcription sends an item's partial text while its audio is
+    // still uncommitted, before input_audio_buffer.committed names the item:
+    // the console rows of VGS-2663 (px13, 2026-11-19) held only the words
+    // that came after it. Such text names no capture yet, so it waits by its
+    // item for the acknowledgement, within one turn's bound over all items.
+    function hold(session, item, text) {
+        if (text === "") return;
+        let chars = text.length;
+        for (const held of session.early.values()) chars += held.length;
+        if (chars > TURN_CHARS) fail("turn-size");
+        session.early.set(item, (session.early.get(item) ?? "") + text);
     }
     // The voice is asked to speak each sentence exactly; this counts where its
     // transcript shows it did not. The log carries only violation kinds and counts.
@@ -537,11 +554,24 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             case "stopped": break;
             case "committed": {
                 const capture = session.commits.shift();
-                if (capture !== undefined) session.inputs.set(event.item, capture);
+                const early = session.early.get(event.item);
+                // Acknowledgements arrive in commit order: text held before
+                // this item's belongs to input that was never committed.
+                if (early !== undefined) for (const item of session.early.keys()) {
+                    session.early.delete(item);
+                    if (item === event.item) break;
+                }
+                if (capture === undefined) break;
+                session.inputs.set(event.item, capture);
+                // The held text opens the turn's caption, as its later text extends it.
+                if (early === undefined || capture.discarded) break;
+                conclude(session, "assistant");
+                caption(session, "user", event.item, early);
                 break;
             }
             case "hearing":
-                if (!session.inputs.has(event.item) || session.inputs.get(event.item).discarded) break;
+                if (!session.inputs.has(event.item)) { hold(session, event.item, event.text); break; }
+                if (session.inputs.get(event.item).discarded) break;
 
                 conclude(session, "assistant");
                 caption(session, "user", event.item, event.text);
@@ -554,11 +584,20 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                 if (capture?.discarded || session.state.kind === "ended") break;
 
                 conclude(session, "assistant");
-                // The open caption closes on its own item's transcript. An item
-                // with none open gets its caption whole, and another item's stays open.
-                if (session.segments.user !== null && session.segments.user.source === event.item) conclude(session, "user");
-                else for (let text = clean(event.text); text.trim() !== ""; text = text.slice(captionLimit))
-                    emit(session, "user", text.slice(0, captionLimit), "final");
+                // An item's caption closes as its completed transcript,
+                // whatever partial text came: an open caption of the item
+                // gives way to it, past the characters its full captions
+                // closed. An item with none open gets its caption whole, and
+                // another item's stays open. A transcript with no words left
+                // closes the item's open caption as shown.
+                const open = session.segments.user !== null && session.segments.user.source === event.item ? session.segments.user : null;
+                const rest = clean(event.text).slice(open === null ? 0 : open.closed);
+                if (open !== null && rest.trim() === "") conclude(session, "user");
+                else {
+                    if (open !== null) session.segments.user = null;
+                    for (let text = rest; text.trim() !== ""; text = text.slice(captionLimit))
+                        emit(session, "user", text.slice(0, captionLimit), "final");
+                }
                 if (event.text.trim() === "") break;
                 // Words still waiting answer the request this one replaces.
                 session.speech.queue = [];
@@ -668,7 +707,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                 rollover: null, renewing: false, repeatNotice: false, cut: null,
                 reading: new AbortController(), vocabulary: null,
                 timers: { start: null, pump: null, gap: null, words: null, preview: null },
-                pending: [], pendingBytes: 0, capture: null, commits: [], inputs: new Map(),
+                pending: [], pendingBytes: 0, capture: null, commits: [], inputs: new Map(), early: new Map(),
                 playing: null, next: null,
                 speech: { queue: [], chars: 0, active: null }, delegation: null, said: [], taken: null,
                 segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
@@ -700,6 +739,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             if (session.capture !== null) session.capture.inputRecord.discarded = true;
             session.pending = [];
             session.pendingBytes = 0;
+            session.early.clear();
             if (session.state.kind === "running") {
                 try { send(session, { type: "input_audio_buffer.clear" }); }
                 catch (error) { failed(session, reasonOf(error)); return; }

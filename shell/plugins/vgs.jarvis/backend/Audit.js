@@ -151,15 +151,18 @@ function faultRecord(event, time) {
         ...(status === null ? {} : { status: Number(status[1]) }), category: event.category, action: event.action });
 }
 
-// Capture facts diagnose silence without retaining audio or a device name.
-// Audio's forwarded count is level-gated PCM, never recognized speech.
+// Capture facts diagnose silence and an input with no pause without
+// retaining audio or a device name. Audio's forwarded count is level-gated
+// PCM, never recognized speech. Audio sends `unbroken: true` with the facts
+// so far when its gate has found no pause in one input, and none at a close.
 function captureRecordOf(event, time) {
-    const { gen, op, frames, peak, forwarded } = event;
+    const { gen, op, frames, peak, forwarded, unbroken } = event;
     if (!Number.isSafeInteger(gen) || gen < 0 || !Number.isSafeInteger(op) || op < 1
             || ![frames, forwarded].every(value => Number.isSafeInteger(value) && value >= 0)
-            || forwarded > frames || !Number.isInteger(peak) || peak < 0 || peak > 32768) fail("capture-facts");
+            || forwarded > frames || !Number.isInteger(peak) || peak < 0 || peak > 32768
+            || unbroken !== undefined && (unbroken !== true || forwarded === 0)) fail("capture-facts");
     return { time, kind: "capture", gen, op, frames, peak, forwarded,
-        outcome: frames === 0 ? "no-audio" : forwarded === 0 ? "below-gate" : "audio" };
+        outcome: frames === 0 ? "no-audio" : forwarded === 0 ? "below-gate" : unbroken === true ? "unbroken" : "audio" };
 }
 
 function storedEvent(record) {

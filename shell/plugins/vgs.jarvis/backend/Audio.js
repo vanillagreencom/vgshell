@@ -40,19 +40,50 @@ const SILENT_PEAK = 32;
 // A classification window, chosen in captured samples rather than elapsed
 // time: a source that sends only digital silence for this window gets a hint.
 const SILENT_FRAMES = PCM_RATE * 2;
-// Cloud input uses a plain level rule, not a recognizer. The chosen floor
-// aims to reject quiet room noise; 200 ms of captured hangover keeps endings.
+// Cloud input uses a plain level rule, not a recognizer. A frame is speech
+// when its peak stands CLOUD_SPEECH_RATIO times above the room's floor, and
+// never below CLOUD_SPEECH_PEAK, which rejects a quiet room's noise; 200 ms
+// of captured hangover keeps endings. A fixed level alone never found the
+// end of a turn in a room louder than it (px13, 2026-11-19, VGS-2654).
 // These are rule parameters, not measured noise or latency claims.
 const CLOUD_SPEECH_PEAK = 512;
+const CLOUD_SPEECH_RATIO = 3;
 const CLOUD_HANGOVER_FRAMES = PCM_RATE / 5;
 // Bound the gate's frame independently of pipe read coalescing under load.
 const CLOUD_FRAME_BYTES = PCM_RATE * 2 / 50;
+// The room's floor is the lowest 20 ms frame of the last 1.5 s: speech falls
+// to the room's level between words within it, and steady noise never does.
+const CLOUD_FLOOR_FRAMES = PCM_RATE * 3 / 2;
+// One input the gate has held open this long has no pause the level rule
+// can find, so its turn cannot end by itself.
+const CLOUD_UNBROKEN_FRAMES = PCM_RATE * 6;
 
 /** The largest sample magnitude of whole 16-bit little-endian PCM. */
 function peak(pcm) {
     let most = 0;
     for (let i = 0; i + 1 < pcm.length; i += 2) most = Math.max(most, Math.abs(pcm.readInt16LE(i)));
     return most;
+}
+
+/**
+ * The room's floor after PCM: the lowest peak among the whole 20 ms frames
+ * of the last CLOUD_FLOOR_FRAMES, or null before the first one. FLOOR counts
+ * each frame in captured samples across calls, so a short pipe read never
+ * stands in for a frame and lowers the floor.
+ */
+function roomFloor(floor, pcm) {
+    for (let offset = 0; offset < pcm.length;) {
+        const take = Math.min(pcm.length - offset, CLOUD_FRAME_BYTES - floor.bytes);
+        floor.peak = Math.max(floor.peak, peak(pcm.subarray(offset, offset + take)));
+        floor.bytes += take;
+        offset += take;
+        if (floor.bytes < CLOUD_FRAME_BYTES) continue;
+        floor.peaks[floor.next] = floor.peak;
+        floor.next = (floor.next + 1) % (CLOUD_FLOOR_FRAMES * 2 / CLOUD_FRAME_BYTES);
+        floor.bytes = 0;
+        floor.peak = 0;
+    }
+    return floor.peaks.length === 0 ? null : Math.min(...floor.peaks);
 }
 
 // What a monitor knows before a store names a default, and after the store
@@ -595,7 +626,8 @@ class Audio {
             await this.release;
             if (!this.allowed("capture")) throw new Error("capture-refused");
             capture = { kind: "opening", owner: null, e, failed, target: null, from: null, sound: "waiting", frames: 0, peak: 0, forwarded: 0,
-                gate: this.state.engine.kind === "duplex" ? { active: false, remaining: 0, committed: false } : null };
+                gate: this.state.engine.kind === "duplex" ? { active: false, remaining: 0, committed: false, open: 0, unbroken: false,
+                    floor: { peaks: [], next: 0, bytes: 0, peak: 0 } } : null };
             this.capture = capture;
             await this.discover();
             if (!this.allowed("capture") || this.capture !== capture) return;
@@ -676,23 +708,43 @@ class Audio {
         if (!gate.active) return;
         gate.active = false;
         gate.remaining = 0;
+        gate.open = 0;
         gate.committed = feed.endInput() || gate.committed;
     }
 
     feedCloudInput(capture, feed, pcm) {
         let ready = true;
-        const gate = capture.gate;
+        const gate = capture.gate, e = capture.e;
+        const floor = roomFloor(gate.floor, pcm);
+        // No frame is speech before the room has a floor to stand above.
+        const speech = floor === null ? Infinity : Math.max(CLOUD_SPEECH_PEAK, floor * CLOUD_SPEECH_RATIO);
         for (let offset = 0; offset < pcm.length; offset += CLOUD_FRAME_BYTES) {
             if (this.capture !== capture) return false;
             const frame = pcm.subarray(offset, offset + CLOUD_FRAME_BYTES);
-            if (peak(frame) >= CLOUD_SPEECH_PEAK) {
+            if (peak(frame) >= speech) {
                 gate.active = true;
                 gate.remaining = CLOUD_HANGOVER_FRAMES;
             } else gate.remaining = Math.max(0, gate.remaining - frame.length / 2);
             if (!gate.active) continue;
             capture.forwarded += frame.length / 2;
+            gate.open += frame.length / 2;
             ready = feed.write(frame) && ready;
-            if (gate.remaining === 0) this.finishCloudInput(capture, feed);
+            if (gate.remaining === 0) {
+                this.finishCloudInput(capture, feed);
+                // The pause the report waited for: its turn has ended.
+                if (gate.unbroken) {
+                    gate.unbroken = false;
+                    this.input({ type: "input-sound", gen: e.gen, op: e.op, device: capture.target });
+                }
+            } else if (!gate.unbroken && gate.open >= CLOUD_UNBROKEN_FRAMES && e.mode === "conversation") {
+                // Only an open conversation waits for a pause: a held Talk
+                // ends its turn at the release, whatever the level. The
+                // audit takes the facts so far now, since this capture can
+                // stay open until the user closes the conversation.
+                gate.unbroken = true;
+                this.captured({ gen: e.gen, op: e.op, frames: capture.frames, peak: capture.peak, forwarded: capture.forwarded, unbroken: true });
+                this.input({ type: "input-unbroken", gen: e.gen, op: e.op, device: capture.target });
+            }
         }
         return ready;
     }
