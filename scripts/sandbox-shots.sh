@@ -109,7 +109,7 @@
 # scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, the Codex stand-in
 # beside it and planted sign-ins, with no host claude or codex on the
 # shell's PATH, plus a published Copilot reading first and an AI Gateway
-# reading last; ai-usage-states, taken only when named, is that dropdown
+# reading last, with AI Gateway credits on; ai-usage-states, taken only when named, is that dropdown
 # with a Claude Code account at its full weekly limit and one with no
 # figures at its top; ai-usage-hide, taken only when named, is that
 # dropdown over a Claude Code account whose sign-in file the helper cannot
@@ -12576,6 +12576,17 @@ open(os.path.join(home, ".codex", "stand-in-mode"), "w").write("relative\n")
 os.makedirs(os.path.join(home, ".codex-api"), exist_ok=True)
 json.dump({"OPENAI_API_KEY": "shots-api-key"}, open(os.path.join(home, ".codex-api", "auth.json"), "w"))
 open(os.path.join(home, ".codex-api", "stand-in-mode"), "w").write("api-key\n")
+PY
+      # The planted AI Gateway reading draws a card only with AI Gateway
+      # credits on (UsageView.js shownProvider), which the manifest leaves
+      # off, so this copy's default turns them on.
+      python3 - "$repo/shell/plugins/vgs.ai-usage/manifest.json" <<'PY' || fail "turning on AI Gateway credits failed"
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path))
+assert manifest["settings"]["aiGateway"] is False, "the shipped default changed"
+manifest["settings"]["aiGateway"] = True
+json.dump(manifest, open(path, "w"))
 PY
       tree_rescan "the AI Usage stand-ins are scanned"
       expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
