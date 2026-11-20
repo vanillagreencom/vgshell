@@ -118,6 +118,19 @@ function verify(view) {
                 ["vgs-letter-j-hidden", stateDot, bar.tooltip + " (hidden)"], label + ": held icon is independent of live state");
         }
     }
+    // The overlay's line for the open capture's sound: each reading's page
+    // references, never its wording. No sound reading draws no line.
+    for (const [label, sound, targets] of [
+        ["no reading", { kind: "none" }, []],
+        ["digital silence", { kind: "silent", device: "fixture microphone" }, [["vgs.jarvis", "Settings/microphone"]]],
+        ["no pause", { kind: "unbroken" }, [["vgs.jarvis", "Settings/holdToTalk"], ["vgs.sound", ""]]]
+    ]) {
+        const line = view.inputLine(sound);
+        assert.equal(line === "", targets.length === 0, label + ": a line only for a reading");
+        assert.deepEqual(links([line]).map(link => [link.page, link.tab]), targets, label + ": the pages that change it");
+    }
+    assert.ok(view.inputLine({ kind: "silent", device: "fixture microphone" }).includes("fixture microphone"), "the silent line names its microphone");
+    assert.throws(() => view.inputLine({ kind: "loud" }), "an unknown reading refuses");
     const demand = Session.reduce(Session.reduce(Session.initial(), { type: "snapshot", at: 0,
         locked: false, configured: true, settings: {}, engine: "chained" }).state, { type: "hidden", at: 1 }).state;
     const waiting = Session.reduce(demand, { type: "talk-down", at: 2 }).state;
@@ -602,6 +615,7 @@ const controls = [
     ["ElevenLabs assigns account repair to transient faults", 'kind === "elevenlabs" && fault.category === "account"', 'kind === "elevenlabs"'],
     ["ElevenLabs loses setup repair", 'kind === "elevenlabs" && fault.category === "setup"', 'false'],
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
+    ["no line for an input with no pause", 'case "unbroken":', 'case "unbroken": return "";'],
     ["bar changes the J while listening", '"listening": { icon: "vgs-letter-j"', '"listening": { icon: "audio-lines"'],
     ["bar loses state dots", 'stateDot: style.stateDot', 'stateDot: ""'],
     ["hidden icon lost", 'out.icon = "vgs-letter-j-hidden";', 'out.icon = "vgs-letter-j";'],

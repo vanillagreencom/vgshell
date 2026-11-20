@@ -1554,6 +1554,7 @@ Item {
                         replyCaption = { gen: message.gen, role: message.role, text: message.text };
                         const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
                             at: Date.now(), session: childSerial + ":" + sessionState.history.epoch };
+                        if (message.origin !== undefined) segment.origin = message.origin;
                         conversationLog = Conversation.update(conversationLog, segment);
                         const history = StatusPublication.write(shell.status, "conversation", conversationLog);
                         if (!shell.status.isOk(history)) throw new Error("jarvis: " + history);

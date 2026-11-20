@@ -286,9 +286,11 @@ world(async () => {
                 headers: request.headers, events: [], cursor: 0, socket, ended: false, parts: {}, pings: 0, pongs: [],
                 owner: null, inputSequence: Promise.resolve(), mapped: new Set(), claimed: 0, inputOpen: false, opened: currentCase,
                 play(name) { for (const event of P.scripts[name]) this.send(structuredClone(event)); },
-                // Realtime sends transcripts only for a server-acknowledged
-                // native commit. Parser/reply rows produce actual input first;
-                // native outcome rows use nativeSend to control the receipt.
+                // Parser/reply rows produce actual input first, and their item's
+                // text follows its commit acknowledgement. Realtime can send an
+                // item's partial text before that acknowledgement: the native
+                // outcome rows and the early-text row order their own frames
+                // with nativeSend.
                 send(event) {
                     P.server(event);
                     this.inputSequence = this.inputSequence.then(async () => {
@@ -423,7 +425,7 @@ world(async () => {
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
         ack, ackLine = true, wallEpoch = 0, usage = () => {}, deferredWrites = false } = {}) {
         const clock = manual(wallEpoch);
-        const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
+        const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], captionOrigins: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
             stall: false, read: null, dues: [], inputResults: [], interrupted: [], renewals: [], captures: [], urls: [], speechOpens: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
@@ -509,7 +511,8 @@ world(async () => {
         // The daemon's wire mapping, judged by the shared protocol.
         ports.transcript = e => {
             Protocol.accept(JSON.stringify({ v: 1, type: "transcript", gen: e.gen, revision: "a".repeat(64),
-                role: e.role, text: e.text, stage: e.stage, rev: e.rev }), "daemon");
+                role: e.role, text: e.text, stage: e.stage, rev: e.rev, origin: e.origin }), "daemon");
+            w.captionOrigins.push(e.origin);
             w.transcripts.push({ role: e.role, text: e.text, stage: e.stage, rev: e.rev });
         };
         ports.voiceMute = { store: () => {} };
@@ -726,6 +729,8 @@ world(async () => {
         sink.write(Buffer.alloc(4800, 5));
         await conn.event(APPEND);
         if (P === GEMINI) conn.nativeSend({ serverContent: { inputTranscription: { text: "Unfinished" } } });
+        // Realtime's text of the uncommitted item, at one turn's bound.
+        else conn.nativeSend({ ...script("turn-early", 0), item_id: "cap_unfinished", delta: "x".repeat(TURN) });
         await conn.sync();
         // The 20-second start bound and one-second margin force replacement
         // before the advertised deadline when no safe boundary has arrived.
@@ -740,6 +745,7 @@ world(async () => {
         assert.equal(notices().length, 1, "an unfinished segment receives one nonfault repeat notice");
         assert.equal(notices()[0].gen, identity.gen);
         assert.deepEqual(w.transcripts.filter(event => event.role === "assistant"), [], "recovery is not a model caption");
+        if (P === REALTIME) assert.deepEqual(w.transcripts, [], "the cut input's partial text shows no caption");
         sink.write(Buffer.alloc(4800, 7));
         await next.sync();
         assert.equal(P.sent(next).length, 0, "the cut segment stays discarded after reconnect");
@@ -751,6 +757,8 @@ world(async () => {
         await next.event(APPEND);
         sink.endInput();
         await nativeEnd(next);
+        // The cut input's text left with it: the fresh item's fits the bound.
+        if (P === REALTIME) next.nativeSend({ ...script("turn-early", 0), item_id: "cap_repeated", delta: "Repeated" });
         nativeResult(next, "cap_repeated", "Repeated request");
         if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
         await until(() => w.delegations.length === 1, "fresh post-boundary input reaches the brain");
@@ -1713,6 +1721,100 @@ world(async () => {
         quiet(w, conn);
     }
 
+    // An item's partial text can arrive before input_audio_buffer.committed
+    // names the item (turn-early). It waits for the acknowledgement, opens
+    // the turn's caption there, and the caption closes as the completed
+    // transcript, which differs here from the partial text. Stop's discarded
+    // input shows none of it.
+    async function earlyCaptions(kit) {
+        const { w, conn } = await conversing(kit);
+        const shown = w.transcripts.length;
+        const early = (index, item) => conn.nativeSend({ ...script("turn-early", index), item_id: item });
+        const speak = async fill => {
+            await until(() => w.state.capture.kind === "closed", "the preceding recorder closes before fresh input");
+            w.dispatch("talk-down");
+            // Talk sends a native clear. Join that frame before microphone input.
+            await conn.sync();
+            w.clock.advance(TAP);
+            w.sink.write(Buffer.alloc(4800, fill));
+            await conn.event(APPEND);
+        };
+        await speak(5);
+        early(0, "item_early");
+        early(1, "item_early");
+        await conn.sync();
+        assert.equal(w.transcripts.length, shown, "text of an unacknowledged item waits for its capture");
+        w.dispatch("talk-up");
+        await nativeEnd(conn);
+        early(2, "item_early");
+        await conn.sync();
+        const acknowledged = w.transcripts.slice(shown);
+        early(3, "item_early");
+        early(4, "item_early");
+        await until(() => w.delegations.length === 2 || w.state.fault.kind !== "none", "the early turn reaches the brain");
+        // The overseer's before reading (VGS-2667 on 575727678): the brain
+        // got the whole sentence and the row closed as the words after the
+        // acknowledgement alone.
+        assert.equal(w.delegations.at(-1).text, "Check with main brain tonight.", "the brain receives the full transcript");
+        assert.deepEqual({ check: "early-caption-final",
+            final: w.transcripts.slice(shown).filter(row => row.stage === "final").map(row => row.text) },
+        { check: "early-caption-final", final: ["Check with main brain tonight."] }, "the row closes as the completed transcript");
+        assert.deepEqual(acknowledged, [{ role: "user", text: "check with main brain", stage: "partial", rev: shown + 1 }],
+            "the acknowledgement shows the text held for its item as the turn's partial caption");
+        assert.deepEqual(w.transcripts.slice(shown), [
+            { role: "user", text: "check with main brain", stage: "partial", rev: shown + 1 },
+            { role: "user", text: "check with main brain tonight", stage: "partial", rev: shown + 2 },
+            { role: "user", text: "Check with main brain tonight.", stage: "final", rev: shown + 3 }
+        ], "the turn's caption closes as its completed transcript");
+        // Two local ends, then two items whose deltas arrive in reverse
+        // commit order. One completes empty, the other corrects its first
+        // word after its preview has exceeded the wire's caption bound.
+        await speak(6);
+        assert.equal(w.sink.endInput(), true);
+        await nativeEnd(conn);
+        w.sink.write(Buffer.alloc(4800, 7));
+        await conn.event(APPEND);
+        assert.equal(w.sink.endInput(), true);
+        await nativeEnd(conn);
+        const before = w.transcripts.length;
+        const delta = (item, text) => conn.nativeSend({ ...script("turn-early", 0), item_id: item, delta: text });
+        const complete = (item, text) => conn.nativeSend({ ...script("turn-early", 4), item_id: item, transcript: text });
+        delta("second", "maybe");
+        delta("first", "first words");
+        early(2, "first");
+        early(2, "second");
+        await conn.sync();
+        assert.deepEqual(w.transcripts.slice(before).map(row => [row.text, row.stage]), [["first words", "partial"], ["maybe", "partial"]]);
+        const origins = w.captionOrigins.slice(before);
+        assert.deepEqual(origins, ["first", "second"].map(item => w.state.speech.op + ":" + item));
+        delta("first", "x".repeat(5000));
+        complete("second", "");
+        const corrected = "Corrected " + "y".repeat(4096);
+        complete("first", corrected);
+        await conn.sync();
+        const finals = w.transcripts.slice(before).flatMap((row, i) => row.stage === "final" ? [[w.captionOrigins[before + i], row.text]] : []);
+        assert.deepEqual(finals, [[origins[1], ""], [origins[0], corrected.slice(0, 4096)], [origins[0], corrected.slice(4096)]],
+            "only the empty item's preview is withdrawn and every final segment comes from the completed transcript");
+        assert.equal(w.delegations.at(-1).text, corrected);
+        const beforeStop = [w.transcripts.length, w.delegations.length];
+        w.sink.write(Buffer.alloc(4800, 8));
+        await conn.event(APPEND);
+        assert.equal(w.sink.endInput(), true);
+        await nativeEnd(conn);
+        // Text at the bound: Stop must drop it for the next item's to fit.
+        conn.nativeSend({ ...script("turn-early", 0), item_id: "item_stopped", delta: "x".repeat(TURN) });
+        await conn.sync();
+        w.dispatch("stop");
+        assert.deepEqual(await conn.event("input_audio_buffer.clear"), { type: "input_audio_buffer.clear" });
+        conn.nativeSend({ type: "input_audio_buffer.cleared", event_id: "evt_early_cleared" });
+        for (const index of [0, 2, 3, 4]) early(index, "item_stopped");
+        await conn.sync();
+        assert.equal(w.state.fault.kind, "none", "Stop drops the text it held");
+        assert.deepEqual([w.transcripts.length, w.delegations.length], beforeStop,
+            "discarded input shows no caption and reaches no brain");
+        quiet(w, conn);
+    }
+
     // An interrupted reply already playing: the words not yet asked for are
     // dropped, and the rest of the interrupted response never plays.
     async function interruptPlaying(kit, P = REALTIME) {
@@ -1795,6 +1897,10 @@ world(async () => {
         ["transcript-shape", running, completed(event => ({ ...event, transcript: 7 })), "live=frame-shape"],
         ["turn-size", running, completed(event => ({ ...event, transcript: "x".repeat(TURN + 1) })), "live=turn-size"],
         ["partial-shape", running, conn => conn.raw(off("turn", event => ({ ...event, delta: 7 }), 1)), "live=frame-shape"],
+        ["early-partial-size", running, conn => {
+            for (const [item, length] of [["first", TURN / 2], ["second", TURN / 2 + 1]])
+                conn.raw(off("turn-early", event => ({ ...event, item_id: item, delta: "x".repeat(length) })));
+        }, "live=turn-size"],
         ["words-shape", speaking, conn => conn.raw(off("reply-old", event => ({ ...event, delta: 7 }), -1)), "live=frame-shape"],
         ["json", running, conn => conn.raw("{"), "live=frame-json"],
         ["binary", running, conn => conn.raw(Buffer.from([1, 2]), 2), "live=frame-binary"],
@@ -2151,6 +2257,14 @@ world(async () => {
         const vocabularyStandin = path.join(process.env.JARVIS_TEST_ROOT, "standins/voxtype");
         const captureSilence = path.join(process.env.HOME, "capture-silent");
         let captureSilenceOwned = false;
+        // The stand-in recorder's words with gaps, which the level gate
+        // hears as speech over a quiet room; a constant level is a room's.
+        const captureSpeech = path.join(process.env.HOME, "capture-speech");
+        fs.writeFileSync(captureSpeech, "");
+        // The stand-in recorder's room: a steady level above the quiet-room
+        // level wherever the speaker is quiet.
+        const captureRoom = path.join(process.env.HOME, "capture-room");
+        if (only === "noisy-tail") fs.writeFileSync(captureRoom, "");
         if (["unheard", "aggregate"].includes(only)) fs.writeFileSync(vocabularyStandin,
             `#!/bin/sh\nprintf '%s\\n' '{"replacements":{"BGS":"VGS"}}'\n`, { mode: 0o700 });
         const child = cp.spawn("node", [runnerFile, "--tree", tree], { env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
@@ -2195,7 +2309,7 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
+            send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate", "noisy-tail"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
                 cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
@@ -2305,6 +2419,51 @@ world(async () => {
                     captureSilenceOwned = false;
                     fs.writeFileSync(offset, String(Number(fs.readFileSync(offset, "utf8")) + 1379));
                 }
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
+            if (only === "noisy-tail") {
+                // VGS-2654, the overseer's before reading (VGS-2667 on
+                // 575727678): words over a room louder than the quiet-room
+                // level, then the room alone. The fixed level held the input
+                // open through that tail, with no native end and no brain
+                // request, until a second Talk tap closed the conversation.
+                // The tail is counted in the audio the voice received, since
+                // the stand-in recorder runs no faster than real time.
+                server.replies.push(BrainFixture.text("Noted."));
+                press();
+                await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the voice connects over the room");
+                const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
+                conn.auto = 1;
+                await P.open(conn);
+                await wait(() => P.sent(conn).length >= PCM_RATE * 2 / 5 * P.rate, "the words over the room reach the voice");
+                const ends = () => conn.events.filter(event => P === REALTIME ? event.type === "input_audio_buffer.commit"
+                    : event.realtimeInput?.audioStreamEnd === true).length;
+                assert.equal(ends(), 0, "the gaps between words end no input");
+                fs.writeFileSync(captureSilence, "", { flag: "wx" });
+                captureSilenceOwned = true;
+                const tail = P.sent(conn).length;
+                const roomTail = Buffer.alloc(PCM_RATE * 2 * P.rate, Buffer.from([0, 8]));
+                const receivedTail = () => {
+                    const pcm = P.sent(conn);
+                    return pcm.length >= tail + roomTail.length && pcm.subarray(-roomTail.length).equals(roomTail);
+                };
+                await until(() => ends() > 0 || receivedTail() || child.exitCode !== null,
+                    "the room's tail ends the turn or lasts a second", 8000);
+                assert.equal(child.exitCode, null, "the daemon survives the noisy tail");
+                assert.equal(child.signalCode, null, "the recorder scenario is still running");
+                assert.ok(ends() > 0 || receivedTail(), "the voice received a full second of tail or its end");
+                // The provider answers only an input that ended.
+                if (ends() > 0) {
+                    nativeResult(conn, "noisy_turn", "Words over the room.");
+                    if (P === GEMINI) conn.nativeSend({ serverContent: { turnComplete: true } });
+                    await until(() => server.requests.length > 0 || child.exitCode !== null, "the ended turn reaches the brain", 4000);
+                }
+                assert.deepEqual({ check: "noisy-tail", ends: ends(), requests: server.requests.length },
+                    { check: "noisy-tail", ends: 1, requests: 1 }, "the turn ends in the room's tail and reaches the brain: " + stderr);
+                press();
+                await wait(() => conn.ended && last().conversation.kind === "ended", "a second Talk press closes the conversation");
                 child.stdin.end();
                 assert.equal((await closed)[0], 0, stderr);
                 return;
@@ -2598,6 +2757,8 @@ world(async () => {
             if (["unheard", "aggregate"].includes(only)) fs.rmSync(vocabularyStandin, { force: true });
             if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }
             if (captureSilenceOwned) fs.unlinkSync(captureSilence);
+            fs.rmSync(captureSpeech, { force: true });
+            fs.rmSync(captureRoom, { force: true });
             server.closeAll(); await server.close();
             fs.rmSync(victim, { force: true });
         }
@@ -3023,7 +3184,7 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    const cases = { roundTrip, preview, vocabulary, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, interruptPlaying,
+    const cases = { roundTrip, preview, vocabulary, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, earlyCaptions, interruptPlaying,
         capIdle, capActive, capAutomatic, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
@@ -3035,13 +3196,14 @@ world(async () => {
         daemonVoiceFault: kit => daemonDelegation(kit, "voice-fault"),
         daemonUnheard: kit => daemonDelegation(kit, "unheard"),
         daemonAggregate: kit => daemonDelegation(kit, "aggregate"),
+        daemonNoisyTail: kit => daemonDelegation(kit, "noisy-tail"),
         daemonCaptureTeardown: kit => daemonDelegation(kit, "teardown-stdout"),
         daemonVoiceActedFault: async kit => {
             for (const stage of ["active", "queued", "playing", "played"]) await daemonDelegation(kit, "voice-acted", REALTIME, stage);
         },
         groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures, gcapWarnings,
         gredirect, gstartTimeout, gkeys,
-        ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key"]
+        ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key", "noisy-tail"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
     // The session rules both adapters keep, which run once for each: the
     // Realtime rows above take the adapter as their second argument.
@@ -3094,6 +3256,29 @@ world(async () => {
                 && error.actual.rows.length === 0);
         controls++;
         console.log("control=capture-aggregate-diagnostic detected");
+        // Today's fixed level, on each provider: the input stays open
+        // through the room's tail, with no native end and no brain request.
+        for (const P of [REALTIME, GEMINI]) {
+            currentCase = "control=" + P.setting + "-noisy-tail-fixed-level";
+            await assert.rejects(() => daemonDelegation(kitFrom(backend,
+                [["Audio.js", "Math.max(CLOUD_SPEECH_PEAK, floor * CLOUD_SPEECH_RATIO)", "CLOUD_SPEECH_PEAK"]]), "noisy-tail", P),
+                error => error instanceof assert.AssertionError && error.actual?.check === "noisy-tail"
+                    && error.actual.ends === 0 && error.actual.requests === 0);
+            controls++;
+            console.log("control=" + P.setting + "-noisy-tail-fixed-level detected");
+        }
+        // Today's Realtime caption code whole: partial text before the
+        // acknowledgement dropped and the row closed as the partial text
+        // left, so the row is the sentence's tail.
+        currentCase = "control=caption-tail-only";
+        await assert.rejects(() => earlyCaptions(kitFrom(backend, [
+            ["Realtime.js", 'if (!session.inputs.has(event.item)) { hold(session, event.item, event.text); break; }',
+                'if (!session.inputs.has(event.item)) break;'],
+            ["Realtime.js", 'const transcript = clean(event.text);', 'const transcript = item.partial || clean(event.text);']])),
+            error => error instanceof assert.AssertionError && error.actual?.check === "early-caption-final"
+                && JSON.stringify(error.actual.final) === JSON.stringify([" tonight"]));
+        controls++;
+        console.log("control=caption-tail-only detected");
         currentCase = "control=premature-conversation-total";
         await assert.rejects(() => daemonDelegation(kitFrom(backend,
             [["ChainedEngine.js", 'log("jarvis: info conversation=closed gen=" + c.gen);',
@@ -3150,8 +3335,8 @@ world(async () => {
             ["native-minimum", "if (bytes < PCM_RATE * 2 / 10)", "if (false)", as("nativeInput")],
             ["native-empty", "empty: !capture.words", "empty: false", as("inputOutcomes")],
             ["native-result-pending", "capture.pending !== 0", "false", as("inputOutcomes")],
-            ["stopped-native-input", "for (const capture of session.commits) capture.discarded = true;\n            for (const capture of session.inputs.values()) capture.discarded = true;",
-                "for (const capture of session.inputs.values()) capture.discarded = true;", as("stoppedInput")],
+            ["stopped-native-input", "for (const capture of session.commits) capture.discarded = true;\n            for (const item of session.inputs.values()) item.capture.discarded = true;",
+                "for (const item of session.inputs.values()) item.capture.discarded = true;", as("stoppedInput")],
             ["stop-queued-input", "if (session.capture !== null) session.capture.inputRecord.discarded = true;\n            session.pending = [];\n            session.pendingBytes = 0;",
                 "if (session.capture !== null) session.capture.inputRecord.discarded = true;", as("stoppedInput")],
             ["cap-discard", "session.capture?.discardInput();", "", as("capUnfinished")],
@@ -3195,7 +3380,7 @@ world(async () => {
                 "const waiting = -1;", as("lineQueue")],
             ["line-drop-for-reply", "session.speech.queue = session.speech.queue.filter(words => !words.line);",
                 "session.speech.queue = session.speech.queue;", as("lineQueue")],
-            ["flush-delegation", 'session.delegation = null;\n            conclude(session, "assistant");', 'conclude(session, "assistant");', as("interruptPlaying")],
+            ["flush-delegation", 'session.delegation = null;\n            concludeAssistant(session);', 'concludeAssistant(session);', as("interruptPlaying")],
             ["flush-words", 'session.speech.queue = [];\n            session.speech.chars = 0;\n            if (session.speech.active', "if (session.speech.active", as("interruptPlaying")],
             ["discard", "if (!active.discarded) output(session, active, event.pcm);", "output(session, active, event.pcm);", as("interruptPlaying")],
             ["flush-queue", "if (session.next !== null) session.next.stream.destroy();\n            session.next = null;\n            // Audio's",
@@ -3261,13 +3446,24 @@ world(async () => {
             ["pending", "session.pending.push(Buffer.from(pcm));", "", as("roundTrip")],
             ["reply-end", 'reply.kind = "ended";\n            reply.stream.push(null);', 'reply.kind = "ended";', as("roundTrip")],
             ["reply-open", 'if (session.playing !== reply || reply.kind !== "open" || !quiet(session)) return;', 'if (session.playing !== reply || reply.kind !== "open") return;', as("roundTrip")],
-            ["caption-turn", "if (segment !== null && segment.source !== source) segment = session.segments[role] = null;", "", as("captions")],
-            ["caption-overlap", 'session.segments.user.source === event.item) conclude(session, "user");', 'true) conclude(session, "user");', as("captions")],
-            ["caption-whole", 'emit(session, "user", text.slice(0, captionLimit), "final");', "void text;", as("captions")],
-            ["caption-whole-limit", 'emit(session, "user", text.slice(0, captionLimit), "final");', 'emit(session, "user", text, "final");', as("unread")],
-            ["caption-limit", "captionLimit) {\n                conclude(session, role);\n                segment = null;", "captionLimit) {\n                segment = null;", as("captions")],
-            ["caption-reply-end", 'conclude(session, "assistant");\n                caption(session, "user", event.item, event.text);',
-                'caption(session, "user", event.item, event.text);', as("captions")],
+            ["caption-turn", "item.partial + clean(delta)", "clean(delta)", as("captions")],
+            ["caption-overlap", "session.early.delete(event.item);\n                if (capture === undefined)", "session.early.clear();\n                if (capture === undefined)", as("earlyCaptions")],
+            ["caption-empty-completion", 'else if (item.partial !== "") emit(session, "user", "", "final", event.item);', "", as("earlyCaptions")],
+            // The defect VGS-2663 fixed: the caption closed as its partial
+            // text, and partial text before the acknowledgement was dropped.
+            ["caption-final-transcript", 'const transcript = clean(event.text);', 'const transcript = item.partial || clean(event.text);',
+                as("earlyCaptions")],
+            ["caption-early-hold", 'if (!session.inputs.has(event.item)) { hold(session, event.item, event.text); break; }',
+                'if (!session.inputs.has(event.item)) break;', as("earlyCaptions")],
+            ["caption-early-discarded", "if (early === undefined || capture.discarded) break;", "if (early === undefined) break;", as("earlyCaptions")],
+            ["caption-early-stop", "session.pendingBytes = 0;\n            session.early.clear();", "session.pendingBytes = 0;", as("earlyCaptions")],
+            ["caption-early-bound", 'if (chars > TURN_CHARS) fail("turn-size");', "", row("early-partial-size")],
+            ["caption-whole", 'emit(session, "user", text.slice(0, captionLimit), "final", event.item);', "void text;", as("captions")],
+            ["caption-whole-limit", 'emit(session, "user", text.slice(0, captionLimit), "final", event.item);', 'emit(session, "user", text, "final", event.item);', as("unread")],
+            ["caption-limit", 'if (session.assistantCaption.length === captionLimit) concludeAssistant(session);',
+                'if (session.assistantCaption.length === captionLimit) session.assistantCaption = "";', as("captions")],
+            ["caption-reply-end", 'concludeAssistant(session);\n                userCaption(session, event.item, event.text);',
+                'userCaption(session, event.item, event.text);', as("captions")],
             ["release-before-close", 'session.state = { kind: "ended" };\n        if (session.channel !== null) session.channel.close();',
                 'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")],
             ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "",

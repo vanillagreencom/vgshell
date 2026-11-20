@@ -948,10 +948,17 @@ function accept(line, direction) {
         break;
     case "transcript":
         if (direction !== "daemon") fail("direction-transcript");
-        keys(message, ["v", "type", "gen", "revision", "role", "text", "stage", "rev"], "transcript");
+        var fields = ["v", "type", "gen", "revision", "role", "text", "stage", "rev"];
+        if (message.origin !== undefined) {
+            if (message.role !== "user" || typeof message.origin !== "string" || !/^[1-9]\d{0,15}:[\s\S]{1,512}$/.test(message.origin))
+                fail("transcript-origin");
+            fields.push("origin");
+        }
+        keys(message, fields, "transcript");
         if (message.role !== "user" && message.role !== "assistant") fail("transcript-role");
         if (message.stage !== "partial" && message.stage !== "final") fail("transcript-stage");
-        if (typeof message.text !== "string" || message.text.length === 0 || message.text.length > TRANSCRIPT_CHARS
+        const retract = message.origin !== undefined && message.stage === "final";
+        if (typeof message.text !== "string" || (!retract && message.text.length === 0) || message.text.length > TRANSCRIPT_CHARS
                 || /[\x00-\x1f\x7f]/.test(message.text)) fail("transcript-text");
         if (!Number.isSafeInteger(message.rev) || message.rev < 1) fail("transcript-rev");
         break;

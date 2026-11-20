@@ -732,8 +732,7 @@ Item {
                 role: "body"
                 color: root.look.ink.action
                 linkColor: root.look.ink.link
-                text: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
-                    ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
+                text: !root.hidden && root.state !== null && !root.micMuted ? View.inputLine(root.state.sound) : ""
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => {
