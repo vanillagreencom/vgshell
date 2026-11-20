@@ -935,6 +935,7 @@ FocusScope {
                 width: asksBody.width
                 spacing: Theme.stack.group
                 Item {
+                    visible: root.asksReady || root.asksState.kind === "reading"
                     width: parent.width
                     height: Math.max(askCount.implicitHeight, askControls.height)
                     Label {
@@ -943,7 +944,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "bodyStrong"
                         wrapMode: Text.Wrap
-                        text: root.asksReady ? root.asksState.activeCount + " waiting for you" : root.asksState.kind === "reading" ? "Reading your asks…" : "Your asks are unavailable"
+                        text: root.asksReady ? root.asksState.activeCount + " waiting for you" : "Reading your asks…"
                     }
                     Row {
                         id: askControls
@@ -958,9 +959,7 @@ FocusScope {
                             checked: root.snoozedExpanded
                             onToggled: root.snoozedExpanded = checked
                         }
-                        // The unavailable notice holds the one Refresh then.
                         IconButton {
-                            visible: root.asksState.kind !== "unavailable"
                             anchors.verticalCenter: parent.verticalCenter
                             size: "sm"
                             iconName: "refresh-cw"
@@ -971,13 +970,14 @@ FocusScope {
                     }
                 }
                 Callout {
-                    visible: root.asksState.kind === "unavailable"
+                    readonly property bool unsupported: root.asksState.kind === "unsupported"
+                    visible: unsupported || root.asksState.kind === "unavailable"
                     level: "raised"
-                    tone: "warning"
-                    iconName: "triangle-alert"
+                    tone: unsupported ? "info" : "warning"
                     plain: true
-                    text: visible ? root.asksState.cause : ""
-                    linkText: "Refresh"
+                    text: unsupported ? "Until this computer can show your questions, read and answer them in your Jarvis Slack channel."
+                        : visible ? root.asksState.cause : ""
+                    linkText: unsupported ? "" : "Refresh"
                     onActivated: root.refreshAsks()
                 }
                 Callout {

@@ -43,6 +43,7 @@ const state = JSON.parse(fs.readFileSync(fileAt(home), "utf8"));
 const verb = args[1];
 const input = verb === "list" ? null : JSON.parse(fs.readFileSync(0, "utf8"));
 fs.appendFileSync(callsAt(home), JSON.stringify({ argv: args, input }) + "\n");
+if (state.mode === "unsupported") { process.stderr.write("jarvis-session: arguments=invalid\n"); process.exit(2); }
 if (state.mode === "unavailable") { output({ v: 1, kind: "unavailable", cause: "The owner-asks route is unavailable." }); process.exit(2); }
 if (state.mode === "malformed") { process.stdout.write("unreadable\n"); process.exit(0); }
 if (verb === "list") {

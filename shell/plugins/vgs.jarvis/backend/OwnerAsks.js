@@ -81,11 +81,9 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
         }
         if (!live(token)) return { kind: "stale" };
         if (result.kind !== "exited" || result.code !== 0) {
-            // An older package has no owner-asks command and answers its
-            // ordinary argument refusal. That is unavailable, not a fault
-            // in the otherwise usable voice session.
-            if (!(verb === "list" && result.kind === "exited" && result.code === 2))
-                log("jarvis: owner-asks=" + verb + " cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
+            if (verb === "list" && result.kind === "exited" && result.code === 2)
+                return { kind: result.stderr.trim() === "jarvis-session: arguments=invalid" ? "unsupported" : "unavailable" };
+            log("jarvis: owner-asks=" + verb + " cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
             return { kind: verb === "list" ? "unavailable" : "unknown" };
         }
         try {
@@ -102,7 +100,10 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
             const result = await command(token, "list", ["--view", view, ...(cursor === null ? [] : ["--cursor", cursor])]);
             if (!live(token)) return;
             if (result.kind !== "value") {
-                show({ kind: "unavailable", cause: "The selected Jarvis package cannot provide asks." });
+                // A rejected cursor can still be retried from the first page.
+                if (result.kind === "unsupported" && view === "active" && cursor === null)
+                    show({ kind: "unsupported" });
+                else show({ kind: "unavailable", cause: "Jarvis couldn’t read your questions." });
                 return;
             }
             try { pages[view] = Protocol.ownerAsksPage(result.value, view, cursor); }

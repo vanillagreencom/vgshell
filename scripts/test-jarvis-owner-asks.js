@@ -130,10 +130,13 @@ function client(extra = {}) {
     assert.equal(c.current().snoozedCount, 1);
     assert.equal(c.current().snoozed[0].id, "fleet-update");
     assert.equal(c.current().snoozed[0].state, "snoozed");
-    for (const mode of ["unavailable", "malformed"]) {
+    for (const mode of ["unsupported", "unavailable", "malformed"]) {
+        const started = performance.now();
         control("--mode", folder, mode); await c.owner.refresh();
-        assert.equal(c.current().kind, "unavailable", "unread source never becomes empty success");
+        assert.equal(c.current().kind, mode === "unsupported" ? "unsupported" : "unavailable",
+            "only an unknown list command means the package cannot list asks");
         assert.equal(Object.hasOwn(c.current(), "activeCount"), false);
+        if (mode === "unsupported") console.log("test-jarvis-owner-asks: unsupported-package-ms=" + Math.ceil(performance.now() - started));
     }
     control("--mode", folder, "ready"); await c.owner.refresh();
     const accepted = c.current();

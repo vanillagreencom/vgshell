@@ -155,7 +155,7 @@ function ownerAskAnswer(value, action, internal) {
 
 function ownerAsksSnapshot(value) {
     if (!object(value)) fail("owner-asks-snapshot");
-    if (value.kind === "reading") keys(value, ["kind"], "owner-asks-reading");
+    if (value.kind === "reading" || value.kind === "unsupported") keys(value, ["kind"], "owner-asks-" + value.kind);
     else if (value.kind === "unavailable") {
         keys(value, ["kind", "cause"], "owner-asks-unavailable");
         if (!printable(value.cause, 1, 200)) fail("owner-asks-unavailable");
