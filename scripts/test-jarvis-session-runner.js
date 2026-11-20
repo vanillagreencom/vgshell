@@ -285,7 +285,7 @@ const tests = [
             w.pending.open();
             const capture = w.runner.state.capture.op;
             w.dispatch("talk-up");
-            assert.equal(w.runner.state.input.kind, "closing-tap");
+            assert.equal(w.runner.state.input.kind, "finishing-input");
             w.pending.close({ speech });
             assert.equal(w.runner.state.conversation.kind, speech ? "active" : "ended",
                 "Audio's explicit capture outcome reaches the closing identity");
@@ -319,7 +319,7 @@ const tests = [
         assert.equal(turn.kind, "collecting");
     }],
     ["completed-connection", (impl, session = Session) => {
-        for (const boundary of ["lease", "toggle", "settings"]) {
+        for (const boundary of ["lease", "close", "settings"]) {
             const w = world(impl, false, session);
             thinking(w);
             const sent = w.calls.find(c => c.name === "send").e;
@@ -327,7 +327,7 @@ const tests = [
             assert.equal(w.runner.state.turn.kind, "none");
             assert.equal(w.connections.get(sent.owner).kind, "open", "done leaves the connection acquired");
             if (boundary === "lease") w.runner.close();
-            else if (boundary === "toggle") w.dispatch("toggle");
+            else if (boundary === "close") w.dispatch("close");
             else w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { model: "new" } });
             assert.equal(w.connections.get(sent.owner).kind, "closed", boundary + " releases the completed owner");
             const closes = w.calls.filter(c => c.name === "brain-close");

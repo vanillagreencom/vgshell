@@ -1558,9 +1558,7 @@ jarvis_kill_daemon() {
   daemon="$(jarvis_descendants "$launcher" 2>&1)" || { fail "the Jarvis daemon is unreadable: $daemon"; return 1; }
   kill -KILL "$daemon"
 }
-# A held Talk recording through the core, from a fresh note log. Talk
-# comes up through jarvis_talk_up_held, 300 ms past Session's tap bound,
-# so the release ends the recording.
+# A held Talk recording through the core, from a fresh note log.
 cp -- "$home/.config/vgshell/shell.json" "$sandbox/jarvis-dictation-config-before.json"
 user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json,sys
@@ -1570,19 +1568,14 @@ row["holdToTalk"]=True
 print(json.dumps(value))
 PY
 expect "dictation release cases select Hold to talk" ok ipc shell reloadConfig
-jarvis_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$repo/shell/plugins/vgs.jarvis/Session.js")"
-[[ $jarvis_tap_ms =~ ^[0-9]+$ ]] || fail "Session names no tap bound: '$jarvis_tap_ms'"
 jarvis_dictation_talk() { # LABEL
   rm -f -- "${jarvis_dictation_notes:?}"
   expect_poll "$1: the local voice takes Talk" "up closed" jarvis_gate_capture
-  jarvis_talk_down_at="$(now_ms)"
   expect "$1: Talk goes down" "" jarvis_intent talk-down
   expect_poll "$1: Talk records through the core" "vgs.jarvis text" jarvis_dictation_recording
   expect_poll "$1: the stand-in's daemon records once" start jarvis_dictation_noted
 }
 jarvis_talk_up_held() { # LABEL
-  local left=$(( jarvis_talk_down_at + jarvis_tap_ms + 300 - $(now_ms) ))
-  (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
   expect "$1: Talk comes up" "" jarvis_intent talk-up
 }
 

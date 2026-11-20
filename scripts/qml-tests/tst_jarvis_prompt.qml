@@ -29,9 +29,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
+        property bool callPlaced: true
         property var consoleBox: null
         property string consoleKey: ""
-        property string heldKey: ""
+        property string placementKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
@@ -55,7 +56,8 @@ Item {
     }
 
     function session(over) {
-        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" },
+            conversation: { kind: "active", purpose: "conversation" } });
         for (const key in over) s[key] = over[key];
         return s;
     }

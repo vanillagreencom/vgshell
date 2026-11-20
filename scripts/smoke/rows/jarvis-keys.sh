@@ -18,13 +18,9 @@ jarvis_key_lua="$home/.config/hypr/hyprland.lua"
 jarvis_key_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_key_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 jarvis_key_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-jarvis_key_session="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Session.js"
 jarvis_key_gates="$sandbox/jarvis-key-gates"
 cp -- "$jarvis_key_config" "$sandbox/jarvis-key-config-before.json"
 cp -- "$jarvis_key_lua" "$sandbox/jarvis-key-lua-before"
-# Only short silent holds close the conversation; the real Session owns the bound.
-jarvis_key_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$jarvis_key_session")"
-expect "Session names its tap bound" True python3 -c 'import sys; print(sys.argv[1].isdigit())' "$jarvis_key_tap_ms"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
 python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
@@ -46,7 +42,6 @@ jarvis_key_select() {
   jarvis_key_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
   jarvis_key_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
   jarvis_key_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-  jarvis_key_session="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Session.js"
 }
 jarvis_rescan
 
@@ -105,14 +100,8 @@ jarvis_key_wait_past() { # AT MS
   (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
 }
 jarvis_key_talk_down() { hold_send "down 133" "down 44"; jarvis_key_down_at="$(now_ms)"; }
-# A hold: the release comes 300 ms past Session's tap bound, so it ends the
-# request at the release.
-jarvis_key_talk_up() {
-  jarvis_key_wait_past "$jarvis_key_down_at" $((jarvis_key_tap_ms + 300))
-  hold_send "up 44" "up 133"
-}
-# A tap: both edges at once, far inside the tap bound.
-jarvis_key_tap() { hold_send "down 133" "down 44" "up 44" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
+jarvis_key_talk_up() { hold_send "up 44" "up 133"; }
+jarvis_key_tap() { hold_send "down 133" "down 44" "up 44" "up 133"; }
 jarvis_key_stop() { hold_send "down 133" "down 37" "down 53" "up 53" "up 37" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
 jarvis_key_commit_control() {
@@ -143,6 +132,7 @@ jarvis_shortcut_control() {
    jarvis_shortcut_assertion >"$sandbox/jarvis-home-shortcut-control.log"
    echo "$failures")
 }
+jarvis_key_launcher() { ipc smoke jarvisProcess | jarvis_launcher_pid; }
 jarvis_key_kind() { ipc smoke readInstance service vgs.jarvis lifetime | py_reply 'import json,sys; print(json.load(sys.stdin)["kind"])'; }
 # A daemon start that never comes: a launcher this row starts, with no
 # daemon below it, held past the bound or ended after 0.5 s. The daemon
@@ -227,7 +217,7 @@ jarvis_key_startup() {
   expect_poll "the startup daemon consumes hello" seen jarvis_seen_hello
 }
 jarvis_key_unavailable_stop_assertion() {
-  expect "unavailable physical Stop ends the startup lifetime" '{"kind":"stopped"}' ipc smoke readInstance service vgs.jarvis lifetime
+  expect "an unavailable physical Stop leaves startup running" '{"kind":"starting"}' ipc smoke readInstance service vgs.jarvis lifetime
 }
 jarvis_key_unavailable_stop_control() {
   (failures=0 behaviour_failures=0
@@ -301,9 +291,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 s=p.read_text()
-needle='if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {'
+needle='shell.shortcut.register("stop", "Stop Jarvis", () => callControl("stop", true));'
 assert s.count(needle)==1
-changed=s.replace(needle, 'if (false && name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {')
+changed=s.replace(needle, 'shell.shortcut.register("stop", "Stop Jarvis", () => { lifetime = { kind: "stopped" }; });')
 assert changed!=s
 p.write_text(changed)
 PY
@@ -324,18 +314,15 @@ jarvis_key_stop_daemon="$(jarvis_descendants "$jarvis_key_stop_launcher")"
 jarvis_key_stop
 hold_barrier
 jarvis_key_unavailable_stop_assertion
-expect "unavailable Stop releases the real daemon" absent jarvis_no_pid "$jarvis_key_stop_daemon"
-expect "unavailable Stop releases the namespace launcher" absent jarvis_no_pid "$jarvis_key_stop_launcher"
-expect "the stopped startup service disables" ok ipc shell setPluginEnabled vgs.jarvis false
-expect_poll "disable drops the stopped startup owner" absent ipc smoke jarvisProcess
-
-jarvis_key_startup
-jarvis_shortcut_assertion
-expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","confirm":"SUPER+CTRL+Y","deny":null,"console":"SUPER+ALT+C"}' \
-  ipc smoke readInstance service vgs.jarvis effectiveKeys
+expect "an unavailable Close leaves startup running" 'refused: jarvis=not-ready' ipc vgs.jarvis invoke close ''
 : >"$jarvis_gate"
 expect_poll "ready acknowledges the startup" '{"kind":"ready"}' ipc smoke readInstance service vgs.jarvis lifetime
+expect "the original launcher reaches ready" "$jarvis_key_stop_launcher" jarvis_key_launcher
+expect "the original child reaches ready" "$jarvis_key_stop_daemon" jarvis_descendants "$jarvis_key_stop_launcher"
+jarvis_shortcut_assertion
+expect_poll "the service reads the effective default key map" \
+  '{"talk":"SUPER+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","close":null,"confirm":"SUPER+CTRL+Y","deny":null,"console":"SUPER+ALT+C"}' \
+  ipc smoke readInstance service vgs.jarvis effectiveKeys
 jarvis_key_hold true
 jarvis_key_active_stop thinking
 jarvis_key_active_stop speaking
@@ -387,6 +374,15 @@ expect_poll "a silent tap releases capture" closed jarvis_key_state capture
 expect "silence is no fault" none jarvis_key_state fault
 rm -f -- "$jarvis_key_gates/silent-capture"
 
+# Cross the old 600 ms tap boundary on the same silent port, using the
+# actual key-down timestamp so time already spent admitting capture counts.
+jarvis_key_gate silent-capture
+jarvis_key_talk_down
+expect_poll "a long silent hold first acquires capture" open jarvis_key_state capture
+jarvis_key_wait_past "$jarvis_key_down_at" 800
+jarvis_key_talk_up
+expect_poll "a long silent release ends the call" ended jarvis_key_state conversation
+expect_poll "a long silent release retires its recorder" closed jarvis_key_state capture
 jarvis_key_hold false
 jarvis_key_talk_down
 expect_poll "default Talk opens a conversation" listening jarvis_key_state phase
@@ -402,7 +398,7 @@ expect_poll "default Talk listens after its answer" listening jarvis_key_state p
 sleep 0.25 # A distinct press comes after the native repeat-collapse bound.
 jarvis_key_talk_down
 jarvis_key_talk_up
-expect_poll "the next press closes its conversation" ended jarvis_key_state conversation
+expect_poll "the next press commits confirmed empty input and closes its conversation" ended jarvis_key_state conversation
 expect_poll "closing releases capture" closed jarvis_key_state capture
 expect "closing leaves no fault" none jarvis_key_state fault
 

@@ -206,6 +206,7 @@ var TOKENS = {
         // 5); the icon row, the hit square and the shader instrument's
         // scene follow it.
         size: length(255),
+        smallSize: length(102),
         // Glass bead's cells per cube edge, full and reduced (the reduced
         // look draws no inner rim strand and the rim's front faces alone).
         cells: number(40, 8, 64),

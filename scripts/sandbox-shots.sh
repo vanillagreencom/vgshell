@@ -5375,7 +5375,7 @@ print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if 
   [[ $box != none ]] || { fail "the Jarvis orb has no hover point"; return 1; }
   read -r x y <<<"$box"
   hover "$x" "$y" || return 1
-  expect_poll "the orb hover shows its icon row" 1 ipc smoke layerItemsWith vgs.jarvis RowButton label "Stop Jarvis"
+  expect_poll "the orb hover shows its microphone control" 1 ipc smoke layerItemsWith vgs.jarvis RowButton label "Mute microphone"
   take_posed "jarvis-states-$1-hover"
   park_pointer
   if [[ $hide_show == true ]]; then
@@ -5401,6 +5401,8 @@ print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if 
     jarvis_capture_tip "$1-microphone-muted"
     expect "the private microphone fact becomes unmuted" ok ipc smoke invokeInstance service vgs.jarvis captureFixtureMicrophone false
   fi
+  jarvis_capture_intent talk-up
+  expect_poll "releasing Talk submits the held fixture utterance" thinking jarvis_capture_state phase
   jarvis_capture_stop
   # Older trees unmap the idle conversation. Capture that actual absence,
   # not a replacement orb, beside the branch's persistent idle orb.

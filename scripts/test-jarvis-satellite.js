@@ -445,9 +445,9 @@ world(async () => {
         };
         for (const [boundary, end, expected] of [
             ["new-conversation", w => w.event({ type: "new-conversation" }), "renamed"],
-            ["toggle", w => w.event({ type: "toggle" }), "none"],
+            ["close", w => w.event({ type: "close" }), "none"],
             ["lease-ended", w => w.event({ type: "lease-ended" }), "none"],
-            ["close", w => w.s.close(), "none"],
+            ["shutdown", w => w.s.close(), "none"],
             ["main", w => { w.main = "other:/srv/jarvis"; }, "rebound"],
             ["home", w => { w.folder = home().folder; }, "rebound"]
         ]) {

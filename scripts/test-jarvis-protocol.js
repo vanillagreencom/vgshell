@@ -14,7 +14,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden, incognito", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+keys: { close: null, talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -56,11 +56,12 @@ assert.equal(Object.hasOwn(manifest.schema, "mode"), false);
 assert.deepEqual(manifest.schema.taskTerminal.options.map(option => option.value), ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain", requires: ["python3", "node"] });
 assert.deepEqual(manifest.status.tasks.type, "count");
-assert.deepEqual(manifest.hyprland.binds.filter(bind => bind.info !== undefined).map(bind => bind.shortcut), ["talk", "voice-mute", "stop", "console"]);
+assert.deepEqual(manifest.hyprland.binds.filter(bind => bind.info !== undefined).map(bind => bind.shortcut), ["talk", "voice-mute", "stop", "close", "console"]);
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:44", hold: true },
     { shortcut: "voice-mute", key: "SUPER+CTRL+M" },
     { shortcut: "stop", key: "SUPER+CTRL+X" },
+    { shortcut: "close", key: null },
     { shortcut: "confirm", key: "SUPER+CTRL+Y" },
     { shortcut: "deny", key: null },
     { shortcut: "console", key: "SUPER+ALT+C" }
@@ -324,7 +325,7 @@ const cases = [
     ["extra-setting", changed(hello, { settings: { ...hello.settings, extra: "" } }), "shell", "shape-settings"],
     ["missing-brain", changed(hello, { settings: { ...hello.settings, brain: undefined } }), "shell", "shape-settings"],
     ["brain-setting", changed(hello, { settings: { ...hello.settings, brain: 1 } }), "shell", "shape-settings"],
-    ["keys", changed(hello, { keys: { talk: "SUPER+A" } }), "shell", "shape-keys"],
+    ["keys", changed(hello, { keys: { close: null, talk: "SUPER+A" } }), "shell", "shape-keys"],
     ["key-type", changed(hello, { keys: { ...hello.keys, talk: false } }), "shell", "key-talk"],
     ["key-empty", changed(hello, { keys: { ...hello.keys, talk: "" } }), "shell", "key-talk"],
     ["intent-direction", JSON.stringify(intent), "daemon", "direction-intent"],
@@ -631,7 +632,7 @@ for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 for (const bar of ["gone", "present", "listening"])
     assert.equal(Protocol.accept(changed(indicator, { bar }), "shell").bar, bar);
-for (const name of ["hide", "show"])
+for (const name of ["hide", "show", "minimize", "restore", "close"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 rejected(Protocol, ["hidden-restore-not-an-intent", changed(intent, { intent: "hidden" }), "shell", "intent"]);
 for (const visibility of [{ kind: "shown" }, { kind: "hidden" }]) for (const bar of ["gone", "present", "listening"]) {
@@ -640,7 +641,7 @@ for (const visibility of [{ kind: "shown" }, { kind: "hidden" }]) for (const bar
 }
 for (const holdToTalk of [false, true])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, holdToTalk },
-        keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
+        keys: { close: null, talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
 // Deny uses the existing identity-bound cancellation. A key name alone is
 // not a cancellation command, and a stale request cannot name a new hold.
 rejected(Protocol, ["deny-intent", changed(intent, { intent: "deny" }), "shell", "intent"]);
@@ -840,7 +841,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "minimize", "restore", "stop", "close", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],

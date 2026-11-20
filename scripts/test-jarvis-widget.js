@@ -27,7 +27,7 @@ const Lucide = load(path.join(__dirname, "..", "shell/Ui/icons/Lucide.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 const Engine = require("../shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
 const copy = value => JSON.parse(JSON.stringify(value));
-const KEYS = { talk: "Super+J", "voice-mute": "Super+Ctrl+M", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", deny: null, console: "Super+Alt+C" };
+const KEYS = { talk: "Super+J", "voice-mute": "Super+Ctrl+M", stop: "Super+Ctrl+X", close: null, confirm: "Super+Ctrl+Y", deny: null, console: "Super+Alt+C" };
 const UNBOUND = Object.fromEntries(Object.keys(KEYS).map(key => [key, null]));
 const OPEN = { capture: { kind: "open", gen: 1, op: 2, mode: "conversation" }, conversation: { kind: "active", purpose: "conversation" } };
 const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
@@ -136,7 +136,7 @@ function verify(view) {
             assert.equal(bar.tooltip, mic?.muted === true ? "Jarvis: Microphone muted" : "Jarvis: Ready");
             assert.deepEqual(copy(bar.tooltipDetails), [], "voice mute adds no tooltip detail");
             assert.equal(view.microphoneMuted(mic), mic?.kind === "ready" ? mic.muted : null, "unknown source stays unavailable");
-            assert.equal(view.menuEntries(view.microphoneMuted(mic), voice)[0].intent, "voice-mute", "voice mute remains a menu action");
+            assert.equal(view.muteEntries(view.microphoneMuted(mic), voice)[0].intent, "voice-mute", "voice mute remains a menu action");
         }
     for (const cause of ["home=link", "brain=unselected", "speech=local-not-set-up"]) {
         const setup = SetupGate.readiness({ kind: "answered", causes: [cause] }, { kind: "ready", path: "/fixture" });
@@ -164,19 +164,25 @@ function verify(view) {
     assert.deepEqual(copy(view.spelledKeys({}, ShortcutLabels.shortcutText)), UNBOUND);
     for (const mic of [null, false, true])
         for (const voice of [false, true]) {
-            const menu = view.menuEntries(mic, voice, false, "indicator");
-            assert.deepEqual(copy(menu.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "stop", "new-conversation", "hide", "vgs.jarvis"]);
-            assert.equal(menu[1].disabledReason !== "", mic === null);
-            assert.equal(menu[0].label.startsWith("Unmute"), voice);
-            assert.equal(menu[1].label.startsWith("Unmute"), mic === true);
-            assert.ok(Object.hasOwn(Lucide.ICONS, menu[3].icon));
-            assert.equal(menu[5].tab, "Settings/Keys");
+            const closed = view.menuEntries(mic, voice, detail().state);
+            assert.deepEqual(copy(closed.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "new-conversation", "hide", "vgs.jarvis"]);
+            assert.equal(closed[1].disabledReason !== "", mic === null);
+            assert.equal(closed[0].label.startsWith("Unmute"), voice);
+            assert.equal(closed[1].label.startsWith("Unmute"), mic === true);
         }
-    for (const hidden of [false, true]) for (const block of [null, "indicator", "not-ready"]) {
-        const row = view.menuEntries(false, false, hidden, block)[4];
+    const active = detail(OPEN).state;
+    const busy = detail({ ...OPEN, ...THINKING }).state;
+    for (const [state, intents] of [[active, ["close"]], [busy, ["stop", "close"]]]) {
+        const menu = view.menuEntries(false, false, state);
+        assert.deepEqual(copy(menu.map(row => row.intent || row.page)),
+            ["voice-mute", "microphone-mute", ...intents, "new-conversation", "minimize", "hide", "vgs.jarvis"]);
+        assert.ok(menu.every(row => Object.hasOwn(Lucide.ICONS, row.icon)));
+    }
+    for (const hidden of [false, true]) for (const bar of ["gone", "present"]) {
+        const state = { ...active, visibility: { kind: hidden ? "hidden" : "shown" }, barIndicator: { kind: bar, gen: active.gen } };
+        const row = view.presentationEntries(state).find(entry => entry.intent === "show" || entry.intent === "hide");
         assert.equal(row.intent, hidden ? "show" : "hide");
-        assert.equal(row.disabledReason !== "", !hidden && block !== null);
-        assert.ok(Object.hasOwn(Lucide.ICONS, row.icon));
+        assert.equal(row.disabledReason !== "", !hidden && bar === "gone");
     }
     verifySpeechFaults(view);
     const faultKinds = [
@@ -266,6 +272,11 @@ function verifyReplyCard(view) {
         assert.deepEqual(card({ ...muted, ...waiting }), answer(false), label + " keeps the partial answer unsettled");
         assert.deepEqual(card(muted), answer(), label + " ended: the same row settles and shows");
     }
+    const prompt = "Delete draft.txt?\n/home/fixture/draft.txt";
+    const pending = { ...muted, ...held, approval: { ...held.approval, text: prompt } };
+    assert.equal(card(pending, [row("user", 10), { ...row("assistant", 20), text: prompt.replace("\n", " ") }]), null,
+        "the caption of the exact held question is shown only on its actionable card");
+    assert.deepEqual(card(pending), answer(false), "unrelated muted words remain visible during a hold");
     assert.deepEqual(card({ ...hidden, ...fault }), { key: "fault:0:brain=stream-error", answer: null, mode: "fault",
         fault: { title: "The AI model did not answer", action: view.faultText(fault.fault, detail(fault).state.engine.kind, null).action }, settled: true },
         "a fault reads on the card in its plain words with no answer to open at");
@@ -693,7 +704,8 @@ function approvalFrames(source) {
     };
     const later = [];
     // An open, placed overlay: `wanted` is Bubble's open state.
-    const root = { wanted: true, visible: true, presented: true, placed: true, displayedHold: null,
+    const root = { wanted: true, visible: true, shown: true, presented: true, placed: true, displayedHold: null,
+        currentPlacement: { x: 16, width: 400 }, polishedPlacement: null, synchronizedPlacement: null, lastPlacement: null,
         approvalFrames: [], synchronizedHold: null,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });

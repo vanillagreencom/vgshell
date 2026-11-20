@@ -328,12 +328,12 @@ for jarvis_widget_asks_count in 3 0 unavailable; do
 done
 jarvis_widget_reset
 jarvis_enable
-jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
 expect_poll "the menu toggles independent voice mute" on jarvis_key_state voiceMute
 expect_poll "voice mute leaves the state-only tooltip ready" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_microphone_before="$(ipc smoke readInstance service vgs.jarvis microphoneMute)" || fail "the system microphone reading is unavailable before Hide"
 expect_poll "Hide waits for the actual widget's completed host frame" present jarvis_key_state barIndicator
-jarvis_widget_menu_choose "Hide Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+jarvis_widget_menu_choose "Hide Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
 expect_poll "the bar's Hide route stores the independent choice" hidden jarvis_key_state visibility
 expect_poll "Hide uses the held J without a private badge" "$jarvis_widget_hidden_ready" jarvis_widget
 expect "Hide keeps the independent voice mute" on jarvis_key_state voiceMute
@@ -387,7 +387,7 @@ expect_poll "New conversation reaches the scripted brain reset port once" "$((ja
 expect "New conversation keeps the current daemon without a retry" ready jarvis_ready 0
 expect_poll "a new conversation keeps the hidden choice" hidden jarvis_key_state visibility
 expect "Talk, Stop and New conversation keep both independent records" '[true, true]' jarvis_widget_records
-jarvis_widget_menu_choose "Show Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Show Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+jarvis_widget_menu_choose "Show Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"Close Jarvis\",\"New conversation\",\"Show Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
 expect_poll "the bar's Show route restores the shown choice" shown jarvis_key_state visibility
 expect_poll "Show restores the ordinary J" "$jarvis_widget_ready" jarvis_widget
 expect "Show never unmutes Jarvis's voice" on jarvis_key_state voiceMute

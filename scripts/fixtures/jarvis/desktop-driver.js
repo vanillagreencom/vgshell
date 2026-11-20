@@ -54,10 +54,8 @@ function drive(root, runner, router) {
                     turnRequest = "held";
                     runner.dispatch({ type: "talk-down" });
                 }
-                // Talk is held past a tap (Session.TAP_MS), so its release
-                // sends the request.
-                if (turnRequest === "held" && runner.state.capture.kind === "open" && runner.state.input.kind === "held"
-                        && runner.clock.now() - runner.state.input.since >= runner.session.TAP_MS) {
+                // Release after the presented indicator has admitted capture.
+                if (turnRequest === "held" && runner.state.capture.kind === "open" && runner.state.input.kind === "held") {
                     turnRequest = "released";
                     runner.dispatch({ type: "talk-up" });
                 }

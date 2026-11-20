@@ -16,15 +16,14 @@ const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
 const tree = path.resolve(__dirname, "..");
-// A held release uses Session's own press clock and tap boundary.
-const { TAP_MS, TOGGLE_DEBOUNCE_MS } = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
+const { TOGGLE_DEBOUNCE_MS } = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 // The daemon's held snapshot acknowledges the press on its Session clock.
 // Advance only that disposable clock; a parent's write time says nothing
 // about when the child's event loop consumed the press.
-// Stay inside the held interval: adding exactly TAP_MS can round below it.
+// One second models a deliberate hold independently of the Talk key binding.
 function releaseHeld(clock, state, send) {
     assert.equal(state.input.kind, "held", "a held release needs the daemon's press acknowledgment");
-    fs.writeFileSync(clock, String(state.input.since + 2 * TAP_MS));
+    fs.writeFileSync(clock, String(state.input.since + 1000));
     send();
 }
 // These fixtures exercise the daemon-owned diagnostic writer. Error assertions
@@ -44,7 +43,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+keys: { close: null, talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 // The rows of a file another process appends to. Every writer ends a row
 // with a newline, so the text after the last one is a row still being
 // written: a poll skips it rather than parse half a row.
@@ -177,7 +176,7 @@ async function inside() {
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
                     input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" }, cue: { kind: "none" },
-                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" }, orbSize: { kind: "normal" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
                     restart: { kind: "none" }, failures: []
@@ -816,7 +815,7 @@ async function inside() {
                 const before = last().seq;
                 talk("talk-down");
                 const held = await wait(message => message.seq > before && message.state.input.kind === "held");
-                fs.writeFileSync(clock, String(held.state.input.since + TAP_MS - 1));
+                fs.writeFileSync(clock, String(held.state.input.since + 50));
                 talk("talk-up");
                 const released = await wait(message => message.state.input.kind !== "held");
                 if (released.state.conversation.kind === "ended")
@@ -1165,7 +1164,7 @@ async function inside() {
     // cannot turn the early-release control into an accidental real hold.
     holdClock(heldDaemon, true);
     // Simulate the daemon consuming the press after delivery advances its
-    // clock, without delaying the test or enlarging Session's tap threshold.
+    // clock, without delaying the test.
     const heldDelivery = (at, release = releaseHeld) => conversation(heldDaemon, async w => {
         w.pressClock(at);
         w.send("talk-down");
@@ -1174,9 +1173,15 @@ async function inside() {
         await w.holdUp(release);
         await w.wait(message => message.phase === "thinking" && message.state.input.kind === "released");
         w.send("stop");
-        await w.wait(message => message.state.conversation.kind === "active" && message.phase === "idle");
+        const idle = await w.wait(message => message.state.conversation.kind === "active" && message.phase === "idle");
+        w.send("stop");
+        const stillOpen = await w.wait(message => message.state.stops === idle.state.stops + 1);
+        assert.deepEqual([stillOpen.phase, stillOpen.state.conversation.kind, stillOpen.gen], ["idle", "active", idle.gen]);
+        w.send("close");
+        const ended = await w.wait(message => message.state.conversation.kind === "ended");
+        assert.ok(ended.state.history.epoch > idle.state.history.epoch, "Close retires the call's context");
     });
-    const deliveries = [{ name: "immediate", at: 0 }, { name: "delayed", at: 4 * TAP_MS }];
+    const deliveries = [{ name: "immediate", at: 0 }, { name: "delayed", at: 2400 }];
     for (const delivery of deliveries) {
         await heldDelivery(delivery.at);
         console.log("test-jarvis-daemon: held-delivery=" + delivery.name + " passed");
@@ -1216,8 +1221,7 @@ async function inside() {
     await desktopDriver(mappedDriverFile, mappedDriverRoot, true);
     const mappedDriverFixture = path.join(path.dirname(mappedDriverFile), "desktop-driver-fixture.js");
     const mappedDriverSource = fs.readFileSync(mappedDriverFixture, "utf8");
-    const captureWait = 'if (turnRequest === "held" && runner.state.capture.kind === "open" && runner.state.input.kind === "held"\n'
-        + '                        && runner.clock.now() - runner.state.input.since >= runner.session.TAP_MS) {';
+    const captureWait = 'if (turnRequest === "held" && runner.state.capture.kind === "open" && runner.state.input.kind === "held") {';
     assert.equal(mappedDriverSource.split(captureWait).length - 1, 1);
     const earlyRelease = mappedDriverSource.replace(captureWait, 'if (turnRequest === "held") {');
     assert.notEqual(earlyRelease, mappedDriverSource);
@@ -1652,7 +1656,7 @@ async function inside() {
         await w.wait(m => m.phase === "listening");
         gate("hold-close");
         await w.closeTalk(gates);
-        await w.wait(m => m.state.input.kind === "closing-tap" && m.state.capture.kind === "closing");
+        await w.wait(m => m.state.input.kind === "finishing-input" && m.state.capture.kind === "closing");
         assert.equal(w.last().state.conversation.kind, "active", "an empty tap waits for the recorder's final");
         gate("close");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
@@ -1720,7 +1724,7 @@ async function inside() {
         await w.closeTalk(chainedGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
         assert.equal(w.messages.filter(m => m.type === "transcript" && m.role === "user" && m.stage === "final").length, 1,
-            "short cleanup supplies no second utterance to the retained brain");
+            "silent release closes without starting a second brain turn");
         assert.equal(fs.existsSync(path.join(chainedGates, "silent-capture")), false,
             "short cleanup releases its empty-result fixture");
     }, true, 0, "", null, hello.settings.sounds, {}, true);

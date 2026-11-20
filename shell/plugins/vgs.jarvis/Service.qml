@@ -189,16 +189,24 @@ Item {
     // width, height } in the logical pixels of a passive layer there, which
     // covers the output less the edges Hyprland reserves; null otherwise.
     property var consoleBox: null
-    // The hold key the last finished read answers, the box's, none's or a
-    // failure's alike: the bubble neither draws nor acknowledges a new
-    // hold until its placement is known. A later read keeps this key, so
-    // an already shown hold stays drawn while the console moves.
+    // Each opening/output and each held card needs its own successful read.
+    // An empty success means there is no visible console. An unanswered read
+    // has no authority to present a card or admit capture.
+    readonly property string callKey: bubbleWanted ? JSON.stringify([focusedOutput, sessionState.gen]) : ""
+    property string consoleCall: ""
+    readonly property bool callPlaced: callKey !== "" && callKey === consoleCall
+    readonly property string placementKey: callKey === "" ? "" : JSON.stringify([
+        callKey, sessionState.approval.kind === "held" ? sessionState.approval.op : null,
+        sessionState.approval.kind === "held" ? sessionState.approval.id : null,
+        sessionState.approval.kind === "held" ? sessionState.approval.digest : null])
     property string consoleKey: ""
-    property int consoleReads: 0
-    readonly property string heldKey: sessionState !== null && sessionState.approval.kind === "held"
-        ? sessionState.gen + ":" + sessionState.approval.id : ""
-    onHeldKeyChanged: readConsoleBox()
-    onBubbleWantedChanged: readConsoleBox()
+    property bool consoleReading: false
+    property bool consoleReadAgain: false
+    property string consoleFailure: ""
+    onPlacementKeyChanged: {
+        if (placementKey === "") { consoleCall = ""; consoleKey = ""; }
+        readConsoleBox();
+    }
     property double sentRequirementsRevision: -1
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
@@ -277,10 +285,12 @@ Item {
         if (operation !== null && (lifetime.kind === "new" || operation.home !== shell.settings.home))
             setOwnerAskOperation(null);
         if (lifetime.kind === "new") {
+            // ShortcutRegistry holds each physical press through its matching release.
             shell.shortcut.register("talk", "Talk to Jarvis",
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("voice-mute", "Mute Jarvis's voice", () => intent("voice-mute"));
-            shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
+            shell.shortcut.register("stop", "Stop Jarvis", () => callControl("stop", true));
+            shell.shortcut.register("close", "Close Jarvis", () => callControl("close"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
             shell.shortcut.register("deny", "Deny Jarvis request", () => cancelApproval(displayedApproval()));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
@@ -302,7 +312,8 @@ Item {
             // claim with no card showing holds nothing.
             shell.ipc.handle("reply-hover", text => { replyHovered = text === "true" && replyShown !== null; return "ok"; });
             shell.ipc.handle("say", text => say(text));
-            shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
+            for (const name of ["stop", "close", "minimize", "restore"])
+                shell.ipc.handle(name, () => callControl(name));
             shell.ipc.handle("new-conversation", () => newConversation());
             shell.ipc.handle("hide", () => setVisibility("hide"));
             shell.ipc.handle("show", () => setVisibility("show"));
@@ -597,22 +608,8 @@ Item {
             if (reply !== "ok") console.warn("jarvis: visibility " + reply);
             return;
         }
-        if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {
-            lifetime = { kind: "stopped" };
-            retry.stop();
-            helloDeadline.stop();
-            pendingStart = null;
-            startWait.stop();
-            cancelDictation();
-            sessionState = null;
-            child.stdinEnabled = false;
-            if (child.running) stopDeadline.restart();
-            const stale = StatusPublication.write(shell.status, "detail", null);
-            if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
-            if (stale !== "ok") return;
-            publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: View.DAEMON_TEXT.action });
-            notice({ title: "Jarvis stopped", message: View.DAEMON_TEXT.action,
-                tone: "info", icon: "vgs-letter-j" });
+        if (["stop", "close", "minimize", "restore"].includes(name)) {
+            callControl(name);
             return;
         }
         if (name === "voice-mute" && (lifetime.kind === "problem" || lifetime.kind === "stopped")) {
@@ -626,6 +623,16 @@ Item {
             return;
         }
         sendIntent(name);
+    }
+
+    function callControl(name, physicalStop) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        // D134 gives the physical Stop key a second duty between turns.
+        if (name === "stop" ? !physicalStop && !Session.canStop(sessionState) : !Session.canClose(sessionState))
+            return "refused: " + name + "=unavailable";
+        sendIntent(name);
+        return "ok";
     }
 
     function newConversation() {
@@ -670,7 +677,7 @@ Item {
         if (hold === null || !item.approvalPresented || item.displayedHold !== hold
                 || sessionState === null || sessionState.approval.kind !== "held"
                 || sessionState.approval.id !== hold.id || sessionState.gen !== hold.gen
-                || sessionState.approval.digest !== hold.digest
+                || sessionState.approval.op !== hold.op || sessionState.approval.digest !== hold.digest
                 || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
         send({ type: "shown", id: hold.id });
     }
@@ -720,25 +727,45 @@ Item {
     // on a workspace no output shows covers nothing. A reply behind a newer
     // read, including a changed hold or a hidden bubble, sets nothing.
     function readConsoleBox() {
-        const key = heldKey;
-        const serial = ++consoleReads;
-        const answer = box => { consoleBox = box; consoleKey = key; };
-        if (key === "" && !bubbleWanted || shell === null) return answer(null);
+        const key = placementKey;
+        // A move, map or new call during a read needs a subsequent snapshot.
+        if (consoleReading) { consoleReadAgain = true; return; }
+        if (key === "" || shell === null) return;
+        consoleReading = true;
         shell.compositor.readWindows(state => {
-            if (serial !== consoleReads || key !== heldKey) return;
-            const failed = why => { answer(null); console.warn("jarvis: console-box=" + why); };
+            consoleReading = false;
+            if (consoleReadAgain || key !== placementKey) {
+                consoleReadAgain = false;
+                readConsoleBox();
+                return;
+            }
+            const failed = why => {
+                if (consoleFailure !== why) console.warn("jarvis: console-box=" + why);
+                consoleFailure = why;
+            };
+            const answer = box => {
+                consoleFailure = "";
+                if (box === null ? consoleBox !== null : consoleBox === null
+                        || box.output !== consoleBox.output || box.x !== consoleBox.x || box.y !== consoleBox.y
+                        || box.width !== consoleBox.width || box.height !== consoleBox.height) consoleBox = box;
+                consoleKey = key;
+                consoleCall = callKey;
+            };
             if (!state.ok) return failed(state.error);
             const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === shell.manifest.name && c.mapped);
             if (own.length === 0) return answer(null);
             if (own.length !== 1) return failed("clients=" + own.length);
             const client = own[0];
-            if (!shell.compositor.onScreen(client, state.monitors)) return answer(null);
             const monitors = state.monitors.filter(m => m.id === client.monitor);
             if (monitors.length !== 1) return failed("monitors=" + monitors.length + " id=" + client.monitor);
             const monitor = monitors[0];
+            if (!shell.compositor.onScreen(client, state.monitors)) return answer(null);
             const reserved = monitor.reserved;
             if (!Array.isArray(reserved) || reserved.length !== 4 || !reserved.every(n => Number.isFinite(n)))
                 return failed("reserved monitor=" + monitor.name);
+            if (![client.at, client.size].every(pair => Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite))
+                    || !Number.isFinite(monitor.x) || !Number.isFinite(monitor.y))
+                return failed("geometry monitor=" + monitor.name);
             answer({ output: monitor.name, x: client.at[0] - monitor.x - reserved[0],
                 y: client.at[1] - monitor.y - reserved[1], width: client.size[0], height: client.size[1] });
         });
@@ -1663,17 +1690,21 @@ Item {
         Jarvis.Bubble { service: root }
     }
 
-    // While a request is held, the console's box is read again when a window
-    // maps, closes or moves to another workspace, or an output shows another
-    // workspace or opens or closes a special one: Hyprland posts movewindowv2
-    // from CWindow::moveToWorkspace alone (v0.56.2
-    // src/desktop/view/Window.cpp:534-580) and no event for a floating drag
-    // or resize, so a console dragged into the bubble while it shows is
-    // followed at the next read, not live. rawEvent: Quickshell 0.3.1,
+    // Hyprland 0.56.2 posts movewindowv2 from CWindow::moveToWorkspace
+    // alone (src/desktop/view/Window.cpp:534-580). While both surfaces are
+    // up, also sample the floating console on its existing workspace. A read
+    // failure keeps the previous placement; an unanswered opening retries.
+    Timer {
+        interval: 250
+        repeat: true
+        running: root.placementKey !== "" && !root.consoleReading
+            && (root.consoleBox !== null || root.consoleKey !== root.placementKey || root.consoleFailure !== "")
+        onTriggered: root.readConsoleBox()
+    }
     // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/Hyprland
     Connections {
         target: Hyprland
-        enabled: root.bubbleWanted || root.heldKey !== ""
+        enabled: root.bubbleWanted
         function onRawEvent(event) {
             if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindowv2"
                     || event.name === "workspacev2" || event.name === "activespecial")

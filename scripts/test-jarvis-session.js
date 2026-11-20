@@ -76,8 +76,10 @@ function echoListening(logic) {
 }
 function duplexReleased(logic) {
     let s = duplexListening(logic);
+    const capture = s.capture.op;
     s = step(logic, s, event("talk-up", 610)).state;
-    return step(logic, s, callback("capture-closed", s.capture, 611, { speech: true })).state;
+    s = step(logic, s, callback("capture-closed", s.capture, 611, { speech: true })).state;
+    return step(logic, s, callback("speech-input-ended", s.speech, 611, {capture, empty: false})).state;
 }
 function duplexSpeaking(logic) {
     const s = duplexReleased(logic);
@@ -335,7 +337,7 @@ const table = [
             assert.deepEqual(shown.state.quiet, quiet);
             assert.deepEqual(shown.state.history, history);
             assert.equal(has(shown, "playback-start"), false, "Show plays no cue");
-            const closing = step(logic, s, event("talk-down", 400));
+            const closing = step(logic, s, event("close", 400));
             assert.equal(closing.state.visibility.kind, "hidden");
             assert.equal(closing.state.voiceMute.kind, "on");
             const closed = step(logic, closing.state, callback("capture-closed", closing.state.capture, 401));
@@ -343,14 +345,14 @@ const table = [
             assert.equal(has(closed, "playback-start"), true);
         }
     }],
-    ["history-resume", logic => {
+    ["history-close", logic => {
         for (const engine of ["chained", "dictation", "duplex"]) {
             const s = listening(logic, false, engine);
-            const closed = step(logic, s, event("toggle", 400));
-            assert.deepEqual(closed.state.history, s.history, engine + ": ordinary close retains context identity");
+            const closed = step(logic, s, event("close", 400));
+            assert.equal(closed.state.history.epoch, s.history.epoch + 1, engine + ": closing retires context");
             let next = step(logic, closed.state, callback("capture-closed", closed.state.capture, 401)).state;
             next = step(logic, next, event("talk-down", 700)).state;
-            assert.deepEqual(next.history, s.history, engine + ": Talk resumes the same history across live generations");
+            assert.deepEqual(next.history, closed.state.history, engine + ": Talk starts with fresh context");
             assert.ok(next.gen > s.gen);
             assert.equal(next.conversation.kind, "active");
             const quiet = listening(logic, false, engine);
@@ -436,13 +438,18 @@ const table = [
             const pressed = step(logic, s, event("talk-down", 100));
             assert.deepEqual([pressed.state.input.kind, pressed.state.conversation.kind, pressed.state.capture.kind],
                 ["conversation", "active", "opening"]);
-            const released = step(logic, pressed.state, event("talk-up", 101));
-            assert.deepEqual(released, { state: pressed.state, effects: [] }, "default release leaves listening demand");
+            const opened = step(logic, pressed.state, callback("capture-opened", pressed.state.capture, 101));
+            const released = step(logic, opened.state, event("talk-up", 102));
+            assert.deepEqual(released, { state: opened.state, effects: [] }, "default release leaves listening demand");
             assert.deepEqual(step(logic, released.state, event("talk-down", 349)), released, "repeat inside debounce is inert");
-            const closed = step(logic, released.state, event("talk-down", 350));
-            assert.equal(closed.state.conversation.kind, "ended", "next press closes");
-            assert.equal(closed.state.gen, pressed.state.gen + 1);
-            assert.equal(closed.state.capture.kind, "closing");
+            const finishing = step(logic, released.state, event("talk-down", 350));
+            assert.deepEqual([finishing.state.conversation.kind, finishing.state.capture.kind], ["active", "closing"]);
+            for (const text of ["", "Captured words"]) {
+                const result = step(logic, finishing.state, callback("final", finishing.state.turn, 351, { text }));
+                assert.equal(result.state.conversation.kind, text ? "active" : "ended");
+                assert.equal(has(result, "brain-send"), text !== "");
+                if (text) assert.equal(result.state.input.kind, "conversation", "the conversation listens again");
+            }
         }
         for (const s of [thinking(logic, false), speaking(logic, false)]) {
             const closed = step(logic, s, event("talk-down", 400));
@@ -476,7 +483,7 @@ const table = [
             assert.deepEqual(step(logic, s, event("talk-down", 21)), { state: s, effects: [] }, "held repeat is inert");
             const released = step(logic, s, event("talk-up", 610));
             assert.deepEqual([released.state.input.kind, released.state.capture.kind, released.state.conversation.kind, released.state.gen],
-                ["released", "closing", "active", s.gen], engine + ": long release closes only microphone");
+                ["finishing-input", "closing", "active", s.gen], engine + ": release waits for its final");
             assert.equal(logic.indicatorWanted(released.state), true, "open conversation retains orb");
             assert.equal(has(released, "speech-close"), false);
             assert.deepEqual(step(logic, released.state, event("talk-up", 611)), { state: released.state, effects: [] });
@@ -492,6 +499,14 @@ const table = [
         const idle = ready(logic, { holdToTalk: true });
         assert.deepEqual(step(logic, idle, event("talk-up")), { state: idle, effects: [] }, "release alone grants no hold");
     }],
+    ["hold-bounce", logic => {
+        const held = listening(logic, true);
+        const finishing = step(logic, held, event("talk-up", 40)).state;
+        assert.deepEqual(step(logic, finishing, event("talk-down", 41)), {state: finishing, effects: []});
+        const ended = step(logic, finishing, callback("final", finishing.turn, 42, {text: ""})).state;
+        assert.deepEqual(step(logic, ended, event("talk-down", 43)), {state: ended, effects: []});
+        assert.equal(step(logic, ended, event("talk-down", 260)).state.conversation.kind, "active");
+    }],
     ["hold-interrupt", logic => {
         for (const s of [speaking(logic), duplexSpeaking(logic)]) {
             const r = step(logic, s, event("talk-down", 700));
@@ -505,12 +520,12 @@ const table = [
         }
     }],
     ["silent-tap-local", logic => {
-        for (const engine of ["chained", "dictation"]) for (const text of ["", "spoken words"]) {
+        for (const engine of ["chained", "dictation"]) for (const text of ["", "spoken words"]) for (const at of [100, 1000]) {
             const s = listening(logic, true, engine);
-            const tapped = step(logic, s, event("talk-up", 100));
-            assert.deepEqual([tapped.state.input.kind, tapped.state.capture.kind], ["closing-tap", "closing"]);
-            const closed = step(logic, tapped.state, callback("capture-closed", tapped.state.capture, 101)).state;
-            const result = step(logic, closed, callback("final", s.turn, 102, { text }));
+            const tapped = step(logic, s, event("talk-up", at));
+            assert.deepEqual([tapped.state.input.kind, tapped.state.capture.kind], ["finishing-input", "closing"]);
+            const closed = step(logic, tapped.state, callback("capture-closed", tapped.state.capture, at + 1)).state;
+            const result = step(logic, closed, callback("final", s.turn, at + 2, { text }));
             assert.equal(result.state.conversation.kind, text === "" ? "ended" : "active");
             assert.equal(has(result, "brain-send"), text !== "");
             assert.equal(result.state.fault.kind, "none");
@@ -532,9 +547,9 @@ const table = [
                 assert.deepEqual([r.state.conversation.kind, r.state.fault.kind], ["ended", "none"], "no committed audio closes normally");
                 continue;
             }
-            assert.deepEqual([r.state.input.kind, r.state.conversation.kind], ["closing-tap", "active"]);
+            assert.deepEqual([r.state.input.kind, r.state.conversation.kind], ["finishing-input", "active"]);
             const old = step(logic, r.state, callback("speech-input-ended", s.speech, 102, { capture: s.capture.op + 100, empty: true }));
-            assert.equal(old.state.input.kind, "closing-tap", "another capture cannot decide this tap");
+            assert.equal(old.state.input.kind, "finishing-input", "another capture cannot decide this tap");
             assert.equal(old.state.stale, r.state.stale + 1);
             const delayed = step(logic, r.state, callback("speech-idle", s.speech, 60000));
             assert.equal(delayed.state.conversation.kind, "active", "missing captions and provider idle are no empty result");
@@ -572,7 +587,7 @@ const table = [
                 s = delegated.state;
             }
             const released = step(logic, s, event("talk-up", 100));
-            assert.equal(released.state.input.kind, order === "before-release" ? "released" : "closing-tap",
+            assert.equal(released.state.input.kind, order === "before-release" ? "released" : "finishing-input",
                 order + ": a short spoken hold keeps the conversation");
             assert.deepEqual([released.state.conversation.kind, released.state.capture.kind, released.state.gen, released.state.cue.kind],
                 ["active", "closing", gen, "none"]);
@@ -597,6 +612,28 @@ const table = [
             assert.deepEqual([failed.state.conversation.kind, failed.state.fault.reason], ["ended", "capture=failed"]);
             assert.equal(failed.state.fault.kind, "error", "a real capture failure is not silence");
         }
+    }],
+    ["control-states", logic => {
+        for (const [s, stop, close] of [[logic.initial(), false, false], [ready(logic), false, false],
+            [listening(logic), false, true], [between(logic), false, true], [thinking(logic), true, true],
+            [speaking(logic), true, true], [held(logic), true, true], [acting(logic), true, true]]) {
+            assert.deepEqual([logic.canStop(s), logic.canClose(s)], [stop, close]);
+            const minimized = step(logic, s, event("minimize", 50)).state;
+            assert.equal(minimized.orbSize.kind, close ? "small" : "normal");
+            assert.equal(step(logic, minimized, event("restore", 51)).state.orbSize.kind, "normal");
+            const closed = step(logic, minimized, event("close", 52));
+            assert.equal(logic.indicatorWanted(closed.state), false, "exit starts before cleanup acknowledges");
+            assert.equal(closed.state.orbSize.kind, "normal");
+            assert.equal(logic.canStop(closed.state) || logic.canClose(closed.state), false);
+            assert.deepEqual(step(logic, closed.state, event("close", 53)), {state: closed.state, effects: []});
+        }
+        const idle = listening(logic, false);
+        const stopped = step(logic, idle, event("stop", 50));
+        assert.deepEqual(stopped, { state: {...idle, stops: idle.stops + 1}, effects: [] }, "the idle key revokes only its grant");
+        const closed = step(logic, idle, event("close", 51));
+        assert.equal(closed.state.conversation.kind, "ended");
+        const working = step(logic, acting(logic), event("stop", 52));
+        assert.equal(logic.canStop(working.state), false, "accepted cancellation is not offered twice");
     }],
     ["stop-retains-conversation", logic => {
         for (const holdToTalk of [false, true]) {
@@ -692,7 +729,7 @@ const table = [
         assert.deepEqual(loud.state.sound, { kind: "none" });
         const old = step(logic, quiet.state, callback("input-sound", { ...s.capture, op: s.capture.op + 1 }, 32, { device: "other" }));
         assert.deepEqual(old.state.sound, quiet.state.sound, "old capture cannot clear current observation");
-        const ended = step(logic, quiet.state, event("toggle", 400));
+        const ended = step(logic, quiet.state, event("close", 400));
         assert.deepEqual(ended.state.sound, { kind: "none" });
     }],
     ["collection-delay", logic => {
@@ -719,7 +756,7 @@ const table = [
             assert.equal(has(shown, "collect"), engine !== "duplex");
             const gone = step(logic, shown.state, event("indicator", 12, { shown: false }));
             assert.equal(gone.state.capture.kind, "closing");
-            const ended = step(logic, gone.state, event("toggle", 400)).state;
+            const ended = step(logic, gone.state, event("close", 400)).state;
             const closed = step(logic, ended, callback("capture-closed", ended.capture, 401));
             assert.equal(logic.indicatorWanted(closed.state), false);
         }
@@ -743,7 +780,7 @@ const table = [
         assert.deepEqual([waiting.state.speech.reply.kind, waiting.state.playback.kind], ["waiting", "idle"]);
         const released = step(logic, waiting.state, event("talk-up", 610));
         assert.equal(has(released, "playback-start"), false);
-        assert.equal(has(step(logic, released.state, callback("capture-closed", released.state.capture, 611)), "playback-start"), true);
+        assert.equal(has(step(logic, released.state, callback("capture-closed", released.state.capture, 611, { speech: true })), "playback-start"), true);
     }],
     ["echo-route-admission", logic => {
         for (const engine of ["chained", "dictation", "duplex"]) for (const echoCancel of [false, true]) {
@@ -912,7 +949,7 @@ const table = [
         const next = step(logic, s, callback("final", s.turn, 52, { text: "next" }));
         assert.notEqual(next.state.turn.op, first.turn.op);
         assert.equal(next.effects.find(e => e.kind === "brain-send").owner, first.brain.op);
-        for (const e of [event("toggle", 400), event("lease-ended", 400), snapshot({ at: 400, settings: { ...first.settings, model: "changed" } })]) {
+        for (const e of [event("close", 400), event("lease-ended", 400), snapshot({ at: 400, settings: { ...first.settings, model: "changed" } })]) {
             const completed = step(logic, first, callback("brain-done", first.turn, 40)).state;
             const closed = step(logic, completed, e);
             assert.equal(closed.effects.find(effect => effect.kind === "brain-close").target, first.brain.op);
@@ -940,7 +977,7 @@ const table = [
             assert.deepEqual([r.state.turn.partial, r.state.stale, r.effects], ["", s.stale + 1, []]);
         }
         for (const before of [thinking(logic), speaking(logic), duplexListening(logic)]) {
-            const r = step(logic, before, event("toggle", 400));
+            const r = step(logic, before, event("close", 400));
             const callbacks = before.engine.kind === "duplex" ? ["speak", "speech-due", "transcript", "speech-idle", "speech-failed", "delegation", "speech-input-ended"]
                 : ["brain-done", "brain-failed", "play", "transcript"];
             for (const type of callbacks) {
@@ -995,18 +1032,20 @@ const table = [
         const failed = step(logic, s, callback("playback-failed", s.playback, 50, { reason: "failed" })).state;
         assert.equal(logic.phaseOf(failed), "error");
     }],
-    ["fault-stop", logic => {
+    ["fault-close", logic => {
         for (const holdToTalk of [false, true]) {
             let s = listening(logic, holdToTalk);
             s = step(logic, s, callback("capture-failed", s.capture, 50, { reason: LOST })).state;
             assert.equal(s.fault.kind, "error");
             const old = s.capture;
-            s = step(logic, s, event("stop", 100)).state;
+            assert.equal(logic.canStop(s), false);
+            assert.equal(step(logic, s, event("stop", 99)).state.fault.kind, "error");
+            s = step(logic, s, event("close", 100)).state;
             s = step(logic, s, callback("capture-closed", s.capture, 101)).state;
             for (const e of [event("cancel", 102), event("indicator", 103, { shown: false }),
                 snapshot({ at: 104, settings: s.settings }), callback("capture-failed", old, 105, { reason: LOST })]) {
                 const r = step(logic, s, e);
-                assert.equal(r.state.input.kind, "stopped", "teardown preserves the pause");
+                assert.equal(r.state.input.kind, "released", "closed call stays inactive");
                 assert.equal(has(r, "capture-open"), false);
                 s = r.state;
             }
@@ -1188,6 +1227,10 @@ const table = [
             const oldSpeech = copy(s.speech), gen = s.gen;
             s = step(logic, s, callback("speak", oldSpeech, 51)).state;
             const promoted = step(logic, s, event("talk-down", 100));
+            if (!holdToTalk) {
+                assert.equal(promoted.state.conversation.kind, "ended", "a second toggle Talk closes a preview");
+                continue;
+            }
             assert.deepEqual(promoted.state.conversation, { kind: "active", purpose: "conversation" });
             assert.equal(promoted.state.gen, gen);
             assert.equal(promoted.effects.find(e => e.kind === "speech-close")?.target, oldSpeech.op);
@@ -1241,7 +1284,7 @@ const table = [
                 s = step(logic, s, callback("played", s.playback, 11)).state;
             } else assert.equal(s.playback.kind, "idle");
             s = step(logic, s, callback("capture-opened", s.capture, 12)).state;
-            const closing = step(logic, s, event("talk-down", 400));
+            const closing = step(logic, s, event("close", 400));
             assert.equal(closing.state.conversation.kind, "ended");
             assert.equal(has(closing, "playback-start"), false);
             const closed = step(logic, closing.state, callback("capture-closed", closing.state.capture, 401));
@@ -1265,7 +1308,7 @@ const table = [
         assert.equal(flushed.state.playback.cue, "stop");
         assert.equal(has(flushed, "playback-start"), true);
         const stopped = step(logic, started, event("stop", 11));
-        assert.equal(stopped.state.cue.kind, "none", "Stop emits no conversation closing sound");
+        assert.deepEqual(stopped.state.playback, started.playback, "Stop leaves the opening sound playing");
         const noCue = step(logic, stopped.state, callback("flushed", stopped.state.playback, 12));
         assert.equal(has(noCue, "playback-start"), false);
     }],
@@ -1443,7 +1486,7 @@ const table = [
         ];
         for (const [route, enter] of routes) for (const [before, after] of cases) {
             const label = route + " from " + before.kind;
-            const s = { ...ready(logic), restart: before };
+            const s = { ...ready(logic, { holdToTalk: route === "preview-talk" }), restart: before };
             assert.equal(s.conversation.kind, "ended", label);
             if (route.startsWith("preview")) assert.deepEqual([previewed(s).conversation.purpose, previewed(s).restart], ["preview", before], label);
             const started = enter(s);
@@ -1539,7 +1582,7 @@ const shapeCases = [
     ["capture-mode", listening, s => { s.capture.mode = "armed"; }],
     ["quiet-deadline", listening, s => { s.quiet.deadline = -1; }],
     ["silent-device", listening, s => { s.sound = { kind: "silent", device: "" }; }],
-    ["closing-tap", listening, s => { s.input = { kind: "closing-tap", source: 0 }; }],
+    ["finishing-input", listening, s => { s.input = { kind: "finishing-input", source: 0 }; }],
     ["held-heard", listening, s => { s.input.heard = "true"; }],
     ["held-missing-heard", listening, s => { delete s.input.heard; }],
     ["conversation-purpose", listening, s => { s.conversation.purpose = "unknown"; }],
@@ -1672,7 +1715,7 @@ try {
             's.failures.indexOf(key) === -1', "voice-restart-once"],
         ["default-toggle", 'if (s.settings.holdToTalk !== true) { toggle(s, effects, e.at); break; }', 'if (false) { toggle(s, effects, e.at); break; }', "default-talk"],
         ["hold-repeat", 'if (s.input.kind === "held") break;', 'if (false) break;', "hold-release"],
-        ["silent-tap-empty", 'if (e.empty) end(s, effects, e.at, "tap", false);', 'if (false) end(s, effects, e.at, "tap", false);', "silent-tap-cloud"],
+        ["silent-tap-empty", 'if (e.empty) closeCall(s, effects, e.at);', 'if (false) closeCall(s, effects, e.at);', "silent-tap-cloud"],
         ["tap-capture-identity", ' || s.input.source !== e.capture', '', "silent-tap-cloud"],
         ["early-native-short-release", ' && !s.input.heard', '', "cloud-native-result-order"],
         ["preview-native-idle", 'if (previewConversation(s)) {\n            end(s, effects, e.at, "preview", false);', 'if (false) {\n            end(s, effects, e.at, "preview", false);', "preview-native-completion"],
@@ -1702,7 +1745,7 @@ try {
         ["history-reset-epoch", 'epoch: s.history.epoch + 1, reason: reason', 'epoch: s.history.epoch, reason: reason', "new-conversation"],
         ["history-attempted-message", 'userTranscript(s, effects, e.text, 1);', 'void e.text;', "turn-limit-reset"],
         ["stale-op", 'e.op === owner.op', 'true', "stale-callbacks"],
-        ["fault-stop", 'if (faulted) s.input = { kind: "stopped" };', 'if (false) s.input = { kind: "stopped" };', "fault-stop"],
+        ["close-idle", 'if (!canClose(s)) return;', 'if (!canStop(s)) return;', "control-states"],
         ["phase-priority", 'if (s.approval.kind === "held") return "confirming";', 'if (false) return "confirming";', "phase-priority"],
         ["voice-mute-store", 'effect(s, effects, "voice-mute-store", { muted: s.voiceMute.kind === "on" });', 'void effects;', "voice-mute-and-cues"],
         ["cue-stop", 's.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };', 's.cue = { kind: "none" };', "voice-mute-and-cues"],

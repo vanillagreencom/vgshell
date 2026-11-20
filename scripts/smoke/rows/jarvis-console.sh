@@ -107,7 +107,7 @@ print("missing" if not rows else "locked" if rows[0].get("disabledReason") else 
 jarvis_console_speech_line() {
   ipc smoke itemTexts window vgs.jarvis DisplayedText | py_reply '
 import json,sys
-print("shown" if any(text.endswith(" takes speech only. Press Super+J to open or close the conversation.") for row in json.load(sys.stdin) for text in row) else "missing")
+print("shown" if any(text.endswith(" takes speech only. Press Super+J to talk, then press again to finish speaking.") for row in json.load(sys.stdin) for text in row) else "missing")
 '
 }
 jarvis_console_engine_kind() {

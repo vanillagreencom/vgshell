@@ -44,11 +44,11 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
-The orb at the bottom of the screen shows while a conversation is open. Its look shows what Jarvis is doing; rest the pointer on its middle to read the state's name. Orb style on Settings chooses its look. Its menu and the J's right-click menu let you mute Jarvis's voice, change the system microphone mute, stop current work or open Key hints. Muting the voice leaves replies on screen. Muting the system microphone silences it for other applications too; Talk still opens a conversation.
+The orb at the bottom of the screen shows while a conversation is open. Its look shows what Jarvis is doing; rest the pointer on its middle to read the state's name. Orb style on Settings chooses its look. Hover over the orb to mute Jarvis or the microphone, stop a reply, or close the call. More lets you minimize or hide the orb. The J’s right-click menu also offers these controls and Key hints. Muting the voice leaves replies on screen. Muting the system microphone silences it for other applications too; Talk still opens a conversation.
 
-Click the J in the bar to open the Console. Change shortcuts under Keys on Settings. Turning Enabled off stops Jarvis and its session.
+Click the J in the bar to open the Console. Close Jarvis in More ends the call. Closing the Console window leaves the call open. Change shortcuts under Keys on Settings. Turning Enabled off stops Jarvis and its session.
 
-Under the Talk key on Settings, Hold to talk starts unchecked. Press Talk to open the conversation and press it again to close. With Hold to talk checked, hold Talk while you speak; releasing closes the microphone and Jarvis replies while the orb stays. A short tap with no words closes the conversation. Stop interrupts a reply or task and keeps the conversation open.
+Press Talk to open a call. While listening, press again to send your words. An empty recording closes the call. With Hold to talk on, hold the key while speaking and release to send. While a confirmation card is showing, Talk records your answer. Stop interrupts work and keeps the call open. Close Jarvis ends the call, and the next call starts fresh.
 
 Screen to cloud chooses Ask, Allow or Never for sending screen images or text outside your computer. Private windows chooses which windows Jarvis paints black before it sends a screenshot. Titles do not reliably identify private browsing.
 

@@ -566,7 +566,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "voice-mute", "stop", "confirm", "deny", "console"], "keys");
+        keys(message.keys, ["talk", "voice-mute", "stop", "close", "confirm", "deny", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -638,7 +638,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "minimize", "restore", "stop", "close", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

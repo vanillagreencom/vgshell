@@ -38,9 +38,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "SMOKE-1"
+        property bool callPlaced: true
         property var consoleBox: null
         property var consoleKey: null
-        property var heldKey: null
+        property var placementKey: null
         property var effectiveKeys: null
         property var values: ({})
         property string orbStyle: "glass-bead"
@@ -124,7 +125,7 @@ Item {
                 { tag: "ready", over: {}, name: "Ready" },
                 { tag: "listening", over: { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, name: "Listening" },
                 { tag: "thinking", over: { turn: { kind: "thinking" } }, name: "Thinking" },
-                { tag: "acting", over: { action: { kind: "running" } }, name: "Thinking" },
+                { tag: "acting", over: { action: { kind: "running", cancellation: { kind: "available" } } }, name: "Thinking" },
                 { tag: "speaking", over: { playback: { kind: "playing" } }, name: "Speaking" },
                 { tag: "stopping", over: { gate: { kind: "down" } }, name: "" }
             ];
@@ -524,7 +525,7 @@ Item {
                 wait(bubble.look.icon.hold + 1);
                 compare(bubble.iconOpacity, 1);
                 const controls = collect(overlay, item => item.entry !== undefined, []);
-                for (const intent of ["voice-mute", "microphone-mute", "stop"]) {
+                for (const intent of ["voice-mute", "microphone-mute", "close"]) {
                     const control = controls.find(item => item.entry.intent === intent);
                     verify(control !== undefined && control.visible && control.enabled);
                     const point = control.mapToItem(root, control.width / 2, control.height / 2);
@@ -534,7 +535,7 @@ Item {
                     compare(bubble.iconOpacity, 1);
                     mouseClick(root, point.x, point.y);
                 }
-                compare(root.intents, ["voice-mute", "microphone-mute", "stop"],
+                compare(root.intents, ["voice-mute", "microphone-mute", "close"],
                     "the revealed controls deliver their real pointer actions");
             }
             if (data.wraps) {

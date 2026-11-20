@@ -221,7 +221,7 @@ function eventOf(data, usage = () => {}) {
  * events.interrupted({id, text}) hands the engine a cap-cut reply's heard
  * prefix after Audio acknowledges its completed native response marks.
  */
-function create({ provider, clock, conversation, captionLimit, log, usage = () => {} }) {
+function create({ provider, clock, conversation, captionLimit, log, answerAtStart, answerHeld, usage = () => {} }) {
     Providers.assertRow(provider);
     if (provider.driver !== "openai-realtime") fail("driver");
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
@@ -281,7 +281,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         if (forced) {
             const interrupted = (session.capture?.inputRecord.bytes ?? 0) !== 0
                 || session.pending.length !== 0 || session.commits.length !== 0 || session.inputs.size !== 0;
-            for (const capture of [...session.commits, ...session.inputs.values()]) capture.discarded = true;
+            for (const { capture } of [...session.commits, ...session.inputs.values()]) capture.discarded = true;
             session.commits = [];
             session.inputs.clear();
             session.pending = [];
@@ -346,7 +346,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                         // Bound native results a connected provider has not
                         // returned; each committed gate segment owns one.
                         if (session.commits.length + session.inputs.size >= 128) fail("input-results-overflow");
-                        session.commits.push(queued.capture);
+                        session.commits.push(queued);
                         send(session, { type: "input_audio_buffer.commit" });
                     }
                 } catch (error) { failed(session, reasonOf(error)); return false; }
@@ -536,20 +536,21 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             case "activity": break;
             case "stopped": break;
             case "committed": {
-                const capture = session.commits.shift();
-                if (capture !== undefined) session.inputs.set(event.item, capture);
+                const input = session.commits.shift();
+                if (input !== undefined) session.inputs.set(event.item, input);
                 break;
             }
             case "hearing":
-                if (!session.inputs.has(event.item) || session.inputs.get(event.item).discarded) break;
+                if (!session.inputs.has(event.item) || session.inputs.get(event.item).capture.discarded) break;
 
                 conclude(session, "assistant");
                 caption(session, "user", event.item, event.text);
                 break;
             case "heard": {
-                const capture = session.inputs.get(event.item);
+                const input = session.inputs.get(event.item);
                 session.inputs.delete(event.item);
-                if (capture === undefined) break;
+                if (input === undefined) break;
+                const capture = input.capture;
                 inputResult(session, capture, event.text);
                 if (capture?.discarded || session.state.kind === "ended") break;
 
@@ -559,7 +560,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                 if (session.segments.user !== null && session.segments.user.source === event.item) conclude(session, "user");
                 else for (let text = clean(event.text); text.trim() !== ""; text = text.slice(captionLimit))
                     emit(session, "user", text.slice(0, captionLimit), "final");
-                if (event.text.trim() === "") break;
+                if (event.text.trim() === "" || answerHeld(input.answer, event.text)) break;
                 // Words still waiting answer the request this one replaces.
                 session.speech.queue = [];
                 session.speech.chars = 0;
@@ -695,8 +696,8 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         flush(e) {
             const session = live;
             if (session === null || session.op !== e.target) return;
-            for (const capture of session.commits) capture.discarded = true;
-            for (const capture of session.inputs.values()) capture.discarded = true;
+            for (const { capture } of session.commits) capture.discarded = true;
+            for (const { capture } of session.inputs.values()) capture.discarded = true;
             if (session.capture !== null) session.capture.inputRecord.discarded = true;
             session.pending = [];
             session.pendingBytes = 0;
@@ -756,15 +757,21 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
     function captureSink(e) {
         const session = live;
         if (session === null) return null;
+        // Talk pins the card when its recorder opens. Continuous listening
+        // instead binds each utterance at its first gated microphone frame.
+        const heldAnswer = e.mode === "hold" ? answerAtStart() : null;
         const record = () => ({ op: e.op, bytes: 0, committed: false, pending: 0,
             closed: false, words: false, reported: false, discarded: false });
         let capture = record();
+        let answer = null;
         let discarding = false;
         const sink = new Writable({
             write(pcm, encoding, done) {
                 if (session.capture !== sink || session.state.kind === "ended") { done(); return; }
                 if (pcm.length % 2 !== 0) { done(new Error("jarvis: live=input-frame")); return; }
                 if (discarding) { done(); return; }
+                if (capture.bytes === 0 && pcm.length !== 0)
+                    answer = e.mode === "hold" ? heldAnswer : answerAtStart();
                 capture.bytes += pcm.length;
                 input(session, pcm);
                 done();
@@ -797,7 +804,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             }
             capture.committed = true;
             capture.pending++;
-            session.pending.push({ capture });
+            session.pending.push({ capture, answer });
             pump(session);
             return true;
         };

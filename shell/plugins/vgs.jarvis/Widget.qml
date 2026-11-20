@@ -3,7 +3,6 @@ import qs.Commons
 import qs.Ui
 import "WidgetView.js" as View
 import "AccountProviders.js" as Providers
-import "Session.js" as Session
 
 // The Jarvis icon in the bar. It draws the status the service publishes
 // and runs nothing itself: one closed state table decides off, loading,
@@ -11,13 +10,8 @@ import "Session.js" as Session
 // names the current status. A click,
 // Space (which the button turns into a click), Return and keypad Enter
 // call the service's `console` IPC handler, which opens the console.
-// The right-click menu adds the Jarvis menu the overlay's right
-// click opens too (WidgetView.menuEntries): the microphone's and the
-// voice's mute, Stop and Key hints, each intent sent through the service's
-// IPC handler of its name and Key hints opening its page through
-// shell.surfaces.openPage, as the overlay's menu does. It is one BarItem,
-// with Jarvis's reply card (ReplyCard.qml) under it: while the card shows,
-// the J's tooltip, which would open over it, stays closed, and the card's
+// The bar menu exposes the call controls and its own Settings route.
+// While the reply card shows, the J's tooltip stays closed, and the card's
 // box is this widget's `cover`.
 BarWidget {
     id: root
@@ -36,13 +30,11 @@ BarWidget {
     // System microphone and independent voice mute, as the service read them.
     readonly property var microphoneMuted: View.microphoneMuted(shell === null ? undefined : shell.status.values.microphoneMute)
     readonly property bool voiceMuted: detail !== null && detail.state.voiceMute.kind === "on"
-    readonly property bool hidden: detail !== null && detail.state.visibility.kind === "hidden"
     // The host observes this real BarItem and its existing dot. The widget
     // neither acknowledges a frame nor sends an admission grant.
     presentationItem: item
     presentationKey: detail === null ? "" : detail.state.gen + ":" + (view.state === "listening" ? "listening" : "present")
-    frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted, root.hidden,
-        Session.hideRefusal(detail === null ? null : detail.state))
+    frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted, detail === null ? null : detail.state)
         .map(entry => {
             const action = entry.intent !== undefined ? () => root.offer(entry.intent)
                 : () => root.shell.surfaces.openPage(entry.page, entry.tab);

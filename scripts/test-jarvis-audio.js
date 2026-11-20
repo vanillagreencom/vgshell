@@ -194,7 +194,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     ports.playback = audio.playbackPort;
     ports.voiceMute = { store: () => {} }; // Its record is the daemon's.
     ports.brain.send = () => {}; // No speech/brain implementation enters this audio fixture.
-    // Session's clock, which release() moves past a tap.
+    // The test advances this clock between deliberate Talk presses.
     let skew = 0;
     // Each fault the runner publishes, once per change: Service.qml logs one
     // `jarvis: fault=` line for each.
@@ -211,9 +211,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     dispatch("snapshot", { locked: false, engine: "chained", configured: true,
         settings: { microphone: "", speaker: "", holdToTalk: true } });
     dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
-    // A Talk release that ends a hold: past Session's tap bound, so it
-    // closes the capture.
-    const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
+    const release = () => dispatch("talk-up");
     // A later Talk press in toggle mode: past Session's debounce
     // (Session.js::bounced), so it toggles however soon the fixture reaches it.
     const press = () => { skew += Session.TOGGLE_DEBOUNCE_MS; dispatch("talk-down"); };

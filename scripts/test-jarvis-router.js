@@ -89,7 +89,7 @@ world(async () => {
             router.route({ kind, id: "model-" + tool, tool, arguments: args }, { gen: identity.gen, op: identity.op });
         const show = () => dispatch({ type: "shown", gen: runner.state.gen,
             op: runner.state.approval.op, id: runner.state.approval.id });
-        const confirm = (extra = {}) => dispatch({ type: "confirm", gen: runner.state.gen,
+        const confirm = (extra = {}) => dispatch({ type: "confirm", gen: runner.state.gen, op: runner.state.approval.op,
             id: runner.state.approval.id, digest: runner.state.approval.digest, source: "key", ...extra });
         const refusal = () => JSON.parse(results.at(-1).results[0].item.content);
         // These ports acquire no resource. A defective reducer can leave an
@@ -726,7 +726,7 @@ esac
             first.answers[1]({ outcome: "completed", content: "typed twice" });
             const second = make(implementation);
             assert.equal(second.call("input.text", text).kind, "held", "a new router cannot inherit a grant");
-            first.dispatch({ type: "toggle" }); first.newTurn();
+            first.dispatch({ type: "close" }); first.newTurn();
             assert.equal(first.call("input.text", text).kind, "held", "a new conversation cannot inherit a grant");
         }],
         ["grant-bound", implementation => {

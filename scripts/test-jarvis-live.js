@@ -39,7 +39,7 @@ const BACKLOG = 256 * 1024;
 const FRAME = 1024 * 1024;
 const OPENING = 24000 * 2 * 20;
 const TURN = 65536;
-// Session's TAP_MS: a short held tap needs an explicit input outcome.
+// Long and short Talk gestures both await the recorder or provider outcome.
 const TAP = 600;
 const { PCM_RATE } = require(path.join(backend, "Audio.js"));
 const APPEND = "input_audio_buffer.append";
@@ -466,25 +466,37 @@ world(async () => {
                 get bufferedAmount() { return w.backlog === null ? channel.bufferedAmount : w.backlog; } };
         } };
         const engine = Adapter.create({ provider: kit.Providers.select(protocol.row), clock,
-            usage,
+            usage, answerAtStart: () => null, answerHeld: () => false,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
             conversation: e => ({ net, key: key === null ? null : { secrets, reference }, language: "", voice,
                 preview: e.preview === true ? PREVIEW_LINE : null,
                 transfer: (item, start) => { w.judged.push(item); return start(); }, grants: () => [] }) });
         w.engine = engine;
         const ports = kit.Runner.unavailable();
+        let committedInput = false;
         ports.capture = {
-            // Audio refuses capture without a sink, as here.
             open: (e, done, failed) => {
                 w.sink = engine.captureSink(e);
-                if (w.sink === null) failed("audio-start: speech-unavailable");
-                else { w.captures.push(e.op); w.sink.on("error", () => failed("provider-disconnected")); done(); }
+                if (w.sink === null) { failed("audio-start: speech-unavailable"); return; }
+                // Audio accumulates every gate segment committed by this
+                // recorder, including those already sent before key release.
+                committedInput = false;
+                const endInput = w.sink.endInput;
+                w.sink.endInput = () => {
+                    const queued = endInput();
+                    committedInput ||= queued;
+                    return queued;
+                };
+                w.captures.push(e.op);
+                w.sink.on("error", () => failed("provider-disconnected"));
+                done();
             },
             close: (e, done) => {
                 const sink = w.sink;
                 w.sink = null;
                 if (sink === null) { done({ speech: false }); return; }
-                const speech = sink.endInput();
+                sink.endInput();
+                const speech = committedInput;
                 sink.once("close", () => done({ speech }));
                 sink.destroy();
             },
@@ -909,7 +921,7 @@ world(async () => {
             const next = await main.accept(w);
             const events = w.channelEvents;
             if (ending === "lease") w.runner.close();
-            else w.dispatch("toggle");
+            else w.dispatch("close");
             await until(() => next.ended, ending + " releases a replacement still waiting for setup");
             const before = JSON.stringify(w.state), opened = w.urls.length;
             events.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(P === REALTIME
@@ -1251,7 +1263,7 @@ world(async () => {
         w.sink.endInput();
         await nativeEnd(conn);
         assert.ok(P.sent(conn).equals(Buffer.alloc(frame.length * 50 * 30 * P.rate, 5)), "all fragmented PCM arrives once");
-        w.dispatch("toggle");
+        w.dispatch("close");
     }
 
     async function nativeInput(kit, P = REALTIME) {
@@ -1277,7 +1289,7 @@ world(async () => {
             assert.ok(P.sent(conn).equals(Buffer.concat([Buffer.alloc(4800 * P.rate, 5), Buffer.alloc(4800 * P.rate, 6)])),
                 "each captured byte leaves once before its end");
             assert.equal(w.sink.endInput(), false, "an empty segment emits no native end");
-            w.dispatch("toggle");
+            w.dispatch("close");
         }
         if (P === REALTIME) {
             const { w, conn } = await starting(kit);
@@ -1292,7 +1304,7 @@ world(async () => {
             assert.equal(conn.count("input_audio_buffer.commit"), 0);
             assert.ok(P.sent(conn).equals(Buffer.alloc(4798, 7)), "no padding or generated silence is appended");
             assert.deepEqual(w.inputResults, []);
-            w.dispatch("toggle");
+            w.dispatch("close");
         }
     }
 
@@ -1320,7 +1332,7 @@ world(async () => {
             await conn.sync();
             assert.deepEqual(w.inputResults, [{ capture, empty: texts.every(text => text === "") }]);
             assert.equal(w.state.fault.kind, "none");
-            w.dispatch("toggle");
+            w.dispatch("close");
         }
         const { w, conn } = await running(kit, { protocol: P });
         nativeResult(conn, "first_capture", "Hello");
@@ -1337,7 +1349,7 @@ world(async () => {
         await conn.sync();
         assert.deepEqual(w.inputResults, [{ capture: w.captures.at(-1), empty: false }, { capture, empty: true }],
             "an empty next capture keeps its own identity and never inherits a previous transcript");
-        w.dispatch("toggle");
+        w.dispatch("close");
         if (P === GEMINI) for (const text of ["", "Early words"]) {
             const early = await starting(kit, { protocol: P });
             early.w.clock.advance(TAP);
@@ -1352,7 +1364,7 @@ world(async () => {
             early.w.dispatch("talk-up");
             await until(() => early.w.state.capture.kind === "closed", "the early result's capture closes");
             assert.deepEqual(early.w.inputResults, [{ capture: early.w.captures.at(-1), empty: text === "" }]);
-            early.w.dispatch("toggle");
+            early.w.dispatch("close");
         }
     }
 
@@ -1365,7 +1377,7 @@ world(async () => {
         await conn.sync();
         assert.deepEqual([conn.ended, w.state.conversation.kind, w.state.fault.kind, w.inputResults], [false, "active", "none", []]);
         assert.ok(P.sent(conn).equals(before), "quiet capture sends no billable idle audio");
-        w.dispatch("toggle");
+        w.dispatch("close");
         await until(() => conn.ended, "deliberate close releases transport");
         const beforeState = JSON.stringify(w.state), delegated = w.delegations.length;
         for (const event of [{ ...script("turn"), item_id: "late_closed" },
@@ -1393,14 +1405,14 @@ world(async () => {
         assert.deepEqual([w.state.conversation.kind, w.state.fault.kind, w.delegations.length, w.inputResults], ["active", "none", 0, []],
             "Stop discards old native input without ending the conversation");
         assert.equal(JSON.stringify(w.state), stopped, "old native input cannot refresh conversation activity");
-        w.dispatch("toggle");
+        w.dispatch("close");
         const queued = await starting(kit, { protocol: P });
         queued.w.clock.advance(TAP);
         P.go(queued.conn);
         await queued.conn.sync();
         queued.w.backlog = 1;
         queued.w.sink.write(Buffer.alloc(4800, 5));
-        assert.equal(queued.w.sink.endInput(), true);
+        queued.w.dispatch("talk-up");
         queued.w.dispatch("stop");
         await queued.conn.sync();
         queued.w.backlog = null;
@@ -1409,7 +1421,7 @@ world(async () => {
         assert.equal(P.sent(queued.conn).length, 0, "Stop drops old audio still behind backpressure");
         assert.equal(queued.conn.events.some(event => P === REALTIME ? event.type === "input_audio_buffer.commit"
             : event.realtimeInput?.audioStreamEnd === true), false, "Stop drops that audio's native end too");
-        queued.w.dispatch("toggle");
+        queued.w.dispatch("close");
     }
 
     async function inputFrame(kit, P = REALTIME) {
@@ -1634,7 +1646,7 @@ world(async () => {
     // and the next Talk opens a new session at once.
     async function closing(kit, P = REALTIME) {
         const { w, conn } = await running(kit, { protocol: P });
-        w.dispatch("toggle");
+        w.dispatch("close");
         await until(() => conn.ended, "user close closes the socket");
         assert.deepEqual([w.state.speech.kind, w.state.fault.kind], ["closed", "none"]);
         const lease = await running(kit, { protocol: P });
@@ -1654,8 +1666,8 @@ world(async () => {
             again.sink.write(Buffer.alloc(960));
             await opened.event(APPEND);
             again.clock.advance(300);
-            again.dispatch("talk-down");
-            await until(() => opened.ended, "toggle closes the session");
+            again.dispatch("close");
+            await until(() => opened.ended, "Close releases the voice");
         }
         assert.equal(again.state.fault.kind, "none", "a closed session leaves the next one free to open");
     }
@@ -1895,7 +1907,7 @@ world(async () => {
         await until(() => w.state.playback.kind === "idle", "the completed response plays out");
         await elapse(w, 31000);
         assert.deepEqual([conn.ended, w.state.fault.kind], [false, "none"], "a completed response leaves no response timeout");
-        w.dispatch("toggle");
+        w.dispatch("close");
     }
 
     async function keys(kit) {
@@ -2090,6 +2102,21 @@ world(async () => {
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis"), plugin, { recursive: true });
         for (const file of fs.readdirSync(kit.folder).filter(name => name.endsWith(".js")))
             fs.copyFileSync(path.join(kit.folder, file), path.join(plugin, "backend", file));
+        const forward = ["forward-yes", "forward-no"].includes(only);
+        const mainHost = forward ? "fixture:/main" : "";
+        let home = "", callsFile = null;
+        if (forward) {
+            const folder = fs.mkdtempSync(path.join(childEnv.HOME, "live-forward-"));
+            home = "~/" + path.basename(folder);
+            require("./fixtures/jarvis/home.js").jarvisHome(folder, tree);
+            const command = path.join(folder, ".agents/skills/jarvis/scripts/jarvis-session");
+            const packageFake = fs.readFileSync(path.join(tree, "scripts/fixtures/jarvis/satellite-package.py"), "utf8");
+            const recording = '"env": dict(os.environ)';
+            assert.equal(packageFake.split(recording).length, 2, "record only the fake forward, without its environment");
+            fs.writeFileSync(command, packageFake.replace(recording, '"env": {}'), { mode: 0o700 });
+            fs.writeFileSync(path.join(path.dirname(command), "satellite.json"), JSON.stringify({ main: mainHost, reachable: true }));
+            callsFile = path.join(path.dirname(command), "calls.log");
+        }
         const runnerFile = path.join(plugin, "backend/jarvisd.js");
         const blockedStdout = path.join(root, "blocked-stdout");
         const offset = path.join(root, "clock");
@@ -2195,10 +2222,10 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
+            send({ type: "hello", settings: { home, sounds: false, holdToTalk: !["unheard", "aggregate"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
-                keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
+                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost, weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                keys: { close: null, talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
                     console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } });
             if (only === "wrong-key") {
                 const looked = lookups(), connected = main.conns.length;
@@ -2234,6 +2261,8 @@ world(async () => {
                 assert.equal((await closed)[0], 0, stderr);
                 return;
             }
+            if (forward) await wait(() => messages.some(m => m.type === "main-reach" && m.reach.kind === "satellite"
+                && m.reach.reachable === true), "the test package offers a reachable main");
             send({ type: "indicator", shown: true, bar: "gone" });
             if (["unheard", "aggregate"].includes(only)) {
                 for (const elapsed of only === "unheard" ? [15600, 11186] : [0]) {
@@ -2274,7 +2303,7 @@ world(async () => {
                             "empty segments do not report an aggregate before capture closes");
                     }
                     fs.writeFileSync(offset, String(Number(fs.readFileSync(offset, "utf8")) + elapsed));
-                    press();
+                    send({ type: "intent", intent: "close" });
                     await wait(() => conn.ended && last().conversation.kind === "ended"
                         && stderr.includes("jarvis: info conversation=closed gen=" + speech.gen)
                         && stderr.includes("jarvis: info capture=closed gen=" + speech.gen + " "),
@@ -2370,6 +2399,12 @@ world(async () => {
             const result = only === "voice-acted" ? "Completed." : answer;
             if (only === "action" || only === "voice-acted") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
                 only === "voice-acted" ? BrainFixture.text({ wait: heldReply }, result) : BrainFixture.text(result));
+            else if (forward) {
+                server.replies.push(BrainFixture.calls({ id: "forward_request", name: "fleet_forward", arguments: { text: "What is the time?" } }));
+                if (only === "forward-no") server.replies.push(BrainFixture.calls({ id: "replacement_request", name: "fleet_forward",
+                    arguments: { text: "Ask about the weather." } }));
+                server.replies.push(BrainFixture.text("The request was handled."));
+            }
             else if (only === "release") server.replies.push(BrainFixture.calls({ id: "read_call", name: "files_read", arguments: { path: victim } }),
                 BrainFixture.text("The private result was withheld."));
             else if (only === "heard") {
@@ -2397,7 +2432,50 @@ world(async () => {
             assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is the time?")));
             assert.equal(first.model, "fixture-model");
             assert.ok(Array.isArray(first.tools) && first.tools.some(value => value.function.name === "files_delete"), "the configured router offers its tools");
-            if (only === "action" || only === "voice-acted") {
+            if (forward) {
+                await wait(() => last().approval.kind === "held", "the forward is held");
+                const card = last().approval;
+                assert.equal(card.tool, "fleet.forward");
+                if (only === "forward-yes") {
+                    press();
+                    await release();
+                    P.turn(conn, "Yes.");
+                    await wait(() => messages.some(m => m.type === "transcript" && m.text === "Yes."), "the unpresented answer arrives");
+                    assert.equal(last().approval.op, card.op, "an unseen card grants nothing");
+                } else {
+                    send({ type: "shown", id: card.id });
+                    await wait(() => last().approval.shownAt !== null, "the first card is presented");
+                    fs.writeFileSync(offset, "1200");
+                    press();
+                    await release();
+                    await wait(() => last().capture.kind === "closed", "the old answer is committed");
+                    send({ type: "intent", intent: "cancel", id: card.id });
+                    await wait(() => last().approval.kind === "held" && last().approval.op !== card.op, "a second forward is held");
+                    const replacement = last().approval.op;
+                    P.turn(conn, "Yes.");
+                    await wait(() => messages.some(m => m.type === "transcript" && m.text === "Yes."), "the superseded answer arrives");
+                    assert.equal(last().approval.op, replacement, "an earlier recording cannot confirm this request");
+                }
+                send({ type: "shown", id: last().approval.id });
+                await wait(() => last().approval.shownAt !== null, "the current card was presented");
+                fs.writeFileSync(offset, "2500");
+                press();
+                await release();
+                const text = only === "forward-yes" ? "Yes." : "No.";
+                P.turn(conn, text);
+                const turns = only === "forward-yes" ? 2 : 3;
+                await wait(() => server.requests[turns - 1]?.body != null && last().approval.kind === "none", "the spoken answer resolves the request");
+                const forwards = fs.readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse)
+                    .filter(call => call.argv[0] === "forward");
+                assert.deepEqual(forwards.map(call => [call.record.confirmation.method, call.record.request.text]),
+                    only === "forward-yes" ? [["voice", "What is the time?"]] : []);
+                assert.equal(server.requests.length, turns);
+                const history = server.requests[turns - 1].body.messages;
+                assert.equal(history.some(message => message.role === "user" && ["Yes.", "No."].includes(message.content)), false,
+                    "a held answer never becomes a separate brain request");
+                assert.ok(history.some(message => message.role === "tool" && message.tool_call_id ===
+                    (only === "forward-yes" ? "forward_request" : "replacement_request")));
+            } else if (only === "action" || only === "voice-acted") {
                 await wait(() => last()?.approval.kind === "held", "the router holds the destructive call");
                 assert.equal(fs.existsSync(victim), true, "Policy blocks deletion before approval");
                 const approval = last().approval;
@@ -3030,6 +3108,7 @@ world(async () => {
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
+        daemonForwardYes: kit => daemonDelegation(kit, "forward-yes"), daemonForwardNo: kit => daemonDelegation(kit, "forward-no"),
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
         daemonFailover: kit => daemonDelegation(kit, "failover"),
         daemonVoiceFault: kit => daemonDelegation(kit, "voice-fault"),
@@ -3146,12 +3225,12 @@ world(async () => {
             ["manual-input", "turn_detection: null", 'turn_detection: { type: "semantic_vad" }', as("roundTrip")],
             ["clear-ack", 'case "input_audio_buffer.cleared":', 'case "fixture-clear-ack-removed":', as("nativeInput")],
             ["native-end-wire", '{ type: "input_audio_buffer.commit" }', '{ type: "input_audio_buffer.clear" }', as("nativeInput")],
-            ["native-end-order", "session.pending.push({ capture });", "session.pending.unshift({ capture });", as("nativeInput")],
+            ["native-end-order", "session.pending.push({ capture, answer });", "session.pending.unshift({ capture, answer });", as("nativeInput")],
             ["native-minimum", "if (bytes < PCM_RATE * 2 / 10)", "if (false)", as("nativeInput")],
             ["native-empty", "empty: !capture.words", "empty: false", as("inputOutcomes")],
             ["native-result-pending", "capture.pending !== 0", "false", as("inputOutcomes")],
-            ["stopped-native-input", "for (const capture of session.commits) capture.discarded = true;\n            for (const capture of session.inputs.values()) capture.discarded = true;",
-                "for (const capture of session.inputs.values()) capture.discarded = true;", as("stoppedInput")],
+            ["stopped-native-input", "for (const { capture } of session.commits) capture.discarded = true;\n            for (const { capture } of session.inputs.values()) capture.discarded = true;",
+                "for (const { capture } of session.inputs.values()) capture.discarded = true;", as("stoppedInput")],
             ["stop-queued-input", "if (session.capture !== null) session.capture.inputRecord.discarded = true;\n            session.pending = [];\n            session.pendingBytes = 0;",
                 "if (session.capture !== null) session.capture.inputRecord.discarded = true;", as("stoppedInput")],
             ["cap-discard", "session.capture?.discardInput();", "", as("capUnfinished")],

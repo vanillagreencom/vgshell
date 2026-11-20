@@ -40,9 +40,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
+        property bool callPlaced: true
         property var consoleBox: null
         property string consoleKey: ""
-        property string heldKey: ""
+        property string placementKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var values: ({})
         property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: service.values }, surfaces: { openPage: () => "ok" } })
@@ -81,8 +82,9 @@ Item {
         for (const key in over) s[key] = over[key];
         return s;
     }
-    function held(text, physical) {
-        return session({ approval: { kind: "held", id: "a", gen: 1, digest: "d", purpose: "action", tool: "files.move", physical: physical, text: text } });
+    function held(text, physical, tool = "files.move") {
+        return session({ conversation: { kind: "active", purpose: "conversation" },
+            approval: { kind: "held", id: "a", gen: 1, op: 2, digest: "d", purpose: "action", tool: tool, physical: physical, text: text } });
     }
 
     UnitCase {
@@ -97,9 +99,10 @@ Item {
             root.layerWidth = root.width;
             ground.color = "#ffffff";
             service.bubbleWanted = true;
+            service.callPlaced = true;
             service.consoleBox = null;
             service.consoleKey = "";
-            service.heldKey = "";
+            service.placementKey = "";
             service.acknowledged = [];
             service.values = {};
             service.sessionState = null;
@@ -118,11 +121,11 @@ Item {
         // Service publishes the existing asynchronous console answer after
         // the hold arrives. Pixels from the window must stay empty until
         // then; this file's software OpenGL paints the real shadow layers.
-        // A failed read and no console both publish null in Service.
+        // Only a successful reading with no visible console places it at bottom centre.
         function test_a_late_console_answer_gates_the_first_painted_frame_data() {
             const rows = [];
             for (const light of [false, true])
-                for (const result of ["over-console", "none-or-failed"])
+                for (const result of ["over-console", "none"])
                     rows.push({ tag: (light ? "light-" : "dark-") + result, light: light, result: result });
             return rows;
         }
@@ -133,7 +136,7 @@ Item {
             service.bubbleWanted = false;
             verify(renderedFrame(root));
             const empty = grabImage(root);
-            service.heldKey = "1:a";
+            service.placementKey = "1:a";
             service.sessionState = root.held("Delete draft.txt?\n/home/fixture/draft.txt", true);
             service.bubbleWanted = true;
             const overlay = named("overlay");
@@ -145,7 +148,7 @@ Item {
             }
             const over = { output: "unit", x: 0, y: 0, width: root.width, height: root.height };
             service.consoleBox = data.result === "over-console" ? over : null;
-            service.consoleKey = service.heldKey;
+            service.consoleKey = service.placementKey;
             verify(renderedFrame(root), "the first ready frame paints");
             verify(!grabImage(root).equals(empty), "the answered hold paints its prompt");
             const top = () => fuzzyCompare(overlay.y, root.look.layout.margin, 0.5);
@@ -162,12 +165,101 @@ Item {
             verify(!grabImage(root).equals(empty), "a moved console does not hide the card");
             if (data.result === "over-console") bottom(); else top();
 
-            service.heldKey = "1:b";
+            service.placementKey = "1:b";
             const next = root.held("Delete notes.txt?\n/home/fixture/notes.txt", true);
             next.approval.id = "b";
             service.sessionState = next;
             verify(renderedFrame(root));
             verify(grabImage(root).equals(empty), "a new hold cannot use the previous hold's placement");
+        }
+
+        function test_each_swapped_frame_keeps_its_placement_data() {
+            return [
+                { tag: "preview", path: ["hidden", "side", "hidden"] },
+                { tag: "Talk", path: ["hidden", "side", "top", "side", "centre", "side", "hidden"] },
+                { tag: "minimized held call", path: ["hidden", "side", "top", "hidden"] },
+                { tag: "open and close Chat while thinking", path: ["hidden", "centre", "side", "centre", "hidden"] }
+            ];
+        }
+        function test_each_swapped_frame_keeps_its_placement(data) {
+            const preview = data.tag === "preview", heldExit = data.tag === "minimized held call";
+            const thinking = data.tag === "open and close Chat while thinking";
+            QsWindow.window = presentedHost;
+            service.bubbleWanted = false;
+            service.callPlaced = false;
+            verify(renderedFrame(root));
+            const empty = grabImage(root);
+            compare(UnitTheme.override({ motion: { scale: 1 } }), "ok");
+            const call = root.session({ conversation: { kind: "active", purpose: preview ? "preview" : "conversation" },
+                orbSize: { kind: heldExit ? "small" : "normal" },
+                turn: { kind: thinking ? "thinking" : "none" }, playback: { kind: preview ? "playing" : "idle" } });
+            const side = { output: "unit", x: root.width / 2, y: 0, width: root.width / 2, height: root.height };
+            const win = root.Window.window, disc = orb();
+            let polished, synchronized;
+            const swapped = [];
+            // The unit window stays mapped. Pair each polish with its sync
+            // and swap so assertions include intermediate animation frames.
+            const polish = () => {
+                const pos = disc.mapToItem(root, disc.width / 2, disc.height / 2);
+                const location = pos.x < root.width / 2 - 1 ? "side" : pos.y < root.height / 2 ? "top" : "centre";
+                polished = !bubble.visible ? "hidden" : heldExit && disc.width !== root.look.orb.smallSize ? "wrong-size" : location;
+            };
+            const sync = () => { synchronized = polished; };
+            const swap = () => { if (synchronized !== undefined) swapped.push(synchronized); };
+            const observed = () => swapped.filter((place, index) => index === 0 || place !== swapped[index - 1]);
+            win.afterAnimating.connect(polish);
+            win.afterSynchronizing.connect(sync);
+            win.frameSwapped.connect(swap);
+            try {
+                service.sessionState = call;
+                service.bubbleWanted = true;
+                verify(renderedFrame(root));
+                verify(grabImage(root).equals(empty), "the opening waits for a readable console");
+                service.consoleBox = thinking ? null : side;
+                service.callPlaced = true;
+                tryCompare(bubble, "rest", 1);
+                verify(renderedFrame(root));
+                verify(!grabImage(root).equals(empty), "the orb has painted at its first resolved placement");
+                if (thinking) {
+                    service.consoleBox = side;
+                    verify(renderedFrame(root), "Chat opens in front of the thinking orb");
+                    service.consoleBox = null;
+                    verify(renderedFrame(root), "Chat closes during the same turn");
+                } else if (!preview) {
+                    const card = root.held("Forward this request?", false, "fleet.forward");
+                    card.orbSize = call.orbSize;
+                    service.placementKey = "1:a";
+                    service.sessionState = card;
+                    verify(renderedFrame(root), "the prior orb remains while the card's read is pending");
+                    compare(service.acknowledged.length, 0);
+                    service.consoleKey = service.placementKey;
+                    verify(renderedFrame(root));
+                    if (heldExit) tryVerify(() => service.acknowledged.length > 0);
+                    else {
+                        service.sessionState = call;
+                        verify(renderedFrame(root));
+                        service.consoleBox = null;
+                        verify(renderedFrame(root));
+                        service.consoleBox = side;
+                        verify(renderedFrame(root));
+                    }
+                }
+                // End the call and clear its live inputs in the same event.
+                service.bubbleWanted = false;
+                service.callPlaced = false;
+                service.sessionState = null;
+                service.consoleBox = null;
+                verify(renderedFrame(root));
+                tryCompare(bubble, "shown", false);
+                verify(renderedFrame(root));
+                verify(grabImage(root).equals(empty), "the exit finishes off screen");
+                compare(JSON.stringify(observed()), JSON.stringify(data.path),
+                    "each presented position from the first draw through the exit");
+            } finally {
+                win.afterAnimating.disconnect(polish);
+                win.afterSynchronizing.disconnect(sync);
+                win.frameSwapped.disconnect(swap);
+            }
         }
 
         readonly property string caption: "The meeting moved to Thursday at three, and the room is the same as last week. I added it to your calendar and told Dana you will join a few minutes late."
@@ -293,7 +385,7 @@ Item {
             for (const answer of all(bubble, []).filter(item => item.quiet !== undefined && item.form !== undefined && bubble.drawn(item)))
                 holds(shown.textCard, answer.mapToItem(root, 0, 0, answer.width, answer.height), card.paddingX, card.paddingY, "the answer " + answer.text);
             if (bubble.iconsShown)
-                for (const icon of all(bubble, []).filter(item => item.entry !== undefined))
+                for (const icon of all(bubble, []).filter(item => item.entry !== undefined && item.visible))
                     holds(shown.iconPill, icon.mapToItem(root, 0, 0, icon.width, icon.height), root.look.plate.pill.paddingX, root.look.plate.pill.paddingY, "the icon " + icon.entry.intent);
             // Inside its band a plate draws its fill alone, so no content
             // stands on the band.

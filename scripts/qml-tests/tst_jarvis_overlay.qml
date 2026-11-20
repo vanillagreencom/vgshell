@@ -29,9 +29,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
+        property bool callPlaced: true
         property var consoleBox: null
         property string consoleKey: ""
-        property string heldKey: ""
+        property string placementKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var values: ({})
         property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: service.values }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
@@ -114,9 +115,9 @@ Item {
                 { tag: "getting ready", state: root.session({}), takes: false },
                 { tag: "stopping", state: root.session({ gate: { kind: "down" } }), takes: false },
                 { tag: "listening", state: root.listening, takes: true },
-                { tag: "thinking", state: root.session({ turn: { kind: "thinking" } }), takes: true },
-                { tag: "acting", state: root.session({ action: { kind: "running" } }), takes: true },
-                { tag: "speaking", state: root.session({ playback: { kind: "playing" } }), takes: true },
+                { tag: "thinking", state: root.session({ conversation: { kind: "active", purpose: "conversation" }, turn: { kind: "thinking" } }), takes: true },
+                { tag: "acting", state: root.session({ conversation: { kind: "active", purpose: "conversation" }, action: { kind: "running", cancellation: { kind: "available" } } }), takes: true },
+                { tag: "speaking", state: root.session({ conversation: { kind: "active", purpose: "conversation" }, playback: { kind: "playing" } }), takes: true },
                 { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }), takes: true }
             ];
         }
@@ -232,7 +233,8 @@ Item {
                 { tag: "the microphone, muted", state: {}, microphone: true, intent: "microphone-mute", label: "Unmute microphone" },
                 { tag: "the voice, on", state: { voiceMute: { kind: "off" } }, intent: "voice-mute", label: "Mute Jarvis's voice" },
                 { tag: "the voice, muted", state: { voiceMute: { kind: "on" } }, intent: "voice-mute", label: "Unmute Jarvis's voice" },
-                { tag: "Stop", state: {}, intent: "stop", label: "Stop Jarvis" }
+                { tag: "Stop", state: { turn: { kind: "thinking" } }, intent: "stop", label: "Stop Jarvis" },
+                { tag: "Close", state: {}, intent: "close", label: "Close Jarvis" }
             ];
         }
 
@@ -251,37 +253,36 @@ Item {
             const centre = orbCentre();
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);
+            verify(renderedFrame(iconRow()), "the column has positioned the available controls");
             mouseClick(button);
             compare(JSON.stringify(root.intents), JSON.stringify([data.intent]));
         }
 
-        // A right click on the orb opens the Jarvis menu: the microphone's
-        // and the voice's mute, Stop and Key hints, each sending its key's
-        // intent or opening Jarvis's Keys section.
-        function test_a_right_click_opens_the_jarvis_menu_data() {
+        function test_more_and_right_click_offer_presentation_data() {
             return [
-                { tag: "Mute microphone", index: 1, intents: '["microphone-mute"]', pages: "[]" },
-                { tag: "Mute Jarvis's voice", index: 0, intents: '["voice-mute"]', pages: "[]" },
-                { tag: "Stop Jarvis", index: 2, intents: '["stop"]', pages: "[]" },
-                { tag: "New conversation", index: 3, intents: '["new-conversation"]', pages: "[]" },
-                { tag: "Hide Jarvis", index: 4, intents: '["hide"]', pages: "[]" },
-                { tag: "Key hints", index: 5, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
+                { tag: "Minimize", more: true, small: false, index: 0, intent: "minimize" },
+                { tag: "Restore size", more: true, small: true, index: 0, intent: "restore" },
+                { tag: "Hide with right click", more: false, small: false, index: 1, intent: "hide" }
             ];
         }
 
-        function test_a_right_click_opens_the_jarvis_menu(data) {
-            put(root.listening);
+        function test_more_and_right_click_offer_presentation(data) {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            put(Object.assign({}, root.listening, { orbSize: { kind: data.small ? "small" : "normal" } }));
+            compare(orb().width, data.small ? 102 : 255);
             const centre = orbCentre();
-            mouseClick(root, centre.x, centre.y, Qt.RightButton);
+            mouseMove(root, centre.x, centre.y);
+            tryCompare(bubble, "iconOpacity", 1);
+            verify(!icon("stop").visible, "a listening call offers no Stop");
+            verify(icon("close").visible, "Close remains available while listening");
+            if (data.more) mouseClick(icon("more"));
+            else mouseClick(root, centre.x, centre.y, Qt.RightButton);
             const open = menu();
             verify(open !== null, "the menu is built");
             tryCompare(open, "opened", true);
-            compare(bubble.menuOpened, true);
-            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"]));
-            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "message-circle-plus", "eye-off", "keyboard"]));
+            compare(bubble.menuTexts, [data.small ? "Restore size" : "Minimize", "Hide Jarvis"]);
             open.items()[data.index].triggered();
-            compare(JSON.stringify(root.intents), data.intents);
-            compare(JSON.stringify(root.pages), data.pages);
+            compare(root.intents, [data.intent]);
         }
 
         function test_microphone_unavailable_disables_its_icon() {
@@ -292,8 +293,8 @@ Item {
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);
             const mic = icon("microphone-mute");
-            compare(JSON.stringify(iconRow().children.filter(item => item.entry !== undefined).map(item => item.entry.intent)),
-                '["voice-mute","microphone-mute","stop"]', "voice comes before system microphone");
+            compare(JSON.stringify(iconRow().children.filter(item => item.entry !== undefined && item.visible).map(item => item.entry.intent)),
+                '["voice-mute","microphone-mute","close","more"]', "voice comes before system microphone");
             verify(mic.disabledReason !== "");
             compare(mic.checked, false);
             mouseClick(mic);
@@ -307,22 +308,19 @@ Item {
             compare(stateLines.length, 1, "the mute reading appears once");
         }
 
-        // A right click on a line of text opens it too, and the menu keeps
-        // the overlay shown after the service stops wanting it.
-        function test_the_menu_keeps_the_overlay_shown() {
+        // Closing through a shortcut dismisses an open orb menu as the layer leaves.
+        function test_close_while_the_menu_is_open() {
             put(root.session({ fault: { kind: "error", reason: "device-lost", category: "other" } }));
             const lines = displayedTextItems(bubble).filter(item => item.role !== undefined && displayedText(item) === bubble.fault.title && bubble.drawn(item));
-            compare(lines.length, 1, "one drawn fault title supplies the click target");
+            compare(lines.length, 1);
             const line = lines[0];
             mouseClick(line, line.width / 2, line.height / 2, Qt.RightButton);
             tryCompare(bubble, "menuOpened", true);
             service.bubbleWanted = false;
-            compare(bubble.wanted, true, "the menu keeps the overlay open, not just drawing its closing frames");
-            compare(bubble.shown, true);
-            menu().close();
-            tryCompare(bubble, "menuOpened", false);
             compare(bubble.wanted, false);
-            tryCompare(bubble, "shown", false, 2000, "the overlay hides once its close ends");
+            compare(bubble.inputItems.length, 0);
+            tryCompare(bubble, "shown", false, 2000);
+            tryCompare(bubble, "menuOpened", false);
             service.bubbleWanted = true;
         }
 
