@@ -382,6 +382,8 @@ harnesses = [
 [hooks.lane-mail-prompt]
 source = "kendex"
 harnesses = [
+    "claude",
+    "codex",
     "copilot",
 ]
 
