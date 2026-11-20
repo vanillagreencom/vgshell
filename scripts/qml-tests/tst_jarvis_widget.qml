@@ -357,7 +357,7 @@ Item {
 
         function test_hidden_icon_keeps_shared_listening_dot_and_count() {
             const values = root.ready({ visibility: { kind: "hidden" }, conversation: { kind: "active", purpose: "conversation" },
-                input: { kind: "conversation" }, capture: { kind: "closed" } });
+                input: { kind: "conversation", heard: false }, capture: { kind: "closed" } });
             widget.shell = root.shellWith(values);
             compare(icon().name, "vgs-letter-j-hidden");
             compare(button().stateDot, "success", "demand, not admitted capture, draws the badge");

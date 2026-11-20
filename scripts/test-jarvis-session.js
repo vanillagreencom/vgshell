@@ -559,6 +559,40 @@ const table = [
             assert.equal(result.state.fault.kind, "none");
         }
     }],
+    ["automatic-native-result", logic => {
+        const s = echoListening(logic), source = s.capture.op;
+        const words = step(logic, s, callback("speech-input-ended", s.speech, 30, { capture: source, empty: false }));
+        assert.equal(words.state.input.heard, true);
+        const speaking = step(logic, words.state, callback("speak", s.speech, 31)).state;
+        assert.equal(speaking.capture.op, source);
+        const listened = step(logic, speaking, callback("played", speaking.playback, 32)).state;
+        const finish = step(logic, listened, event("talk-down", 400));
+        assert.deepEqual([finish.state.input, finish.state.capture.kind], [{ kind: "conversation", heard: false }, "closing"]);
+        const again = step(logic, finish.state, callback("capture-closed", finish.state.capture, 401, { speech: true })).state;
+        assert.ok(again.capture.op > source);
+        const opened = step(logic, again, callback("capture-opened", again.capture, 402)).state;
+        const pending = step(logic, opened, event("talk-down", 800)).state;
+        assert.deepEqual(pending.input, { kind: "finishing-input", source: opened.capture.op });
+        for (const extra of [{ capture: source }, { gen: s.gen + 1 }, { op: s.speech.op + 1 }]) {
+            const stale = step(logic, pending, callback("speech-input-discarded", s.speech, 801, { capture: opened.capture.op, ...extra }));
+            assert.deepEqual(stale.state.input, pending.input);
+            assert.equal(stale.state.stale, pending.stale + 1);
+        }
+        const discarded = step(logic, pending, callback("speech-input-discarded", s.speech, 802, { capture: opened.capture.op }));
+        assert.deepEqual([discarded.state.input, discarded.state.gen, discarded.state.history],
+            [{ kind: "conversation", heard: false }, s.gen, s.history]);
+        const repeated = step(logic, discarded.state, callback("capture-closed", pending.capture, 803, { speech: false }));
+        assert.equal(repeated.state.capture.kind, "opening", "discard lets the next recorder take the repeated input");
+        for (const holdToTalk of [true, false]) {
+            const open = duplexListening(logic, holdToTalk);
+            const cut = step(logic, open, callback("speech-input-discarded", open.speech, 50, { capture: open.capture.op }));
+            assert.deepEqual([cut.state.capture.kind, cut.state.input.kind, cut.state.gen],
+                ["closing", holdToTalk ? "released" : "conversation", open.gen]);
+            const up = step(logic, cut.state, event("talk-up", 60));
+            const ack = step(logic, up.state, callback("capture-closed", up.state.capture, 70, { speech: true }));
+            assert.deepEqual([ack.state.conversation.kind, ack.state.capture.kind], ["active", holdToTalk ? "closed" : "opening"]);
+        }
+    }],
     // Realtime/Gemini report inputEnded once for the original capture op.
     // empty:false is an actual nonempty native transcript, not PCM admission
     // or a caption guess (Realtime/GeminiLive inputResult/reportInput).
@@ -992,7 +1026,7 @@ const table = [
         }
         for (const before of [thinking(logic), speaking(logic), duplexListening(logic)]) {
             const r = step(logic, before, event("close", 400));
-            const callbacks = before.engine.kind === "duplex" ? ["speak", "speech-due", "transcript", "speech-idle", "speech-failed", "delegation", "speech-input-ended"]
+            const callbacks = before.engine.kind === "duplex" ? ["speak", "speech-due", "transcript", "speech-idle", "speech-failed", "delegation", "speech-input-ended", "speech-input-discarded"]
                 : ["brain-done", "brain-failed", "play", "transcript"];
             for (const type of callbacks) {
                 const late = step(logic, r.state, callback(type, before.engine.kind === "duplex" ? before.speech : before.turn, 401,
@@ -1410,7 +1444,7 @@ const table = [
         assert.equal(s.input.kind, "conversation", "an open conversation listens between turns");
         const r = step(logic, s, failure(s, 40, RESTART));
         assert.deepEqual([r.state.fault, r.state.restart, r.state.conversation, r.state.input],
-            [{ kind: "none" }, { kind: "restarted", category: "connection" }, { kind: "active", purpose: "conversation" }, { kind: "conversation" }]);
+            [{ kind: "none" }, { kind: "restarted", category: "connection" }, { kind: "active", purpose: "conversation" }, { kind: "conversation", heard: false }]);
         assert.ok(r.state.gen > s.gen, "the restart is a new conversation");
         assert.notEqual(logic.phaseOf(r.state), "error");
         assert.equal(logic.captureWanted(r.state), true, "the open conversation listens again");
@@ -1634,13 +1668,13 @@ for (const [name, check] of table) check(Session);
 // The published events discover the pair inputs. Required members prevent a
 // broken enumeration from silently removing the admission/callback probes.
 const events = copy(Session.EVENTS);
-for (const required of ["talk-down", "talk-up", "stop", "capture-opened", "capture-closed", "final", "confirm", "deadline", "input-silent", "speech-input-ended"])
+for (const required of ["talk-down", "talk-up", "stop", "capture-opened", "capture-closed", "final", "confirm", "deadline", "input-silent", "speech-input-ended", "speech-input-discarded"])
     assert.equal(events.includes(required), true, required);
 const owners = {
     "capture-opened": "capture", "capture-closed": "capture", "capture-failed": "capture", "input-silent": "capture", "input-sound": "capture", "input-unbroken": "capture",
     partial: "turn", final: "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "conversation-reset": "turn", cancelled: "turn", play: "turn", feedback: "turn",
     "playback-failed": "playback", played: "playback", flushed: "playback", tool: "turn", "tool-done": "action", approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", "approval-input-failed": "approval",
-    speak: "speech", "speech-due": "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", delegation: "speech", "speech-input-ended": "speech",
+    speak: "speech", "speech-due": "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", delegation: "speech", "speech-input-ended": "speech", "speech-input-discarded": "speech",
     "voice-checked": "check", "voice-check-failed": "check", deadline: "quiet"
 };
 function fixture(type, s, at) {
@@ -1733,7 +1767,8 @@ try {
         ["hold-repeat", 'if (s.input.kind === "held") break;', 'if (false) break;', "hold-release"],
         ["silent-tap-empty", 'if (e.empty) closeCall(s, effects, e.at);', 'if (false) closeCall(s, effects, e.at);', "silent-tap-cloud"],
         ["tap-capture-identity", ' || s.input.source !== e.capture', '', "silent-tap-cloud"],
-        ["early-native-short-release", ' && !s.input.heard', '', "cloud-native-result-order"],
+        ["automatic-native-finish", 'if (s.input.heard) {', 'if (false) {', "automatic-native-result"],
+        ["early-native-short-release", 'if (s.input.heard) {', 'if (false) {', "cloud-native-result-order"],
         ["preview-native-idle", 'if (previewConversation(s)) {\n            end(s, effects, e.at, "preview", false);', 'if (false) {\n            end(s, effects, e.at, "preview", false);', "preview-native-completion"],
         ["preview-stop-lifetime", 'if (previewConversation(s)) {\n            end(s, effects, e.at, "preview", true);', 'if (false) {\n            end(s, effects, e.at, "preview", true);', "preview-stop"],
         ["preview-no-close-cue", ' && !previewConversation(s) && s.settings.sounds === true', ' && s.settings.sounds === true', "preview-native-completion"],

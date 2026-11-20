@@ -143,8 +143,9 @@ class Audio {
                 try {
                     if (capture?.gate !== null && capture?.gate !== undefined) {
                         if (capture.gate.tail.length && capture.gate.opening === null) {
-                            const tail = capture.gate.tail;
-                            this.cloudFrame(capture, feed, tail, peak(tail), Math.min(...capture.gate.peaks));
+                            const bytes = capture.gate.tail;
+                            const tail = bytes.subarray(0, bytes.length - bytes.length % 2);
+                            if (tail.length) this.cloudFrame(capture, feed, tail, peak(tail), Math.min(...capture.gate.peaks), capture.gate.origin);
                         }
                         this.finishCloudInput(capture, feed);
                         result = { speech: capture.gate.committed };
@@ -610,7 +611,7 @@ class Audio {
             if (!this.allowed("capture")) throw new Error("capture-refused");
             capture = { kind: "opening", owner: null, e, failed, target: null, from: null, sound: "waiting", frames: 0, peak: 0, forwarded: 0,
                 gate: this.state.engine.kind === "duplex" ? { active: false, remaining: 0, committed: false, open: 0, unbroken: false,
-                    peaks: [], next: 0, tail: Buffer.alloc(0), opening: [], openingPeak: 0 } : null };
+                    peaks: [], next: 0, tail: Buffer.alloc(0), origin: null, opening: [], openingPeak: 0 } : null };
             this.capture = capture;
             await this.discover();
             if (!this.allowed("capture") || this.capture !== capture) return;
@@ -639,6 +640,8 @@ class Audio {
             let opened = false;
             owner.child.stdout.on("data", data => {
                 if (owner.stopping || this.capture !== capture) return;
+                // Observe the recorder before its first sample can publish capture-opened.
+                const origin = feed.captureOrigin?.() ?? null;
                 const frame = Buffer.concat([tail, data]);
                 tail = frame.subarray(frame.length - frame.length % 2);
                 const pcm = frame.subarray(0, frame.length - frame.length % 2);
@@ -658,7 +661,7 @@ class Audio {
                     capture.forwarded += pcm.length / 2;
                     if (!feed.write(pcm)) owner.child.stdout.pause();
                 } else {
-                    try { if (!this.feedCloudInput(capture, feed, pcm)) owner.child.stdout.pause(); }
+                    try { if (!this.feedCloudInput(capture, feed, data, origin)) owner.child.stdout.pause(); }
                     catch (error) { this.failCapture("input-end", error.message); }
                 }
                 if (this.capture !== capture) return;
@@ -695,40 +698,44 @@ class Audio {
         gate.committed = feed.endInput() || gate.committed;
     }
 
-    feedCloudInput(capture, feed, pcm) {
+    feedCloudInput(capture, feed, pcm, origin) {
         let ready = true;
         const gate = capture.gate;
+        // The earliest byte owns a frame, including a sample split across pipe reads.
+        const firstOrigin = gate.tail.length ? gate.origin : origin;
         const bytes = gate.tail.length ? Buffer.concat([gate.tail, pcm]) : pcm;
         const end = bytes.length - bytes.length % CLOUD_FRAME_BYTES;
         gate.tail = Buffer.from(bytes.subarray(end));
+        gate.origin = end === 0 ? firstOrigin : origin;
         for (let offset = 0; offset < end; offset += CLOUD_FRAME_BYTES) {
             if (this.capture !== capture) return false;
             const frame = bytes.subarray(offset, offset + CLOUD_FRAME_BYTES);
+            const frameOrigin = offset === 0 ? firstOrigin : origin;
             const level = peak(frame);
             gate.peaks[gate.next] = level;
             gate.next = (gate.next + 1) % (CLOUD_FLOOR_FRAMES * 2 / CLOUD_FRAME_BYTES);
             const floor = Math.min(...gate.peaks);
             if (gate.opening === null) {
-                ready = this.cloudFrame(capture, feed, frame, level, floor) && ready;
+                ready = this.cloudFrame(capture, feed, frame, level, floor, frameOrigin) && ready;
                 continue;
             }
             // Speech may precede the first room sample. Keep at most one
             // floor window locally until a gap distinguishes the opening
             // speech from steady noise. Store only the frame's own bytes.
-            gate.opening.push({ pcm: Buffer.from(frame), level });
+            gate.opening.push({ pcm: Buffer.from(frame), level, origin: frameOrigin });
             gate.openingPeak = Math.max(gate.openingPeak, level);
             if (floor >= CLOUD_SPEECH_PEAK && gate.openingPeak < floor * CLOUD_SPEECH_RATIO && gate.next !== 0) continue;
             const opening = gate.opening;
             gate.opening = null;
             for (const saved of opening) {
                 if (this.capture !== capture) return false;
-                ready = this.cloudFrame(capture, feed, saved.pcm, saved.level, floor) && ready;
+                ready = this.cloudFrame(capture, feed, saved.pcm, saved.level, floor, saved.origin) && ready;
             }
         }
         return ready;
     }
 
-    cloudFrame(capture, feed, frame, level, floor) {
+    cloudFrame(capture, feed, frame, level, floor, origin) {
         const gate = capture.gate, e = capture.e;
         const speech = Math.max(CLOUD_SPEECH_PEAK, floor * CLOUD_SPEECH_RATIO);
         const samples = frame.length / 2;
@@ -743,7 +750,7 @@ class Audio {
                 return false;
             }
             capture.forwarded += samples;
-            ready = feed.write(frame);
+            ready = feed.writeCaptured ? feed.writeCaptured(frame, origin) : feed.write(frame);
             if (gate.remaining === 0) this.finishCloudInput(capture, feed);
         }
         // A floor whose required speech peak is beyond signed PCM range

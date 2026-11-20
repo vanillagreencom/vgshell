@@ -212,14 +212,13 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
         settings: { microphone: "", speaker: "", holdToTalk: true } });
     dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
     const release = () => dispatch("talk-up");
-    // A later Talk press in toggle mode: past Session's debounce
-    // (Session.js::bounced), so it toggles however soon the fixture reaches it.
+    // Separate deliberate Talk presses on Session's clock in both Talk modes.
     const press = () => { skew += Session.TOGGLE_DEBOUNCE_MS; dispatch("talk-down"); };
     return { audio, runner, dispatch, release, press, levels, offers, faults, published, frames: () => frames, tick: ms => { at += ms; } };
 }
 
 async function capture(w) {
-    w.dispatch("talk-down");
+    w.press();
     await until(() => w.runner.state.capture.kind === "open", "capture opens from real PCM");
     await until(() => fs.readdirSync(process.env.HOME).some(name => name.endsWith(".lock")) && !unlocked(),
         "fixture descendant actually holds its lock");
@@ -364,6 +363,34 @@ async function noisyInput(Implementation = Audio) {
     } finally { finish(); await audio.close("test-end"); }
 }
 
+// The opening window may publish a frame well after its first microphone byte.
+async function openingOrigin(Implementation = Audio) {
+    const rig = cloudRig(Implementation);
+    const origins = [];
+    let current = null;
+    rig.feed.captureOrigin = () => current;
+    rig.feed.writeCaptured = (pcm, origin) => { origins.push(origin); return rig.feed.write(pcm); };
+    try {
+        await rig.open();
+        const voice = rig.pcm(8192);
+        rig.read(voice.subarray(0, 1));
+        current = { sample: 1 };
+        rig.read(voice.subarray(1));
+        assert.deepEqual(origins, [], "the opening syllable is still buffered");
+        const second = current;
+        rig.read(voice);
+        current = { sample: 2 };
+        rig.send(0, 11);
+        assert.deepEqual(origins.slice(0, 3), [null, second, current], "each released frame keeps its first byte's origin");
+        const final = current;
+        rig.read(voice.subarray(0, 17));
+        current = null;
+        rig.read(voice.subarray(17, 160));
+        await rig.close();
+        assert.equal(origins.at(-1), final, "the short closing frame keeps its acquisition origin");
+    } finally { rig.finish(); await rig.audio.close("test-end"); }
+}
+
 // The recorder starts on a spoken syllable. Its 10 ms writes can be split
 // again by the pipe, or delivered in one read with the following pause.
 async function openingSpeech(Implementation = Audio) {
@@ -475,6 +502,7 @@ async function inside() {
     await cloudInput();
     await noisyInput();
     await openingSpeech();
+    await openingOrigin();
     await unbrokenInput();
     await echoRoutes();
     echoInstallation();
@@ -1121,8 +1149,9 @@ async function inside() {
         'if (settings !== state.settings)', echoRoutes);
     // Today's defect: a fixed level reads the whole room as speech.
     await control("cloud-room-floor", "Math.max(CLOUD_SPEECH_PEAK, floor * CLOUD_SPEECH_RATIO)", "CLOUD_SPEECH_PEAK", noisyInput);
-    await control("opening-speech", "this.cloudFrame(capture, feed, saved.pcm, saved.level, floor)",
-        "this.cloudFrame(capture, feed, saved.pcm, saved.level, saved.level)", openingSpeech);
+    await control("opening-speech", "this.cloudFrame(capture, feed, saved.pcm, saved.level, floor, saved.origin)",
+        "this.cloudFrame(capture, feed, saved.pcm, saved.level, saved.level, saved.origin)", openingSpeech);
+    await control("buffered-origin", "saved.level, floor, saved.origin)", "saved.level, floor, null)", openingOrigin);
     await control("unreachable-floor", "gate.active || speech > 32768", "gate.active", unbrokenInput);
     await control("unbroken-report", "gate.open >= CLOUD_UNBROKEN_FRAMES", "false", unbrokenInput);
     await control("unbroken-held", ' && e.mode === "conversation"', "", unbrokenInput);

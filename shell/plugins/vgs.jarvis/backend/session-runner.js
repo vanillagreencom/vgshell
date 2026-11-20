@@ -75,9 +75,11 @@ class SessionRunner {
         case "speech-open": this.ports.speech.open(e, {
             speak: () => done("speak"),
             due: due => done("speech-due", { due }),
+            canDelegate: () => this.session.canDelegate(this.state, e),
             delegation: task => done("delegation", task),
             transcript: record => done("transcript", record),
             inputEnded: result => done("speech-input-ended", result),
+            inputDiscarded: capture => done("speech-input-discarded", { capture }),
             idle: () => done("speech-idle"),
             failed: (reason, restart) => done("speech-failed", { reason, restart })
         }); break;

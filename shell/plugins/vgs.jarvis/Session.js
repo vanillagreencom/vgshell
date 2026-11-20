@@ -31,7 +31,7 @@ var EVENTS = [
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound", "input-unbroken",
-    "preview", "speech-input-ended", "new-conversation", "conversation-reset"
+    "preview", "speech-input-ended", "speech-input-discarded", "new-conversation", "conversation-reset"
 ];
 
 function initial() {
@@ -109,6 +109,7 @@ function closeCapture(s, effects) {
     // still belongs to the recorder's acquired generation.
     var e = effect(s, effects, "capture-close", { gen: s.capture.gen, target: s.capture.op });
     s.capture = { kind: "closing", gen: e.gen, op: e.op };
+    if (s.input.kind === "conversation") s.input.heard = false;
 }
 
 function cancelTurn(s, effects, at) {
@@ -209,6 +210,11 @@ function closeCall(s, effects, at) {
 // Both Talk settings commit through the recorder and provider. A pending
 // final owns the decision until the recorder proves silence or words arrive.
 function finishInput(s, effects, at) {
+    if (s.input.heard) {
+        s.input = releasedInput(s);
+        closeCapture(s, effects);
+        return;
+    }
     if (["opening", "open"].indexOf(s.capture.kind) === -1) {
         closeCall(s, effects, at);
         return;
@@ -378,7 +384,7 @@ function activity(s, at) {
 
 function releasedInput(s) {
     return s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.holdToTalk !== true
-        ? { kind: "conversation" } : { kind: "released" };
+        ? { kind: "conversation", heard: false } : { kind: "released" };
 }
 
 function promotePreview(s, effects, at) {
@@ -468,7 +474,7 @@ function start(s, effects, mode, at) {
         userConversation(s);
         if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
-    s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: mode };
+    s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: "conversation", heard: false };
     activity(s, at);
     reconcile(s, effects, at);
 }
@@ -484,6 +490,13 @@ function deviceLost(reason) {
 function live(s, e, region, kinds) {
     var owner = s[region];
     return kinds.indexOf(owner.kind) !== -1 && e.gen === owner.gen && e.op === owner.op;
+}
+
+// A native voice checks before it replaces the reply and queued words for
+// the previous delegation. Session applies the same rule to the callback.
+function canDelegate(s, e) {
+    return s.engine.kind === "duplex" && live(s, e, "speech", ["open"])
+        && canEngage(s) && s.approval.kind !== "held";
 }
 
 function stale(s) { s.stale++; }
@@ -716,7 +729,7 @@ function reduce(state, e, restartFor) {
         if (s.settings.holdToTalk !== true && s.approval.kind !== "held") break;
         if (s.input.kind !== "held") break;
         s.toggleAt = s.input.since;
-        if (s.approval.kind !== "held" && !s.input.heard && s.fault.kind === "none")
+        if (s.approval.kind !== "held" && s.fault.kind === "none")
             finishInput(s, effects, e.at);
         else {
             s.input = { kind: "released" };
@@ -838,8 +851,7 @@ function reduce(state, e, restartFor) {
     case "delegation":
     case "final":
         if (e.type === "delegation") {
-            if (s.engine.kind !== "duplex" || !live(s, e, "speech", ["open"]) || !canEngage(s)) { stale(s); break; }
-            if (s.approval.kind === "held") { stale(s); break; }
+            if (!canDelegate(s, e)) { stale(s); break; }
             cancelTurn(s, effects, e.at);
             // A new request drops the words the voice held for the old one.
             if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
@@ -1113,9 +1125,10 @@ function reduce(state, e, restartFor) {
     case "speech-input-ended":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
         if (typeof e.empty !== "boolean") throw new Error("jarvis: session=input-ended");
-        // A native result can precede release. Keep real words against the
-        // same capture, so a short spoken hold is never mistaken for empty.
-        if (s.input.kind === "held" && ["opening", "open"].indexOf(s.capture.kind) !== -1 && s.capture.op === e.capture && !e.empty) {
+        // Recognition can precede either finishing gesture. Automatic input
+        // loses this evidence when its recorder closes, even across replies.
+        if ((s.input.kind === "held" || s.input.kind === "conversation") && ["opening", "open"].indexOf(s.capture.kind) !== -1
+                && s.capture.op === e.capture && !e.empty) {
             s.input.heard = true;
             activity(s, e.at);
             break;
@@ -1123,6 +1136,18 @@ function reduce(state, e, restartFor) {
         if (s.input.kind !== "finishing-input" || s.input.source !== e.capture) { stale(s); break; }
         if (e.empty) closeCall(s, effects, e.at);
         else { s.input = releasedInput(s); activity(s, e.at); }
+        break;
+    case "speech-input-discarded":
+        if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        if (s.input.kind === "finishing-input" && s.input.source === e.capture) {
+            s.input = releasedInput(s);
+            activity(s, e.at);
+        } else if (["opening", "open"].indexOf(s.capture.kind) !== -1 && s.capture.op === e.capture) {
+            // The old recorder has committed audio but cannot get its
+            // result. Repeat on a fresh recorder under the same call.
+            s.input = releasedInput(s);
+            closeCapture(s, effects);
+        } else stale(s);
         break;
     case "speech-idle":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
@@ -1169,7 +1194,7 @@ var REGIONS = {
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason category", "voice-connection": "reason category" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
-    input: { released: "", held: "since heard", conversation: "", check: "", "finishing-input": "source" },
+    input: { released: "", held: "since heard", conversation: "heard", check: "", "finishing-input": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device", unbroken: "" },
     indicator: { gone: "", shown: "" }, barIndicator: { gone: "", present: "gen", listening: "gen" },
     orbSize: { normal: "", small: "" }, visibility: { shown: "", showing: "", hidden: "" }, duplex: { half: "", full: "" },

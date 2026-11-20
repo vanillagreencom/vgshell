@@ -423,7 +423,7 @@ world(async () => {
     // speaks inside the delegation; ackLine distinguishes a fixed progress
     // line from a reply. protocol is the adapter: REALTIME or GEMINI.
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
-        ack, ackLine = true, wallEpoch = 0, usage = () => {}, deferredWrites = false } = {}) {
+        ack, ackLine = true, wallEpoch = 0, usage = () => {}, deferredWrites = false, answerAtStart = () => null, answerHeld = () => false } = {}) {
         const clock = manual(wallEpoch);
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], captionOrigins: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
@@ -468,7 +468,7 @@ world(async () => {
                 get bufferedAmount() { return w.backlog === null ? channel.bufferedAmount : w.backlog; } };
         } };
         const engine = Adapter.create({ provider: kit.Providers.select(protocol.row), clock,
-            usage, answerAtStart: () => null, answerHeld: () => false,
+            usage, answerAtStart, answerHeld,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
             conversation: e => ({ net, key: key === null ? null : { secrets, reference }, language: "", voice,
                 preview: e.preview === true ? PREVIEW_LINE : null,
@@ -733,6 +733,49 @@ world(async () => {
             "the next automatic turn returns to listening on the replacement transport");
         assert.equal(w.captures.at(-1), capture, "a native input end alone replaces no recorder");
         assert.deepEqual(w.delegations.map(event => event.text), ["Automatic request"]);
+        assert.deepEqual(w.inputResults, [{ capture, empty: false }]);
+        w.dispatch("talk-down");
+        await until(() => w.state.capture.kind === "open" && w.state.capture.op !== capture,
+            "finishing the answered recorder returns to listening without another native result");
+        assert.deepEqual(w.inputResults, [{ capture, empty: false }]);
+        capContinues(w, identity);
+    }
+    async function capFinishing(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P, "created", { holdToTalk: false });
+        const identity = capIdentity(w), capture = w.state.capture.op, oldEvents = w.channelEvents;
+        w.sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        w.dispatch("talk-down");
+        await nativeEnd(conn);
+        await until(() => w.state.capture.kind === "closed", "the recorder closes with an outstanding commit");
+        assert.equal(w.state.input.kind, "finishing-input");
+        w.clock.advance(99000 - w.clock.now());
+        const next = await main.accept(w);
+        await P.open(next);
+        await next.sync();
+        capContinues(w, identity);
+        assert.equal(w.renewals.length, 1);
+        assert.deepEqual(w.inputResults, [], "discard supplies no recognized or empty result");
+        assert.equal(w.state.capture.kind, "open", "forced renewal admits a repeat in the same call");
+        assert.notEqual(w.state.capture.op, capture);
+        w.sink.write(Buffer.alloc(4800, 9));
+        await next.event(APPEND);
+        w.dispatch("talk-down");
+        await nativeEnd(next);
+        await until(() => w.state.capture.kind === "closed", "the repeated recording awaits its own native result");
+        const stale = P === REALTIME ? [{ ...script("turn"), item_id: "lost" },
+            { ...script("input-empty"), item_id: "lost", transcript: "Old input" }]
+            : [{ serverContent: { inputTranscription: { text: "Old input", finished: true } } }];
+        for (const data of stale) oldEvents.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(data) }));
+        await turn();
+        assert.deepEqual(w.delegations, []);
+        assert.deepEqual(w.inputResults, []);
+        assert.equal(w.state.input.kind, "finishing-input", "the old connection cannot finish a new recording");
+        nativeResult(next, "repeated", "Repeated input");
+        if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === 1, "the repeat reaches the original call");
+        assert.deepEqual(w.delegations.map(event => event.text), ["Repeated input"]);
+        assert.ok(P.sent(next).every(byte => byte === 9));
         capContinues(w, identity);
     }
     async function capUnfinished(kit, P = REALTIME) {
@@ -1399,6 +1442,53 @@ world(async () => {
         assert.equal(w.delegations.length, delegated);
     }
 
+    // A provider final can only use the originating microphone read's card.
+    async function captureOrigin(kit) {
+        const observed = [];
+        let card = null;
+        const { w, conn } = await starting(kit, { holdToTalk: false, thinking: true, answerAtStart: () => card,
+            answerHeld: (answer, text) => {
+                if (text === "Show the fixture card.") return false;
+                observed.push(answer);
+                if (text === "Yes." && answer !== null)
+                    w.dispatch("confirm", { ...answer, source: "voice" });
+                return true;
+            } });
+        REALTIME.go(conn);
+        await conn.sync();
+        const sink = w.sink;
+        const segment = async (id, text, write) => {
+            write(Buffer.alloc(4800, 5));
+            assert.equal(sink.endInput(), true);
+            await nativeEnd(conn);
+            nativeResult(conn, id, text);
+            await conn.sync();
+        };
+        await segment("original", "Show the fixture card.", pcm => sink.write(pcm));
+        const prior = sink.captureOrigin();
+        const turn = w.state.turn;
+        w.dispatch("approval", { gen: turn.gen, op: turn.op, id: "fixture-card", digest: "a".repeat(64), text: "Fixture card",
+            tool: "fixture", timeoutMs: 10000, cancellable: false, physical: false });
+        const held = w.state.approval;
+        w.dispatch("shown", { gen: held.gen, op: held.op, id: held.id });
+        w.clock.advance(1200);
+        card = { gen: held.gen, op: held.op, id: held.id, digest: held.digest, beganAt: w.clock.now(), idleAt: 0 };
+        await segment("buffered", "Yes.", pcm => sink.writeCaptured(pcm, prior));
+        await segment("unmarked", "Yes.", pcm => sink.write(pcm));
+        assert.deepEqual(observed, [null, null], "buffered and unmarked frames cannot acquire a later card");
+        assert.deepEqual([w.state.approval.kind, w.state.approval.op, w.delegations.length, w.tools], ["held", held.op, 1, 0]);
+        const current = sink.captureOrigin();
+        await segment("current", "Fixture marker.", pcm => sink.writeCaptured(pcm, current));
+        assert.equal(observed.at(-1), card, "a fresh segment keeps its own acquisition");
+        sink.discardInput();
+        assert.equal(sink.endInput(), false);
+        await segment("retired", "Yes.", pcm => sink.writeCaptured(pcm, current));
+        assert.deepEqual([observed.length, w.state.approval.op, w.delegations.length, w.tools], [3, held.op, 1, 0],
+            "a retired recorder's delayed answer is captioned without entering either request path");
+        assert.equal(w.transcripts.at(-1).text, "Yes.");
+        w.dispatch("close");
+    }
+
     async function stoppedInput(kit, P = REALTIME) {
         const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("stop");
@@ -1731,6 +1821,30 @@ world(async () => {
         ]);
         assert.equal(w.state.fault.kind, "none");
         quiet(w, conn);
+    }
+
+    async function emptyCaptionAtClose(kit) {
+        for (const holdToTalk of [true, false]) {
+            const { w, conn } = await starting(kit, { holdToTalk });
+            w.clock.advance(TAP);
+            REALTIME.go(conn);
+            w.sink.write(Buffer.alloc(4800, 5));
+            await conn.event(APPEND);
+            assert.equal(w.sink.endInput(), true);
+            await nativeEnd(conn);
+            conn.nativeSend({ ...script("turn"), item_id: "withdrawn" });
+            conn.nativeSend({ ...script("turn-early", 0), item_id: "withdrawn", delta: "Provisional words" });
+            await until(() => w.transcripts.length === 1, "the identified provisional caption is visible");
+            w.dispatch(holdToTalk ? "talk-up" : "talk-down");
+            await until(() => w.state.capture.kind === "closed", "the recording closes with the result outstanding");
+            conn.nativeSend({ ...script("input-empty"), item_id: "withdrawn", transcript: "" });
+            await until(() => w.state.conversation.kind === "ended", "empty final ends this call");
+            assert.deepEqual(w.transcripts.map(row => [row.stage, row.text]),
+                [["partial", "Provisional words"], ["final", ""]], "History receives the retraction before Close");
+            assert.ok(w.captionOrigins[0].endsWith(":withdrawn"));
+            assert.equal(w.captionOrigins[1], w.captionOrigins[0]);
+            assert.deepEqual(w.delegations, []);
+        }
     }
 
     // An item's partial text can arrive before input_audio_buffer.committed
@@ -2617,6 +2731,8 @@ world(async () => {
                 await wait(() => last().approval.kind === "held", "the forward is held");
                 const card = last().approval;
                 assert.equal(card.tool, "fleet.forward");
+                const forwards = () => fs.readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse)
+                    .filter(call => call.argv[0] === "forward");
                 if (only === "forward-yes") {
                     press();
                     await release();
@@ -2633,9 +2749,13 @@ world(async () => {
                     send({ type: "intent", intent: "cancel", id: card.id });
                     await wait(() => last().approval.kind === "held" && last().approval.op !== card.op, "a second forward is held");
                     const replacement = last().approval.op;
+                    send({ type: "shown", id: last().approval.id });
+                    await wait(() => last().approval.op === replacement && last().approval.shownAt !== null, "the replacement card was presented");
+                    fs.writeFileSync(offset, "2500");
                     P.turn(conn, "Yes.");
                     await wait(() => messages.some(m => m.type === "transcript" && m.text === "Yes."), "the superseded answer arrives");
                     assert.equal(last().approval.op, replacement, "an earlier recording cannot confirm this request");
+                    assert.deepEqual(forwards(), [], "the superseded recording grants no forward");
                 }
                 send({ type: "shown", id: last().approval.id });
                 await wait(() => last().approval.shownAt !== null, "the current card was presented");
@@ -2646,9 +2766,7 @@ world(async () => {
                 P.turn(conn, text);
                 const turns = only === "forward-yes" ? 2 : 3;
                 await wait(() => server.requests[turns - 1]?.body != null && last().approval.kind === "none", "the spoken answer resolves the request");
-                const forwards = fs.readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse)
-                    .filter(call => call.argv[0] === "forward");
-                assert.deepEqual(forwards.map(call => [call.record.confirmation.method, call.record.request.text]),
+                assert.deepEqual(forwards().map(call => [call.record.confirmation.method, call.record.request.text]),
                     only === "forward-yes" ? [["voice", "What is the time?"]] : []);
                 assert.equal(server.requests.length, turns);
                 const history = server.requests[turns - 1].body.messages;
@@ -2664,7 +2782,18 @@ world(async () => {
                 send({ type: "shown", id: approval.id });
                 await wait(() => last().approval.shownAt !== null, "the action is drawn");
                 fs.writeFileSync(offset, "1000");
-                send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
+                const geminiHeld = P === GEMINI && only === "action";
+                if (geminiHeld) {
+                    press();
+                    await release();
+                    await wait(() => last().capture.kind === "closed", "the recorder for the held request closes");
+                    P.turn(conn, "One more thing.");
+                    await wait(() => messages.some(m => m.type === "transcript" && m.stage === "final" && m.text === "One more thing."),
+                        "the unrelated Gemini utterance completes while the card is held");
+                    assert.equal(last().approval.op, approval.op);
+                    assert.equal(server.requests.length, 1, "the original request still owns the held card");
+                }
+                send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: geminiHeld ? "button" : "key" });
                 if (only === "voice-acted") {
                     await wait(() => !fs.existsSync(victim) && server.requests[1]?.body !== undefined && server.requests[1]?.body !== null,
                         "the approved action returns its tool result");
@@ -3152,6 +3281,40 @@ world(async () => {
         }
     }
 
+    async function geminiHeldRequest(kit) {
+        const { w, conn } = await gconversing(kit, { thinking: true });
+        const original = w.state.turn;
+        const card = { id: "check", digest: "e".repeat(64), physical: true, text: "Do this?",
+            tool: "fixture", timeoutMs: 5000, cancellable: false };
+        w.dispatch("approval", { ...card, gen: original.gen, op: original.op });
+        const hold = w.state.approval;
+        w.dispatch("shown", { id: hold.id, gen: hold.gen, op: hold.op });
+        w.dispatch("talk-down");
+        await conn.sync();
+        w.sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        w.dispatch("talk-up");
+        await nativeEnd(conn);
+        conn.nativeSend({ serverContent: { inputTranscription: { text: "Another question." } } });
+        await conn.sync();
+        assert.equal(say(w, "The original request is pending."), true);
+        assert.equal(conn.count(GSPEAK), 0, "queued speech waits behind the user's native turn");
+        conn.nativeSend({ serverContent: { inputTranscription: { finished: true } } });
+        await conn.sync();
+        assert.equal(w.delegations.length, 1);
+        assert.equal(w.state.approval.op, hold.op);
+        w.clock.advance(TAP);
+        w.dispatch("confirm", { id: hold.id, digest: hold.digest, gen: hold.gen, source: "button" });
+        assert.equal(w.tools, 1);
+        assert.equal(say(w, "The original action completed."), true, "the confirmed turn still owns Gemini's reply");
+        conn.nativeSend({ serverContent: { turnComplete: true } });
+        assert.equal(GEMINI.words(await conn.event(GSPEAK)), "The original request is pending.");
+        conn.play("reply-old");
+        conn.play("done-old");
+        assert.equal(GEMINI.words(await conn.event(GSPEAK)), "The original action completed.");
+        w.dispatch("close");
+    }
+
     // A model turn while no words are asked for holds the voice, even one
     // that opens with thinking and no user words before it.
     async function gthought(kit) {
@@ -3282,8 +3445,8 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    const cases = { roundTrip, preview, vocabulary, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, earlyCaptions, interruptPlaying,
-        capIdle, capActive, capAutomatic, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
+    const cases = { roundTrip, preview, vocabulary, captureOrigin, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, earlyCaptions, emptyCaptionAtClose, interruptPlaying,
+        capIdle, capActive, capAutomatic, capFinishing, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, idleDelegation: kit => delegation(kit, true), lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
@@ -3300,14 +3463,14 @@ world(async () => {
         daemonVoiceActedFault: async kit => {
             for (const stage of ["active", "queued", "playing", "played"]) await daemonDelegation(kit, "voice-acted", REALTIME, stage);
         },
-        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, idleGeminiDelegation: kit => gdelegation(kit, true), gunread, gfailures, gcapWarnings,
+        groundTrip, gpreview, gheld, geminiHeldRequest, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, idleGeminiDelegation: kit => gdelegation(kit, true), gunread, gfailures, gcapWarnings,
         gredirect, gstartTimeout, gkeys,
         ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key", "noisy-tail"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
     // The session rules both adapters keep, which run once for each: the
     // Realtime rows above take the adapter as their second argument.
     const SHARED = ["fragmentedInput", "nativeInput", "inputOutcomes", "quietInput", "stoppedInput", "inputFrame", "nativeResultsBound", "keyRefused", "closing", "interruptPlaying", "interruptQueued",
-        "capIdle", "capActive", "capAutomatic", "capUnfinished", "capConnectingInput", "capQueuedSpeech", "capCutSpeech", "capTeardown", "capStop",
+        "capIdle", "capActive", "capAutomatic", "capFinishing", "capUnfinished", "capConnectingInput", "capQueuedSpeech", "capCutSpeech", "capTeardown", "capStop",
         "replacedReply", "heardAccount", "replyDue", "replyDueCarried", "releaseDue", "labels", "responseTimeout", "responseEnded", "opening",
         "releaseLifetime", "pacing", "replyQueue", "backlog", "lineQueue", "violations"];
     // Realtime's own rows and the Gemini Live rows that hold the same rule
@@ -3432,6 +3595,7 @@ world(async () => {
             ["native-end-wire", '{ type: "input_audio_buffer.commit" }', '{ type: "input_audio_buffer.clear" }', as("nativeInput")],
             ["native-end-order", "session.pending.push({ capture, answer });", "session.pending.unshift({ capture, answer });", as("nativeInput")],
             ["native-minimum", "if (bytes < PCM_RATE * 2 / 10)", "if (false)", as("nativeInput")],
+            ["capture-origin", "answer = origin?.answer ?? null;", "answer = null;", as("captureOrigin")],
             ["native-empty", "empty: !capture.words", "empty: false", as("inputOutcomes")],
             ["native-result-pending", "capture.pending !== 0", "false", as("inputOutcomes")],
             ["stopped-native-input", "for (const { capture } of session.commits) capture.discarded = true;\n            for (const { capture } of session.inputs.values()) capture.discarded = true;",
@@ -3440,6 +3604,7 @@ world(async () => {
                 "if (session.capture !== null) session.capture.inputRecord.discarded = true;", as("stoppedInput")],
             ["cap-discard", "session.capture?.discardInput();", "", as("capUnfinished")],
             ["cap-notice", "session.events.renewal();", "void session;", as("capUnfinished")],
+            ["cap-finishing-discard", "session.events.inputDiscarded(capture.op);", "", as("capFinishing")],
             ["cap-cut-account", "session.events.interrupted?.({ id: cut.id, text: cut.account.text(null) });",
                 'session.events.interrupted?.({ id: cut.id, text: "" });', as("capCutSpeech")],
             ["cap-wall-clock", "clock.now() + event.expiresAt - clock.wallNow()", "event.expiresAt", as("capWallClock")],
@@ -3472,7 +3637,7 @@ world(async () => {
                 "session.playing !== null)) session.events.due(true);", as("replyDueCarried")],
             ["release-due", "release(session);\n            session.events.due(false);", "release(session);", as("releaseDue")],
             ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
-            ["blank-turn", 'event.text.trim() === "" || answerHeld(item.answer, event.text)', "answerHeld(item.answer, event.text)", as("delegation")],
+            ["blank-turn", 'event.text.trim() === "" || item.answer === RETIRED_ANSWER', "item.answer === RETIRED_ANSWER", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],
             ["replaced-words", "// Words still waiting answer the request this one replaces.\n                session.speech.queue = [];\n                session.speech.chars = 0;", "", as("delegation")],
             ["line-replace", "const waiting = session.speech.queue.findIndex(words => words.line === true);",
@@ -3547,6 +3712,8 @@ world(async () => {
             ["reply-open", 'if (session.playing !== reply || reply.kind !== "open" || !quiet(session)) return;', 'if (session.playing !== reply || reply.kind !== "open") return;', as("roundTrip")],
             ["caption-turn", "item.partial + clean(delta)", "clean(delta)", as("captions")],
             ["caption-overlap", "session.early.delete(event.item);\n                if (capture === undefined)", "session.early.clear();\n                if (capture === undefined)", as("earlyCaptions")],
+            ["caption-at-call-end", 'else if (item.partial !== "") emit(session, "user", "", "final", event.item);',
+                'else if (!capture.closed && item.partial !== "") emit(session, "user", "", "final", event.item);', as("emptyCaptionAtClose")],
             ["caption-empty-completion", 'else if (item.partial !== "") emit(session, "user", "", "final", event.item);', "", as("earlyCaptions")],
             // The defect VGS-2663 fixed: the caption closed as its partial
             // text, and partial text before the acknowledgement was dropped.
@@ -3598,6 +3765,7 @@ world(async () => {
         const unasked = "            if (active === null) session.hold = true;\n            else if";
         const geminiMutations = [
             ["native-end-wire", "audioStreamEnd: true", "audioStreamEnd: false", as("nativeInput"), "native-end-wire"],
+            ["held-request-owns-reply", " || !session.events.canDelegate()", "", as("geminiHeldRequest")],
             ["native-result-text", "inputResult(session, capture, session.inputText);", 'inputResult(session, capture, "");', as("inputOutcomes")],
             ["native-results-bound", "session.commits.length >= 128", "session.commits.length > 128", as("nativeResultsBound"), "native-results-bound"],
             ["key-header", 'header: "x-goog-api-key", prefix: ""', 'header: "authorization", prefix: "Bearer "', as("groundTrip")],
@@ -3637,7 +3805,7 @@ world(async () => {
             ["finished-ends-turn", "if (!discarded) delegate(session);", "void session;", as("gheld")],
             ["late-words", "if (session.turn === null) {", "if (session.turn === null || session.turn.delegated) {", as("gdelegation")],
             ["delegate-once", "if (turn === null || turn.delegated) return;", "if (turn === null) return;", as("gdelegation")],
-            ["blank-turn", 'if (turn.text.trim() === "") return;', "", as("gdelegation"), "blank-turn"],
+            ["blank-turn", 'turn.text.trim() === "" || !session.events.canDelegate()', '!session.events.canDelegate()', as("gdelegation"), "blank-turn"],
             ["delegation-dispatch", "session.events.delegation({ id: turn.id, text: clean(turn.text) });", "void turn;", as("gdelegation"), "delegation-dispatch"],
             ["replaced-words", "        session.speech.queue = [];\n        session.speech.chars = 0;\n        // Heard sentences", "        // Heard sentences",
                 as("gdelegation"), "replaced-words"],

@@ -147,14 +147,27 @@ bound=first["bound"]
 pair=sys.argv[2]
 print("jarvis-keys: reducer-pair="+pair+" "+json.dumps(
     {"source":"Session.reduce event.at","first":first,"second":second,"delta_ms":delta,"bound_ms":bound}), flush=True)
-if first["bound"]!=second["bound"] or not first["accepted"] or first["ignored"]:
-    raise SystemExit("first physical down was not accepted under the same bound")
-if pair=="distinct":
-    valid=delta>=bound and second["accepted"] and not second["ignored"]
-else:
-    valid=0<=delta<bound and second["ignored"] and not second["accepted"]
-if not valid:
-    raise SystemExit("physical down timing or reducer outcome differed")
+
+def check(first, second, pair):
+    if first["bound"] != second["bound"] or not first["accepted"] or first["ignored"]:
+        raise ValueError("first physical down was not accepted under the same bound")
+    elapsed = second["at"] - first["at"]
+    inside = 0 <= elapsed < first["bound"]
+    if elapsed < 0 or inside != (pair == "inside"):
+        raise ValueError("physical down timing differed")
+    if second["accepted"] == inside or second["ignored"] != inside:
+        raise ValueError("second physical down outcome differed")
+
+check(first, second, pair)
+if pair == "inside":
+    try:
+        check(first, {**second, "accepted": True, "ignored": False}, pair)
+    except ValueError as error:
+        if str(error) != "second physical down outcome differed":
+            raise
+        print("jarvis-keys: control=inside-bound-accepted rejected by reducer outcome check")
+    else:
+        raise SystemExit("accepted inside-bound down escaped the receipt checker")
 PY
   then ok "$1 presses have the required receipt times and reducer outcomes"
   else fail "$1 presses have the wrong receipt times or reducer outcomes"

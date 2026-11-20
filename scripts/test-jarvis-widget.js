@@ -708,7 +708,7 @@ try {
 // Execute Bubble's shipped callbacks with controlled GUI/render ordering.
 // The nested bubble row proves rendering; this case proves which queued frame
 // may acknowledge a real Session hold, without a second frame owner.
-function approvalFrames(source) {
+function approvalFrames(source, service = serviceSource) {
     let state = detail({ conversation: { kind: "active", purpose: "conversation" }, gen: 1, ...THINKING }).state;
     let at = 0;
     const dispatch = e => {
@@ -790,13 +790,40 @@ function approvalFrames(source) {
     flush();
     assert.equal(state.approval.shownAt, null, "a hidden host cannot acknowledge");
     root.presented = true;
-    root.placed = false;
+    // Service resolves one call, then the compositor fails while placing the
+    // replacement card. Use its real reader and Bubble's real placement gate.
+    let reply;
+    const owner = vm.createContext({ callKey: "call", placementKey: "second", consoleBox: null, consoleKey: "",
+        consoleCall: "", consoleFailure: "", consoleReading: false, consoleReadAgain: false,
+        shell: { manifest: { name: "Jarvis" }, compositor: { readWindows: done => { reply = done; }, onScreen: () => true } } });
+    const reader = [...service.matchAll(/^    function readConsoleBox\(\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(reader.length, 1, "one shipped console geometry reader");
+    const read = vm.runInContext("(" + reader[0][0] + ")", owner);
+    const placement = [...source.matchAll(/^    readonly property bool placed: (.+)$/gm)];
+    assert.equal(placement.length, 1, "one shipped card placement gate");
+    Object.defineProperty(root, "placed", { get: vm.runInNewContext("() => (" + placement[0][1] + ")", { service: owner }) });
+    const windows = { ok: true, monitors: [{ id: 1, name: "fixture", x: 800, y: 0, reserved: [0, 30, 0, 0] }],
+        clients: [{ class: "org.vgs.shell", title: "Jarvis", mapped: true, monitor: 1, at: [920, 90], size: [500, 400] }] };
+    read();
+    reply(windows);
+    const previous = owner.consoleBox;
+    assert.deepEqual(copy(previous), { output: "fixture", x: 120, y: 60, width: 500, height: 400 });
+    owner.placementKey = state.approval.id;
+    read();
+    reply({ ok: false, error: "fixture window query failed" });
+    assert.equal(owner.consoleBox, previous, "a failed console query retains the measured rectangle");
+    assert.equal(owner.consoleKey, "second", "a failed query cannot publish the replacement card's key");
+    assert.equal(root.placed, false);
     root.approvalPolished();
     root.approvalSynchronized();
     root.approvalSwapped();
     flush();
     assert.equal(state.approval.shownAt, null, "a frame drawn before the placement is known cannot acknowledge");
-    root.placed = true;
+    read();
+    reply({ ...windows, clients: [] });
+    assert.equal(owner.consoleBox, null, "a successful retry can report that the console closed");
+    assert.equal(owner.consoleKey, state.approval.id);
+    assert.equal(root.placed, true);
     approvalText.height = approvalText.implicitHeight - 1;
     root.approvalPolished();
     root.approvalSynchronized();
@@ -834,6 +861,11 @@ function approvalFrames(source) {
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
+const failedRead = "if (!state.ok) return failed(state.error);";
+assert.equal(serviceSource.split(failedRead).length, 2, "one failed console read");
+assert.throws(() => approvalFrames(bubble, serviceSource.replace(failedRead, "if (!state.ok) return answer(null);")),
+    error => error instanceof assert.AssertionError && error.message.includes("retains the measured rectangle"),
+    "treating a failed read as a successful empty result must fail the placement assertion");
 // The core's existing presentation owner observes real BarItems. Execute its
 // shipped geometry and frame callbacks with explicit Qt boundary stand-ins;
 // QML fixtures and the nested row still owe the real render/wire proof.
