@@ -122,6 +122,20 @@ FocusScope {
         if (field === null || field.idleStage === "") return null;
         return row.idleFields.find(idle => idle.stage === field.idleStage) || null;
     }
+    // A keyed delegate may still be alive after its field or plugin leaves.
+    // Resolve the whole editor input together so departure cannot pair a
+    // removed key with the next row's schema or settings.
+    function fieldView(key) {
+        const field = fieldRow(key);
+        if (field === null) return null;
+        const spec = field.reference ? {} : row.schema[key];
+        return { list: field.list, pluginId: row.id, reference: field.reference, idleField: idleFieldOf(key),
+            spec: spec, value: field.reference ? undefined : row.settings[key], choices: row.settingChoices[key] || [],
+            problem: field.reference ? panel.replyOf(row.id, key) : spec.problem === undefined ? "" : row.fieldProblems[key],
+            editable: editable || field.reference };
+    }
+    readonly property var emptyFieldView: ({ pluginId: "", reference: false, idleField: null,
+        spec: {}, value: undefined, choices: [], problem: "", editable: false })
     readonly property var fields: row === null ? [] : row.fieldRows.filter(field => field.section === "" && placed(field)).map(field => field.key)
     readonly property var sections: {
         if (row === null) return [];
@@ -281,18 +295,32 @@ FocusScope {
     // holds as the core lends it (the manager row's `idleFields`).
     component ChoiceField: Column {
         id: choiceField
-        property string pluginId: ""
         property string key: ""
+        readonly property var current: page.fieldView(key)
+        readonly property bool present: current !== null && !current.list
+        // Keep the last complete input while the departing editor tears
+        // down; its nested bindings must never see a missing spec or idle field.
+        property var view: page.emptyFieldView
+        Binding on view {
+            when: choiceField.present
+            value: choiceField.current
+            restoreMode: Binding.RestoreNone
+        }
+        readonly property string pluginId: view.pluginId
         // The key a page reference names the row by (revealField).
         readonly property string fieldKey: key
-        property var spec: ({})
-        property var value
-        property var choices: []
-        property string problem: ""
-        property bool editable: true
+        readonly property var spec: view.spec
+        readonly property var value: view.value
+        readonly property var choices: view.choices
+        readonly property string problem: view.problem
+        readonly property bool editable: view.editable
         property var edits: null
-        property var idleField: null
-        property bool reference: false
+        readonly property var idleField: view.idleField
+        readonly property bool reference: view.reference
+        visible: present
+        // Hiding alone retains key input and focus. Disable departure too.
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
+        enabled: present
         // A key/value row: the row under it stands by ink (Field).
         readonly property bool keyValueRow: true
         // Whether the row's last shown line ends in sub-text, which takes
@@ -316,6 +344,7 @@ FocusScope {
             readonly property bool subText: item !== null && item.subText === true
             readonly property bool keyValueRow: item !== null && item.keyValueRow === true
             width: parent.width
+            active: choiceField.present
             sourceComponent: choiceField.idleField === null ? settingEditor : idleEditor
         }
         Component {
@@ -714,15 +743,7 @@ FocusScope {
                             ChoiceField {
                                 required property string modelData
                                 width: switches.width
-                                pluginId: page.row.id
                                 key: modelData
-                                reference: page.fieldRow(modelData).reference
-                                idleField: page.idleFieldOf(modelData)
-                                spec: reference ? ({}) : page.row.schema[modelData]
-                                value: reference ? undefined : page.row.settings[modelData]
-                                choices: page.row.settingChoices[modelData] || []
-                                problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
-                                editable: page.editable || reference
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
@@ -746,35 +767,38 @@ FocusScope {
                     // Keyed models keep each section, field and key row
                     // while the manager's rows are replaced, so an edit in
                     // progress survives an unrelated change.
-                    Connections {
-                        target: page.visible && !groups.prefetched ? page.Window.window : null
-                        function onFrameSwapped() { Qt.callLater(groups.extend); }
-                    }
-                    Connections {
-                        target: page.visible && groups.loaded < groups.count ? page.Window.window : null
-                        function onActiveFocusItemChanged() {
-                            const edge = groups.itemAt(groups.needed - 1);
-                            for (let at = target.activeFocusItem; at; at = at.parent) {
-                                if (at === edge) {
-                                    groups.limit = groups.needed + 1;
-                                    break;
-                                }
-                                // A backward Tab from the footer needs the
-                                // last group and its complete geometry now.
-                                if (at.parent === settingsPage) {
-                                    const order = settingsPage.children;
-                                    if (order.indexOf(at) > order.indexOf(groups)) groups.limit = groups.count;
-                                    break;
-                                }
-                            }
-                        }
-                    }
                     Repeater {
                         id: groups
                         property int limit: 1
                         property int loaded: 0
                         property bool prefetched: false
                         function extend() { prefetched = true; }
+                        // Window focus can change while delegates tear down.
+                        // These connections end with the groups they promote.
+                        readonly property Connections prefetch: Connections {
+                            target: groups !== null && page.visible && !groups.prefetched ? page.Window.window : null
+                            function onFrameSwapped() { if (groups !== null) Qt.callLater(groups.extend); }
+                        }
+                        readonly property Connections promotion: Connections {
+                            target: groups !== null && page.visible && groups.loaded < groups.count ? page.Window.window : null
+                            function onActiveFocusItemChanged() {
+                                if (groups === null || target === null) return;
+                                const edge = groups.itemAt(groups.needed - 1);
+                                for (let at = target.activeFocusItem; at; at = at.parent) {
+                                    if (at === edge) {
+                                        groups.limit = groups.needed + 1;
+                                        break;
+                                    }
+                                    // A backward Tab from the footer needs the
+                                    // last group and its complete geometry now.
+                                    if (at.parent === settingsPage) {
+                                        const order = settingsPage.children;
+                                        if (order.indexOf(at) > order.indexOf(groups)) groups.limit = groups.count;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                         readonly property int needed: {
                             const all = page.sections;
                             const key = page.panel.openingField;
@@ -801,7 +825,7 @@ FocusScope {
                             Loader {
                                 id: rows
                                 width: section.width
-                                active: section.index < groups.needed || groups.prefetched
+                                active: page.row !== null && (section.index < groups.needed || groups.prefetched)
                                 asynchronous: section.index >= groups.needed
                                 property bool counted: false
                                 onStatusChanged: {
@@ -857,15 +881,7 @@ FocusScope {
                                     ChoiceField {
                                         required property string modelData
                                         width: section.width
-                                        pluginId: page.row.id
                                         key: modelData
-                                        reference: page.fieldRow(modelData).reference
-                                        idleField: page.idleFieldOf(modelData)
-                                        spec: reference ? ({}) : page.row.schema[modelData]
-                                        value: reference ? undefined : page.row.settings[modelData]
-                                        choices: page.row.settingChoices[modelData] || []
-                                        problem: reference ? page.panel.replyOf(page.row.id, modelData) : spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
-                                        editable: page.editable || reference
                                         edits: unsaved
                                         onApply: v => { if (page !== null && page.row !== null) page.writeField(key, idleField, v); }
                                         onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
@@ -885,20 +901,30 @@ FocusScope {
                                         required property string modelData
                                         // The key a page reference names the list by (revealField).
                                         readonly property string fieldKey: modelData
+                                        readonly property var current: page.fieldView(modelData)
+                                        readonly property bool present: current !== null && current.list
+                                        property var view: page.emptyFieldView
+                                        Binding on view {
+                                            when: groupedListSection.present
+                                            value: groupedListSection.current
+                                            restoreMode: Binding.RestoreNone
+                                        }
                                         width: section.width
-                                        title: page.row.schema[modelData].label
-                                        description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                                        visible: present
+                                        enabled: present
+                                        title: view.spec.label === undefined ? "" : view.spec.label
+                                        description: view.spec.description === undefined ? "" : view.spec.description
                                         onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                        info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+                                        info: view.spec.info === undefined ? "" : view.spec.info
 
                                         ListField {
                                             width: groupedListSection.width
-                                            pluginId: page.row.id
+                                            pluginId: groupedListSection.view.pluginId
                                             key: groupedListSection.modelData
-                                            spec: page.row.schema[groupedListSection.modelData]
-                                            value: page.row.settings[groupedListSection.modelData]
-                                            choices: page.row.settingChoices[groupedListSection.modelData] || []
-                                            editable: page.editable
+                                            spec: groupedListSection.view.spec
+                                            value: groupedListSection.view.value
+                                            choices: groupedListSection.view.choices
+                                            editable: groupedListSection.view.editable
                                             edits: unsaved
                                             onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                             onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
@@ -923,20 +949,30 @@ FocusScope {
                             required property string modelData
                             // The key a page reference names the list by (revealField).
                             readonly property string fieldKey: modelData
+                            readonly property var current: page.fieldView(modelData)
+                            readonly property bool present: current !== null && current.list
+                            property var view: page.emptyFieldView
+                            Binding on view {
+                                when: listSection.present
+                                value: listSection.current
+                                restoreMode: Binding.RestoreNone
+                            }
                             width: body.width
-                            title: page.row.schema[modelData].label
-                            description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
+                            visible: present
+                            enabled: present
+                            title: view.spec.label === undefined ? "" : view.spec.label
+                            description: view.spec.description === undefined ? "" : view.spec.description
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                            info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
+                            info: view.spec.info === undefined ? "" : view.spec.info
 
                             ListField {
                                 width: listSection.width
-                                pluginId: page.row.id
+                                pluginId: listSection.view.pluginId
                                 key: listSection.modelData
-                                spec: page.row.schema[listSection.modelData]
-                                value: page.row.settings[listSection.modelData]
-                                choices: page.row.settingChoices[listSection.modelData] || []
-                                editable: page.editable
+                                spec: listSection.view.spec
+                                value: listSection.view.value
+                                choices: listSection.view.choices
+                                editable: listSection.view.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
@@ -1153,7 +1189,7 @@ FocusScope {
                     }
                 }
 
-                Loader {
+                Column {
                     id: detailsPage
                     property bool visited: false
                     Binding on visited {
@@ -1166,8 +1202,14 @@ FocusScope {
                     // The strip shows and hides its own pages alone, and hid
                     // this one as its third.
                     onParentChanged: if (parent === setupHolder) visible = true
-                    active: visited
-                    sourceComponent: tabs.detailsBody
+                    // TabPages owns this stable page's geometry; Loader
+                    // gives the deferred body that width and follows its height.
+                    // https://doc.qt.io/qt-6/qml-qtquick-loader.html#loader-sizing-behavior
+                    Loader {
+                        active: detailsPage.visited
+                        width: parent.width
+                        sourceComponent: tabs.detailsBody
+                    }
                 }
 
                 property Component detailsBody: Column {
