@@ -2756,8 +2756,12 @@ case "$cmd" in
     out="$(qs ipc --pid "$pid" "$@")"
     status=$?
     set -e
-    [[ -z $out ]] || printf '%s\n' "$out"
     vgs_ipc_last_line_into "$out"
+    if [[ ${1:-} == call ]]; then
+      [[ $out != *$'\n'* ]] || printf '%s\n' "${out%$'\n'*}" >&2
+      out="$vgs_ipc_last_line"
+    fi
+    [[ -z $out ]] || printf '%s\n' "$out"
     if ipc_reply_failure_reason "$(ipc_arg_label "$@")" "$vgs_ipc_last_line"; then
       exit 69
     fi
