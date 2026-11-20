@@ -5541,7 +5541,7 @@ scene_jarvis-shell-tools() { # MODE
   expect_poll "the Jarvis page is shown for the shell-tools hint" '"vgs.jarvis"' settings_page
   page_details
   expect "the production shell-tools status handler publishes" true ipc smoke invokeInstanceArgs service vgs.jarvis shellStatus '{"args":[{"kind":"unavailable","reason":"public-runtime"}]}'
-  jarvis_anchor_shot "jarvis-shell-tools-$1" Label "$(jarvis_status_label shell)" 96
+  jarvis_label_shot "jarvis-shell-tools-$1" "$(jarvis_status_label shell)" 96
   page_state_record "jarvis-shell-tools-$1" "$1" vgs.jarvis
   settings_close
   expect "Jarvis disables after the shell-tools hint" ok ipc shell setPluginEnabled vgs.jarvis false
@@ -5770,6 +5770,10 @@ jarvis_anchor_shot() {
     fail "the Jarvis page's $3 is unreadable: $top"
   fi
 }
+# jarvis_label_shot NAME TEXT [MARGIN]: jarvis_anchor_shot at a row's
+# label by its displayed words, whichever control draws them: a Label, or
+# an InfoButton where the row's entry carries `info`.
+jarvis_label_shot() { jarvis_anchor_shot "$1" DisplayedText "$2" "${3:-12}"; }
 # The label of the tree's input step on the Setup tab: its checklist entry
 # where the tree has one, else the input reader's own row.
 jarvis_input_label() {
@@ -5978,7 +5982,7 @@ JSHOMEREPAIR
     # A Done step sorts after the open ones, below the first screen, so its
     # shot anchors on the step's own label.
     case $state in
-      complete|done-failed-*) jarvis_anchor_shot "$name" Label "$(jarvis_status_label setupHome)" 96 ;;
+      complete|done-failed-*) jarvis_label_shot "$name" "$(jarvis_status_label setupHome)" 96 ;;
       *) jarvis_anchor_shot "$name" SectionHeader Setup ;;
     esac
     clone_record "$name" settings
@@ -6005,7 +6009,7 @@ scene_jarvis-setup() { # MODE
   expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
   page_details
   expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
-  jarvis_anchor_shot "jarvis-details-$1-status" Label "Browser driver"
+  jarvis_label_shot "jarvis-details-$1-status" "Browser driver"
   jarvis_anchor_shot "jarvis-details-$1-model" SectionHeader "AI model"
   page_setup
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
@@ -6217,7 +6221,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
   printf 'refused\n' >"$world/elevenlabs-mode"
   elevenlabs_page "with the ElevenLabs key refused"
   expect_poll "the ElevenLabs voices line reads Could not read voices" True elevenlabs_line_has "Could not read voices"
-  jarvis_anchor_shot "elevenlabs-voices-details-$1-refused" Label "ElevenLabs voices"
+  jarvis_label_shot "elevenlabs-voices-details-$1-refused" "ElevenLabs voices"
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   jarvis_anchor_shot "elevenlabs-voices-settings-$1-refused" SectionHeader Voice
@@ -6226,7 +6230,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
   printf 'listed\n' >"$world/elevenlabs-mode"
   elevenlabs_page "with the ElevenLabs voices listed"
   expect_poll "the ElevenLabs voices line reads 6 voices" True elevenlabs_line_has "6 voices"
-  jarvis_anchor_shot "elevenlabs-voices-details-$1-listed" Label "ElevenLabs voices"
+  jarvis_label_shot "elevenlabs-voices-details-$1-listed" "ElevenLabs voices"
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   expect_poll "the Voice field reads the account's first voice" false jarvis_tier_list_open "$first"
@@ -6921,8 +6925,8 @@ scene_jarvis-fleet() { # MODE
   expect_poll "the Jarvis session row reads the folder" reported jarvis_session_reported
   # The Home folder step reads Done in a tree that lays its package out,
   # and Done sorts after the open steps, so the shot anchors on that step.
-  jarvis_anchor_shot "jarvis-fleet-$1" Label "$(jarvis_status_label setupHome)" 96
-  jarvis_anchor_shot "jarvis-fleet-$1-session" Label "$(jarvis_status_label sessionStart)" 96
+  jarvis_label_shot "jarvis-fleet-$1" "$(jarvis_status_label setupHome)" 96
+  jarvis_label_shot "jarvis-fleet-$1-session" "$(jarvis_status_label sessionStart)" 96
   expect "the Jarvis status provider is held for the main computer's home" held ipc smoke holdStatus service vgs.jarvis
   rows="$("$node_bin" - "$repo" "$folder" <<'JSCLONE'
 const path = require("node:path");
@@ -6939,7 +6943,7 @@ JSCLONE
     [[ -n $key ]] || continue
     expect "the main computer's Home folder step publishes" ok ipc smoke heldStatusSet "$key" "$value"
   done <<<"$rows"
-  jarvis_anchor_shot "jarvis-fleet-$1-main" Label "$(jarvis_status_label setupHome)" 96
+  jarvis_label_shot "jarvis-fleet-$1-main" "$(jarvis_status_label setupHome)" 96
   settings_close
   expect "the Jarvis console opens on the folder" ok ipc shell summon window vgs.jarvis '{}'
   expect_poll "the Jarvis console maps on the folder" 1 window_count Jarvis
@@ -7023,13 +7027,13 @@ AGENTS
   label="$(jarvis_status_label "$key")" || fail "the instructions row's label is unreadable"
   expect_poll "the home's instructions row reads the file" Set jarvis_status_text "$key"
   # The row's label sits under the tab strip at the usual margin.
-  jarvis_anchor_shot "jarvis-home-$1-instructions" Label "$label" 96
+  jarvis_label_shot "jarvis-home-$1-instructions" "$label" 96
   expect_poll "the Jarvis session row reads the home" reported jarvis_session_reported
-  jarvis_anchor_shot "jarvis-home-$1-session" Label "$(jarvis_status_label sessionStart)" 96
+  jarvis_label_shot "jarvis-home-$1-session" "$(jarvis_status_label sessionStart)" 96
   if "$instructions"; then
     expect_poll "the daemon's own drift reading reaches the Home folder step" lines jarvis_home_lines
     # A Done step sorts after the open ones, so each shot anchors on it.
-    jarvis_anchor_shot "jarvis-home-$1-drift-current" Label "$(jarvis_status_label setupHome)" 96
+    jarvis_label_shot "jarvis-home-$1-drift-current" "$(jarvis_status_label setupHome)" 96
     expect "the Jarvis status provider is held for the drift readings" held ipc smoke holdStatus service vgs.jarvis
     for kind in behind kendex-missing; do
       rows="$("$node_bin" - "$repo" "$folder" "$kind" <<'JSDRIFT'
@@ -7045,7 +7049,7 @@ JSDRIFT
       while IFS=$'\t' read -r key value; do
         expect "the $kind drift reading publishes" ok ipc smoke heldStatusSet "$key" "$value"
       done <<<"$rows"
-      jarvis_anchor_shot "jarvis-home-$1-drift-$kind" Label "$(jarvis_status_label setupHome)" 96
+      jarvis_label_shot "jarvis-home-$1-drift-$kind" "$(jarvis_status_label setupHome)" 96
     done
   fi
   settings_close
@@ -7117,10 +7121,10 @@ PY
   expect_poll "the Jarvis page is shown for the outdated scene" '"vgs.jarvis"' settings_page
   page_details
   expect_poll "the Jarvis page shows its daemon ready over the outdated stand-ins" True jarvis_page_ready
-  jarvis_anchor_shot "outdated-$1-driver" Label "Browser driver"
-  "$has_setup_tab" || jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
+  jarvis_label_shot "outdated-$1-driver" "Browser driver"
+  "$has_setup_tab" || jarvis_label_shot "outdated-$1-requirement" agent-browser
   page_setup
-  ! "$has_setup_tab" || jarvis_anchor_shot "outdated-$1-requirement" Label agent-browser
+  ! "$has_setup_tab" || jarvis_label_shot "outdated-$1-requirement" agent-browser
   expect_poll "the Jarvis Setup section draws its rows for the outdated scene" True jarvis_setup_drawn
   jarvis_anchor_shot "outdated-$1-setup" SectionHeader Setup
   expect "Install all missing is answered for the outdated scene" ok ipc smoke invokeInstance "$settings_kind" vgs.settings installRequirements vgs.jarvis
@@ -13328,7 +13332,7 @@ link_icons_jarvis_shots() { # MODE
   expect_poll "the fixture Jarvis daemon is ready for actual Remove key" ready jarvis_started
   close_notices
   plugin_page_shots "$mode" vgs.jarvis "link-icons-$mode-jarvis-details" details
-  jarvis_anchor_shot "link-icons-$mode-jarvis-key" Label 'API keys'
+  jarvis_label_shot "link-icons-$mode-jarvis-key" 'API keys'
   page_state_record "link-icons-$mode-jarvis-key" "$mode" vgs.jarvis
   link_icons_geometry "$mode" jarvis-key "$settings_kind" vgs.settings RowAction 'Remove key'
   expect "Jarvis disables after actual Remove key shots" ok ipc shell setPluginEnabled vgs.jarvis false

@@ -3,9 +3,11 @@
 # Boot and manual starts retain their mode/origin. Refused home choices
 # leave the live session's home held for Off. Model/since remain on Setup.
 # Controls retain duplicate-start detection, refused-home ownership and
-# model/since publication at these existing boundaries.
+# model/since publication at these existing boundaries. The Setup tab
+# draws the Home folder and Jarvis session labels where the screenshot
+# scenes' jarvis_label_shot finds them, by displayed words alone.
 # No latency ceiling. Reads poll once per nested IPC round trip.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* .agents/skills/jarvis/* scripts/fixtures/jarvis/session-package.py scripts/fixtures/jarvis/home.js shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* shell/Ui/controls/InfoButton.qml scripts/smoke/Probe.qml shell/plugins/vgs.jarvis/backend/* .agents/skills/jarvis/* scripts/fixtures/jarvis/session-package.py scripts/fixtures/jarvis/home.js shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -192,6 +194,13 @@ settings_page_close vgs.jarvis
 session_answer status '{"exit": 0, "object": {"state": "stopped", "reason": "never-started"}}'
 expect "the Jarvis page opens again on Setup" ok ipc shell summon window vgs.settings '{"plugin": "vgs.jarvis", "tab": "Setup"}'
 expect_poll "viewed again, the row reads not started" "Not started" session_text
+session_label_drawn() { # KEY
+  ipc smoke windowGeometry window vgs.settings DisplayedText "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"][sys.argv[2]]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json" "$1")" \
+    | py_reply 'import sys; print("drawn" if sys.stdin.read().startswith("[") else "absent")'
+}
+for key in setupHome sessionStart; do
+  expect_poll "the Setup tab draws the $key label by its words alone" drawn session_label_drawn "$key"
+done
 settings_page_close vgs.jarvis
 
 session_set '{"startAtBoot": true}'
