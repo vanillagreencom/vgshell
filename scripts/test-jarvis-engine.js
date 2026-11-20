@@ -3204,6 +3204,22 @@ async function cases(kit, server, only = null, mutation = false) {
             }, "Jarvis speaks: " + line);
         await playOut(w, playOver);
     }
+    await run("forwarded-answer", async w => {
+        await opened(w);
+        const from = control.spoken.length, cards = [], requests = server.requests.length;
+        const item = { content: "The build passed.", labels: ["agent"] };
+        const delivery = { gen: w.s().gen, current: () => true, open: () => cards.push(item.content) };
+        w.tasks.voice.answer(item, delivery);
+        await w.observed(() => control.spoken.slice(from).join(" ") === "From my main brain: The build passed.",
+            "the chained voice synthesizes the forwarded answer");
+        await playOut(w);
+        assert.ok(control.labels.has("agent"));
+        assert.deepEqual(cards, []);
+        w.runner.dispatch({ type: "voice-mute-toggle" });
+        w.tasks.voice.answer(item, delivery);
+        assert.deepEqual(cards, [item.content], "a muted answer opens locally");
+        assert.equal(server.requests.length, requests, "neither relay sends the answer to the brain");
+    }, { tasks: true });
     await run("task-relay", async w => {
         const t = w.tasks;
         t.task("earlier");
@@ -3506,8 +3522,8 @@ async function taskControls(root, server) {
             ["relay-withheld-silent", "tasks.withheld(c.gen, text, turn.relay.ask ?? turn.relay.about ?? null);", "void text;", "task-release-declined"],
             ...["task-close-spoken", "task-line-failed"].map(scenario => ["relay-end-forgets-" + scenario,
                 "        if (!relay || relay.done) return;\n", "        return;\n", scenario]),
-            ["relay-reply-rules", "                const speakable = Speakable.create(LANGUAGE);\n                for (const sentence of [...speakable.push(text)",
-                "                const speakable = Speakable.create(LANGUAGE, { tools: [] });\n                for (const sentence of [...speakable.push(text)",
+            ["relay-reply-rules", "const speakable = Speakable.create(LANGUAGE);\n                if (!turn.relay.done)",
+                "const speakable = Speakable.create(LANGUAGE, { tools: [] });\n                if (!turn.relay.done)",
                 "task-permission-command"],
             ["relay-retry-captures", "if (prompt !== null && answer === null && c.retried === c.relay) {",
                 "if (false) {", "task-permission-release"],
@@ -4420,7 +4436,7 @@ async function groupPlants(root, server) {
         ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
             'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
         ...["close", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,
-            "            record?.cancel();\n        }, begin() { record?.begin(); } };", "        }, begin() { record?.begin(); } };",
+            "            record?.cancel();\n        }, begin() {", "        }, begin() {",
             "dictation-cancel-" + trigger]),
         ["dictation-silence-stopped", 'if (!event.speech || answer === null && utterance.collection === null) {',
             'if (answer === null && utterance.collection === null) {', "dictation-silent"],

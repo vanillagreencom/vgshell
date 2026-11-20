@@ -458,9 +458,9 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         // A response cannot be paused: a full queue faults, never drops speech.
         if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");
     }
-    function emit(session, role, text, stage) {
+    function emit(session, role, text, stage, item = session.reportingItem) {
         session.rev++;
-        session.events.transcript({ role, text, stage, rev: session.rev });
+        session.events.transcript({ role, text, stage, rev: session.rev, ...(role === "user" ? { item } : {}) });
     }
     // One open caption per speaker: a user turn's, or the reply's words so
     // far. A caption at the wire's bound closes and the rest starts the next.
@@ -480,14 +480,14 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             const room = captionLimit - segment.text.length;
             segment.text += text.slice(0, room);
             text = text.slice(room);
-            emit(session, role, segment.text, "partial");
+            emit(session, role, segment.text, "partial", segment.source);
         }
     }
     function conclude(session, role) {
         const segment = session.segments[role];
         if (segment === null) return;
         session.segments[role] = null;
-        emit(session, role, segment.text, "final");
+        emit(session, role, segment.text, "final", segment.source);
         if (role === "assistant") tally(session, segment.text);
     }
     // The voice is asked to speak each sentence exactly; this counts where its
@@ -511,6 +511,9 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         const kind = session.state.kind;
         try {
             if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");
+            // A completed input with no partial caption takes its identity
+            // directly from this frame. Open segments keep their own source.
+            session.reportingItem = event.item;
             switch (event.kind) {
             case "created": {
                 if (kind !== "connecting") fail("event-order");
@@ -720,6 +723,15 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         }
     };
 
+    // A daemon relay has no provider input item. Give its released words
+    // their own playback account on this open conversation.
+    function beginRelay() {
+        if (live === null || live.state.kind !== "running" && !live.renewing || replyPending(live)) return null;
+        live.said = [];
+        live.delegation = Symbol("relay");
+        return live.delegation;
+    }
+
     function commentary(id, item, options = {}) {
         const session = live;
         if (session === null || session.state.kind !== "running" && !session.renewing || session.delegation !== id) return false;
@@ -870,7 +882,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         });
     }
 
-    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, heard });
+    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, beginRelay, heard });
 }
 
 module.exports = { create, VOICES };

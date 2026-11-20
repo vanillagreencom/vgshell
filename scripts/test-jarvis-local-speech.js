@@ -202,7 +202,7 @@ async function streaming(folder) {
     };
     for (const detect of [true, false]) {
         const w = runtime({ utterances: [{ partials: [{ text: "draft", rev: 1 }, { text: "corrected draft", rev: 2 }],
-            turnEnd: true, speech: true }] });
+            turnEnd: true, onset: true, speech: true }] });
         const speech = adapter(folder, w);
         let first, second, finish;
         const gates = [new Promise(done => { first = done; }), new Promise(done => { second = done; }),
@@ -217,6 +217,7 @@ async function streaming(folder) {
         })();
         const output = speech.transcribe(input, { detect });
         try {
+            if (detect) assert.deepEqual(await next(output), { value: { kind: "heard" }, done: false });
             assert.deepEqual(await next(output), { value: { kind: "partial", text: "draft", rev: 1 }, done: false });
             assert.equal(w.log().some(entry => entry.end), false, "a partial arrives while capture stays open");
             first();

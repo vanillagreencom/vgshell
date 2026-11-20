@@ -58,6 +58,9 @@ Item {
             ShortcutLabels.names = Object.assign({}, ShortcutLabels.symbolNames, { "CODE:44": { keysym: "j", codepoint: 106 } });
             jarvisConsole.tab = 0;
             jarvisConsole.historyType = 0;
+            jarvisConsole.selectedSession = "";
+            jarvisConsole.forwardedAnswer = "";
+            jarvisConsole.historyQuery = "";
             jarvisConsole.shell = root.shellWith(root.values({}));
             composerControls().entry.text = "";
             wait(0); // Drain the tab's queued focus before each case chooses its control.
@@ -247,15 +250,57 @@ Item {
                 { gen: 4, role: "user", text: "First open", stage: "final", session: "fixture:4", at: 2000 },
                 { gen: 6, role: "assistant", text: "Resumed answer", stage: "final", session: "fixture:4", at: 3000 }
             ];
-            const all = '["Earlier context","First open","Resumed answer"]';
+            const all = '["fixture:4:6","fixture:4:4","fixture:3:2"]';
             jarvisConsole.shell = root.shellWith(values);
             compare(JSON.stringify(jarvisConsole.transcriptRows.map(row => row.text)), '["First open","Resumed answer"]');
-            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.text)), all, "history keeps the older context, oldest first");
+            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.id)), all, "History lists separate Talk sessions, newest first");
             const reset = root.values({ history: { kind: "reset", epoch: 5, reason: "requested" } });
             reset.conversation = values.conversation;
             jarvisConsole.shell = root.shellWith(reset);
             compare(jarvisConsole.transcriptRows.length, 0, "fresh Chat contains none of the old model context");
-            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.text)), all, "reset erases no history rows");
+            compare(JSON.stringify(jarvisConsole.historyRows.map(row => row.id)), all, "reset erases no history rows");
+        }
+
+        function test_search_opens_the_entire_read_only_conversation() {
+            const values = root.values({});
+            values.conversation = ["Question", "A unique answer", "Follow-up"].map((text, index) => ({
+                gen: 3, session: "fixture:1", started: 100, at: 100 + index, role: index === 1 ? "assistant" : "user", stage: "final", text
+            }));
+            jarvisConsole.shell = root.shellWith(values);
+            jarvisConsole.tab = 2;
+            jarvisConsole.historyQuery = "unique";
+            tryCompare(jarvisConsole.historyFocus, "activeFocus", true);
+            const list = collect(jarvisConsole, n => n instanceof DeviceList && n.visible, [])[0];
+            compare(list.rows.map(row => row.text), ["Question"]);
+            list.rowAt(0).forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            tryCompare(jarvisConsole, "selectedSession", "fixture:1:3");
+            compare(collect(jarvisConsole, n => n instanceof MessageRow && n.visible, []).map(row => row.bodyText),
+                ["Question", "A unique answer", "Follow-up"]);
+            keyClick(Qt.Key_Escape);
+            compare(jarvisConsole.selectedSession, "");
+            compare(jarvisConsole.historyQuery, "unique");
+        }
+
+        function test_waiting_and_opening_the_forwarded_answer() {
+            const values = root.values({ conversation: { kind: "active", purpose: "conversation" } });
+            values.forwardWait = true;
+            const shell = root.shellWith(values), stops = [];
+            shell.ipc.call = (name, arg) => { if (name === "stop") stops.push(arg); return "ok"; };
+            jarvisConsole.shell = shell;
+            verify(jarvisConsole.working);
+            verify(!jarvisConsole.nothingToStop);
+            const line = findChild(jarvisConsole, "mainReachLine");
+            verify(line.visible && line.text === "Waiting for Jarvis main");
+            const stop = collect(jarvisConsole, n => n.visible && n.label === "Stop Jarvis", [])[0];
+            verify(stop.enabled);
+            stop.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(stops, [""]);
+            const answer = "First line\nA <b>literal</b> answer";
+            jarvisConsole.open(JSON.stringify({ forwardedAnswer: answer }));
+            compare(jarvisConsole.tab, 2);
+            verify(collect(jarvisConsole, n => n instanceof MessageRow && n.visible && n.bodyText === answer, []).length === 1);
         }
 
         function test_ask_recovery_survives_console_recreation_data() {
@@ -518,6 +563,7 @@ Item {
             mouseMove(entry, 4, 4);
             mouseClick(entry);
             compare([filter.listOpen, filter.currentText, jarvisConsole.historyType], [false, data.entry, data.index]);
+            compare(filter.contentItem.lineCount, 1, "the selected history filter fits on one line");
             compare([jarvisConsole.showConversations, jarvisConsole.showTasks, jarvisConsole.showProblems], data.shown);
             // The stand-in popup is a plain window, which keeps the keys
             // after it hides; Quickshell's grab returns them on close.
@@ -735,6 +781,22 @@ Item {
             }
             jarvisConsole.tab = 2;
             compare(line().visible, false, "the line is Chat's alone");
+        }
+        function test_forward_wait_preserves_package_or_main_failure_data() {
+            return [
+                { tag: "unreachable", reach: { kind: "satellite", host: "fixture-main", reachable: false, cause: "main-unreachable" }, cause: "fixture-main is unreachable" },
+                { tag: "package", reach: { kind: "unavailable", host: "fixture-main", cause: "package-unread" }, cause: "local Jarvis package" },
+                { tag: "fix", reach: { kind: "unavailable", host: "", cause: "no-home" }, cause: "page:vgs.jarvis/Settings/home" }
+            ];
+        }
+        function test_forward_wait_preserves_package_or_main_failure(data) {
+            const values = root.values({ conversation: { kind: "active", purpose: "conversation" } });
+            values.forwardWait = true;
+            values.mainReach = data.reach;
+            jarvisConsole.shell = root.shellWith(values);
+            const warning = findChild(jarvisConsole, "mainReachNotice");
+            verify(warning.visible && !findChild(jarvisConsole, "mainReachLine").visible);
+            verify(warning.text.includes("Waiting for Jarvis main") && warning.text.includes(data.cause));
         }
     }
 }

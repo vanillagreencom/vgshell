@@ -25,6 +25,9 @@ satellite.json beside itself, all keys optional:
              private-file-unwritable and stores nothing;
   "main":    the stored setting, "" for the main, which main-host writes;
   "reachable": the last probe's answer, true, false or null;
+  "trackRequests": when true, each accepted forward adds its real receipt to
+             requests; the fixture's main closes it by moving its key and
+             request reference to answers along with the answer text;
   "forward": {"exit": 0} delivered, {"exit": 75, "cause": KEY} queued,
              {"exit": 2, "cause": KEY} refused.
 """
@@ -52,6 +55,12 @@ def option(name):
 def refuse(line):
     sys.stderr.write(line + "\n")
     sys.exit(2)
+
+
+def save():
+    with open(state_file + ".next", "w") as out:
+        json.dump(state, out)
+    os.replace(state_file + ".next", state_file)
 
 
 def judged(value):
@@ -91,9 +100,7 @@ if verb == "main-host" and option("--set") is not None:
         refuse("jarvis-session: main-host=refused cause="
                + {"unreadable": "settings-unreadable", "unwritable": "private-file-unwritable"}[state["setter"]])
     state["main"] = value
-    with open(state_file + ".next", "w") as out:
-        json.dump(state, out)
-    os.replace(state_file + ".next", state_file)
+    save()
     print(json.dumps({"JARVIS_MAIN_HOST": value}))
     sys.exit(0)
 if verb == "status" and "--main" in argv:
@@ -107,15 +114,19 @@ if verb == "status" and "--main" in argv:
     print(json.dumps({"v": 1, "role": "satellite", "main": match[1] if match else None,
                       "reachable": reachable, "checked_at": None,
                       "cause": "setting-invalid" if not match else "main-unreachable" if reachable is False else None,
-                      "last_answer": None, "requests": []}))
+                      "last_answer": None, "requests": state.get("requests", []), "answers": state.get("answers", [])}))
     sys.exit(0)
 if verb == "forward" and "record" in call:
     answer = state.get("forward", {"exit": 0})
     if answer["exit"] == 2:
         refuse("jarvis-session: forward=refused cause=" + answer["cause"])
     queued = answer["exit"] == 75
-    print(json.dumps({"v": 1, "request": call["record"]["request"]["ref"], "key": "forward-stand-in",
-                      "state": "queued" if queued else "delivered", "forwarded": None if queued else "stand-in-1",
-                      "cause": answer.get("cause") if queued else None}))
+    receipt = {"v": 1, "request": call["record"]["request"]["ref"], "key": answer.get("key", "forward-" + "a" * 64),
+               "state": "queued" if queued else "delivered", "forwarded": None if queued else "stand-in-1",
+               "cause": answer.get("cause") if queued else None}
+    if state.get("trackRequests"):
+        state.setdefault("requests", []).append(receipt)
+        save()
+    print(json.dumps(receipt))
     sys.exit(answer["exit"])
 refuse("jarvis-session: arguments=invalid")

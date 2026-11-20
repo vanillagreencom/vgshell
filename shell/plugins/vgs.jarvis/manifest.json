@@ -157,7 +157,8 @@
     "setupFleet": {"type": "state", "label": "Agent fleet", "hint": "The mail tool sends requests to your agent fleet", "actions": {"setup": {"label": "Set up", "tui": "setup-home"}, "clone": {"label": "Use your Jarvis home from another computer", "tui": "clone-home"}}, "setup": "optional"},
     "memory": {"type": "state", "label": "Memory search", "group": "Home"},
     "copilotMemory": {"type": "state", "label": "Copilot Memory", "group": "AI model", "hint": "Set Copilot Memory to Disabled in GitHub Copilot settings", "link": {"text": "GitHub Copilot settings", "url": "https://github.com/settings/copilot/features"}, "info": "GitHub stores this memory in your account.\nOnly you can turn it off."},
-    "mainReach": {"type": "data", "label": "Main Jarvis reachability"}
+    "mainReach": {"type": "data", "label": "Main Jarvis reachability"},
+    "forwardWait": {"type": "data", "label": "Waiting for Jarvis main"}
   },
   "tui": {
     "edit-instructions": { "script": "tui/edit-instructions.sh", "title": "Edit Jarvis instructions", "presentation": "plain", "requires": ["gum"] },

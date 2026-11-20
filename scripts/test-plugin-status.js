@@ -235,7 +235,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 Gate: GATE, voiceProvider: world.shell.settings.voiceProvider, echoCancel: null,
                 child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
                 publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
-            sources.Service, ["start", "publishEchoCancel"]);
+            sources.Service, ["start", "publishEchoCancel", "publishForwardWait"]);
             const timer = sources.Service.match(/Timer \{ id: retry; onTriggered: ([^}]+) \}/);
             if (!timer) throw new Error("production retry timer not found");
             vm.runInNewContext(timer[1], { root });
@@ -274,7 +274,8 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["task-list", { rows: [] }, ["request"]],
                 ["audit-failures", { rows: [] }, ["request"]],
                 ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
-                ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
+                ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1, source: "conversation", origin: 1 }, ["request"]],
+                ["forward-wait", { waiting: true }, ["request"]],
                 ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["request"]],
                 ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "drift", "request"]]
             ]) {
@@ -282,7 +283,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 world.shell.shortcut = { keys: null };
                 const events = [], broken = [], queue = [];
                 root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
-                    Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "", childSerial: 1,
+                    Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], conversationStarted: 0, outputTail: "", cause: "", childSerial: 1,
                     lifetime: { kind: "starting" }, sessionState: protocol.Session.initial(),
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, instructionsShown: null, driftShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
@@ -297,7 +298,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishInstructions", "publishStartText",
                     "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish", "publishEchoCancel", "refreshEchoCancel", "conversationChanged",
-                    "restartChanged", "queueIndicator", "flushIndicators"]);
+                    "restartChanged", "queueIndicator", "flushIndicators", "publishForwardWait"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
                 const first = Object.assign({}, base, { type }, fields);
                 const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });
@@ -308,6 +309,51 @@ function continuationChecks(logic, check, sourceChanges = {}) {
     } finally {
         fs.rmSync(scratch, { recursive: true, force: true });
     }
+}
+
+// Between two ordinary turns, the Settings preview still publishes live
+// captions. Inspect the separate conversation status that History reads.
+function conversationReader(logic, source, check) {
+    const { shell } = statusWorld(logic, true);
+    const Protocol = load(path.join(JARVIS, "JarvisProtocol.js")), Session = Protocol.Session;
+    let state = Session.initial(), seq = 0;
+    const root = loadReader({ ...SERVICE_IMPORTS, shell, Protocol, Session, Conversation: load(path.join(JARVIS, "Conversation.js")),
+        child: { running: true }, childSerial: 1, lifetime: { kind: "ready" }, cause: "", outputTail: "",
+        conversationLog: [], conversationStarted: 0, sessionState: null, replyCaption: null,
+        lockObservation: () => false, publishShellSetup: () => true, notice() {},
+        send: message => dispatch(message.intent, { voice: message.voice }), broken: reason => { throw new Error(reason); }
+    }, source, ["receive", "conversationChanged", "restartChanged", "previewVoice"]);
+    function frame(fields) {
+        root.receive(JSON.stringify({ v: 1, revision: shell.manifest.__revision, gen: state.gen, ...fields }) + "\n");
+    }
+    function dispatch(type, fields = {}) {
+        const result = Session.reduce(state, { type, at: ++seq, ...fields });
+        state = result.state;
+        frame({ type: "state", state, phase: Session.phaseOf(state), seq, brain: "Fixture" });
+        for (const effect of result.effects.filter(e => e.kind === "transcript")) {
+            const { gen, role, text, stage, rev, source, origin } = effect;
+            frame({ type: "transcript", gen, role, text, stage, rev, source, origin });
+        }
+    }
+    const turn = () => ({ gen: state.gen, op: state.turn.op });
+    const caption = (text, stage) => dispatch("transcript", { ...turn(), role: "assistant", rev: seq, text, stage });
+    dispatch("snapshot", { locked: false, configured: true, engine: "chained", settings: { holdToTalk: true } });
+    dispatch("say", { text: "First question" });
+    caption("First answer", "final");
+    dispatch("brain-done", turn());
+    const first = shell.status.values.conversation;
+    check("two ordinary turns before preview", first.map(r => r.text), ["First question", "First answer"]);
+    check("Settings preview accepted", root.previewVoice("Fixture voice"), "ok");
+    for (const [text, stage] of [["This is how", "partial"], ["This is how I sound when I answer you.", "final"]]) {
+        caption(text, stage);
+        check("live " + stage + " preview caption", shell.status.values.transcript.text, text);
+        check("history after " + stage + " preview caption", shell.status.values.conversation, first);
+    }
+    dispatch("brain-done", turn());
+    dispatch("say", { text: "Follow-up question" });
+    dispatch("conversation-reset", { ...turn(), text: "Follow-up question", reason: "turn-limit" });
+    check("the reset moves only its own turn", shell.status.values.conversation.map(r => [r.text, r.session]),
+        [["First question", first[0].session], ["First answer", first[0].session], ["Follow-up question", "1:" + state.history.epoch]]);
 }
 
 function browserWrite(logic, enabled, replaced = false, driverValue = { tone: "ok", text: "Ready" }) {
@@ -1153,6 +1199,16 @@ replyChecks(load(LOGIC), report);
 consumerChecks(load(LOGIC), report);
 publisherChecks(load(LOGIC), report);
 continuationChecks(load(LOGIC), report);
+conversationReader(load(LOGIC), READER_SOURCES.Service, report);
+for (const [field, row] of [["source", "history after partial preview caption"], ["origin", "the reset moves only its own turn"]]) {
+    const needle = field + ": message." + field + ", ";
+    const defective = READER_SOURCES.Service.replace(needle, "");
+    let failed = false;
+    conversationReader(load(LOGIC), defective, (name, got, want) => {
+        if (name === row) failed = JSON.stringify(got) !== JSON.stringify(want);
+    });
+    report("control: omitting transcript " + field + " breaks " + row, failed, true);
+}
 handlerChecks(load(LOGIC), report);
 choiceChecks(load(LOGIC), report);
 for (const [label, needle, replacement] of [

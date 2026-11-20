@@ -81,6 +81,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let ownerAsksClosed = Promise.resolve();
     let satellite = null;
     let satelliteClosed = Promise.resolve();
+    let answerWrites = Promise.resolve();
     // The Main Jarvis host setting and the ready home the last reading was
     // for: a hello that changes either reads the main again.
     let satelliteKey = null;
@@ -496,6 +497,23 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             entries: Protocol.memoryInboxEntries(entries === null ? memory.pending() : entries) };
     }
 
+    function publishAnswer(key, content, published) {
+        // Finish every chunk of one card before starting another. A package
+        // answer can exceed both the wire line bound and stdout's buffer.
+        const text = content.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, " ");
+        answerWrites = answerWrites.then(async () => {
+            for (let i = 0; i < text.length; i += Protocol.FORWARD_CHARS) {
+                if (ending) return;
+                if (process.stdout.writableNeedDrain) await new Promise(resolve => process.stdout.once("drain", resolve));
+                if (ending) return;
+                write({ v: 1, type: "forward-answer", gen: runner.state.gen, revision: context.revision,
+                    key, text: text.slice(i, i + Protocol.FORWARD_CHARS), more: i + Protocol.FORWARD_CHARS < text.length });
+            }
+            if (process.stdout.writableNeedDrain) await new Promise(resolve => process.stdout.once("drain", resolve));
+            if (!ending) published?.();
+        }).catch(fatal);
+    }
+
     function writeMemoryInbox(entries = null) {
         if (ending || context === null || memory === null) return;
         try { write(memoryInboxMessage(entries)); }
@@ -547,7 +565,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     } };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
-            revision: context.revision, role: e.role,
+            revision: context.revision, role: e.role, source: e.source, origin: e.origin,
             text: e.text.replace(/[\x00-\x1f\x7f]/g, " ").slice(-Protocol.TRANSCRIPT_CHARS), stage: e.stage, rev: e.rev });
     };
     const runner = new SessionRunner(Session, ports, {
@@ -809,9 +827,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         shared: { "vgs-diagnose": require("./Core.js").diagnoseSkill() },
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
+                        receipts: { read: () => readRecord("forward-receipts", "forward-receipts.json", 65536, value => value, []),
+                            write: rows => storeRecord("forward-receipts", "forward-receipts.json", rows) },
                         runtime: context.directories.runtime, fatal,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null, homeBlock,
                         mainHost: () => context.settings.mainHost, log: line => diagnostic(line + "\n"),
+                        waiting: (gen, waiting) => {
+                            if (!ending) write({ v: 1, type: "forward-wait", gen, revision: context.revision, waiting });
+                        },
+                        answer: (item, gen, key, current, delivered) => voice.answer(item,
+                            { gen, current, spoken: delivered, open: () => publishAnswer(key, item.content, delivered) }),
                         publish: reach => {
                             if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
                         } });
@@ -892,6 +917,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                                 return answer;
                             },
                             interrupted: (gen, ask) => voice.interrupted(gen, ask), released: (gen, ask) => voice.released(gen, ask),
+                            spoken: (gen, text) => voice.spoken(gen, text),
                             withheld: (gen, text, ask) => voice.withheld(gen, text, ask) },
                         trace: { marker: process.env.VGS_TEST_RUN, file: process.env.VGS_JARVIS_TRACE },
                         directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });
@@ -902,7 +928,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         refused: e => e.purpose === "release" ? engine.release.refused(e) : actionApproval.refused(e)
                     };
                     runner.ports.release = engine.release;
-                    runner.ports.brain = engine.brain;
+                    runner.ports.brain = { ...engine.brain, send(e, done) {
+                        if (typeof e.text === "string" && e.text.trim() !== "") satellite.newRequest();
+                        engine.brain.send(e, done);
+                    } };
                     runner.ports.restart = engine.restart;
                     runner.ports.speech = engine.speech;
                     runner.ports.capture = { ...runner.ports.capture, collect: engine.collect };

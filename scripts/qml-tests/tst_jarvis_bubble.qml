@@ -112,6 +112,13 @@ Item {
         // Every name a state ever drew under the orb or on its hover.
         readonly property var stateWords: ["Ready to talk", "Ready", "Listening", "Thinking", "Working", "Speaking", "Waiting for you", "Stopping"]
         function drawnStateWords() { return shownText().filter(text => stateWords.indexOf(text) !== -1); }
+        function test_open_conversation_shows_the_forwarded_wait() {
+            service.sessionState = conversation({});
+            service.values = { forwardWait: true };
+            tryVerify(() => shownText().includes("Waiting for Jarvis main"));
+            service.values = { forwardWait: false };
+            tryVerify(() => !shownText().includes("Waiting for Jarvis main"));
+        }
         function conversation(over) {
             return Object.assign(JSON.parse(JSON.stringify(Session.initial())),
                 { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } }, over);

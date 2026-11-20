@@ -203,6 +203,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     if (provider.driver !== "gemini-live") fail("driver");
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let live = null;
+    let turns = 0; // A brain failover can reopen the same speech operation.
 
     function clear(session, name) {
         if (session.timers[name] !== null) clock.clear(session.timers[name]);
@@ -448,34 +449,36 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         // A model turn cannot be paused: a full queue faults, never drops speech.
         if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");
     }
-    function emit(session, role, text, stage) {
+    function emit(session, role, text, stage, item) {
         session.rev++;
-        session.events.transcript({ role, text, stage, rev: session.rev });
+        session.events.transcript({ role, text, stage, rev: session.rev, ...(role === "user" ? { item } : {}) });
     }
     // One open caption per speaker: the user turn's, which closes with the
     // turn, or the reply's words so far. A caption at the wire's bound
     // closes and the rest starts the next.
     function caption(session, role, delta) {
         let text = clean(delta);
+        const item = role === "user" ? session.turn.id : null;
         let segment = session.segments[role];
+        if (segment !== null && segment.item !== item) segment = session.segments[role] = null;
         if (segment === null && text.trim() === "") return;
         while (text !== "") {
             if (segment !== null && segment.text.length === captionLimit) {
                 conclude(session, role);
                 segment = null;
             }
-            if (segment === null) segment = session.segments[role] = { text: "" };
+            if (segment === null) segment = session.segments[role] = { text: "", item };
             const room = captionLimit - segment.text.length;
             segment.text += text.slice(0, room);
             text = text.slice(room);
-            emit(session, role, segment.text, "partial");
+            emit(session, role, segment.text, "partial", segment.item);
         }
     }
     function conclude(session, role) {
         const segment = session.segments[role];
         if (segment === null) return;
         session.segments[role] = null;
-        emit(session, role, segment.text, "final");
+        emit(session, role, segment.text, "final", segment.item);
         if (role === "assistant") tally(session, segment.text);
     }
     // The voice is asked to speak each sentence exactly; this counts where its
@@ -503,7 +506,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
 
         conclude(session, "assistant");
         if (session.turn === null) {
-            session.turn = { id: "turn-" + ++session.turns, text: "", delegated: false };
+            session.turn = { id: "turn-" + ++turns, text: "", delegated: false };
             session.hold = true;
         }
         const turn = session.turn;
@@ -707,7 +710,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 timers: { start: null, pump: null, gap: null, words: null, hold: null, preview: null },
                 pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, capture: null,
                 commits: [], inputText: "",
-                playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null, turns: 0,
+                playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null,
                 delegation: null, said: [], taken: null, segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
             session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
@@ -752,6 +755,15 @@ function create({ provider, clock, conversation, captionLimit, log }) {
 
         }
     };
+
+    // A daemon relay has no provider input item. Give its released words
+    // their own playback account on this open conversation.
+    function beginRelay() {
+        if (live === null || live.state.kind !== "running" && !live.renewing || replyPending(live)) return null;
+        live.said = [];
+        live.delegation = Symbol("relay");
+        return live.delegation;
+    }
 
     function commentary(id, item, options = {}) {
         const session = live;
@@ -897,7 +909,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         });
     }
 
-    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, heard: heardOf });
+    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, beginRelay, heard: heardOf });
 }
 
 module.exports = { create, VOICES };

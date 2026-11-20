@@ -37,6 +37,7 @@ const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
 // The keys of each sidecar message and whether it carries a payload.
 const SHAPES = Object.freeze({
     ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
+    heard: [["id", "type"], false],
     ended: [["id", "speech", "type"], false], audio: [["id", "type"], true],
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false],
     checked: [["id", "result", "type"], false]
@@ -223,6 +224,9 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
             request(header, pending.get(header.id)?.kind)?.settle({ kind: "failed", error: failure(header.cause) });
             return;
         }
+        case "heard":
+            request(header, "utterance")?.heard();
+            return;
         case "partial": {
             if (typeof header.text !== "string" || !Number.isSafeInteger(header.rev) || header.rev < 1)
                 throw new Error("partial=invalid");
@@ -301,7 +305,9 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
             const outcome = new Promise(done => { resolve = done; });
             const { id, value } = track("utterance", resolve);
             let rev = 0, partial = null, terminal = null, wake = null;
+            let onset = false;
             const notify = () => { wake?.(); wake = null; };
+            value.heard = () => { onset = true; notify(); };
             value.partial = header => {
                 if (header.rev <= rev) throw new Error("partial=revision");
                 rev = header.rev;
@@ -342,7 +348,11 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
                 [Symbol.asyncIterator]() { return this; },
                 async next() {
                     if (answered) return { value: undefined, done: true };
-                    while (terminal === null && partial === null) await new Promise(done => { wake = done; });
+                    while (!onset && terminal === null && partial === null) await new Promise(done => { wake = done; });
+                    if (onset) {
+                        onset = false;
+                        return { value: { kind: "heard" }, done: false };
+                    }
                     if (terminal === null) {
                         const event = partial;
                         partial = null;

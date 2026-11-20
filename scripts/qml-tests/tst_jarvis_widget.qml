@@ -138,7 +138,7 @@ Item {
                 [root.ready({}), Theme.bar.foreground, "", "Jarvis: Ready", 0],
                 [root.ready({ conversation: { kind: "active", purpose: "conversation" } }), Theme.bar.foreground, "", "Jarvis: Ready", 0],
                 [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }), Theme.color.accent, "success", "Jarvis: Listening", 0],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), Theme.color.info, "info", "Jarvis: Thinking", 0],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, origin: 3, deadline: 70 } }), Theme.color.info, "info", "Jarvis: Thinking", 0],
                 [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), Theme.color.accent, "success", "Jarvis: Speaking", 0],
                 [muted, Theme.color.textMuted, "warning", "Jarvis: Microphone muted", 0],
                 [root.ready({ gate: { kind: "down", reason: "unconfigured" } }), Theme.color.textMuted, "warning", "Jarvis: Not set up", 1],

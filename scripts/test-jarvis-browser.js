@@ -456,6 +456,26 @@ world(async () => {
         } finally { voice.close(); }
     }
     await answerChannels();
+    {
+        const s = idleState(), spoken = [], deferred = [];
+        s.input = { kind: "conversation" };
+        s.capture = { kind: "open", mode: "conversation" };
+        s.turn = { kind: "collecting", partial: "", heard: false };
+        const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: event => spoken.push(event),
+            notify() { assert.fail("both items belong to the open conversation"); }, defer: fn => deferred.push(fn), log() {} });
+        try {
+            const view = { id: "task", state: "working", wait: { kind: "none" }, outcome: { kind: "none" } };
+            voice.observe([view]);
+            voice.observe([{ ...view, state: "reported-ok" }]);
+            voice.answer(Policy.item("The build passed.", ["agent"]));
+            assert.equal(deferred.length, 1, "a speakable answer passes a busy task update");
+            deferred.shift()();
+            assert.equal(spoken[0].answer, true);
+            s.input = { kind: "released" }; s.capture = { kind: "closed" }; s.turn = { kind: "none" };
+            voice.session(); deferred.shift()();
+            assert.equal(spoken[1].answer, undefined, "the task update remains available after listening");
+        } finally { voice.close(); }
+    }
     // Spoken result text follows the owner directive; the on-screen
     // notification keeps its approved name. No model API is involved.
     for (const [name, needle, replacement] of [

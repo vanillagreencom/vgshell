@@ -71,6 +71,8 @@ Item {
     property bool echoRefreshPending: false
     property var sessionState: null
     property var conversationLog: []
+    property double conversationStarted: 0
+    property var answerChunks: null
     // Jarvis's reply card under the bar J on the focused output, which the
     // widget's ReplyCard draws from the `replyCard` status: what it shows
     // (WidgetView.replyCard) until `replyCard.duration` after its answer
@@ -493,6 +495,8 @@ Item {
         publishEchoCancel();
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
+        answerChunks = null;
+        if (!publishForwardWait(false)) return;
         const result = StatusPublication.write(shell.status, "detail", null);
         if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
         if (result !== "ok") return;
@@ -647,6 +651,10 @@ Item {
     }
 
     function conversationChanged(previous, current) {
+        if (current.conversation.kind !== "ended" && current.conversation.purpose === "conversation"
+                && (previous === null || previous.gen !== current.gen || previous.history.epoch !== current.history.epoch
+                    || previous.conversation.kind === "ended" || previous.conversation.purpose !== "conversation"))
+            conversationStarted = Date.now();
         if (current.history.kind !== "reset" || previous !== null && previous.history.epoch === current.history.epoch) return;
         notice(View.conversationResetNotice(current.history.reason));
     }
@@ -1158,6 +1166,27 @@ Item {
         if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
+    function publishForwardWait(waiting) {
+        const reply = StatusPublication.write(shell.status, "forwardWait", waiting);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+        return reply === "ok";
+    }
+
+    function forwardAnswer(message) {
+        if (answerChunks === null) answerChunks = { key: message.key, parts: [] };
+        if (answerChunks.key !== message.key) throw new Error("jarvis: protocol=forward-answer-order");
+        answerChunks.parts.push(message.text);
+        if (message.more) return;
+        const answer = answerChunks.parts.join("");
+        answerChunks = null;
+        notice({ title: "Jarvis main answered", message: "", tone: "info", icon: "vgs-letter-j",
+            actions: [{ id: "open", label: "Open answer" }] }, action => {
+            if (action !== "open" || lockObservation()) return;
+            const reply = shell.surfaces.summon("window", JSON.stringify({ forwardedAnswer: answer }));
+            if (reply !== "ok") console.error("jarvis: forwarded answer window could not open");
+        });
+    }
+
     function voiceRenewal(message) {
         if (sessionState === null || message.gen !== sessionState.gen || sessionState.conversation.kind === "ended") return;
         notice({ title: "Jarvis needs you to repeat that",
@@ -1544,6 +1573,14 @@ Item {
                     if (reach !== "ok") return;
                     continue;
                 }
+                if (message.type === "forward-wait") {
+                    if (sessionState !== null && message.gen === sessionState.gen && !publishForwardWait(message.waiting)) return;
+                    continue;
+                }
+                if (message.type === "forward-answer") {
+                    forwardAnswer(message);
+                    continue;
+                }
                 if (message.type === "transcript") {
                     // A caption from an ended conversation never replaces the current one.
                     if (sessionState !== null && message.gen === sessionState.gen) {
@@ -1553,6 +1590,7 @@ Item {
                         if (reply !== "ok") return;
                         replyCaption = { gen: message.gen, role: message.role, text: message.text };
                         const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
+                            source: message.source, origin: message.origin, started: conversationStarted,
                             at: Date.now(), session: childSerial + ":" + sessionState.history.epoch };
                         conversationLog = Conversation.update(conversationLog, segment);
                         const history = StatusPublication.write(shell.status, "conversation", conversationLog);
@@ -1570,6 +1608,8 @@ Item {
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     const previousState = sessionState;
                     sessionState = message.state;
+                    if (previousState !== null && previousState.gen !== sessionState.gen && shell.status.values.forwardWait
+                            && !publishForwardWait(false)) return;
                     conversationChanged(previousState, sessionState);
                     restartChanged(previousState, sessionState);
                     if (!publishShellSetup()) return;

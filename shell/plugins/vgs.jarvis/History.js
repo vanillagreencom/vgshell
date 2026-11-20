@@ -6,11 +6,12 @@ function matches(query, values) {
     return wanted === "" || values.some(function (value) { return String(value).toLocaleLowerCase().indexOf(wanted) !== -1; });
 }
 
-// The turns of ROWS, Conversation's log, that match QUERY by their words or
-// speaker, in the log's own order: oldest first, as they arrived, across
-// every session. Filtering never writes a transcript store.
-function messages(rows, query) {
-    return rows.filter(function (row) { return matches(query, [row.text, row.role === "user" ? "You" : "Jarvis"]); });
+function search(sessions, query) {
+    return sessions.filter(function (session) {
+        return matches(query, [session.title]) || session.turns.some(function (row) {
+            return matches(query, [row.text, row.role === "user" ? "You" : "Jarvis"]);
+        });
+    });
 }
 
 function tasks(rows, query) {

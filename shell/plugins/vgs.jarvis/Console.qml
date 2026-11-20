@@ -7,6 +7,7 @@ import "Session.js" as Session
 import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
 import "History.js" as History
+import "Conversation.js" as Conversation
 import "Composer.js" as Composer
 import "AccountProviders.js" as Providers
 
@@ -22,7 +23,7 @@ FocusScope {
     property var shell: null
     property var payload: ({})
     property string problem: ""
-    property Item initialFocus: composerFocus
+    property Item initialFocus: tab === 2 ? historyFocus : composerFocus
     readonly property var screen: shell === null ? null : shell.screens.current
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var detail: values.detail === undefined ? null : values.detail
@@ -58,10 +59,16 @@ FocusScope {
     property Item returnAskFocus: null
     property string historyQuery: ""
     property int historyType: 0
+    property string selectedSession: ""
+    property string forwardedAnswer: ""
+    readonly property var allSessions: Conversation.sessions(conversation)
+    readonly property var openedSession: allSessions.find(row => row.id === selectedSession) || null
+    readonly property bool readingHistory: selectedSession !== "" || forwardedAnswer !== ""
+    readonly property Item historyFocus: readingHistory ? backToHistory : historySearch
     readonly property var historyProblems: History.problems(auditRows, historyQuery)
-    readonly property bool showConversations: tab === 2 && (historyType === 0 || historyType === 1)
-    readonly property bool showTasks: tab === 2 && (historyType === 0 || historyType === 2)
-    readonly property bool showProblems: tab === 2 && (historyType === 0 || historyType === 3)
+    readonly property bool showConversations: tab === 2 && !readingHistory && (historyType === 0 || historyType === 1)
+    readonly property bool showTasks: tab === 2 && !readingHistory && (historyType === 0 || historyType === 2)
+    readonly property bool showProblems: tab === 2 && !readingHistory && (historyType === 0 || historyType === 3)
     readonly property string currentHome: shell === null ? "" : shell.settings.home
     onCurrentHomeChanged: { editingAsk = null; askProblem = ""; }
     onAskOperationChanged: {
@@ -196,8 +203,7 @@ FocusScope {
     readonly property var memoryInbox: Array.isArray(values.memoryInbox) ? values.memoryInbox : []
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
-    // History's Messages: every turn the log holds, oldest first.
-    readonly property var historyRows: History.messages(conversation, historyQuery)
+    readonly property var historyRows: History.search(allSessions, historyQuery)
     readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
     readonly property string historyLimit: "The list keeps the newest 20 failures.\nSearch and the type filter use only these records."
     // A duplex voice takes no typed message (Session.sayRefusal): the
@@ -205,10 +211,11 @@ FocusScope {
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
     // Jarvis works while it thinks, waits for a confirmation, runs a task or
     // speaks: Stop then takes Send's place in the message box.
-    readonly property bool working: detail !== null && ["thinking", "confirming", "acting", "speaking"].indexOf(detail.phase) !== -1
+    readonly property bool waitingForMain: state !== null && state.conversation.kind !== "ended" && values.forwardWait === true
+    readonly property bool working: waitingForMain || detail !== null && ["thinking", "confirming", "acting", "speaking"].indexOf(detail.phase) !== -1
     // More's Stop has nothing to stop while Jarvis is ready and idle; while
     // it starts, fails or works, Stop ends that.
-    readonly property bool nothingToStop: detail !== null && (detail.phase === "idle" || detail.phase === "listening")
+    readonly property bool nothingToStop: !waitingForMain && detail !== null && (detail.phase === "idle" || detail.phase === "listening")
     // The header's status chip: the bar widget's own state reading.
     readonly property var statusLook: WidgetView.stateView(values, Providers.cloudVoice(shell === null ? "" : shell.settings.voiceProvider))
     // The shortcut keys as people read them, the bar's own spelling.
@@ -282,7 +289,7 @@ FocusScope {
     function tabStart() {
         const notice = [reachNotice, speechNotice].find(item => item.visible && item.firstStop !== null);
         return tab === 0 ? (notice === undefined ? root.composerFocus : notice.firstStop)
-            : tab === 1 ? asksBody : historySearch;
+            : tab === 1 ? asksBody : historyFocus;
     }
 
     // A change of model or effort ends the conversation, so the console asks
@@ -345,6 +352,15 @@ FocusScope {
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
         choicesShown(true);
+        selectedSession = "";
+        forwardedAnswer = "";
+        if (typeof payload.forwardedAnswer === "string" && payload.forwardedAnswer !== "") {
+            closeDialogs();
+            forwardedAnswer = payload.forwardedAnswer;
+            tab = 2;
+            Qt.callLater(focusTab);
+            return;
+        }
         // The restart notice's action opens the Problems list (Service.qml).
         if (payload.problems === true) {
             openProblems();
@@ -439,9 +455,19 @@ FocusScope {
 
     function focusTab() {
         layout.scrollArea.contentY = 0;
-        const control = tab === 0 ? composerFocus : tab === 1 ? asksBody : historySearch;
+        const control = tab === 0 ? composerFocus : tab === 1 ? asksBody : historyFocus;
         control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
         Qt.callLater(() => root.keepPlace("tab"));
+    }
+    function openSession(id) {
+        selectedSession = id;
+        layout.scrollArea.contentY = 0;
+        backToHistory.forceActiveFocus(Qt.TabFocusReason);
+    }
+    function closeTranscript() {
+        selectedSession = "";
+        forwardedAnswer = "";
+        Qt.callLater(() => (sessionList.rows.length && sessionList.visible ? sessionList : historySearch).forceActiveFocus(Qt.TabFocusReason));
     }
 
     // Handle Backtab and Tab with Shift before the control's native traversal.
@@ -498,7 +524,10 @@ FocusScope {
     }
 
     Keys.onPressed: event => {
-        if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & Qt.ControlModifier)) {
+        if (event.key === Qt.Key_Escape && tab === 2 && readingHistory) {
+            closeTranscript();
+            event.accepted = true;
+        } else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & Qt.ControlModifier)) {
             event.accepted = consoleTabs.nav.handle(event);
         }
     }
@@ -544,6 +573,14 @@ FocusScope {
         if (reach.reachable === true) return destination + "It is reachable.";
         if (reach.reachable === false) return destination + "It did not answer. Requests wait here.";
         return destination + "None sent yet.";
+    }
+
+    function waitingWarning(reach) {
+        if (reach.cause === "main-unreachable")
+            return WidgetView.FORWARD_WAIT_TEXT + " · " + reach.host + " is unreachable.";
+        if (reach.cause === "package-unread")
+            return WidgetView.FORWARD_WAIT_TEXT + " · The local Jarvis package did not return its status.";
+        return WidgetView.FORWARD_WAIT_TEXT + ". " + reachText(reach);
     }
 
     function rows() {
@@ -775,7 +812,7 @@ FocusScope {
                 visible: root.tab === 0 && text !== "" && !reachNotice.warns
                 width: parent.width
                 role: "hint"
-                text: root.reachText(root.values.mainReach)
+                text: root.waitingForMain ? WidgetView.FORWARD_WAIT_TEXT : root.reachText(root.values.mainReach)
                 color: Theme.color.textMuted
                 wrapMode: Text.Wrap
             }
@@ -788,11 +825,11 @@ FocusScope {
                     && (reach.kind === "unavailable" || reach.kind === "satellite" && reach.cause !== "")
                 visible: root.tab === 0 && warns
                 tone: "warning"
-                text: warns ? root.reachText(reach) : ""
+                text: !warns ? "" : root.waitingForMain ? root.waitingWarning(reach) : root.reachText(reach)
                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
             Row {
-                visible: root.tab === 2
+                visible: root.tab === 2 && !root.readingHistory
                 width: parent.width
                 spacing: Theme.stack.group
                 Item {
@@ -802,7 +839,7 @@ FocusScope {
                         id: historySearch
                         variant: "search"
                         width: parent.width
-                        placeholderText: "Search messages, tasks and problems"
+                        placeholderText: "Search conversations, tasks and problems"
                         leadingIcon: "search"
                         onTextChanged: root.historyQuery = text
                         Keys.onPressed: event => root.handleBacktab(event)
@@ -812,14 +849,21 @@ FocusScope {
                     id: historyFilter
                     accessibleLabel: "Filter history results"
                     model: ["All types", "Conversations", "Tasks", "Problems"]
+                    // Reserve the longest label with the same TextMetrics
+                    // advance as Label's line breaker, including font changes.
+                    TextMetrics { id: filterMetrics; font: historyFilter.contentItem.font; text: historyFilter.model[1] }
+                    width: Math.max(minimumWidth, Math.ceil(filterMetrics.advanceWidth) + leftPadding + rightPadding + Theme.stack.inline)
                     currentIndex: root.historyType
-                    // The body's scroll stop follows the header in item
-                    // order, so Tab names the shown result list that owns
-                    // its keys; conversations own none and take that stop
-                    // (https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html#tab-prop).
-                    KeyNavigation.tab: root.showTasks ? tasksBody : root.showProblems ? auditBody : layout.scrollArea.focusProxy
+                    KeyNavigation.tab: root.showConversations && root.historyRows.length ? sessionList
+                        : root.showTasks ? tasksBody : root.showProblems ? auditBody : layout.scrollArea.focusProxy
                     onActivated: index => root.historyType = index
                 }
+            }
+            RowAction {
+                id: backToHistory
+                visible: root.tab === 2 && root.readingHistory
+                text: "Back to history"
+                onClicked: root.closeTranscript()
             }
         }
 
@@ -1069,9 +1113,36 @@ FocusScope {
         Section {
             visible: root.showConversations
             width: layout.contentWidth
-            title: "Messages"
+            title: "Conversations"
+            DeviceList {
+                id: sessionList
+                width: parent.width
+                rows: root.historyRows.map(row => ({ key: row.id, text: row.title || "Conversation", secondary: root.when(row.started), opens: true }))
+                onActed: key => root.openSession(key)
+            }
+            EmptyState { visible: root.historyRows.length === 0; width: parent.width; placement: "top"; text: root.historyQuery === "" ? "No conversations yet" : "No matching conversations" }
+        }
+        Column {
+            visible: root.tab === 2 && root.readingHistory
+            width: layout.contentWidth
+            spacing: Theme.stack.row
+            Label {
+                width: parent.width
+                role: "bodyStrong"
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                text: root.forwardedAnswer !== "" ? "Answer from Jarvis main" : root.openedSession === null ? "Conversation expired" : root.openedSession.title || "Conversation"
+            }
+            Label {
+                width: parent.width
+                visible: root.openedSession !== null
+                role: "hint"
+                text: root.openedSession === null ? "" : root.when(root.openedSession.started) + (root.openedSession.expired ? " · Earlier turns have expired" : "")
+                color: Theme.color.textMuted
+                wrapMode: Text.Wrap
+            }
             Repeater {
-                model: root.historyRows
+                model: root.forwardedAnswer !== "" ? [{ role: "assistant", text: root.forwardedAnswer }] : root.openedSession === null ? [] : root.openedSession.turns
                 MessageRow {
                     required property var modelData
                     width: layout.contentWidth
@@ -1080,7 +1151,6 @@ FocusScope {
                     bodyText: modelData.text
                 }
             }
-            EmptyState { visible: root.historyRows.length === 0; width: parent.width; placement: "top"; text: root.historyQuery === "" ? "No messages yet" : "No matching messages" }
         }
 
         T.Control {

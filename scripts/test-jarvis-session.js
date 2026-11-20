@@ -1116,6 +1116,29 @@ const table = [
             assert.equal(has(step(logic, busy, event("preview", 50, { voice: "VoiceA" })), "brain-send"), false);
             assert.equal(logic.relayRefusal(busy), "busy");
         }
+        const answer = event("relay", 31, { answer: true, ask: null, labels: ["agent"], text: "Answer" });
+        for (const idle of [listening(logic, false), duplexListening(logic, false)]) {
+            assert.equal(idle.capture.kind, "open");
+            assert.equal(step(logic, idle, answer).effects.find(e => e.kind === "brain-send")?.relay.answer, true,
+                idle.engine.kind + " admits its answer while listening between turns");
+        }
+        const quiet = listening(logic, false);
+        const collecting = step(logic, quiet, callback("partial", quiet.turn, 30, { text: "My question" })).state;
+        const protectedTurn = step(logic, collecting, answer);
+        assert.deepEqual(protectedTurn.state.turn, collecting.turn);
+        assert.equal(has(protectedTurn, "capture-close") || has(protectedTurn, "brain-send"), false);
+    }],
+    ["answer-preserves-detected-speech", logic => {
+        const quiet = listening(logic, false, "dictation");
+        assert.equal(logic.relayRefusal(quiet, true), null, "an idle microphone can receive an answer");
+        const heard = step(logic, quiet, callback("collect-heard", quiet.turn, 30)).state;
+        assert.equal(heard.turn.partial, "", "no caption has arrived");
+        assert.equal(logic.relayRefusal(heard, true), "busy");
+        const answer = step(logic, heard, event("relay", 31, { answer: true, ask: null, labels: ["agent"], text: "Answer" }));
+        assert.deepEqual(answer.state.turn, heard.turn);
+        assert.equal(has(answer, "capture-close") || has(answer, "brain-send"), false);
+        const final = step(logic, answer.state, callback("final", quiet.turn, 32, { text: "My next request" }));
+        assert.equal(final.effects.find(e => e.kind === "brain-send").text, "My next request");
     }],
     ["preview-native-completion", logic => {
         let r = step(logic, ready(logic, { sounds: true }, "duplex"), event("preview", 50, { voice: "marin" }));
@@ -1579,7 +1602,7 @@ for (const required of ["talk-down", "talk-up", "stop", "capture-opened", "captu
     assert.equal(events.includes(required), true, required);
 const owners = {
     "capture-opened": "capture", "capture-closed": "capture", "capture-failed": "capture", "input-silent": "capture", "input-sound": "capture",
-    partial: "turn", final: "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "conversation-reset": "turn", cancelled: "turn", play: "turn", feedback: "turn",
+    partial: "turn", final: "turn", "collect-heard": "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "conversation-reset": "turn", cancelled: "turn", play: "turn", feedback: "turn",
     "playback-failed": "playback", played: "playback", flushed: "playback", tool: "turn", "tool-done": "action", approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", "approval-input-failed": "approval",
     speak: "speech", "speech-due": "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", delegation: "speech", "speech-input-ended": "speech",
     "voice-checked": "check", "voice-check-failed": "check", deadline: "quiet"
@@ -1700,7 +1723,8 @@ try {
         ["stop-tool-cancel", 's.action.cancellation.kind !== "available"', 'false', "tool-lifetime"],
         ["brain-retain", 'if (s.brain.kind === "closed") s.brain =', 'if (true) s.brain =', "brain-lifetime"],
         ["history-reset-epoch", 'epoch: s.history.epoch + 1, reason: reason', 'epoch: s.history.epoch, reason: reason', "new-conversation"],
-        ["history-attempted-message", 'userTranscript(s, effects, e.text, 1);', 'void e.text;', "turn-limit-reset"],
+        ["history-attempted-message", 'userTranscript(s, effects, e.text, 1, s.turn.origin, "context-reset");', 'void e.text;', "turn-limit-reset"],
+        ["relay-protects-uncaptioned-input", '!s.turn.heard && s.turn.partial.trim() === ""', 's.turn.partial.trim() === ""', "answer-preserves-detected-speech"],
         ["stale-op", 'e.op === owner.op', 'true', "stale-callbacks"],
         ["fault-stop", 'if (faulted) s.input = { kind: "stopped" };', 'if (false) s.input = { kind: "stopped" };', "fault-stop"],
         ["phase-priority", 'if (s.approval.kind === "held") return "confirming";', 'if (false) return "confirming";', "phase-priority"],

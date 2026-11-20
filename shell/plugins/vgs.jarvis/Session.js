@@ -31,7 +31,7 @@ var FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "ac
 var EVENTS = [
     "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
-    "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
+    "final", "say", "collect-heard", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
     "preview", "speech-input-ended", "new-conversation", "conversation-reset"
@@ -272,16 +272,19 @@ function captionText(value) {
     return text.trim() === "" ? "" : text;
 }
 
-// A coding task's line speaks only into an open chained conversation, and
-// only at an idle moment: "busy" waits for the next one, any other refusal
-// leaves the line to a desktop notification (TaskVoice.js).
-function relayRefusal(s) {
+// Prompts need the chained answer path. An answer needs only an idle
+// speaking route. Continuous conversation capture can be idle between
+// turns, unlike a held microphone or a collection that already has words.
+function relayRefusal(s, answer) {
     if (s.gate.kind !== "up") return "down";
-    if (s.engine.kind === "duplex") return "duplex";
+    if (s.engine.kind === "duplex" && answer !== true) return "duplex";
     if (s.fault.kind !== "none") return "fault";
-    if (s.conversation.kind === "ended") return "ended";
-    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
-            || s.input.kind !== "released" || s.capture.kind !== "closed") return "busy";
+    if (s.conversation.kind === "ended" || previewConversation(s)) return "ended";
+    var listening = answer === true && s.input.kind === "conversation" && s.capture.kind === "open" && s.capture.mode === "conversation";
+    if (s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
+            || s.turn.kind !== "none" && !(listening && s.turn.kind === "collecting" && !s.turn.heard && s.turn.partial.trim() === "")
+            || !listening && (s.input.kind !== "released" || s.capture.kind !== "closed")
+            || s.engine.kind === "duplex" && (s.speech.kind !== "open" || s.speech.reply.kind !== "none")) return "busy";
     return null;
 }
 
@@ -300,9 +303,18 @@ function relayAsk(ask) {
         && typeof ask.prompt === "string" && ["permission", "question"].indexOf(ask.kind) !== -1;
 }
 
-function userTranscript(s, effects, text, rev) {
+function userTranscript(s, effects, text, rev, origin, source) {
     var shown = captionText(text);
-    if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
+    return shown === "" ? null : effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev,
+        source: source, origin: origin });
+}
+
+// Each native caption and its delegation carry the provider's same input
+// item. A new speech owner can reuse an item name.
+function nativeOrigin(s, item) { return s.speech.op + ":" + item; }
+function turnOrigin(value) {
+    return Number.isSafeInteger(value) && value >= 1
+        || typeof value === "string" && /^[1-9]\d{0,15}:[\s\S]{1,512}$/.test(value);
 }
 
 // A new user turn consumes the restart notice, while failures retains
@@ -332,8 +344,9 @@ function commitUserText(s, effects, text, at, rev) {
     spendRestart(s);
     if (s.input.kind === "held" || s.input.kind === "closing-tap") s.input = { kind: "released" };
     closeCapture(s, effects);
-    userTranscript(s, effects, text, rev);
+    var caption = userTranscript(s, effects, text, rev, null, "conversation");
     think(s, effects, { text: text }, at);
+    if (caption !== null) caption.origin = s.turn.op;
 }
 
 function activity(s, at) {
@@ -365,7 +378,8 @@ function think(s, effects, values, at) {
     var brain = effect(s, effects, "brain-send", values);
     if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
     brain.owner = s.brain.op;
-    s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS };
+    s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS,
+        origin: values.preview === true ? "preview" : values.delegation === undefined ? brain.op : nativeOrigin(s, values.delegation) };
 }
 
 function canPlayback(s) {
@@ -416,7 +430,7 @@ function reconcile(s, effects, at) {
     if (s.engine.kind !== "duplex" && canCapture(s) && s.input.kind !== "check"
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
-        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: null };
+        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", heard: false, deadline: null };
     }
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.admission.kind === "waiting" && canPlayback(s)) {
         effect(s, effects, "playback-start", { gen: s.playback.gen, op: s.playback.op, source: s.playback.source });
@@ -716,7 +730,7 @@ function reduce(state, e, restartFor) {
         if (e.reason !== "turn-limit" || typeof e.text !== "string" || e.text.trim() === "")
             throw new Error("jarvis: session=conversation-reset");
         resetHistory(s, e.reason);
-        userTranscript(s, effects, e.text, 1);
+        userTranscript(s, effects, e.text, 1, s.turn.origin, "context-reset");
         activity(s, e.at);
         break;
     // Voice mute changes no other region: Audio's paced write reads it and
@@ -795,6 +809,11 @@ function reduce(state, e, restartFor) {
             if (!e.speech) end(s, effects, e.at, "tap", false);
         }
         break;
+    case "collect-heard":
+        if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
+        s.turn.heard = true;
+        activity(s, e.at);
+        break;
     case "partial":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
@@ -852,9 +871,14 @@ function reduce(state, e, restartFor) {
     case "relay":
         if (typeof e.text !== "string" || e.text.trim() === "" || !relayAsk(e.ask))
             throw new Error("jarvis: session=relay");
-        if (relayRefusal(s) !== null) { stale(s); break; }
+        if (relayRefusal(s, e.answer) !== null) { stale(s); break; }
         s.conversation = { kind: "active", purpose: s.conversation.purpose };
-        think(s, effects, { relay: { text: e.text, ask: e.ask, labels: e.labels } }, e.at);
+        var relay = { text: e.text, ask: e.ask, labels: e.labels };
+        if (e.answer === true) {
+            relay.answer = true;
+            if (s.turn.kind === "collecting") closeCapture(s, effects);
+        }
+        think(s, effects, { relay: relay }, e.at);
         break;
     // A transcription that fails after its capture closed still owns the turn.
     case "collect-failed":
@@ -1056,7 +1080,10 @@ function reduce(state, e, restartFor) {
             stale(s);
             break;
         }
-        effect(s, effects, "transcript", { role: e.role, text: e.text, stage: e.stage, rev: e.rev });
+        effect(s, effects, "transcript", { role: e.role, text: e.text, stage: e.stage, rev: e.rev,
+            origin: e.role === "user" && e.item !== undefined ? nativeOrigin(s, e.item) : null,
+            source: previewConversation(s) || (s.turn.kind === "thinking" && s.turn.op === e.op && s.turn.origin === "preview")
+                ? "preview" : "conversation" });
         if (String(e.text).trim() !== "") activity(s, e.at);
         break;
     case "input-silent":
@@ -1116,7 +1143,7 @@ function reduce(state, e, restartFor) {
 var REGIONS = {
     gate: { down: "reason", up: "" }, voiceMute: { off: "", on: "" },
     capture: { closed: "", opening: "gen op mode", open: "gen op mode", closing: "gen op" },
-    turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
+    turn: { none: "", collecting: "gen op partial heard deadline", thinking: "gen op origin deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
@@ -1166,6 +1193,8 @@ function validate(s) {
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
+            } else if (f === "origin") {
+                if (r.origin !== "preview" && !turnOrigin(r.origin)) return false;
             } else if (["interruptible", "physical", "cancellable", "heard"].indexOf(f) !== -1) {
                 if (typeof r[f] !== "boolean") return false;
             } else if (f === "cancellation") {

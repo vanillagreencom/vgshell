@@ -950,13 +950,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // the words: a live collection, or the held request it answers. A
         // capture no turn takes, as Toggle reopens one while Jarvis thinks,
         // records nothing.
-        const utterance = { state: "running", collection: null, sink: null, answers: answer !== null, abort() {
+        const utterance = { state: "running", collection: null, heard: false, sink: null, answers: answer !== null, abort() {
             if (utterance.state !== "running" && utterance.state !== "ending") return;
             utterance.state = "aborted";
             input.drop();
             void output?.return?.();
             record?.cancel();
-        }, begin() { record?.begin(); } };
+        }, begin() {
+            if (utterance.heard) utterance.collection?.done("collect-heard");
+            record?.begin();
+        } };
         // Audio's teardown ends the utterance. A conversation that ended
         // with it aborts the utterance in end().
         const input = captured(() => utterance.state === "running");
@@ -1024,7 +1027,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     if (step.done) fail("transcript-unfinished");
                     const event = step.value;
                     if (event === null || typeof event !== "object") fail("transcript");
-                    if (event.kind === "partial" && typeof event.text === "string") {
+                    if (event.kind === "heard") {
+                        utterance.heard = true;
+                        utterance.collection?.done("collect-heard");
+                    } else if (event.kind === "partial" && typeof event.text === "string") {
                         if (!Number.isSafeInteger(event.rev) || event.rev <= rev) fail("transcript-revision");
                         rev = event.rev;
                         utterance.collection?.done("partial", event.text);
@@ -1736,9 +1742,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 judged = Policy.release(item, c.recipients, c.grants);
             }
             if (judged.kind === "send") {
+                if (turn.relay.answer && state().voiceMute.kind === "on") unheard(c, turn);
+                else if (c.live !== null) {
+                    turn.delegation = c.live.beginRelay();
+                    if (turn.delegation === null) unheard(c, turn);
+                }
                 for (const label of item.labels) turn.labels.add(label);
                 const speakable = Speakable.create(LANGUAGE);
-                for (const sentence of [...speakable.push(text), ...speakable.finish()]) say(c, turn, sentence);
+                if (!turn.relay.done)
+                    for (const sentence of [...speakable.push(text), ...speakable.finish()]) say(c, turn, sentence);
                 if (turn.stopped) return;
             } else {
                 record(c, turn, judged.kind === "ask" ? judged.needed : judged.labels, "withhold");
@@ -1793,7 +1805,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // Before respond releases the request, a queued or release-held turn
         // has no contributing brain labels. Its local acknowledgement is not
         // a native reply to account for, and must not invent a history label.
-        if (turn.fast !== undefined || turn.labels.size === 0) return;
+        if (c.live !== null && turn.relay || turn.fast !== undefined || turn.labels.size === 0) return;
         c.heard = { turn, labels: [...turn.labels], text };
     }
     // A duplex reply's heard account for an interruption, or null when the
@@ -1819,6 +1831,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const brain = {
         send(e, done) {
             const c = current(e.gen);
+            if (c.live !== null && c.last?.relay?.answer) unheard(c, c.last);
             // A voice preview: one fixed sentence in the chosen voice, never
             // a brain request. As a relay line it leaves the brain no heard
             // prefix, and as a done one no task line to report back.
@@ -1832,6 +1845,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             if (e.relay !== undefined) {
                 const turn = relayTurn(c, e, done, { ask: e.relay.ask, line: e.relay.ask === null ? e.relay.text : null, done: false });
+                turn.relay.answer = e.relay.answer === true;
                 void relayLine(c, turn, e.relay.text, e.relay.labels);
                 return;
             }
@@ -2061,10 +2075,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     // A prompt heard to its end holds the conversation's
                     // next words; a flushed one is asked again later.
                     if (turn?.relay && conversation === c && c.last === turn && turn.op === e.source && turn.phase === "done") {
+                        if (turn.relay.answer && !turn.relay.done) tasks.spoken?.(c.gen, turn.relay.line);
                         turn.relay.done = true;
                         if (turn.relay.ask !== null) c.relay = turn.relay.ask;
                     }
-                    if (conversation === c) c?.live?.played(e.source);
+                    if (conversation === c && c?.live) {
+                        c.live.played(e.source);
+                        if (turn?.relay?.answer && !turn.relay.done && c.live.heard(turn.delegation)?.pending === false) {
+                            tasks.spoken?.(c.gen, turn.relay.line);
+                            turn.relay.done = true;
+                        }
+                    }
                     done(...result);
                 }, failed);
             },
@@ -2248,6 +2269,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const changedHistory = historyEpoch !== null && historyEpoch !== s.history.epoch;
             historyEpoch = s.history.epoch;
             if (changedHistory) forgetBrain();
+            if (s.voiceMute.kind === "on" && conversation?.last?.relay?.answer) unheard(conversation, conversation.last);
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end(!changedHistory);
             if (conversation?.collection !== null && conversation?.collection !== undefined
                     && !collecting(conversation, conversation.collection)) {
@@ -2428,7 +2450,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     }
                 }, interrupted: value => {
                     const turn = c.last;
-                    if (conversation === c && turn?.delegation === value.id) heard(c, turn, value.text);
+                    if (conversation === c && turn?.delegation === value.id) {
+                        if (turn.relay?.answer) unheard(c, turn);
+                        else heard(c, turn, value.text);
+                    }
                 } };
                 c.liveOpen = { e: reopen, events: own };
                 c.live.port.open(e, own);
@@ -2443,6 +2468,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // With no reply at the speaker no playback flush read the
                 // account: the words this interruption drops went unheard.
                 const account = c.heard?.turn === c.last ? null : cut(c, c.last);
+                if (c.last?.relay?.answer) unheard(c, c.last);
                 c.live.port.flush(e);
                 if (account !== null) heard(c, c.last, account.text(null));
             },

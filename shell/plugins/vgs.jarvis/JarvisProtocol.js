@@ -12,6 +12,7 @@ var TASK_TERMINALS = ["auto", "tmux", "floating"];
 var CLOUD_VISION = ["ask", "allow", "never"];
 var MEMORY_NOTES = ["ask", "save"];
 var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
+var FORWARD_CHARS = 32768;
 // The Voice setting's offers, and the lines of the home's instructions as a
 // Settings state carries them: PluginLogic's STATUS_LIST_MAX, STATUS_LABEL_MAX
 // and STATUS_TEXT_MAX bound each.
@@ -946,9 +947,26 @@ function accept(line, direction) {
         if (direction !== "daemon") fail("direction-voice-renewal");
         keys(message, ["v", "type", "gen", "revision"], "voice-renewal");
         break;
+    case "forward-wait":
+        if (direction !== "daemon") fail("direction-forward-wait");
+        keys(message, ["v", "type", "gen", "revision", "waiting"], "forward-wait");
+        if (typeof message.waiting !== "boolean") fail("forward-wait");
+        break;
+    case "forward-answer":
+        if (direction !== "daemon") fail("direction-forward-answer");
+        keys(message, ["v", "type", "gen", "revision", "key", "text", "more"], "forward-answer");
+        if (typeof message.key !== "string" || !/^forward-[a-f0-9]{64}$/.test(message.key)
+                || typeof message.more !== "boolean" || typeof message.text !== "string"
+                || message.text.length === 0 || message.text.length > FORWARD_CHARS || /[\x00-\x09\x0b-\x1f\x7f]/.test(message.text))
+            fail("forward-answer");
+        break;
     case "transcript":
         if (direction !== "daemon") fail("direction-transcript");
-        keys(message, ["v", "type", "gen", "revision", "role", "text", "stage", "rev"], "transcript");
+        keys(message, ["v", "type", "gen", "revision", "role", "text", "stage", "rev", "source", "origin"], "transcript");
+        if (["conversation", "preview", "context-reset"].indexOf(message.source) === -1
+                || message.source === "context-reset" && (message.role !== "user" || message.origin === null || message.stage !== "final"))
+            fail("transcript-source");
+        if (message.origin !== null && (message.role !== "user" || !Session.turnOrigin(message.origin))) fail("transcript-origin");
         if (message.role !== "user" && message.role !== "assistant") fail("transcript-role");
         if (message.stage !== "partial" && message.stage !== "final") fail("transcript-stage");
         if (typeof message.text !== "string" || message.text.length === 0 || message.text.length > TRANSCRIPT_CHARS

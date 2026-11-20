@@ -155,6 +155,8 @@ while True:
             partials = action.get("partials", [])
             at = live["count"]
             live["count"] += 1
+            if at == 0 and live["detect"] and action.get("onset"):
+                send({"type": "heard", "id": ident})
             if at < len(partials):
                 send({"type": "partial", "id": ident, **partials[at]})
                 record({"partial": ident, **partials[at]})

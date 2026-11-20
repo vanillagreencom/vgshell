@@ -1680,7 +1680,8 @@ async function inside() {
         fs.writeFileSync(path.join(duplexGates, "transcript"), "");
         await w.wait(() => w.messages.some(m => m.type === "transcript"));
         assert.deepEqual(w.messages.filter(m => m.type === "transcript"), [{ v: 1, type: "transcript", gen: open.gen,
-            revision: hello.revision, role: "user", text: "scripted words", stage: "partial", rev: 1 }]);
+            revision: hello.revision, role: "user", text: "scripted words", stage: "partial", rev: 1,
+            source: "conversation", origin: null }]);
         await w.closeTalk(duplexGates);
         const ended = await w.wait(m => m.state.speech.kind === "closed");
         fs.writeFileSync(path.join(duplexGates, "transcript"), "");

@@ -2479,7 +2479,7 @@ function verifyStopIntents(serviceSource) {
 // dependent binding must have updated. Run its real Setup gate and startup
 // continuation with that prior observation; retired writes must still stop it.
 function verifySetupStart(serviceSource) {
-    const methods = ["start", "publishSetup"].map(name => {
+    const methods = ["start", "publishSetup", "publishForwardWait"].map(name => {
         const found = serviceSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
         assert.ok(found, name + ": the startup owner exists");
         return "root." + name + " = (" + found[0] + ");";

@@ -26,8 +26,9 @@ function contract(logic) {
     assert.deepEqual(log, [entry(1, "assistant", "hello", "final"), entry(1, "assistant", "again", "partial")]);
     log = logic.update(log, entry(1, "user", "typed", "final"));
     assert.deepEqual(log, [entry(1, "assistant", "hello", "final"), entry(1, "assistant", "again", "partial"), entry(1, "user", "typed", "final")], "role change appends");
-    let genLog = logic.update([entry(1, "assistant", "old", "partial")], entry(2, "assistant", "new", "partial"));
-    assert.deepEqual(genLog, [entry(1, "assistant", "old", "partial"), entry(2, "assistant", "new", "partial")], "generation change appends");
+    const nextGen = { ...entry(2, "assistant", "new", "partial"), session: "session-1" };
+    let genLog = logic.update([entry(1, "assistant", "old", "partial")], nextGen);
+    assert.deepEqual(genLog, [entry(1, "assistant", "old", "partial"), nextGen], "generation change appends within retained brain context");
     let many = [];
     for (let i = 0; i < 80; i++) many = logic.update(many, entry(i, "assistant", "row" + i, "final"));
     assert.equal(many.length, 64);
@@ -37,6 +38,40 @@ function contract(logic) {
     for (let i = 0; i < 64; i++) huge = logic.update(huge, entry(i, "assistant", chunk, "final"));
     assert.ok(byteLength(huge) <= 24 * 1024);
     assert.ok(huge.length < 64, "byte ceiling drops oldest rows");
+    previewBetweenTurns(logic);
+}
+
+// Drive the real preview intent between a user's question and their next
+// turn. Its partial and final captions still reach the wire for feedback.
+function previewBetweenTurns(logic) {
+    const Session = logic.Protocol.Session;
+    let state = Session.initial(), log = [], time = 0;
+    function dispatch(type, values = {}) {
+        const result = Session.reduce(state, { type, at: ++time, ...values });
+        state = result.state;
+        for (const effect of result.effects.filter(item => item.kind === "transcript"))
+            log = logic.update(log, { ...effect, at: time, session: "child:" + state.history.epoch, started: 1 });
+        return result.effects;
+    }
+    const turn = () => ({ op: state.turn.op, gen: state.gen });
+    const caption = (text, stage) => dispatch("transcript", { ...turn(), role: "assistant", rev: time, text, stage });
+    dispatch("snapshot", { locked: false, configured: true, engine: "chained", settings: { holdToTalk: true } });
+    const epoch = state.history.epoch;
+    dispatch("say", { text: "Real question" });
+    caption("Real answer", "final");
+    dispatch("brain-done", turn());
+    assert.deepEqual(log.map(row => row.text), ["Real question", "Real answer"]);
+    const before = JSON.stringify(log);
+    assert.ok(dispatch("preview", { voice: "Fixture" }).some(e => e.kind === "brain-send" && e.preview));
+    for (const [text, stage] of [["This is how", "partial"], ["This is how I sound when I answer you.", "final"]]) {
+        assert.ok(caption(text, stage).some(e => e.kind === "transcript"), "preview produces its live caption");
+        assert.equal(JSON.stringify(log), before, "preview leaves both real turns intact");
+    }
+    dispatch("brain-done", turn());
+    dispatch("say", { text: "Real follow-up" });
+    dispatch("conversation-reset", { ...turn(), text: "Real follow-up", reason: "turn-limit" });
+    assert.deepEqual(log.map(row => [row.session, row.text]), [["child:" + epoch, "Real question"],
+        ["child:" + epoch, "Real answer"], ["child:" + (epoch + 1), "Real follow-up"]]);
 }
 contract(Conversation);
 
@@ -47,15 +82,77 @@ const History = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Histor
 const morning = new Date(2026, 10, 1, 9).getTime(), nextDay = new Date(2026, 10, 2, 9).getTime();
 const transcript = [
     { ...entry(1, "user", "Voice question", "final"), at: morning, session: "first" },
-    { ...entry(2, "assistant", "Answer", "final"), at: morning + 1000, session: "first" },
-    { ...entry(3, "user", "Same day, other session", "final"), at: morning + 2000, session: "second" },
-    { ...entry(4, "assistant", "Next day", "final"), at: nextDay, session: "first" }
+    { ...entry(1, "assistant", "Answer", "final"), at: morning + 1000, session: "first" },
+    { ...entry(3, "user", "Same day, other session", "final"), at: morning + 2000, session: "first" },
+    { ...entry(3, "assistant", "Next day", "final"), at: nextDay, session: "first" }
 ];
-assert.deepEqual(History.messages(transcript, "").map(row => row.text), ["Voice question", "Answer", "Same day, other session", "Next day"],
-    "every session and day in one list, oldest first");
-assert.deepEqual(History.messages(transcript, "VOICE").map(row => row.text), ["Voice question"]);
-assert.deepEqual(History.messages(transcript, "jarvis").map(row => row.text), ["Answer", "Next day"], "a speaker's name matches its turns");
-assert.equal(History.messages(transcript, "missing").length, 0);
+const sessions = Conversation.sessions(transcript);
+assert.deepEqual(sessions.map(row => [row.title, row.started]), [["Same day, other session", morning + 2000], ["Voice question", morning]]);
+for (const word of ["VOICE", "Answer"]) {
+    assert.deepEqual(History.search(sessions, word).map(s => s.turns.map(turn => turn.text)), [["Voice question", "Answer"]]);
+}
+assert.equal(History.search(sessions, "missing").length, 0);
+const preview = "This is how I sound when I answer you.";
+assert.deepEqual(Conversation.sessions([entry(1, "assistant", preview, "final"), entry(2, "user", preview, "final"),
+    { ...entry(3, "assistant", preview, "final"), source: "conversation" }]).map(row => row.id), ["session-3:3", "session-2:2"]);
+let retained = [];
+for (let i = 0; i < 70; i++)
+    retained = Conversation.update(retained, { ...entry(1, i % 2 ? "assistant" : "user", "Message " + i, "final"), started: 200, at: 300 + i });
+assert.deepEqual(Conversation.sessions(retained).map(s => [s.title, s.started, s.expired, s.turns.length]), [["Message 0", 200, true, 64]]);
+let boundary = [];
+for (const [epoch, origin, text] of [[0, 1, "Again"], [0, 2, "At the limit"], [1, 2, "At the limit"], [1, 3, "Again"]])
+    boundary = Conversation.update(boundary, { ...entry(1, "user", text, "final"), session: "child:" + epoch, started: epoch, origin,
+        source: epoch === 1 && origin === 2 ? "context-reset" : "conversation" });
+assert.deepEqual(History.search(Conversation.sessions(boundary), "limit").map(s => s.turns.map(row => row.text)), [["At the limit", "Again"]]);
+assert.equal(History.search(Conversation.sessions(boundary), "Again").length, 2, "separate requests may repeat the same words");
+// A reset transfers only the input that crossed the limit. An evicted
+// older question belongs to the previous session; an evicted first
+// segment of the boundary question belongs to the new one.
+for (const large of [false, true]) {
+    let log = [];
+    const add = (session, origin, text, source = "conversation") => {
+        log = Conversation.update(log, { ...entry(1, "user", text, "final"), started: 20, session, origin, source });
+    };
+    add("old", "2:earlier", "Earlier title");
+    const first = "Opening question " + "a".repeat(4079);
+    add("old", "2:boundary", first);
+    if (large) {
+        for (let i = 0; i < 15; i++) add("old", "2:boundary", "Later segment " + "b".repeat(4082));
+    } else {
+        // The count ceiling drops only the preceding unrelated question.
+        for (let i = 0; i < 63; i++) add("old", "2:other-" + i, "Short");
+    }
+    assert.ok(log[0].expired);
+    add("new", "2:boundary", first, "context-reset");
+    const moved = Conversation.sessions(log).find(session => session.id === "new:1");
+    assert.equal(moved.expired, large);
+    assert.equal(moved.title, "Opening question " + "a".repeat(46) + "…");
+    assert.equal(moved.turns.some(row => row.text === first), !large);
+}
+{
+    const Session = Conversation.Protocol.Session;
+    let state = Session.initial(), log = [], at = 0;
+    function send(type, fields = {}) {
+        const result = Session.reduce(state, { at: ++at, type, ...fields });
+        state = result.state;
+        for (const caption of result.effects.filter(e => e.kind === "transcript"))
+            log = Conversation.update(log, { ...caption, at, started: state.history.epoch, session: "native:" + state.history.epoch });
+    }
+    send("snapshot", { engine: "duplex", locked: false, configured: true, settings: {} });
+    send("indicator", { shown: true, bar: "gone", gen: state.gen });
+    send("toggle");
+    const speech = { gen: state.gen, op: state.speech.op };
+    const caption = (item, text, stage) => send("transcript", { ...speech, item, role: "user", text, stage, rev: at });
+    caption("earlier", "Again", "final");
+    caption("limit", "At the limit", "final");
+    caption("limit", "second seg", "partial");
+    send("delegation", { ...speech, id: "limit", text: "At the limit second segment" });
+    send("conversation-reset", { gen: state.gen, op: state.turn.op, reason: "turn-limit", text: "At the limit second segment" });
+    caption("limit", "second segment", "final");
+    const found = History.search(Conversation.sessions(log), "limit");
+    assert.deepEqual(found.map(session => session.turns.map(turn => turn.text)), [["At the limit", "second segment"]]);
+    assert.deepEqual(Conversation.sessions(log)[1].turns.map(turn => turn.text), ["Again"]);
+}
 const refusal = { time: new Date(morning).toISOString(), tool: "files.delete", decision: "refuse", outcome: "cancelled", refusal: "identity", cause: null };
 const shown = History.problems([refusal], "")[0];
 assert.equal(shown.title, "Deleting a file was refused.");
@@ -160,7 +257,8 @@ try {
     control("close-final", "return entry.stage === \"partial\";", "return true;");
     control("same-role", "a.gen === b.gen && a.role === b.role", "a.gen === b.gen");
     control("same-gen", "a.gen === b.gen && a.role === b.role", "a.role === b.role");
-    control("count-ceiling", "while (rows.length > MAX_ENTRIES) rows.shift();", "");
-    control("byte-ceiling", "while (rows.length > 0 && Protocol.bytes(JSON.stringify(rows)) > MAX_BYTES) rows.shift();", "");
+    control("count-ceiling", "while (rows.length > MAX_ENTRIES) dropOldest(rows);", "");
+    control("byte-ceiling", "while (rows.length > 0 && Protocol.bytes(JSON.stringify(rows)) > MAX_BYTES) dropOldest(rows);", "");
+    control("preview-admission", 'if (segment.source === "preview") return log;', "");
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
 console.log("test-jarvis-conversation: ok controls=" + controls);

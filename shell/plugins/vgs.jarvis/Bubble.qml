@@ -200,7 +200,9 @@ Item {
         : state === null || hidden ? null : View.restartLine(state.restart, state.conversation.kind !== "ended")
     // The line under the orb: what keeps Jarvis from hearing or answering,
     // never the state's name.
-    readonly property string stateText: state === null ? "" : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
+    readonly property string stateText: state === null ? "" : !hidden && state.conversation.kind !== "ended"
+        && service.shell !== null && service.shell.status.values.forwardWait === true ? View.FORWARD_WAIT_TEXT
+        : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
         : fault !== null ? fault.title : ""
     readonly property var levels: service === null || service.shell === null ? {}
         : service.shell.status.values.level || {}

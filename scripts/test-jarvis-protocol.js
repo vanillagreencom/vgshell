@@ -115,7 +115,10 @@ const taskResponse = { ...taskAnswer, type: "task-response", prompt: id, answer:
 const promptRecord = { v: 1, id, task: taskStop.task, kind: "permission", tool: "Bash", text: "Bash {}", at: 1000, deadline: 601000 };
 const taskPrompts = { ...tasks, type: "task-prompts", prompts: [promptRecord] };
 delete taskPrompts.count;
-const transcript = { v: 1, type: "transcript", gen: 0, revision: hello.revision, role: "user", text: " the time?", stage: "partial", rev: 1 };
+const transcript = { v: 1, type: "transcript", gen: 0, revision: hello.revision, role: "user", text: " the time?", stage: "partial", rev: 1,
+    source: "conversation", origin: null };
+const forwardWait = { v: 1, type: "forward-wait", gen: 1, revision: hello.revision, waiting: true };
+const forwardAnswer = { v: 1, type: "forward-answer", gen: 1, revision: hello.revision, key: "forward-" + "a".repeat(64), text: "first\nsecond", more: false };
 const changed = (message, extra) => JSON.stringify({ ...message, ...extra });
 const inputReply = { ...reply, kind: "input.observe", data: { ok: true, target: { kind: "application", id: "fixture", window: "0xa1" }, cursor: { x: 1, y: 2 } } };
 const keysReply = { ...reply, kind: "input.keys", data: { ok: true, keys: [{ modifiers: ["SUPER"], keycode: 38, keysym: "a", codepoint: 97 }], translation: [{ modifiers: ["SUPER"], keycode: 38, keysym: "a", codepoint: 97 }], effective: [] } };
@@ -185,6 +188,12 @@ const cases = [
     ["task-prompts-shape", changed(taskPrompts, { prompts: [{ ...promptRecord, extra: 1 }] }), "daemon", "shape-task-prompt"],
     ["task-prompts-kind", changed(taskPrompts, { prompts: [{ ...promptRecord, kind: "finished", tool: null }] }), "daemon", "task-prompt"],
     ["transcript-direction", JSON.stringify(transcript), "shell", "direction-transcript"],
+    ["transcript-source", changed(transcript, { source: "unchecked" }), "daemon", "transcript-source"],
+    ["transcript-origin", changed(transcript, { origin: 0 }), "daemon", "transcript-origin"],
+    ["forward-wait-direction", JSON.stringify(forwardWait), "shell", "direction-forward-wait"],
+    ["forward-wait-state", changed(forwardWait, { waiting: "yes" }), "daemon", "forward-wait"],
+    ["forward-answer-key", changed(forwardAnswer, { key: "other" }), "daemon", "forward-answer"],
+    ["forward-answer-long", changed(forwardAnswer, { text: "a".repeat(32769) }), "daemon", "forward-answer"],
     ["transcript-shape", changed(transcript, { partial: true }), "daemon", "shape-transcript"],
     ["transcript-role", changed(transcript, { role: "system" }), "daemon", "transcript-role"],
     ["transcript-stage", changed(transcript, { stage: "done" }), "daemon", "transcript-stage"],
@@ -650,6 +659,7 @@ for (const message of [devices, echoCancel, ...["absent", "foreign", "pending", 
     { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
     taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 }, localReleased,
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
+    forwardWait, forwardAnswer,
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "daemon")), JSON.stringify(message));

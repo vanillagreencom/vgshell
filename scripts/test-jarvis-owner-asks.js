@@ -29,7 +29,7 @@ function statusWith(values = {}) {
     return status;
 }
 function service(source = serviceSource, values = {}, policy = publication) {
-    const names = ["ownerAskOperation", "setOwnerAskOperation", "unconfirmOwnerAsk", "ownerAsksIntent", "publishOwnerAsks", "start", "ended", "broken", "publishEchoCancel"];
+    const names = ["ownerAskOperation", "setOwnerAskOperation", "unconfirmOwnerAsk", "ownerAsksIntent", "publishOwnerAsks", "start", "ended", "broken", "publishEchoCancel", "publishForwardWait"];
     const methods = names.map(name => {
         const match = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
         assert.ok(match, "shipped Service method " + name); return match[0];

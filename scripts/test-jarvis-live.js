@@ -146,7 +146,7 @@ const REALTIME = { setting: "realtime", row: "openai-realtime", keyProvider: "op
         const created = script("reply-old"), audio = script("reply-old", 1), done = script("done-old");
         created.response.id = done.response.id = id;
         conn.send(created);
-        for (let left = conn.voice.shift() ?? 0; left > 0; left -= 65536)
+        for (let left = conn.voice.shift() ?? conn.defaultVoiceBytes ?? 0; left > 0; left -= 65536)
             conn.send({ ...audio, response_id: id, delta: Buffer.alloc(Math.min(left, 65536), 0x11).toString("base64") });
         conn.send(done);
     } };
@@ -195,7 +195,7 @@ const GEMINI = { setting: "gemini", row: "gemini-live", keyProvider: "gemini", f
     reply(conn) {
         conn.auto++;
         const audio = gscript("reply-old");
-        for (let left = conn.voice.shift() ?? 0; left > 0; left -= 65536) {
+        for (let left = conn.voice.shift() ?? conn.defaultVoiceBytes ?? 0; left > 0; left -= 65536) {
             audio.serverContent.modelTurn.parts[0].inlineData.data = Buffer.alloc(Math.min(left, 65536), 0x11).toString("base64");
             conn.send(audio);
         }
@@ -423,7 +423,7 @@ world(async () => {
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
         ack, ackLine = true, wallEpoch = 0, usage = () => {}, deferredWrites = false } = {}) {
         const clock = manual(wallEpoch);
-        const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
+        const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], userOrigins: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
             stall: false, read: null, dues: [], inputResults: [], interrupted: [], renewals: [], captures: [], urls: [], speechOpens: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
@@ -509,8 +509,9 @@ world(async () => {
         // The daemon's wire mapping, judged by the shared protocol.
         ports.transcript = e => {
             Protocol.accept(JSON.stringify({ v: 1, type: "transcript", gen: e.gen, revision: "a".repeat(64),
-                role: e.role, text: e.text, stage: e.stage, rev: e.rev }), "daemon");
+                role: e.role, text: e.text, stage: e.stage, rev: e.rev, source: e.source, origin: e.origin }), "daemon");
             w.transcripts.push({ role: e.role, text: e.text, stage: e.stage, rev: e.rev });
+            if (e.role === "user") w.userOrigins.push(e.origin);
         };
         ports.voiceMute = { store: () => {} };
         // Each due report the engine raises, read where the runner hears it.
@@ -1702,6 +1703,8 @@ world(async () => {
         part(conn, "item_b", " more");
         heard(conn, "item_b", "Two more");
         await until(() => w.delegations.length === 5, "both overlapping turns arrive");
+        assert.deepEqual(w.userOrigins.slice(-5), ["item_a", "item_b", "item_a", "item_b", "item_b"].map(item => w.speechOpens[0].op + ":" + item),
+            "each partial and final retains the input identity used by its own delegation");
         assert.deepEqual(w.transcripts.slice(13), [
             { role: "user", text: "One", stage: "partial", rev: 14 },
             { role: "user", text: "Two", stage: "partial", rev: 15 },
@@ -2091,6 +2094,22 @@ world(async () => {
         for (const file of fs.readdirSync(kit.folder).filter(name => name.endsWith(".js")))
             fs.copyFileSync(path.join(kit.folder, file), path.join(plugin, "backend", file));
         const runnerFile = path.join(plugin, "backend/jarvisd.js");
+        const forwarding = ["gemini-forward-completion", "forwarded-answer"].includes(only);
+        let packageState = null;
+        if (forwarding) {
+            const home = fs.mkdtempSync(path.join(process.env.HOME, "daemon-forward-"));
+            const scripts = path.join(home, ".agents/skills/jarvis/scripts");
+            fs.mkdirSync(scripts, { recursive: true });
+            const command = path.join(scripts, "jarvis-session");
+            fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/satellite-package.py"), command);
+            fs.chmodSync(command, 0o755);
+            packageState = path.join(scripts, "satellite.json");
+            fs.writeFileSync(packageState, JSON.stringify({ reachable: true, trackRequests: true }));
+            // Only the home comes from the fixture. The daemon, router, package
+            // call, receipt, reader and Gemini wire remain the shipped owners.
+            fs.appendFileSync(path.join(plugin, "backend/Satellite.js"),
+                "\nmodule.exports.create = options => create({ ...options, home: () => " + JSON.stringify(home) + " });\n");
+        }
         const blockedStdout = path.join(root, "blocked-stdout");
         const offset = path.join(root, "clock");
         fs.writeFileSync(offset, "0");
@@ -2119,7 +2138,15 @@ world(async () => {
         // connection or audio records cannot stand in for this frame's record.
         const frameAudits = path.join(root, "frame-audits");
         const liveFile = path.join(plugin, "backend", P.file);
-        const liveSource = fs.readFileSync(liveFile, "utf8");
+        let liveSource = fs.readFileSync(liveFile, "utf8");
+        if (only === "forwarded-answer" && voiceStage === "cut") {
+            const firstAudio = "if (!active.discarded) output(session, active, event.pcm);";
+            assert.equal(liveSource.split(firstAudio).length, 2);
+            // The rollover suite drives the real deadline. Here force that
+            // same renewal while the private speaker owns part of the relay.
+            liveSource = liveSource.replace(firstAudio, firstAudio
+                + '\n                if (active.text === "From my main brain: The build passed.") renew(session, true);');
+        }
         const sendNeedle = "const answer = session.transfer(frame, () => session.channel.send(frame, session.grants()));";
         assert.equal(liveSource.split(sendNeedle).length - 1, 1);
         fs.writeFileSync(liveFile, liveSource.replace(sendNeedle, `
@@ -2197,7 +2224,7 @@ world(async () => {
         try {
             send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: forwarding ? "main" : "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
                     console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } });
             if (only === "wrong-key") {
@@ -2314,6 +2341,7 @@ world(async () => {
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
             take(conn);
             conn.auto = 1;
+            if (forwarding) conn.defaultVoiceBytes = 2400;
             assert.equal(P.noTools(await P.open(conn)), true, "the daemon's voice has no tools");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
             if (only === "teardown-stdout") {
@@ -2365,6 +2393,88 @@ world(async () => {
                     [...Array(1 + sets.size).fill(["pending", undefined]), [outcome, cause]], label);
             };
             await release();
+            if (forwarding) {
+                await wait(() => messages.some(m => m.type === "main-reach" && m.reach.kind === "satellite"),
+                    "the stand-in package makes the main available to the asking conversation");
+                let approvals = 0;
+                async function confirm() {
+                    await wait(() => last().approval.kind === "held", "the daemon holds for physical confirmation");
+                    const approval = last().approval;
+                    send({ type: "shown", id: approval.id });
+                    await wait(() => typeof last().approval.shownAt === "number", "the confirmation is visible");
+                    fs.writeFileSync(offset, String(++approvals * 1000));
+                    send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
+                }
+                server.replies.push(BrainFixture.calls({ id: "forward_call", name: "fleet_forward", arguments: { text: "Check the build." } }),
+                    BrainFixture.text("Sent."));
+                if (P === GEMINI) conn.send({ serverContent: { inputTranscription: { text: "Check the build.", finished: true } } });
+                else P.turn(conn, "Check the build.");
+                await confirm();
+                const waitFrames = () => messages.filter(m => m.type === "forward-wait");
+                await wait(() => waitFrames().at(-1)?.waiting === true, "the real forward returned its package receipt");
+                const gen = last().gen;
+                if (P === GEMINI) {
+                    conn.send({ serverContent: { turnComplete: true } });
+                    await wait(() => messages.some(m => m.type === "transcript" && m.role === "user" && m.stage === "final"),
+                        "the same native input now publishes its final caption");
+                    assert.equal(waitFrames().at(-1).waiting, true, "the later final preserves its own delegated request");
+                }
+                await wait(() => last().input.kind === "released" && last().capture.kind === "closed" && last().turn.kind === "none"
+                    && last().speech.reply.kind === "none" && last().playback.kind === "idle", "the asking turn leaves an idle voice");
+                if (voiceStage === "stop") send({ type: "intent", intent: "stop" });
+                if (voiceStage === "replacement") {
+                    press(); await wait(() => last().capture.kind === "open", "capture opens for the replacement request");
+                    await release();
+                    server.replies.push(BrainFixture.text("Okay."));
+                    P.turn(conn, "Ask something else.");
+                }
+                if (voiceStage === "stop" || voiceStage === "replacement")
+                    await wait(() => waitFrames().at(-1).waiting === false, "the real user intent revokes the forward");
+                if (voiceStage === "muted") {
+                    send({ type: "intent", intent: "voice-mute" });
+                    await wait(() => last().voiceMute.kind === "on", "the real voice is muted");
+                }
+                assert.equal(last().gen, gen);
+                const answer = voiceStage === "muted" ? "Private detail. ".repeat(25000) : "The build passed.";
+                const status = JSON.parse(fs.readFileSync(packageState));
+                assert.equal(status.requests.length, 1);
+                const [receipt] = status.requests.splice(0);
+                status.answers = [{ key: receipt.key, request: receipt.request, text: answer }];
+                fs.writeFileSync(packageState + ".incoming", JSON.stringify(status));
+                fs.renameSync(packageState + ".incoming", packageState);
+                // Re-read the unchanged route through the settings path. A
+                // revoked request is on the ordinary one-minute reach reader.
+                send({ type: "intent", intent: "main-host", chosen: "home" });
+                const answerFrames = () => conn.events.filter(value => P.kind(value) === P.SPEAK
+                    && P.words(value).includes(voiceStage === "muted" ? "Private detail." : answer));
+                const cards = () => messages.filter(m => m.type === "forward-answer");
+                if (voiceStage === "active" || voiceStage === "cut") {
+                    await wait(() => last().approval.kind === "held" && last().approval.purpose === "release",
+                        "the real package answer reaches the recipient release gate");
+                    assert.equal(answerFrames().length, 0, "agent-labelled answer has not left for speech");
+                    const start = messages.length;
+                    await confirm();
+                    await wait(() => answerFrames().length > 0, "the existing voice speaks the correlated package answer");
+                    assert.equal(P.words(answerFrames()[0]), "From my main brain: " + answer);
+                    assert.ok(sent().some(frame => P.kind(frame.frame) === P.SPEAK && frame.labels.includes("agent")));
+                    if (voiceStage === "active") {
+                        await wait(() => messages.slice(start).some(m => m.state?.playback.kind === "playing") && last().playback.kind === "idle",
+                            "the private speaker plays the released words to completion");
+                        assert.deepEqual(cards(), []);
+                    }
+                }
+                if (voiceStage !== "active") {
+                    await wait(() => cards().some(m => !m.more), "the entire matched answer reaches the shell for its notification");
+                    assert.equal(cards().filter(m => !m.more).length, 1);
+                    assert.ok(cards().every(m => m.key === receipt.key));
+                    assert.equal(cards().map(m => m.text).join(""), answer);
+                    if (voiceStage !== "cut") assert.equal(answerFrames().length, 0, "the late or muted answer stays off the speaker");
+                }
+                assert.equal(last().gen, gen, "the answer never opens a conversation");
+                child.stdin.end();
+                assert.equal((await closed)[0], 0, stderr);
+                return;
+            }
             // What a brain may write around its words: a tool call as an element, a bare JSON value and markup.
             const answer = '<tool_call>{"name": "files_delete"}</tool_call> {"deleted": true} **Completed.** Visit https://example.com.';
             const result = only === "voice-acted" ? "Completed." : answer;
@@ -2497,6 +2607,20 @@ world(async () => {
                     .filter(row => row.kind === "release" && row.op === speech.op && row.outcome === "pending");
                 assert.deepEqual({ check: "failover-reconnection-audit", rows: gap.length }, { check: "failover-reconnection-audit", rows: 1 },
                     "the reconnection to the failover's recipient set writes its own pending row before any frame");
+                if (P === GEMINI) {
+                    const originals = messages.filter(message => message.type === "transcript" && message.role === "user");
+                    take(again);
+                    press();
+                    await wait(() => last().capture.kind === "open", "the re-opened Gemini voice captures another turn");
+                    await release();
+                    server.replies.push(BrainFixture.text("Done."));
+                    P.turn(again, "Another request.");
+                    await wait(() => messages.some(message => message.type === "transcript" && message.text === "Another request."),
+                        "the new Gemini turn reaches History");
+                    const next = messages.find(message => message.type === "transcript" && message.text === "Another request.");
+                    assert.equal(next.gen, originals[0].gen);
+                    assert.ok(originals.every(message => message.origin !== next.origin), "a reopened speech operation never reuses an input identity");
+                }
             } else if (only === "release") {
                 await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
                 assert.equal(last().approval.purpose, "release");
@@ -2810,6 +2934,10 @@ world(async () => {
             { role: "user", text: "Stop. What changed?", stage: "final", rev: 12 }
         ], "the voice's own answer is never captioned");
         assert.equal(w.delegations.length, 2, "turnComplete delegates a transcription without an explicit finish");
+        const [first, second] = w.delegations.map(event => w.speechOpens[0].op + ":" + event.delegation);
+        assert.notEqual(first, second);
+        assert.deepEqual(w.userOrigins, [first, first, first, second, second, second],
+            "all caption segments use the same local identity as the delegation");
         assert.equal(w.delegations[1].text, "Stop. What changed?", "the provider's end closes the user's turn");
         quiet(w, conn);
     }
@@ -3031,6 +3159,13 @@ world(async () => {
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
+        daemonForwardedAnswer: kit => daemonDelegation(kit, "forwarded-answer"),
+        daemonForwardedAnswerCut: kit => daemonDelegation(kit, "forwarded-answer", REALTIME, "cut"),
+        daemonForwardedAnswerStopped: kit => daemonDelegation(kit, "forwarded-answer", REALTIME, "stop"),
+        daemonForwardedAnswerReplaced: kit => daemonDelegation(kit, "forwarded-answer", REALTIME, "replacement"),
+        daemonForwardedAnswerMuted: kit => daemonDelegation(kit, "forwarded-answer", REALTIME, "muted"),
+        geminiFailoverOrigins: kit => daemonDelegation(kit, "failover", GEMINI),
+        geminiForwardCompletion: kit => daemonDelegation(kit, "gemini-forward-completion", GEMINI),
         daemonFailover: kit => daemonDelegation(kit, "failover"),
         daemonVoiceFault: kit => daemonDelegation(kit, "voice-fault"),
         daemonUnheard: kit => daemonDelegation(kit, "unheard"),

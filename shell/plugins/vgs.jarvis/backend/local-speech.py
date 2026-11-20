@@ -16,7 +16,8 @@ mono. Ids are positive integers; each new request takes a larger id.
   in:  {type:"listen", id, detect}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
        {type:"speak", id, speaker} + one sentence's UTF-8 text
-  out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"ended", id, speech};
+  out: {type:"ready"} once; {type:"heard", id} at continuous VAD onset;
+       {type:"partial", id, text, rev}; {type:"ended", id, speech};
        {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
 A listen answers ended once, at its turn end or its end: speech says whether
@@ -176,13 +177,14 @@ class Utterance:
         self.offset = 0
         self.last_turn = 0
         self.has_segment = False
+        self.reported_speech = False
         self.text = ""
         self.rev = 0
         self.stream = speech.captions.create_stream()
         self.stream.set_option("language", "en")
         speech.vad.reset()
 
-    def push(self, received):
+    def push(self, received, on_speech=None):
         # Quiet listening has no utterance to retain. The turn model reads
         # only the last eight seconds, so discard older leading silence.
         if not self.has_segment and not self.speech.vad.is_speech_detected():
@@ -195,7 +197,21 @@ class Utterance:
             raise Failed("utterance-too-long")
         self.samples.extend(received)
         speech = self.speech
-        # The pinned sherpa-onnx API keeps model state on this stream.
+        # is_speech_detected reports active speech, not a queued segment.
+        # A max-duration segment must not end a turn while speech continues.
+        # https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/python/csrc/voice-activity-detector.cc
+        while self.offset + VAD_WINDOW <= len(self.samples):
+            speech.vad.accept_waveform(speech.waveform(self.samples[self.offset:self.offset + VAD_WINDOW]))
+            self.offset += VAD_WINDOW
+            while not speech.vad.empty():
+                self.has_segment = True
+                speech.vad.pop()
+            if self.detect_turn and not self.reported_speech and (self.has_segment or speech.vad.is_speech_detected()):
+                self.reported_speech = True
+                if on_speech is not None:
+                    on_speech()
+        # The pinned sherpa-onnx API keeps model state on this stream. Its
+        # first word may follow VAD onset by several listen blocks.
         # https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/python/csrc/online-recognizer.cc
         self.stream.accept_waveform(RATE, speech.waveform(received))
         while speech.captions.is_ready(self.stream):
@@ -206,15 +222,6 @@ class Utterance:
             self.text = text
             self.rev += 1
             partial = {"type": "partial", "text": text, "rev": self.rev}
-        # is_speech_detected reports active speech, not a queued segment.
-        # A max-duration segment must not end a turn while speech continues.
-        # https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/python/csrc/voice-activity-detector.cc
-        while self.offset + VAD_WINDOW <= len(self.samples):
-            speech.vad.accept_waveform(speech.waveform(self.samples[self.offset:self.offset + VAD_WINDOW]))
-            self.offset += VAD_WINDOW
-            while not speech.vad.empty():
-                self.has_segment = True
-                speech.vad.pop()
         ended = False
         if self.detect_turn and self.has_segment and not speech.vad.is_speech_detected() \
                 and len(self.samples) - self.last_turn >= TURN_INTERVAL:
@@ -389,7 +396,7 @@ def serve(reader, writer, speech):
                     continue
                 continue
             try:
-                partial, ended = utterances[ident].push(little(received))
+                partial, ended = utterances[ident].push(little(received), lambda: send(writer, {"type": "heard", "id": ident}))
                 if partial is not None:
                     send(writer, {**partial, "id": ident})
                 if ended:

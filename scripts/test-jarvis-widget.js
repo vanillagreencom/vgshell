@@ -30,7 +30,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const KEYS = { talk: "Super+J", "voice-mute": "Super+Ctrl+M", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", deny: null, console: "Super+Alt+C" };
 const UNBOUND = Object.fromEntries(Object.keys(KEYS).map(key => [key, null]));
 const OPEN = { capture: { kind: "open", gen: 1, op: 2, mode: "conversation" }, conversation: { kind: "active", purpose: "conversation" } };
-const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
+const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, origin: 4, deadline: 70 } };
 function detail(regions = {}) {
     const state = Object.assign(copy(Session.initial()), { gate: { kind: "up" } }, copy(regions));
     assert.equal(Session.validate(state), true, "the fixture follows the current Session record");
@@ -86,7 +86,7 @@ function verify(view) {
         ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }), "listening", "accent", "success", "Listening", 0],
         ["capture closing", up({ capture: { kind: "closing", gen: 1, op: 2 } }), "listening", "accent", "success", "Listening", 0],
         ["thinking", up(THINKING), "working", "info", "info", "Thinking", 0],
-        ["cancelling", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), "working", "info", "info", "Thinking", 0],
+        ["cancelling", up({ turn: { kind: "cancelling", gen: 1, op: 4, origin: 4, deadline: 70 } }), "working", "info", "info", "Thinking", 0],
         ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "speaking", "accent", "success", "Speaking", 0],
         ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
             physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), "working", "info", "info", "Waiting for confirmation", 0],
@@ -443,13 +443,18 @@ voiceFaultControls();
     const matches = [...service.matchAll(/^    function conversationChanged\(previous, current\) \{\n[\s\S]*?^    \}/gm)];
     assert.equal(matches.length, 1);
     const notices = [];
-    const ctx = vm.createContext({ View: load(path.join(dir, "WidgetView.js")), notice: value => notices.push(value) });
+    let now = 1000;
+    const ctx = vm.createContext({ View: load(path.join(dir, "WidgetView.js")), notice: value => notices.push(value),
+        conversationStarted: 0, Date: { now: () => now++ } });
     const deliver = vm.runInContext("(" + matches[0][0] + ")", ctx);
-    let previous = { history: { kind: "current", epoch: 1 } };
+    let previous = { gen: 1, conversation: { kind: "active", purpose: "conversation" }, history: { kind: "current", epoch: 1 } };
     deliver(null, previous);
+    assert.equal(ctx.conversationStarted, 1000, "Talk's opening time precedes its first caption");
+    deliver(previous, previous);
+    assert.equal(ctx.conversationStarted, 1000);
     assert.equal(notices.length, 0, "startup is not a reset");
     for (const [epoch, reason] of [[2, "requested"], [3, "turn-limit"]]) {
-        const current = { history: { kind: "reset", epoch, reason } };
+        const current = { ...previous, history: { kind: "reset", epoch, reason } };
         deliver(previous, current);
         const expected = notices.length;
         deliver(current, current);
@@ -564,10 +569,38 @@ function verifyRestartNotice(service, view) {
 }
 const serviceSource = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
 verifyRestartNotice(serviceSource, load(path.join(dir, "WidgetView.js")));
+// The production decoder and service assemble a private answer. Only the
+// action of its own notice hands the full text to the Console.
+{
+    const notices = [], windows = [];
+    const revision = "a".repeat(64), key = "forward-" + "b".repeat(64);
+    const ctx = vm.createContext({ Protocol: load(path.join(dir, "JarvisProtocol.js")), outputTail: "", cause: "", lifetime: { kind: "ready" },
+        answerChunks: null, lockObservation: () => false, broken: value => assert.fail(value),
+        shell: { manifest: { __revision: revision }, notify: { send(options, done) { notices.push({ options: copy(options), done }); return "ok"; } },
+            surfaces: { summon(kind, payload) { windows.push([kind, JSON.parse(payload)]); return "ok"; } } } });
+    for (const name of ["receive", "forwardAnswer", "notice"]) {
+        const found = serviceSource.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, name);
+        ctx[name] = vm.runInContext("(" + found[0] + ")", ctx);
+    }
+    const part = (text, more) => ctx.receive(JSON.stringify({ v: 1, type: "forward-answer", revision, gen: 4, key, text, more }) + "\n");
+    part("Private first paragraph", true);
+    assert.equal(notices.length, 0);
+    part("\nPrivate last paragraph", false);
+    const [notice] = notices;
+    assert.equal(notices.length, 1);
+    assert.ok(!JSON.stringify(notice.options).includes("Private"));
+    assert.equal(notice.options.actions.length, 1);
+    notice.done("");
+    assert.equal(windows.length, 0, "dismiss leaves the answer private");
+    notice.done(notice.options.actions[0].id);
+    assert.deepEqual(windows, [["window", { forwardedAnswer: "Private first paragraph\nPrivate last paragraph" }]]);
+}
 {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-restart-control-"));
     try {
-        for (const name of ["SetupGate.js", "Session.js", "WidgetView.js", "History.js"]) fs.copyFileSync(path.join(dir, name), path.join(temp, name));
+        for (const name of ["SetupGate.js", "Session.js", "WidgetView.js", "History.js"])
+            fs.copyFileSync(path.join(dir, name), path.join(temp, name));
         const historySource = fs.readFileSync(historyFile, "utf8");
         for (const [label, file, needle, replacement] of [
             ["new category exposes a diagnostic", "WidgetView.js", '"audio": "', '"audio": "audio=fixture '],

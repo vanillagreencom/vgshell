@@ -301,6 +301,139 @@ world(async () => {
         }
     }
 
+    async function forwardedAnswers(Satellite) {
+        const h = home(), main = "main:" + h.folder;
+        const key = digit => "forward-" + digit.repeat(64);
+        const notices = [], waits = [];
+        let now = 0, timer = null, selected = main, stops = 0, onReceipt = null;
+        const live = { gen: 7, conversation: { kind: "active", purpose: "conversation" }, stops };
+        const requests = [], answers = [{ key: key("f"), request: "other", text: "x".repeat(24000) }];
+        function snapshot(forward) { h.state({ main: selected, reachable: true, requests, answers, forward }); }
+        const ledger = path.join(h.folder, "receipts.json");
+        let acknowledge = true;
+        const start = () => Satellite.create({ home: () => h.folder, mainHost: () => selected, acceptReach: Protocol.mainReach,
+            runtime: path.join(process.env.JARVIS_TEST_ROOT, "answer-runtime"),
+            environment: { PATH: process.env.PATH, HOME: process.env.HOME }, publish() {}, log() {},
+            waiting: (gen, active) => waits.push([gen, active]),
+            receipts: { read: () => fs.existsSync(ledger) ? JSON.parse(fs.readFileSync(ledger)) : [],
+                write: rows => fs.writeFileSync(ledger, JSON.stringify(rows)) },
+            answer: (item, gen, id, current, delivered) => {
+                notices.push([item.content, item.labels, gen, id, current()]);
+                if (acknowledge) delivered();
+            },
+            run: async (file, argv, options) => {
+                const result = await require(path.join(backend, "Child.js")).run(file, argv, options);
+                if (argv.includes("--record")) onReceipt?.();
+                return result;
+            },
+            clock: { now: () => now, set(fn, ms) { return timer = { fn, ms }; }, clear() { timer = null; } } });
+        let s = start();
+        async function issue(digit, exit = 0) {
+            const id = key(digit);
+            requests.push({ key: id, request: digit });
+            snapshot({ key: id, exit });
+            const result = await new Promise(resolve => s.executor.start({ args: { text: "Fixture request." } }, resolve,
+                () => ({ kind: "allow" }), undefined, { request: { ref: digit, at: "2026-11-19T01:00:00.000Z" },
+                    confirmation: { ref: digit, at: "2026-11-19T01:00:00.000Z", method: "physical" }, session: s.session() }));
+            assert.equal(result.outcome, "completed");
+            await until(() => timer !== null, "read after forward completed");
+        }
+        async function tick() {
+            const { fn, ms } = timer;
+            now += ms;
+            timer = null;
+            fn();
+            await until(() => timer !== null, "status read completed");
+        }
+        function ready(digit) {
+            const index = requests.findIndex(row => row.key === key(digit));
+            assert.notEqual(index, -1, "the package closes a previously open request");
+            const [request] = requests.splice(index, 1);
+            answers.push({ ...request, text: "Answer " + digit });
+            snapshot();
+        }
+        try {
+            snapshot();
+            s.sync(live);
+            s.refresh();
+            await until(() => timer !== null, "initial reach read completed");
+            await issue("1");
+            await issue("2", 75);
+            assert.deepEqual(waits, [[7, true]], "two pending forwards share one waiting line");
+            assert.ok(timer.ms <= 3000, "active reader wakes within seconds");
+            ready("2");
+            await tick();
+            assert.deepEqual(notices, [["Answer 2", ["agent"], 7, key("2"), true]],
+                "a status above 16 KiB releases exactly the completed owned key");
+            s.newRequest();
+            assert.deepEqual(waits.at(-1), [7, false]);
+            assert.equal(timer.ms, Satellite.READ_EVERY_MS, "new user request restores normal reach cadence");
+            ready("1");
+            await tick();
+            assert.deepEqual(notices.at(-1), ["Answer 1", ["agent"], 7, key("1"), false]);
+            await tick();
+            assert.equal(notices.length, 2, "retained answers are each delivered once");
+            for (const [digit, finish] of [
+                ["3", () => { live.stops = ++stops; s.sync(live); }],
+                ["4", () => { now += 5 * 60000; }],
+                ["5", () => { selected = "other:" + h.folder; s.sync(live); }],
+                ["6", () => { live.conversation = { kind: "ended" }; s.sync(live); }]
+            ]) {
+                await issue(digit);
+                finish();
+                if (digit === "4") {
+                    await tick();
+                    assert.equal(timer.ms, Satellite.READ_EVERY_MS, "the recovery bound stops fast reads");
+                    assert.deepEqual(waits.at(-1), [7, true], "the asking conversation still waits for its answer");
+                }
+                ready(digit);
+                await tick();
+                if (digit === "5") {
+                    assert.equal(notices.at(-1)[3], key("4"), "another route cannot take the original route's key");
+                    selected = main;
+                    s.sync(live);
+                    snapshot();
+                    await tick();
+                }
+                assert.deepEqual(notices.at(-1), ["Answer " + digit, ["agent"], 7, key(digit), digit === "4"]);
+                assert.equal(timer.ms, Satellite.READ_EVERY_MS);
+            }
+            live.gen++;
+            live.conversation = { kind: "active", purpose: "conversation" };
+            s.sync(live);
+            onReceipt = () => {
+                live.conversation = { kind: "ended" }; s.sync(live);
+                live.gen++; live.conversation = { kind: "active", purpose: "conversation" }; s.sync(live);
+            };
+            await issue("7");
+            assert.equal(timer.ms, Satellite.READ_EVERY_MS, "the in-flight forward cannot reopen a closed wait");
+            ready("7");
+            await tick();
+            assert.deepEqual(notices.at(-1), ["Answer 7", ["agent"], 8, key("7"), false],
+                "a receipt returned after close never borrows the new conversation");
+            onReceipt = null;
+            await issue("8");
+            acknowledge = false;
+            ready("8");
+            await tick();
+            const [receipt] = JSON.parse(fs.readFileSync(ledger));
+            assert.deepEqual(Object.keys(receipt).sort(), ["kept", "key", "ref", "route"]);
+            assert.equal(receipt.key, key("8"));
+            await s.close();
+            s = start();
+            acknowledge = true;
+            selected = "other:" + h.folder;
+            s.sync(live); s.refresh();
+            await until(() => timer !== null, "recovered reader checked the other route");
+            assert.equal(JSON.parse(fs.readFileSync(ledger)).length, 1);
+            selected = main; s.sync(live); snapshot();
+            await tick();
+            assert.deepEqual(notices.at(-1), ["Answer 8", ["agent"], null, key("8"), false],
+                "after lease loss the original route restores the actionable notice only");
+            assert.deepEqual(JSON.parse(fs.readFileSync(ledger)), []);
+        } finally { await s.close(); }
+    }
+
     async function replayLoop(Satellite) {
         try { await startup(Satellite, "absent setter"); }
         catch (error) {
@@ -523,6 +656,8 @@ world(async () => {
     console.log("case=startup passed");
     await handoff(require(satelliteFile));
     console.log("case=handoff passed");
+    await forwardedAnswers(require(satelliteFile));
+    console.log("case=forwarded-answers passed");
     await leasePublication(require(satelliteFile));
     console.log("case=lease-publication passed");
     await grantEnds(require(satelliteFile));
@@ -532,6 +667,8 @@ world(async () => {
 
     const sessionFile = path.join(backend, "SessionCommand.js");
     for (const [name, file, needle, replacement, check] of [
+        ["answer-new-request", satelliteFile, "item.request === request && item.binding === binding",
+            "item.binding === binding", forwardedAnswers],
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
         ["session-lease-retirement", satelliteFile, "fs.unlinkSync(held.file.path);", "void held.file.path;", grantEnds],
         ["session-identity", satelliteFile, 'const uuid = crypto.randomUUID();', 'const uuid = "00000000-0000-4000-8000-000000000000";', grantEnds],

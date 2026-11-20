@@ -19,6 +19,18 @@ const FORWARD_MS = 50000;
 // no SSH call (the package's workflows/session.md).
 const LOCAL_MS = 5000;
 const OUTPUT_BYTES = 16 * 1024;
+// status includes the text of every retained answer. Refuse a larger snapshot
+// whole, without reporting partial results or dropping the pending requests.
+const STATUS_BYTES = 16 * 1024 * 1024;
+const ANSWER_EVERY_MS = 2000;
+const WAIT_MS = 5 * 60000;
+// forward.py CLOSED_KEEP_DAYS. The normal reach reader still collects late answers.
+const KEEP_MS = 30 * 86400000;
+// Limit outstanding local receipts across routes. At capacity a new request
+// is refused before sending, so a previously owned answer is never evicted.
+const RECEIPTS = 128;
+const KEY = /^forward-[a-f0-9]{64}$/;
+const routeOf = (folder, main) => crypto.createHash("sha256").update(JSON.stringify([folder, main])).digest("hex");
 // The package's watch loop drains the outbox every FORWARD_EVERY_SECS (60,
 // watch.py), so the reading changes no more often.
 const READ_EVERY_MS = 60000;
@@ -39,7 +51,7 @@ const ARGUMENTS = /^jarvis-session: arguments=invalid/;
 const CLAIM = /^(voice-request|forwarded-request):/;
 // Python's str.splitlines boundaries, where a line the main reads can start.
 const LINES = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/;
-const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
+const CLOCK = { now: Date.now, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
 const SESSION_PREFIX = "vgs-voice:";
 
 /**
@@ -123,6 +135,7 @@ function reading(answer, value, acceptReach) {
  * daemon's private runtime directory; fatal ends it if a lease cannot retire.
  */
 function create({ home, homeBlock = () => null, mainHost, environment, runtime, publish, acceptReach, log,
+    waiting = () => {}, answer = () => {}, receipts = null,
     fatal = error => { throw error; }, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
@@ -141,6 +154,93 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
     let binding = null;
     let lease = null;
     let owner = null;
+    const pending = new Map();
+    let request = {};
+    let waitingGen = null;
+    const now = clock.now ?? Date.now;
+    let reserved = 0;
+    if (receipts !== null) {
+        const rows = receipts.read();
+        if (!Array.isArray(rows) || rows.length > RECEIPTS) throw new Error("jarvis: satellite=receipt-record");
+        for (const row of rows) {
+            if (!row || Object.keys(row).sort().join(",") !== "kept,key,ref,route"
+                    || typeof row.key !== "string" || !KEY.test(row.key) || typeof row.route !== "string" || !/^[a-f0-9]{64}$/.test(row.route)
+                    || typeof row.ref !== "string" || !/^[!-~]{1,128}$/.test(row.ref)
+                    || !Number.isSafeInteger(row.kept) || row.kept <= 0)
+                throw new Error("jarvis: satellite=receipt-record");
+            const id = row.route + row.key;
+            if (pending.has(id)) throw new Error("jarvis: satellite=receipt-duplicate");
+            if (row.kept > now()) pending.set(id, { ...row, gen: null });
+        }
+    }
+
+    function save() {
+        try { receipts?.write([...pending.values()].map(({ key, route, ref, kept }) => ({ key, route, ref, kept }))); }
+        catch (error) { fatal(error); throw error; }
+    }
+
+    function retire(id, item) {
+        if (pending.get(id) !== item) return;
+        pending.delete(id);
+        save();
+    }
+
+    function current(item) {
+        return !closed && item.request === request && item.binding === binding
+            && binding.home === home() && binding.main === settingOf(mainHost(), binding.home);
+    }
+
+    function showWait() {
+        const next = [...pending.values()].find(item => !item.delivering && current(item))?.gen ?? null;
+        if (next === waitingGen) return;
+        if (waitingGen !== null) waiting(waitingGen, false);
+        waitingGen = next;
+        if (next !== null) waiting(next, true);
+    }
+
+    function newRequest() {
+        request = {};
+        const wasWaiting = waitingGen !== null;
+        showWait();
+        if (wasWaiting && timer !== null) schedule();
+    }
+
+    function schedule() {
+        if (timer !== null) clock.clear(timer);
+        timer = null;
+        if (closed || mainHost() === "") return;
+        showWait();
+        const fast = waitingGen !== null && [...pending.values()].some(item => !item.delivering && current(item) && item.until > now());
+        timer = clock.set(() => { timer = null; refresh(); }, fast ? ANSWER_EVERY_MS : READ_EVERY_MS);
+    }
+
+    function collect(snapshot, location, main) {
+        if (pending.size === 0) return;
+        if (!Array.isArray(snapshot.answers) || !Array.isArray(snapshot.requests)) return;
+        const open = new Set(snapshot.requests.map(row => row?.key));
+        const answers = new Map(snapshot.answers.map(row => [row?.key, row]));
+        const route = routeOf(location.folder, main);
+        for (const [id, item] of pending) {
+            if (item.kept <= now()) { retire(id, item); continue; }
+            if (item.route !== route || item.delivering) continue;
+            const key = item.key;
+            const row = answers.get(key);
+            if (row === undefined && open.has(key)) continue;
+            if (row !== undefined && (row.request !== item.ref || typeof row.text !== "string" || !row.text.trim())) {
+                log("jarvis: satellite=answer cause=invalid");
+                continue;
+            }
+            if (row === undefined) retire(id, item);
+            else {
+                // Keep the receipt until the voice finished or the local
+                // card was published. Recovery during release or playback
+                // reoffers the matching retained answer as a card.
+                item.delivering = true;
+                answer({ content: row.text, labels: ["agent"] }, item.gen, key, () => current(item), () => retire(id, item));
+            }
+        }
+        showWait();
+    }
 
     function retireLease() {
         const held = lease;
@@ -181,6 +281,7 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
     function stopForwarding() {
         retireLease();
         binding = null;
+        newRequest();
     }
 
     function sync(state) {
@@ -257,7 +358,7 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
     function session(location, args, deadline, signal) {
         return run("setpriv", ["--pdeathsig", "KILL", "--", location.command, ...args, "--home", location.folder],
             { env: SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT), cwd: location.folder,
-                limit: OUTPUT_BYTES, deadline, group: true, signal });
+                limit: args[0] === "status" ? STATUS_BYTES : OUTPUT_BYTES, deadline, group: true, signal });
     }
 
     async function read(signal) {
@@ -279,7 +380,11 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
         let answer = null;
         try { answer = JSON.parse(result.stdout.trim()); }
         catch { log("jarvis: satellite=status cause=unparsed"); }
-        return reading(answer, value, acceptReach);
+        const reach = reading(answer, value, acceptReach);
+        if (!signal.aborted && reach.kind === "satellite" && reach.cause !== "setting-invalid"
+                && value === mainHost() && location.folder === home())
+            collect(answer, location, settingOf(value, location.folder));
+        return reach;
     }
 
     function show(reach) {
@@ -314,12 +419,13 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
             if (closed || own !== controller) return;
             controller = null;
             if (reach !== null) show(reach);
-            if (mainHost() !== "") timer = clock.set(() => { timer = null; refresh(); }, READ_EVERY_MS);
+            schedule();
         }, error => {
             if (closed || own !== controller) return;
             controller = null;
             log("jarvis: satellite=status cause=" + (error.code || "unexpected"));
             show({ kind: "unavailable", host: hostOf(mainHost()), cause: "package-unread" });
+            schedule();
         });
     }
 
@@ -390,6 +496,9 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
         // this answer and the spawn, and a refused binding publishes no lease.
         const authority = authorize();
         if (authority.kind !== "allow") return failed(authority.reason);
+        const issuing = voiceSession === null || confirmed.session == null ? null : {
+            request, binding: confirmed.session, gen: voiceSession.gen, ref: confirmed.request.ref
+        };
         const record = { v: 1, request: { ...confirmed.request, text: call.args.text }, confirmation: confirmed.confirmation };
         if (confirmed.confirmation.scope === "session") {
             try {
@@ -415,6 +524,17 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
             return { outcome: "unknown", content: "Unknown: the forward ended before the Jarvis package answered, so the request may be in this computer's outbox or not." };
         // A remember's own line says it went to main, never that it is saved.
         const remember = call.args.purpose === "remember";
+        if (issuing !== null && !closed && (result.code === 0 || result.code === 75)) {
+            let receipt;
+            try { receipt = JSON.parse(result.stdout); } catch { receipt = null; }
+            if (receipt?.v === 1 && receipt.request === issuing.ref && KEY.test(receipt.key)
+                    && receipt.state === (result.code === 0 ? "delivered" : "queued")) {
+                const route = routeOf(issuing.binding.home, issuing.binding.main);
+                pending.set(route + receipt.key, { ...issuing, key: receipt.key, route, until: now() + WAIT_MS, kept: now() + KEEP_MS });
+                save();
+                showWait();
+            } else log("jarvis: satellite=answer cause=receipt-unread");
+        }
         if (result.code === 0)
             return { outcome: "completed", content: "Completed: the request reached Jarvis main.",
                 ...(remember ? { line: "remember-delivered" } : {}) };
@@ -444,8 +564,11 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
             // Read at offer, route and start.
             available: forwarding,
             start(call, done, authorize, origin, confirmed) {
-                forward(call, confirmed, authorize).then(answer => { done(answer); refresh(); },
-                    error => done(failed(error.code || "unexpected")));
+                for (const [id, item] of pending) if (item.kept <= now()) retire(id, item);
+                if (reserved + pending.size >= RECEIPTS) { done(failed("answer-receipts-full")); return; }
+                reserved++;
+                forward(call, confirmed, authorize).then(answer => { reserved--; done(answer); refresh(); },
+                    error => { reserved--; done(failed(error.code || "unexpected")); });
             } },
         stopExecutor: { commands: [], timeoutMs: LOCAL_MS, cancellable: false,
             available: () => !closed && voiceSession !== null && mainHost() !== "",
@@ -453,10 +576,11 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
                 stopForwarding();
                 done({ outcome: "completed", content: "Completed: forwarding from this conversation stopped." });
             } },
-        refresh, choose, sync, session: currentSession,
+        refresh, choose, sync, newRequest, session: currentSession,
         close() {
             if (closed) return Promise.allSettled([inFlight, setting]);
             closed = true;
+            pending.clear();
             stopForwarding();
             voiceSession = null;
             stopRead();

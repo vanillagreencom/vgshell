@@ -320,6 +320,8 @@ def streaming_cases(m):
                     observed = [h for h, _ in answers(output.getvalue())]
                     expected = [{"type": "partial", "id": 1, "text": "draft", "rev": 1},
                                 {"type": "partial", "id": 1, "text": "revised draft", "rev": 2}]
+                    if mode:
+                        expected.insert(0, {"type": "heard", "id": 1})
                     if mode and not active:
                         expected.append({"type": "ended", "id": 1, "speech": True})
                     if observed != expected:

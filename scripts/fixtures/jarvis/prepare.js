@@ -291,7 +291,7 @@ function transcripts(file) {
             fixtureTranscript = false;
             for (const [gen, text, rev] of [[state.gen, "current caption", 1], [state.gen + 1, "other caption", 2]])
                 write({ v: 1, type: "transcript", gen, revision: context.revision,
-                    role: "assistant", text, stage: "partial", rev });
+                    role: "assistant", text, stage: "partial", rev, source: "conversation", origin: null });
         }`;
     const changed = source.replace(start, start + "\nlet fixtureTranscript = true;")
         .replace(state, state + fixture);

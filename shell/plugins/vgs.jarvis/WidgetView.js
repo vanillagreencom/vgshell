@@ -3,6 +3,8 @@
 .import "SetupGate.js" as Gate
 .import "Session.js" as Session
 
+var FORWARD_WAIT_TEXT = "Waiting for Jarvis main";
+
 // One state classification for the widget from the service and Session.
 // view() draws status and the existing recovery link. The console owns
 // its own information and does not read the bar tooltip.

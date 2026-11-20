@@ -222,8 +222,10 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             if (!closed) log("jarvis: task-voice=notify-failed cause=" + (error.code || "error"));
         });
     }
-    const sendItem = item => send(item.notice === undefined ? item.text : item.notice.body,
-        item.notice === undefined ? TITLE : item.notice.title);
+    function sendItem(item) {
+        if (item.forward) item.forward.open();
+        else send(item.notice === undefined ? item.text : item.notice.body, item.notice === undefined ? TITLE : item.notice.title);
+    }
 
     const open = refusal => refusal === null || refusal === "busy";
     const entry = name => asked.prompts.get(name) ?? { count: 0, open: false };
@@ -237,26 +239,35 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         if (availablePrompts() === null) return null;
         return held.find(prompt => entry(key(prompt)).count < ASKS) ?? null;
     }
-    const queued = () => queue.length > 0 && (queue[0].notice === undefined || availablePrompts() !== null);
+    function nextItem(s) {
+        return queue.findIndex(item => (item.notice === undefined || availablePrompts() !== null) && refusalFor(s, item) === null);
+    }
+
+    function refusalFor(s, item) {
+        if (item.gen !== s.gen || item.forward && !item.forward.current()) return "ended";
+        if (item.notice && s.voiceMute.kind === "on") return "muted";
+        return session.relayRefusal(s, item.notice !== undefined);
+    }
 
     function pump() {
         if (closed) return;
         const s = state();
         const refusal = session.relayRefusal(s);
+        queue = queue.filter(item => {
+            if (open(refusalFor(s, item))) return true;
+            sendItem(item);
+            return false;
+        });
         if (!open(refusal)) {
-            for (const item of queue.splice(0)) sendItem(item);
             for (const prompt of held) {
                 if (told.has(key(prompt))) continue;
                 told.add(key(prompt));
                 send(promptLine(prompt, "notification"));
             }
-            return;
         }
-        // A line whose conversation ended unspoken is told the other way.
-        for (const item of queue) if (item.gen !== s.gen) sendItem(item);
-        queue = queue.filter(item => item.gen === s.gen);
         if (asked.gen !== s.gen) asked = { gen: s.gen, prompts: new Map() };
-        if (refusal === null && !scheduled && (queued() || unasked() !== null)) {
+        if (!scheduled && (nextItem(s) !== -1
+                || queue.length === 0 && refusal === null && unasked() !== null)) {
             scheduled = true;
             defer(speak);
         }
@@ -268,14 +279,17 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         scheduled = false;
         if (closed) return;
         const s = state();
-        if (session.relayRefusal(s) !== null || asked.gen !== s.gen) return;
+        if (asked.gen !== s.gen) { pump(); return; }
         if (queue.length > 0) {
-            if (!queued()) return;
-            const item = queue.shift();
+            const next = nextItem(s);
+            if (next === -1) { pump(); return; }
+            const [item] = queue.splice(next, 1);
             delivered = { ...item, notified: false };
-            dispatch({ type: "relay", text: item.text, labels: item.labels, ask: null });
+            dispatch({ type: "relay", text: item.text, labels: item.labels, ask: null,
+                ...(item.notice === undefined ? {} : { answer: true }) });
             return;
         }
+        if (session.relayRefusal(s) !== null) return;
         const prompt = unasked();
         if (prompt === null) return;
         asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });
@@ -286,12 +300,13 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
     }
 
     return Object.freeze({
-        answer(item) {
+        answer(item, forward) {
             if (closed) return;
             const labelled = Policy.item(item.content, item.labels);
             const spoken = answerLine(labelled);
-            if (spoken === null) { send(ANSWER_NOTICE.body, ANSWER_NOTICE.title); return; }
-            queue.push({ text: spoken.content, labels: spoken.labels, notice: ANSWER_NOTICE, gen: state().gen });
+            const delivery = { notice: ANSWER_NOTICE, gen: forward?.gen ?? state().gen, forward };
+            if (spoken === null) { sendItem(delivery); return; }
+            queue.push({ ...delivery, text: spoken.content, labels: spoken.labels });
             pump();
         },
         observe(views) {
@@ -315,6 +330,9 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             pump();
         },
         session: pump,
+        spoken(gen, text) {
+            if (delivered?.gen === gen && delivered.text === text && !delivered.notified) delivered.forward?.spoken?.();
+        },
         interrupted(gen, ask) {
             const name = ask.task + "/" + ask.prompt;
             if (closed || gen !== asked.gen || !asked.prompts.has(name)) return;
