@@ -2039,8 +2039,32 @@ world(async () => {
         fault(w, "live=send-backlog");
     }
 
-    async function delegation(kit) {
-        const { w, conn } = await conversing(kit);
+    async function stopReplacement(w, complete) {
+        // Gemini's replaced reply already handed real PCM to the player.
+        // End its reply gap and wait for the player's own receipt.
+        w.clock.advance(500);
+        await until(() => w.state.playback.kind === "idle" && w.state.speech.reply.kind === "none",
+            "the replaced reply drains before Stop");
+        const { gen, op } = w.delegations.at(-1);
+        assert.deepEqual([w.state.turn.kind, w.state.turn.gen, w.state.turn.op], ["thinking", gen, op],
+            "the replacement request owns the current brain turn");
+        if (complete) {
+            w.dispatch("brain-done", { gen, op });
+            assert.deepEqual([w.state.turn.kind, w.state.playback.kind, w.state.speech.reply.kind],
+                ["none", "idle", "none"], "the completed replacement has no pending speech");
+            const before = JSON.parse(JSON.stringify(w.state));
+            w.dispatch("stop");
+            assert.deepEqual(JSON.parse(JSON.stringify(w.state)), { ...before, stops: before.stops + 1 },
+                "idle Stop revokes forwarding and preserves the open call");
+        } else {
+            w.dispatch("stop");
+            assert.equal(say(w, "Late words."), false, "stopped work speaks no late words");
+        }
+        assert.equal(w.tools, 0);
+    }
+
+    async function delegation(kit, complete = false) {
+        const { w, conn } = await conversing(kit, { thinking: true });
         const task = w.delegations[0];
         heard(conn, "item_blank", " ");
         const before = w.transcripts.length;
@@ -2062,9 +2086,7 @@ world(async () => {
         const spoken = w.judged.filter(item => item.content.startsWith(JSON.stringify({ type: SPEAK }).slice(0, -1)));
         assert.equal(spoken.length, 1, "words waiting for a replaced request never leave");
         assert.equal(w.engine.commentary(task.delegation, kit.Policy.item("Old words.", ["speech"])), false, "a replaced request takes no more words");
-        w.dispatch("stop");
-        assert.equal(say(w, "Late words."), false, "stopped work speaks no late words");
-        assert.equal(w.tools, 0);
+        await stopReplacement(w, complete);
     }
 
     async function violations(kit, P = REALTIME) {
@@ -2893,8 +2915,8 @@ world(async () => {
     }
 
     // Each finished turn reaches the brain once; words after it start the next.
-    async function gdelegation(kit) {
-        const { w, conn } = await gconversing(kit);
+    async function gdelegation(kit, complete = false) {
+        const { w, conn } = await gconversing(kit, { thinking: true });
         const task = w.delegations[0];
         const before = w.transcripts.length;
         GEMINI.heard(conn, "blank", " ");
@@ -2926,9 +2948,7 @@ world(async () => {
         conn.send({ serverContent: { turnComplete: true } });
         await conn.sync();
         assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 1, "words waiting for a replaced request never leave");
-        w.dispatch("stop");
-        assert.equal(say(w, "Late words."), false, "stopped work speaks no late words");
-        assert.equal(w.tools, 0);
+        await stopReplacement(w, complete);
     }
 
     // The hold: each user turn's words arm it, and the voice's own turn ends
@@ -3104,7 +3124,7 @@ world(async () => {
     const cases = { roundTrip, preview, vocabulary, fragmentedInput, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, interruptPlaying,
         capIdle, capActive, capAutomatic, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
-        startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
+        startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, idleDelegation: kit => delegation(kit, true), lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt"),
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
@@ -3118,7 +3138,7 @@ world(async () => {
         daemonVoiceActedFault: async kit => {
             for (const stage of ["active", "queued", "playing", "played"]) await daemonDelegation(kit, "voice-acted", REALTIME, stage);
         },
-        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures, gcapWarnings,
+        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, idleGeminiDelegation: kit => gdelegation(kit, true), gunread, gfailures, gcapWarnings,
         gredirect, gstartTimeout, gkeys,
         ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
@@ -3267,7 +3287,7 @@ world(async () => {
                 "session.playing !== null)) session.events.due(true);", as("replyDueCarried")],
             ["release-due", "release(session);\n            session.events.due(false);", "release(session);", as("releaseDue")],
             ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
-            ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
+            ["blank-turn", 'event.text.trim() === "" || answerHeld(input.answer, event.text)', "answerHeld(input.answer, event.text)", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],
             ["replaced-words", "// Words still waiting answer the request this one replaces.\n                session.speech.queue = [];\n                session.speech.chars = 0;", "", as("delegation")],
             ["line-replace", "const waiting = session.speech.queue.findIndex(words => words.line === true);",

@@ -1329,6 +1329,8 @@ const table = [
             let s = pendingReply(logic);
             assert.equal(s.playback.reply.kind, "waiting");
             if (done) s = step(logic, s, callback("brain-done", s.turn, 43)).state;
+            assert.equal(logic.phaseOf(s), "speaking", "the queued reply keeps its speaking indication");
+            assert.equal(logic.canStop(s), true, "the queued reply can be stopped after the brain finishes");
             const r = step(logic, s, callback("flushed", s.playback, 44));
             assert.equal(r.state.playback.kind, "playing");
             assert.equal(r.state.playback.deadline, done ? 300043 : null);
@@ -1755,7 +1757,7 @@ try {
         ["restart-no-reopen", 'if (open) start(s, effects, "conversation", e.at);', 'void open;', "restart-once"],
         ["restart-reopens-closed", 'var open = s.input.kind === "conversation";', 'var open = true;', "restart-closed-inputs"],
         ["restart-unspent", 'if (s.restart.kind === "restarted") s.restart = { kind: "spent" };', 'void s;', "restart-once"],
-        ["restart-unrenewed", 'userConversation(s);\n        if (s.settings.sounds === true)', 'if (s.settings.sounds === true)', "restart-allowance"],
+        ["restart-unrenewed", 'userConversation(s);\n        if (s.settings.sounds === true)', 'if (s.settings.sounds === true)', "restart-user-start"],
         ["restart-typed-unrenewed", 'userConversation(s);\n    }\n    spendRestart(s);', '}\n    spendRestart(s);', "restart-user-start"],
         ["restart-preview-unrenewed", '\n    userConversation(s);\n', '\n', "restart-user-start"],
         ["restart-renewed-after-restart", 's.restart.kind === "restarted" ? { kind: "spent" } : { kind: "none" }', '{ kind: "none" }', "restart-closed-inputs"],

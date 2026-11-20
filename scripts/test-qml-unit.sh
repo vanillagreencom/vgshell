@@ -218,7 +218,7 @@ mutations=(
   "hidden Jarvis still hands assistant words to Words|../plugins/vgs.jarvis/Bubble.qml|readonly property string words:|readonly property string words: hidden && voiceMuted && root.hold === null && caption !== null ? caption.text :|tst_jarvis_overlay.qml"
   "hidden Jarvis loses its held question and answers|../plugins/vgs.jarvis/Bubble.qml|            visible: root.hold !== null"$'\n'"            spacing: root.look.layout.gap|            visible: root.hold !== null && !root.hidden"$'\n'"            spacing: root.look.layout.gap|tst_jarvis_overlay.qml"
   "hidden Jarvis loses its fault|../plugins/vgs.jarvis/Bubble.qml|root.fault !== null)|false)|tst_jarvis_overlay.qml"
-  "Jarvis's Key hints opens the Settings tab's top|../plugins/vgs.jarvis/WidgetView.js|tab: \"Settings/Keys\"|tab: \"Keys\"|tst_jarvis_overlay.qml"
+  "the Jarvis bar menu's Key hints misses the Settings Keys section|../plugins/vgs.jarvis/WidgetView.js|tab: \"Settings/Keys\"|tab: \"Keys\"|tst_jarvis_widget.qml"
   "Jarvis's voice entry mutes the microphone|../plugins/vgs.jarvis/WidgetView.js|intent: \"voice-mute\"|intent: \"microphone-mute\"|tst_jarvis_overlay.qml"
   "Jarvis's orb keeps its first canvas|../plugins/vgs.jarvis/Appearance.js|size: length(255)|size: length(300)|tst_jarvis_overlay.qml"
   "Jarvis's waiting orb stands still|../plugins/vgs.jarvis/ParticleOrb.qml|moving: root.active && root.visible && root.look.motion.scale > 0|moving: root.active && root.visible && root.look.motion.scale > 0 && root.phase !== \"idle\"|tst_jarvis_orb.qml"

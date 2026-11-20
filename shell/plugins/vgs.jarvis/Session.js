@@ -50,8 +50,13 @@ function initial() {
     };
 }
 
-// One phase judge for the wire and the shell. Closing/flushing do not claim
-// listening/speaking.
+// A reply can wait behind a spoken line or a player that is still flushing.
+// Finishing that cleanup alone needs no Stop, but its waiting reply does.
+function playbackReply(s) {
+    return s.playback.kind === "playing" || s.playback.reply?.kind === "waiting";
+}
+
+// One phase judge for the wire and the shell.
 function phaseOf(s) {
     if (s.check.kind === "recording" && s.capture.kind === "open") return "listening";
     if (s.gate.kind === "down") return "down";
@@ -61,8 +66,7 @@ function phaseOf(s) {
     // A duplex reply speaks from the moment its words go to the voice, as a
     // chained reply does from its play, before the voice's first audio, and
     // as one held behind a spoken line does.
-    if (s.playback.kind === "playing" || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
-            || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
+    if (playbackReply(s) || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
     if (s.turn.kind === "thinking" || s.turn.kind === "cancelling" || s.input.kind === "finishing-input") return "thinking";
     if (s.capture.kind === "open") return "listening";
     return "idle";
@@ -85,7 +89,7 @@ function canStop(s) {
     if (!canClose(s) || s.fault.kind !== "none") return false;
     return previewConversation(s) || s.turn.kind === "thinking" || s.approval.kind === "held"
         || s.action.kind === "running" && s.action.cancellation.kind === "available"
-        || s.playback.kind === "playing" || s.speech.kind === "open" && s.speech.reply.kind !== "none"
+        || playbackReply(s) || s.speech.kind === "open" && s.speech.reply.kind !== "none"
         || s.input.kind === "finishing-input"
         || ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1;
 }

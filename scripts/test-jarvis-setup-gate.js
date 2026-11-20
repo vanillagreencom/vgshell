@@ -2882,11 +2882,19 @@ try {
         ["drift-any-page-open", "onPageViewedChanged: if (pageViewed) hello()", "onPageViewedChanged: if (pageViewed) { hello(); askDrift(); }", verifyHomeDrift],
         ["drift-any-tab", 'readonly property bool setupViewed: shell !== null && shell.status.viewedTab === "Setup"', "readonly property bool setupViewed: shell !== null && shell.status.viewed", verifyHomeDrift],
         ["drift-update-unasked", "onRecheck: { root.hello(); root.askDrift(); }", "onRecheck: { root.hello(); }", verifyHomeDrift],
-        ["drift-before-ready", 'if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;', "if (!driftWanted || shell === null) return;", verifyHomeDrift],
-        ["drift-at-voice-start", "        sendIntent(name);\n    }\n\n    function newConversation", "        askDrift();\n        sendIntent(name);\n    }\n\n    function newConversation", verifyHomeDrift]]) {
+        ["drift-before-ready", 'if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;', "if (!driftWanted || shell === null) return;", verifyHomeDrift]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
         assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
+    }
+    {
+        const entry = "function intent(name) {";
+        assert.equal(serviceSource.split(entry).length, 2, "one voice intent entry");
+        const withDrift = serviceSource.replace(entry, entry + '\n        if (name === "talk-down") askDrift();');
+        assert.throws(() => verifyHomeDrift(load(file), withDrift),
+            error => error instanceof assert.AssertionError && error.message.includes("talk-down: a Voice start asks for no drift reading"),
+            "a drift request on Talk must fail the voice-start assertion");
+        console.log("test-jarvis-setup-gate: control=drift-at-voice-start rejected=true");
     }
     verifyDiagnosticSeverity(serviceSource);
     {
