@@ -156,7 +156,7 @@ Item {
         showActions: face.card.hovered && slot.leaving === ""
         captionOnly: slot.refusal !== ""
         caption: slot.refusal !== "" ? slot.refusal
-            : slot.key !== "" && slot.service !== null && slot.service.noActionKey === slot.key && slot.leaving === "" ? "No action" : ""
+            : slot.service !== null && slot.leaving === "" ? slot.service.rowCaption(slot.key) : ""
         orb: slot.orbness * slot.orbness
         edgeVisible: slot.hover > 0 || (slot.service !== null && !slot.service.panelOpen)
         edgeSpin: slot.look.edge.spin * slot.orbness

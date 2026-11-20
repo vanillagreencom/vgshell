@@ -255,6 +255,7 @@ FocusScope {
             const previousKey = selectedKey;
             const previousIndex = currentIndex;
             const previousRows = rows;
+            const previousAction = actionIndex < 0 ? "" : actionIdsAt(previousIndex)[actionIndex];
             mode = state.mode === "history" ? "history" : "inbox";
             subtitle = String(state.subtitle || "");
             sound = state.sound === true;
@@ -269,7 +270,8 @@ FocusScope {
             else currentIndex = successorIndex(previousRows, previousIndex, previousKey);
             const row = rowAt(currentIndex);
             selectedKey = row === null ? "" : row.key;
-            if (selectedKey !== previousKey || actionIndex >= actionsOf(currentIndex).length) actionIndex = -1;
+            if (actionIndex >= 0)
+                actionIndex = selectedKey === previousKey ? actionIdsAt(currentIndex).indexOf(previousAction) : -1;
             refreshing = false;
             updateSelectionHover();
             revealRow(currentIndex);
@@ -354,9 +356,11 @@ FocusScope {
         return index >= 0 && index < rows.length ? rows[index] : null;
     }
 
-    function actionsOf(index) {
+    // Keyboard focus follows a visible pill by its identity when the sender changes its actions.
+    function actionIdsAt(index) {
         const row = rowAt(index);
-        return row !== null && Array.isArray(row.actions) ? row.actions.slice(0, 3) : [];
+        if (row === null || row.caption || !Array.isArray(row.actions)) return [];
+        return row.actions.slice(0, 3).map((action, i) => i === 2 && row.actions.length > 3 ? "more" : action.id);
     }
 
     function choose(key, choice) {
@@ -399,14 +403,14 @@ FocusScope {
 
     function pressAction() {
         const row = rowAt(currentIndex);
-        const actions = actionsOf(currentIndex);
+        const actions = actionIdsAt(currentIndex);
         if (row === null || actionIndex < 0 || actionIndex >= actions.length) return false;
         const slot = rowRepeater.itemAt(currentIndex);
         return slot !== null && slot.face !== null && slot.face.card.activateAction(actionIndex, "key");
     }
 
     function moveAction(delta) {
-        const actions = actionsOf(currentIndex);
+        const actions = actionIdsAt(currentIndex);
         if (actions.length === 0) return false;
         if (actionIndex < 0) actionIndex = delta > 0 ? 0 : actions.length - 1;
         else actionIndex = (actionIndex + delta + actions.length) % actions.length;
@@ -622,6 +626,7 @@ FocusScope {
                                     faceImages: slot.entry.faceImages || []
                                     emoji: slot.entry.emoji || null
                                     actions: slot.entry.actions || []
+                                    caption: slot.entry.caption || ""
                                     showActions: (slot.selected || hovered) && actions.length > 0
                                     actionIndex: slot.selected ? root.actionIndex : -1
                                     keyboardActions: true

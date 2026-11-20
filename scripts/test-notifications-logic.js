@@ -1335,7 +1335,7 @@ function verify(logic) {
 
     // Choices: [label, choice, offered, plan]. Opening delivers default,
     // else the first action offered, and a pill its own action while it is
-    // offered; both raise either way; dismissing does neither.
+    // offered. A withdrawn pill stays on the row to show why it failed.
     for (const [label, choice, offered, want] of [
         ["open while held", "open", ["default", "reply"], { deliver: "default", raise: true, leave: "invoke" }],
         ["open with nothing held", "open", [], { deliver: "", raise: true, leave: "invoke" }],
@@ -1344,23 +1344,23 @@ function verify(logic) {
         ["open skips an action with no identifier", "open", ["", "reply"], { deliver: "reply", raise: true, leave: "invoke" }],
         ["the default action's pill opens", "action:default", ["default"], { deliver: "default", raise: true, leave: "invoke" }],
         ["another action raises too", "action:reply", ["default", "reply"], { deliver: "reply", raise: true, leave: "invoke" }],
-        ["an action no longer offered still raises", "action:reply", [], { deliver: "", raise: true, leave: "invoke" }],
+        ["an action no longer offered stays on its row", "action:reply", [], { deliver: "", raise: false, leave: "", unavailable: true }],
         ["dismiss", "dismiss", ["default"], { deliver: "", raise: false, leave: "dismiss" }],
         ["a choice no card offers", "focus", ["default"], null],
         ["an action with no identifier", "action:", ["default"], null]
     ])
-        same(logic.choicePlan(choice, offered, false), want, "choice away from a live resident toast: " + label);
+        same(logic.choicePlan(choice, offered, false), want, "choice on a nonresident notification: " + label);
     for (const [choice, offered, want] of [
         ["open", ["default", "reply"], { deliver: "default", raise: true, leave: "" }],
         ["open", ["reply"], { deliver: "reply", raise: true, leave: "" }],
         ["action:default", ["default"], { deliver: "default", raise: true, leave: "" }],
         ["action:reply", ["default", "reply"], { deliver: "reply", raise: true, leave: "" }],
-        ["action:reply", ["default"], { deliver: "", raise: true, leave: "invoke" }],
+        ["action:reply", ["default"], { deliver: "", raise: false, leave: "", unavailable: true }],
         ["open", [], { deliver: "", raise: true, leave: "invoke" }],
         ["dismiss", ["default"], { deliver: "", raise: false, leave: "dismiss" }],
         ["focus", ["default"], null]
     ])
-        same(logic.choicePlan(choice, offered, true), want, "choice on a live resident toast: " + choice);
+        same(logic.choicePlan(choice, offered, true), want, "choice on a resident notification: " + choice);
 
     // The act shortcut's target: [label, live, history, key]. The newest by
     // arrival, on screen or in the history, past an entry the Inbox
@@ -1924,9 +1924,9 @@ const CONTROLS = [
     ["only an offered action is delivered", 'var deliver = offered.indexOf(id) !== -1 ? id : "";', 'var deliver = id;'],
     ["an open raises", "raise: true, leave:", "raise: id !== \"default\", leave:"],
     ["another action raises too", "raise: true, leave:", "raise: id === \"default\", leave:"],
-    ["a resident action stays on screen", 'residentOnScreen && deliver !== "" ? "" : "invoke"', '"invoke"'],
-    ["an expired resident action leaves", 'residentOnScreen && deliver !== "" ? "" : "invoke"', 'deliver !== "" ? "" : "invoke"'],
-    ["a resident choice without delivery leaves", 'residentOnScreen && deliver !== "" ? "" : "invoke"', 'residentOnScreen ? "" : "invoke"'],
+    ["a delivered resident action stays live", 'resident && deliver !== "" ? "" : "invoke"', '"invoke"'],
+    ["a delivered nonresident action leaves", 'resident && deliver !== "" ? "" : "invoke"', 'deliver !== "" ? "" : "invoke"'],
+    ["a resident open without delivery leaves", 'resident && deliver !== "" ? "" : "invoke"', 'resident ? "" : "invoke"'],
     ["dismiss delivers nothing", 'if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };', ""],
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["the act target is the newest", "if (all[i].timestamp > newest) {", "if (all[i].timestamp < newest || i === 0) {"],

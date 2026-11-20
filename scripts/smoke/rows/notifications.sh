@@ -540,6 +540,9 @@ click_panel_item() { # TYPE TEXT
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
+# card_value SUMMARY NAME: the value NAME of the card SUMMARY on the first
+# screen that draws it, as JSON, or none.
+card_value() { ipc smoke layerItems vgs.notifications NotificationCard "summary,$2" | py_reply 'import json,sys; print(next((json.dumps(v[sys.argv[2]]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), "none"))' "$1" "$2"; }
 shown_pills() { ipc smoke layerItems vgs.notifications CardSlot summary,actions | py_reply 'import json,sys; print(json.dumps(next(([a["label"] for a in v["actions"]] for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), None)))' "$1"; }
 has_row() { row_summaries "$1" | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$2"; }
 in_history() { history_summaries | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
@@ -879,8 +882,7 @@ left_into_history "the toast clicked for its first action stays in the history" 
 # the inbox rows of a notification its sender closed and of one whose
 # toast was dismissed deliver nothing, and still raise. A dismissed toast
 # goes into the history, and so does every row an action ran on. A resident
-# notification keeps its live toast and action authority until Dismiss;
-# opening its expired inbox row closes it. Where the window
+# notification still offers its actions after its toast expires. Where the window
 # is on the screen is the reveal row's (rows/compositor-reveal.sh).
 sender_class=smoke.sender
 sender_focused="[\"$sender_class\", \"Sender window\"]"
@@ -889,8 +891,11 @@ other_focused='["smoke.other", "Other window"]'
 # default action and a Reply, URGENCY a byte; prints its id.
 sender_note() { notify "$sender_class" 0 "$1" "" '["default", "Open", "reply", "Reply"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>}" 0; }
 # resident_note SUMMARY URGENCY: as sender_note, a resident notification
-# with a default action alone.
-resident_note() { notify "$sender_class" 0 "$1" "" '["default", "Open"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>, \"resident\": <true>}" 0; }
+# with Open and Edit.
+resident_note() { notify "$sender_class" 0 "$1" "" '["default", "Open", "edit", "Edit"]' "{\"desktop-entry\": <\"$sender_class\">, \"urgency\": <byte $2>, \"resident\": <true>}" 0; }
+resident_held() { expect "opening a resident history row keeps its notification on the server" 0 closed_on_server "$1"; }
+history_card_actions() { ipc smoke itemValues panel vgs.notifications NotificationCard summary,actions | py_reply 'import json,sys; print(json.dumps(next(([a["label"] for a in r["actions"]] for r in json.load(sys.stdin) if r["summary"] == sys.argv[1]), None)))' "$1"; }
+history_card_caption() { ipc smoke itemValues panel vgs.notifications NotificationCard summary,caption | py_reply 'import json,sys; print(next((r["caption"] for r in json.load(sys.stdin) if r["summary"] == sys.argv[1]), "absent"))' "$1"; }
 # delivered ID ACTION: how many times ACTION reached notification ID.
 delivered() { grep -c "ActionInvoked (uint32 $1, '$2')" -- "$signals" || true; }
 activation_tokens() { grep -c "ActivationToken" -- "$signals" || true; }
@@ -1018,6 +1023,9 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   notify "$sender_class" "$resident_id" "Resident toast" "" '["default", "Open"]' "{\"desktop-entry\": <\"$sender_class\">, \"resident\": <true>}" 0 >/dev/null
   expect_poll "a producer update removes Edit while the card stays hovered" '["Open", "Dismiss"]' shown_pills "Resident toast"
   expect "the producer update retains the original live key" "$resident_key" key_of "Resident toast"
+  expect "a stale Edit press stays on the resident toast" held notes choose "{\"key\": \"$resident_key\", \"choice\": \"action:edit\"}"
+  expect_poll "the toast explains why its former Edit action could not run" '"The app no longer offers this action."' card_value "Resident toast" caption
+  expect_poll "the refused action's caption clears" '""' card_value "Resident toast" caption
   focus_other
   act_on "the resident Dismiss" "Resident toast" Dismiss '["Open", "Dismiss"]'
   expect_poll "Dismiss closes the resident notification once" 1 closed_on_server "$resident_id"
@@ -1130,8 +1138,8 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect "that row delivers no action" 0 delivered "$dismissed_id" default
   expect_poll "the opened dismissed inbox row stays in the history" True in_history "Dismissed from its toast"
 
-  # A resident notification whose toast expired: the service still holds
-  # it for its inbox row, and opening that row closes it on the server.
+  # The same resident notification accepts a press after its toast expires
+  # and a second press from History. The sender alone ends its actions.
   focus_other
   inbox_closed || fail "the inbox never closed before the resident inbox row"
   resident_inbox_id="$(resident_note "Resident in the inbox" 0)"
@@ -1142,8 +1150,35 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the expired resident toast is in the history" True in_history "Resident in the inbox"
   open_card "the resident inbox row" "Resident in the inbox"
   expect_poll "a click on the resident inbox row delivers its default action once" 1 delivered "$resident_inbox_id" default
-  expect_poll "a click on the resident inbox row closes it on the server" 1 closed_on_server "$resident_inbox_id"
+  resident_held "$resident_inbox_id"
   expect_poll "the opened resident inbox row stays in the history" True in_history "Resident in the inbox"
+  expect_poll "the resident inbox action raises its sender" "$sender_focused" active_window
+  focus_other
+  inbox_closed || fail "the inbox did not close when its sender took focus"
+  expect "History opens after the resident action" ok notes history
+  expect_poll "the history card still offers Open and Edit" '["Open", "Edit", "Dismiss"]' history_card_actions "Resident in the inbox"
+  resident_history_key="$(history_key "Resident in the inbox")"
+  resident_open="{\"key\": \"$resident_history_key\", \"choice\": \"action:default\"}"
+  expect "Open on the resident history card keeps its entry" kept notes choose "$resident_open"
+  expect_poll "the server emits a second Open for the original notification" 2 delivered "$resident_inbox_id" default
+  resident_held "$resident_inbox_id"
+  # The server emits ActionInvoked before the compositor finishes its
+  # deferred reveal. Reopen History once the sender actually has focus.
+  expect_poll "the second Open raises its sender" "$sender_focused" active_window
+  inbox_closed || fail "the sender's second Open left the panel open"
+  expect "History opens to select Edit" ok notes history
+  expect_poll "the resident row is selected before the sender closes" "Resident in the inbox" panel_selected_summary
+  type_keys -k Right -k Right || fail "selecting the resident Edit pill failed"
+  expect_poll "Edit is selected on the resident row" 1 ipc smoke readInstance panel vgs.notifications actionIndex
+  close_note "$resident_inbox_id" || fail "the sender could not close its resident notification"
+  expect_poll "the sender closes its resident notification" 1 closed_on_server "$resident_inbox_id"
+  expect_poll "the closed notification offers only Show and Dismiss" '["Show", "Dismiss"]' history_card_actions "Resident in the inbox"
+  expect "withdrawn Edit gives focus to the row without selecting Dismiss" -1 ipc smoke readInstance panel vgs.notifications actionIndex
+  expect "a stale Open stays on the closed history card" held notes choose "$resident_open"
+  expect_poll "the card explains why its Open could not run" "This entry can no longer send actions." history_card_caption "Resident in the inbox"
+  type_keys -k Left || fail "moving focus while the refusal caption shows failed"
+  expect "the refusal caption keeps the hidden Dismiss pill out of keyboard navigation" -1 ipc smoke readInstance panel vgs.notifications actionIndex
+  expect "the stale Open sends no further action" 2 delivered "$resident_inbox_id" default
 
   expect "the server sent the sender no activation token" 0 activation_tokens
   expect "the inbox closes after the open rows" ok notes close
@@ -1172,9 +1207,6 @@ fi
 # delivers the action and raises Slack's window, as every View did before,
 # and the stand-in's reading holds no link. Before either, a click on a
 # Slack card while Slack has no log reads none and opens nothing.
-# card_value SUMMARY NAME: the value NAME of the card SUMMARY on the first
-# screen that draws it, as JSON, or none.
-card_value() { ipc smoke layerItems vgs.notifications NotificationCard "summary,$2" | py_reply 'import json,sys; print(next((json.dumps(v[sys.argv[2]]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), "none"))' "$1" "$2"; }
 slack_log="$home/.config/Slack/logs/default/browser.log"
 slack_link="slack://channel?id=C0GLOBEXREVIEW&message=1791590000.000100&team=T0GLOBEX"
 slack_focused='["slack", "Slack window"]'
@@ -5003,7 +5035,7 @@ expect "the shell.json the refusal toasts found is reloaded" ok ipc shell reload
 expect_poll "the shell reads no refusal sound choice" unset note_sound_chosen
 
 # The controls: a service copy whose key runs no click and sets no
-# refusal caption.
+# refusal caption, and whose history rows use the former on-screen rule.
 act_service="$repo/shell/plugins/vgs.notifications/Service.qml"
 cp -- "$act_service" "$sandbox/Service.act-kept.qml"
 python3 - "$act_service" <<'PY_ACT'
@@ -5014,6 +5046,9 @@ text=text.replace(needle, needle.replace('        choose(key, "open");\n', ''))
 for caption in ('            refusalCaption = "No notification";\n', '            refusalCaption = shown ? "" : "No action";\n'):
     assert text.count(caption)==1, caption
     text=text.replace(caption, '')
+resident='Logic.choicePlan(choice, offeredIds, notification && notification.resident)'
+assert text.count(resident)==1, resident
+text=text.replace(resident, resident.replace('notification &&', 'onScreen(key) && notification &&'))
 assert text != p.read_text()
 p.write_text(text)
 PY_ACT
@@ -5034,6 +5069,19 @@ act_refusal_control() {
   (failures=0; behaviour_failures=0; expect_poll "with nothing stored the key shows the caption-only toast" '["No notification"]' refusal_toasts >"$sandbox/act-refusal-control.log"; echo "$failures")
 }
 expect "control: a refusal with no toast fails the caption-toast check" 1 act_refusal_control
+expect "Silence puts the resident control straight into history" on notes silence on
+old_resident="$(resident_note "Resident history control" 0)"
+expect_poll "the resident control enters history" True in_history "Resident history control"
+expect_poll "the historical control holds its notification before the press" 1 note_status held
+old_key="$(history_key "Resident history control")"
+expect "the old rule runs Open in history" kept notes choose "{\"key\": \"$old_key\", \"choice\": \"action:default\"}"
+expect_poll "the control actually delivers Open" 1 delivered "$old_resident" default
+expect_poll "the old rule then closes the notification" 1 closed_on_server "$old_resident"
+old_resident_check() {
+  (failures=0; behaviour_failures=0; resident_held "$old_resident" >"$sandbox/resident-history-control.log"; echo "$failures")
+}
+expect "control: the old on-screen rule fails the resident history check" 1 old_resident_check
+expect "the history control is cleared before the restore" ok notes clear-history
 cp -- "$sandbox/Service.act-kept.qml" "$act_service"
 rescan "a rescan restores the service whose key runs the click"
 expect_poll "the restored act service is built" True record_exists vgs.notifications

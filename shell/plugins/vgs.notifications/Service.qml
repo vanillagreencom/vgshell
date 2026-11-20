@@ -47,8 +47,8 @@ Item {
     // holds, kept out of the model, since a model role holding an object the
     // server destroys dangles: each live toast's, and after it leaves the one
     // its history entry can still open (NotificationLogic.heldAfterLeave),
-    // until that entry goes, the user dismisses or acts on it or its sender
-    // closes it.
+    // until that entry goes, its sender closes it, the user dismisses it
+    // or the user invokes a nonresident action.
     // At most one per stored entry, so the history's limit bounds them.
     // `links` are the [signal, handler] pairs connected to it, disconnected
     // when the service lets go of it.
@@ -81,9 +81,9 @@ Item {
     property string panelMode: ""
     readonly property bool panelOpen: panelMode !== ""
     property bool panelFocused: false
-    // The toast that shows its no-action caption, "" while none does
-    // (actOnLast); noActionClock ends it.
-    property string noActionKey: ""
+    // One temporary caption on the row whose press could not run.
+    property var rowNotice: null
+    onRowNoticeChanged: if (panelOpen) bumpPanel()
     // The caption of the caption-only toast the act shortcut shows when it
     // is refused and no toast of its notification is on screen, "" while
     // none shows (actOnLast). It is no row, so nothing stores, counts or
@@ -363,7 +363,7 @@ Item {
         const entry = key === "" ? null : entryFor(key);
         if (entry === null) {
             console.info("notifications: act refused=no-notification");
-            noActionKey = "";
+            rowNotice = null;
             refusalCaption = "No notification";
             noActionClock.restart();
             return;
@@ -372,7 +372,7 @@ Item {
             console.info("notifications: act refused=no-action");
             const at = indexOf(key);
             const shown = at !== -1 && rowModel.get(at).leaving === "";
-            noActionKey = shown ? key : "";
+            rowNotice = shown ? { key: key, text: "No action" } : null;
             refusalCaption = shown ? "" : "No action";
             noActionClock.restart();
             return;
@@ -385,7 +385,7 @@ Item {
         id: noActionClock
         interval: root.look === null ? 0 : root.look.motion.noActionHold
         onTriggered: {
-            root.noActionKey = "";
+            root.rowNotice = null;
             root.refusalCaption = "";
         }
     }
@@ -564,6 +564,17 @@ Item {
         return at !== -1 && rowModel.get(at).origin === "live" && rowModel.get(at).leaving === "";
     }
 
+    function rowCaption(key) {
+        return rowNotice !== null && rowNotice.key === key ? rowNotice.text : "";
+    }
+
+    function refuseAction(key, text) {
+        rowNotice = { key: key, text: text };
+        refusalCaption = "";
+        noActionClock.restart();
+        return false;
+    }
+
     // The object closed without the service asking: its sender closed it,
     // or the server let it go after an action choose() delivered. A toast
     // its sender closed leaves as closed; its history entry stays and opens
@@ -573,6 +584,7 @@ Item {
         if (!Logic.hasOwn(held, key) || held[key].notification !== n) return;
         unlink(key, "drop");
         if (onScreen(key) && key !== delivering) leave(key, "closed");
+        else if (panelOpen) bumpPanel();
     }
 
     // A held notification its sender updated in place: a toast on screen
@@ -864,8 +876,8 @@ Item {
             return true;
         }
         const offeredIds = offered(key).map(a => a.identifier);
-        const residentOnScreen = onScreen(key) && Logic.hasOwn(held, key) && held[key].notification.resident;
-        const plan = Logic.choicePlan(choice, offeredIds, residentOnScreen);
+        const notification = Logic.hasOwn(held, key) ? held[key].notification : null;
+        const plan = Logic.choicePlan(choice, offeredIds, notification && notification.resident);
         if (plan === null) {
             console.error("notifications: refused: choice=" + choice + " want=open|open-file|action:<id>|dismiss");
             return false;
@@ -874,19 +886,25 @@ Item {
         // notification and the toast start to leave.
         const senders = plan.raise ? Logic.senderWindows(windows(), entry) : [];
         const message = Logic.messageRequest(choice, offeredIds, entry, slackPhotos.workspaces, slackPhotos.teams);
+        if (plan.unavailable)
+            return refuseAction(key, notification ? "The app no longer offers this action." : "This entry can no longer send actions.");
+        if (choice === "open" && !notification && senders.length === 0 && message === null)
+            return refuseAction(key, "This entry can no longer send actions.");
         let delivered = false;
         if (plan.deliver !== "") {
             try {
-                const action = held[key].notification.actions.find(a => a.identifier === plan.deliver);
+                const action = notification.actions.find(a => a.identifier === plan.deliver);
                 delivering = key;
                 action.invoke();
                 delivered = true;
             } catch (e) {
                 console.warn("notifications: action " + plan.deliver + " failed: " + e.message);
+                return refuseAction(key, "Could not send the action to the app.");
             } finally {
                 delivering = "";
             }
         }
+        if (rowCaption(key) !== "") rowNotice = null;
         if (senders.length > 0) {
             const reply = shell.compositor.reveal(senders, delivered);
             if (reply !== "ok") console.warn("notifications: reveal " + reply);
@@ -1056,6 +1074,7 @@ Item {
         out.faceImages = enrichment !== null ? faceImages(enrichment, entry.image, workspace) : [];
         out.emoji = emojiFor(enrichment, workspace);
         out.actions = actionsFor(entry.key);
+        out.caption = rowCaption(entry.key);
         return out;
     }
 

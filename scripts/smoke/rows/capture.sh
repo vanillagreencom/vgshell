@@ -2034,24 +2034,26 @@ capture_key() { ipc smoke modelRows vgs.notifications rows key,app,summary,leavi
 capture_choose() {
   local key
   key="$(capture_key "$1")" || return 1
-  ipc smoke invokeInstance service vgs.notifications chooseFromPanel "$(python3 -c 'import json,sys; print(json.dumps({"key": sys.argv[1], "choice": sys.argv[2]}))' "$key" "$2")"
+  capture_choose_key "$key" "$2"
+}
+capture_choose_key() { # KEY CHOICE
+  ipc smoke invokeInstance service vgs.notifications chooseFromPanel "$(python3 -c 'import json,sys; print(json.dumps({"key": sys.argv[1], "choice": sys.argv[2]}))' "$1" "$2")"
 }
 capture_choose_unshown() { capture_choose "Screenshot unshown" action:edit; }
 capture_opened() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps([json.loads(l) for l in p.read_text().splitlines()][-1] if p.exists() else None))' "$capture_open/$1.calls"; }
 capture_held_count() { ipc vgs.notifications invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["held"])'; }
-# capture_notify_left: the managed Capture sender processes on the private
-# session bus, read from /proc.
-capture_notify_left() { python3 - "unix:path=$rt_dir/bus" "$capture_helper" <<'PY'
+# The helper path belongs to this disposable plugin copy. Its --notify
+# workers are the managed Capture senders in the private PID namespace.
+capture_notify_left() { python3 - "$capture_helper" <<'PY'
 import os, sys
-bus = ("DBUS_SESSION_BUS_ADDRESS=" + sys.argv[1]).encode()
+helper = os.fsencode(sys.argv[1])
 left = 0
 for pid in filter(str.isdigit, os.listdir("/proc")):
     try:
         argv = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
-        env = open(f"/proc/{pid}/environ", "rb").read().split(b"\0")
     except OSError:
         continue
-    if os.fsencode(sys.argv[2]) in argv and b"--notify" in argv and bus in env:
+    if helper in argv and b"--notify" in argv:
         left += 1
 print(left)
 PY
@@ -2096,6 +2098,23 @@ expect "another screenshot starts for Edit-first actions" ok ipc vgs.capture inv
 expect_poll "the Edit-first screenshot finishes" idle capture_phase
 expect_poll "the Edit-first screenshot offers its buttons" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
 capture_actions_hold Edit-first edit default edit
+capture_quiet "screenshot history actions"
+expect "a screenshot starts for History" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the History screenshot finishes" idle capture_phase
+expect_poll "the History screenshot offers its buttons on the toast" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+capture_history_key="$(capture_key "Screenshot saved")"
+capture_saved_path="$(capture_path)"
+hover 0 "$((mon_h / 2))" || fail "moving the pointer clear of the screenshot toast failed"
+expect_poll "the screenshot toast expires before pressing Open" none capture_key "Screenshot saved"
+expect "the screenshot sender is still held after toast expiry" 1 capture_held_count
+expect "History opens for the expired screenshot" ok ipc vgs.notifications invoke history ''
+capture_expected_calls="$(capture_notice_calls)"
+for press in 1 2; do
+  capture_expected_calls="$(capture_notice_expect_call "$capture_expected_calls" viewer "$capture_saved_path")"
+  expect "History Open $press keeps the screenshot row" kept capture_choose_key "$capture_history_key" action:default
+  expect_poll "History Open $press starts exactly one viewer on the saved file" "$capture_expected_calls" capture_notice_calls
+done
+expect "History closes after both viewer calls" ok ipc vgs.notifications invoke close ''
 # Control: change only the shipped sender's action callback in the private
 # product copy. The same identity assertion must reject one-shot delivery.
 capture_quiet "control: one-shot sender"

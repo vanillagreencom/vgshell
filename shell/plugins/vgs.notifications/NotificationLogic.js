@@ -1805,20 +1805,21 @@ function actionsFor(actions, canRaise, hintOpen) {
 // own) or `dismiss`; `offered` the identifiers the notification the
 // service holds offers now, [] when it holds none. Opening delivers the
 // primary action (primaryAction) and a pill its own action while it is
-// offered; either then brings the sender's window into view, delivered or
-// not, since every action names a place in the sender and a sender on
+// offered. A withdrawn pill reports unavailable on the row. An open or a
+// delivered pill brings the sender's window into view, since a sender on
 // Wayland cannot raise itself without the activation token the server
 // never sends. Dismissing delivers and raises nothing. `deliver` is ""
 // when there is nothing to deliver; `leave` is the reason the row leaves
 // with, or "" for a delivered live resident action. Null for a choice no
-// card offers. History rows and nonresident notifications still leave.
-function choicePlan(choice, offered, residentOnScreen) {
+// card offers. Residency belongs to the sender in both the toast and history.
+function choicePlan(choice, offered, resident) {
     var c = String(choice || "");
     if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };
     var id = c === "open" ? primaryAction(offered) : c.indexOf("action:") === 0 ? c.slice(7) : "";
     if (id === "" && c !== "open") return null;
     var deliver = offered.indexOf(id) !== -1 ? id : "";
-    return { deliver: deliver, raise: true, leave: residentOnScreen && deliver !== "" ? "" : "invoke" };
+    if (c !== "open" && deliver === "") return { deliver: "", raise: false, leave: "", unavailable: true };
+    return { deliver: deliver, raise: true, leave: resident && deliver !== "" ? "" : "invoke" };
 }
 
 // The action a click on a card runs: the freedesktop `default` when the
