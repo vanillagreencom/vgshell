@@ -141,9 +141,6 @@ Item {
             tryCompare(file, "live", "read");
             service.lease('{"id":"widget","open":false}');
             service.lease('{"id":"new-widget","open":true}');
-            // The stand-in retains its last armed path across an empty
-            // path. Permit the new generation to arm that path again.
-            file.armedPath = "";
             file.finishRead("cpu 999999 0 0 0 0 0 0 0\n");
             drain("active");
             compare(readingsCount(), 1);

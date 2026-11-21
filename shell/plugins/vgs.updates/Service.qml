@@ -45,11 +45,29 @@ Item {
     readonly property string statusPath: stateDir + "/status.json"
     readonly property string outcomePath: stateDir + "/outcome.json"
     readonly property string bootPath: "/proc/stat"
+    readonly property string packageLogPath: "/var/log/pacman.log"
+    // The last completed transaction this instance read in the package log
+    // (UpdatesLogic.packageLogMark), null before the first read.
+    property var packageLogMark: null
+    // Whether the next read takes the log as it stands and judges nothing:
+    // the check asked with it covers the transactions already there. Any
+    // answer ends it; after a failed read the next read judges them, which
+    // costs at most one more check and loses none.
+    property bool packageLogRebase: false
+    // Whether a read was asked while one was in flight, which may predate
+    // what the ask is for: that result is dropped and the log read again.
+    property bool packageLogAgain: false
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
     readonly property string connectivityPath: Quickshell.shellDir + "/../bin/lib/connectivity.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
+    // Whether an install run of this plugin's TUIs (shell.tui.state is keyed
+    // by script name) has not yet asked its own check: until then its
+    // transactions are its own, and that check, which tui/pipeline.sh asks
+    // after its last package step, covers them. The log viewer installs
+    // nothing.
+    readonly property bool installing: !runChecked && ["update", "update-source"].some(name => (currentTuiState[name] || {}).running === true)
     // The reboot-notice system step, which the core probes again after its
     // run in core/system and after each plugin scan.
     readonly property var rebootStep: shell === null ? null : shell.system.state["reboot-notice"]
@@ -97,7 +115,10 @@ Item {
         if (Logic.tuiRunEnded(lastTuiState, state)) {
             outcomeReader.reload();
             if (runChecked) runChecked = false;
-            else requestCheck("tui");
+            else {
+                rebasePackageLog();
+                requestCheck("tui");
+            }
         }
         lastTuiState = state;
     }
@@ -125,6 +146,8 @@ Item {
         cacheReader.path = statusPath;
         outcomeReader.path = outcomePath;
         bootReader.path = bootPath;
+        packageLogWatch.path = packageLogPath;
+        readPackageLog(false);
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
     }
@@ -216,9 +239,12 @@ Item {
     }
 
     function requestCheck(reason) {
-        if (reason === "run") runChecked = true;
+        if (reason === "run") {
+            runChecked = true;
+            rebasePackageLog();
+        }
         if (checking && phase !== "publishing") {
-            if (reason === "run" || reason === "tui") queued = true;
+            if (reason === "run" || reason === "tui" || reason === "log") queued = true;
             return "queued";
         }
         phase = "startup";
@@ -293,6 +319,39 @@ Item {
         publishNow();
     }
 
+    function rebasePackageLog() {
+        packageLogSettle.stop();
+        readPackageLog(true);
+    }
+
+    function readPackageLog(rebase) {
+        if (rebase === true) packageLogRebase = true;
+        if (packageLogReader.path !== "") {
+            packageLogAgain = true;
+            return;
+        }
+        packageLogReader.path = packageLogPath;
+    }
+
+    // MARK is undefined for an unreadable log, which keeps the last mark.
+    function takePackageLog(mark) {
+        // An empty path unloads the view (FileView.path,
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView),
+        // so the service holds the mark and none of the log between reads.
+        packageLogReader.path = "";
+        if (packageLogAgain) {
+            packageLogAgain = false;
+            Qt.callLater(readPackageLog);
+            return;
+        }
+        const rebase = packageLogRebase;
+        packageLogRebase = false;
+        if (mark === undefined) return;
+        const completed = !rebase && Logic.packageLogCompleted(packageLogMark, mark);
+        packageLogMark = mark;
+        if (completed && !installing) requestCheck("log");
+    }
+
     function publishNow(completed) {
         if (shell === null) return false;
         const notice = Logic.rebootNoticeValue(rebootStep);
@@ -356,6 +415,41 @@ Item {
             root.bootRead = true;
             console.warn("updates: boot time unreadable: " + error);
             root.maybeCheck();
+        }
+    }
+
+    // Watches the package log for a transaction an install outside the
+    // Updates window completed. The engine's view watches the file and its
+    // folder, and reports the file again once it is created or replaced, so
+    // a log missing at start or rotated keeps its watch (FileView::
+    // onWatchedDirectoryChanged in the shipped engine's src/io/fileview.cpp).
+    FileView {
+        id: packageLogWatch
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: if (!root.installing) packageLogSettle.restart()
+    }
+
+    // A transaction's hooks write after its completed line, and a script's
+    // next transaction follows within seconds: one read once the log has
+    // been quiet this long takes the burst as one change, well inside the
+    // minute an outside install may take to reach the count.
+    Timer {
+        id: packageLogSettle
+        objectName: "packageLogSettle"
+        interval: 5000
+        repeat: false
+        onTriggered: root.readPackageLog(false)
+    }
+
+    FileView {
+        id: packageLogReader
+        printErrors: false
+        onLoaded: root.takePackageLog(Logic.packageLogMark(text()))
+        onLoadFailed: error => {
+            if (error !== FileViewError.FileNotFound) console.warn("updates: package log unreadable: " + error);
+            root.takePackageLog(error === FileViewError.FileNotFound ? Logic.packageLogMark("") : undefined);
         }
     }
 

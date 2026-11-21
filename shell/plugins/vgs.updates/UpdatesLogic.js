@@ -526,6 +526,29 @@ function tuiRunEnded(previous, current) {
     return false;
 }
 
+// The last completed transaction in pacman's log as { at, line }: where its
+// line starts and the line, or { at: -1, line: "" } for a log with none.
+// libalpm, whichever front end runs it, logs "[<time>] [ALPM] transaction
+// completed" as each transaction commits: its "[%s] [%s] " prefix, "%FT%T%z"
+// time and that text are in libalpm.so.16. The line's time and place
+// together tell a later commit from it, in a replaced log or within the
+// same second.
+var PACKAGE_LOG_COMPLETED = "] [ALPM] transaction completed\n";
+function packageLogMark(text) {
+    var log = String(text);
+    var end = log.lastIndexOf(PACKAGE_LOG_COMPLETED);
+    if (end < 0) return { at: -1, line: "" };
+    var at = log.lastIndexOf("\n", end) + 1;
+    return { at: at, line: log.slice(at, end + PACKAGE_LOG_COMPLETED.length - 1) };
+}
+
+// Whether MARK names a transaction completed after PREVIOUS, the mark an
+// earlier read took; the first read is history and judges nothing.
+function packageLogCompleted(previous, mark) {
+    if (previous === null || mark.at < 0) return false;
+    return mark.at > previous.at || mark.line !== previous.line;
+}
+
 // Whether NAME matches PATTERN as fnmatch(3) with no flags matches it, the
 // way alpm matches a hook's `Target`: `*`, `?`, a bracket expression with
 // `!` or `^` to negate it, and `\` quoting the next character.

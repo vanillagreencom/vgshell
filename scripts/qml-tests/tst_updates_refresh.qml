@@ -237,7 +237,7 @@ Item {
         // A TUI run ends: the service reads its outcome, and starts the
         // run's check unless the run asked it.
         function endRun(endedAt) {
-            service.shell = Object.assign({}, root.facade, { tui: { state: { "vgs.updates/update": { running: false, endedAt: endedAt } } } });
+            service.shell = Object.assign({}, root.facade, { tui: { state: { update: { running: false, endedAt: endedAt } } } });
         }
         function test_a_run_that_checked_starts_no_second_check() {
             startup(); view.open("{}"); admission(4);
@@ -255,6 +255,144 @@ Item {
             endRun(2);
             admission(4);
             compare(checks().length, 1, "a run that asked no check gets one at its end");
+        }
+        // The package log's two views: the watch keeps its path, and the
+        // reader holds it only while a read is out.
+        function packageLogView(watching) {
+            const found = Array.from(service.data).filter(row => row.path === service.packageLogPath && row.watchChanges === watching);
+            compare(found.length, 1);
+            return found[0];
+        }
+        function readPackageLog(text) {
+            const file = packageLogView(false);
+            if (text === null) file.failRead(FileViewError.FileNotFound);
+            else file.finishRead(text);
+        }
+        // The settle wait ends at once; `changed` requires a change to have
+        // started it.
+        function settle(changed) {
+            const timer = Array.from(service.data).find(row => row.objectName === "packageLogSettle");
+            if (changed) verify(timer.running, "a log change waits for the log to settle");
+            timer.stop();
+            timer.triggered();
+        }
+        function requests() {
+            return ProcessRegistry.processes.filter(row => row.running && row.command.some(arg => String(arg).endsWith("connectivity.js"))).length;
+        }
+        function completed(second) { return "[2026-11-21T05:50:" + second + "-0800] [ALPM] transaction completed\n"; }
+        function startTui(name) {
+            service.shell = Object.assign({}, root.facade, { tui: { state: { [name]: { running: true, endedAt: null } } } });
+        }
+        // An install outside the window reaches the count; the log's
+        // content at the first read is history and starts nothing.
+        function test_package_log_transaction_requests_one_check_data() {
+            const history = "[2026-11-21T05:50:20-0800] [ALPM] transaction started\n" + completed(21)
+                + "[2026-11-21T05:50:22-0800] [ALPM] running 'a.hook'...\n";
+            return [
+                { tag: "completed line appended", first: history, next: history + "[2026-11-21T05:50:30-0800] [ALPM] transaction started\n" + completed(31), checks: 1 },
+                { tag: "other lines appended", first: history, next: history + "[2026-11-21T05:50:30-0800] [PACMAN] synchronizing package lists\n", checks: 0 },
+                { tag: "second commit in the same second", first: history, next: history + completed(21), checks: 1 },
+                { tag: "log replaced", first: history, next: completed(40), checks: 1 },
+                { tag: "log emptied", first: history, next: "", checks: 0 },
+                { tag: "log created", first: null, next: completed(40), checks: 1 }
+            ];
+        }
+        function test_package_log_transaction_requests_one_check(data) {
+            startup();
+            readPackageLog(data.first);
+            compare(requests(), 0, "the log's history starts no check");
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(data.next);
+            compare(requests(), data.checks);
+        }
+        // An update run's own check covers its transactions: they start no
+        // other check, before it or after it, and a burst after the run is
+        // one check.
+        function test_package_log_window_job_and_burst() {
+            startup();
+            let log = completed(21);
+            readPackageLog(log);
+            startTui("update");
+            log += completed(30);
+            packageLogView(true).change();
+            settle(false);
+            readPackageLog(log);
+            compare(requests(), 0, "a transaction before the run's check starts no check");
+            log += completed(31);
+            compare(root.facade.ipc.call("check", "run"), "started");
+            readPackageLog(log);
+            admission(4); process("bin/check").finish(0, 0, snapshot(1), "");
+            compare(service.checking, false, "the run's transactions start no second check");
+            endRun(1);
+            compare(requests(), 0, "the run's end starts no check");
+            for (const second of [40, 41, 42]) {
+                log += completed(second);
+                packageLogView(true).change();
+            }
+            settle(true);
+            readPackageLog(log);
+            compare(requests(), 1, "a burst of transactions is one check");
+        }
+        // A run stopped before its own check gets one at its TUI's end, which
+        // covers the run's transactions.
+        function test_package_log_run_stopped_before_its_check() {
+            startup();
+            let log = completed(21);
+            readPackageLog(log);
+            startTui("update");
+            log += completed(30);
+            endRun(1);
+            readPackageLog(log);
+            compare(requests(), 1, "the TUI's end checks once");
+            admission(4); process("bin/check").finish(0, 0, snapshot(1), "");
+            log += "[2026-11-21T05:50:40-0800] [PACMAN] synchronizing package lists\n";
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(log);
+            compare(requests(), 0, "the run's transactions start no second check");
+        }
+        // An outside install while a TUI stays open is checked: after the
+        // run's own check, at its close prompt, or while the log viewer is
+        // open.
+        function test_package_log_outside_transaction_while_a_tui_is_open_data() {
+            return [
+                { tag: "after the run's own check", tui: "update", ranCheck: true },
+                { tag: "after a source run's own check", tui: "update-source", ranCheck: true },
+                { tag: "log viewer open", tui: "log", ranCheck: false }
+            ];
+        }
+        function test_package_log_outside_transaction_while_a_tui_is_open(data) {
+            startup();
+            let log = completed(21);
+            readPackageLog(log);
+            startTui(data.tui);
+            if (data.ranCheck) {
+                compare(root.facade.ipc.call("check", "run"), "started");
+                readPackageLog(log);
+                admission(4); process("bin/check").finish(0, 0, snapshot(1), "");
+                compare(service.checking, false);
+            }
+            log += completed(40);
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(log);
+            compare(requests(), 1);
+        }
+        // A check already out may have read the packages before the
+        // transaction: it is replaced once.
+        function test_package_log_transaction_during_a_check_replaces_it() {
+            startup();
+            let log = completed(21);
+            readPackageLog(log);
+            compare(root.facade.ipc.call("check", ""), "started");
+            log += completed(30);
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(log);
+            admission(4); process("bin/check").finish(0, 0, snapshot(3), "");
+            compare(root.values.pending, 97, "the replaced result is never published");
+            compare(requests(), 1, "the replacement starts");
         }
         // expected-log: updates: refused: status=test-unavailable -- planted publication failure
         function test_refused_publication_never_clears_the_mask() {
