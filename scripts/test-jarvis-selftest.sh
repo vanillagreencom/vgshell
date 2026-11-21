@@ -409,6 +409,7 @@ refused() { # WANT_FIRST_STDERR_LINE ARGS...
 holds "an id no account has is refused" refused "jarvis-selftest: refused: argument=--brain value=cli:none reason=unknown-account" --type hello --brain cli:none
 holds "a second input is refused" refused "jarvis-selftest: refused: argument=--tts reason=one-input" --type hello --tts hello --brain "$sign_in"
 holds "no input is refused" refused "jarvis-selftest: refused: argument=input reason=missing want=--wav|--tts|--type" --brain "$sign_in"
+holds "a satellite turn without a home to stand as main is refused" refused "jarvis-selftest: refused: argument=--satellite reason=needs-home" --type hello --brain "$sign_in" --satellite
 holds "a local server without a model is refused before the sandbox starts" refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
 control plant "a local server that starts without a model" '  local) [[ -n $model ]] || refuse "argument=--model reason=missing-local-model" ;;' '  local) true || refuse "argument=--model reason=missing-local-model" ;;' refused "jarvis-selftest: refused: argument=--model reason=missing-local-model" --type hello --brain "$local_id"
 holds "an empty model argument is refused" refused "jarvis-selftest: refused: argument=--model value=" --type hello --brain "$local_id" --model ""
@@ -804,7 +805,7 @@ case_file_bad_alt() {
 }
 holds "an acceptance case file with an empty word list is refused" case_file_empty_words
 holds "an acceptance case file with an invalid alternative token is refused" case_file_bad_alt
-control cut_functions "a case check that accepts extra keys" 'if not required.issubset(data) or set(data) - (required | {"clonedVoice"}):' 'if not required.issubset(data) and set(data) - (required | {"clonedVoice"}):' case_file_malformed
+control cut_functions "a case check that accepts extra keys" 'if not required.issubset(data) or set(data) - (required | {"clonedVoice", "satellite"}):' 'if not required.issubset(data) and set(data) - (required | {"clonedVoice", "satellite"}):' case_file_malformed
 
 case_child_args_local() {
   local voices="$tmp/voices" got
@@ -821,6 +822,8 @@ case_child_args_case() {
 }
 holds "a local recording replaces that case's input and reports source local" case_child_args_local
 holds "a case without a local recording keeps its tracked input and reports source case" case_child_args_case
+case_child_args_satellite() { [[ "$(call selftest_case_child_args "$repo/scripts/jarvis-selftest-cases/satellite-remember.json" "")" == *$'\n--confirm\nkey\n--satellite' ]]; }
+holds "a satellite case runs its child with --satellite" case_child_args_satellite
 control cut_functions "a suite child argument builder that ignores local recordings" 'if local and os.path.isfile(local):' 'if False and local and os.path.isfile(local):' case_child_args_local
 
 
@@ -1598,6 +1601,7 @@ want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
         "dictation": {"daemon": [{"ms": 10, "daemon": "ready", "child": "running"}], "recordings": [{"ms": 20, "phase": "recording"}, {"ms": 30, "phase": "released"}], "unread": 1},
         "sidecar": {"reference": None},
+        "satellite": None,
         "mailbox": [],
         "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "listening"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
         "phases": [{"ms": -100, "phase": "idle"}, {"ms": 250, "phase": "thinking"}, {"ms": 900, "phase": "speaking"}, {"ms": 2100, "phase": "idle"}],
@@ -1663,7 +1667,7 @@ control cut_functions "a record that drops the brain's own text" '"raw": raw,' '
 control cut_functions "a record that drops the Session phases" 'for e in events if e["kind"] == "phase" and e["value"]],' 'for e in events if False],' record_holds
 control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
 control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
-control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
+control cut_functions "a record that lists a mailbox for a run with no home folder" 'mailbox.splitlines()] if home else None' 'mailbox.splitlines()]' mailbox_none
 control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice not in ("local", "elevenlabs"):' '    if False:' realtime_sentences
 control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice not in ("local", "elevenlabs"):' '    if True:' local_sentences
 control cut_functions "a record that reads only the realtime voice's fragments as segments" '    if voice not in ("local", "elevenlabs"):' '    if voice == "realtime":' gemini_sentences
@@ -1671,6 +1675,41 @@ control cut_functions "a record that reads the ElevenLabs voice's sentences as o
 control cut_functions "a mark that passes a turn that did not complete" 'end == "completed" and ' '' not_passed "${failed_rows[0]}"
 control cut_functions "a mark that passes a run that broke a rule" ' and kept == "true"' '' not_passed "${failed_rows[3]}"
 control cut_functions "a mark that passes a turn with no heard text" 'heard is not None and ' '' not_passed "${failed_rows[4]}"
+# The satellite judge, one table: what one planted satellite run left, and
+# the mark. A good run's remember forward is delivered and a main mailbox
+# row holds its key as delivery_id; each other row plants one defect. The
+# rows and their controls prove the judge over planted records, not the
+# chain a run drives.
+satellite_rows=("a delivered remember the main's mailbox holds|none|True" "a forward the outbox does not hold|dropped|False"
+  "a forward no main mailbox row holds|unmailed|False" "a forward that is no remember|plain|False"
+  "a memory write row|written|False" "a changed satellite memory folder|noted|False")
+satellite_case() { # ROW
+  local defect want key=forward-planted outbox after=sum
+  IFS='|' read -r _ defect want <<<"$1"
+  outbox='[{"request":"vgs-audit:t#1:2","key":"forward-planted","state":"delivered","forwarded":"1791633002-1-3"}]'
+  case "$defect" in dropped) outbox='[]' ;; unmailed) key=forward-other ;; noted) after=other ;; esac
+  planted_trace final
+  rm -rf -- "${tmp:?}/satellite-audit" && mkdir -p "$tmp/satellite-audit"
+  python3 - "$tmp/satellite-audit/a.jsonl" "$defect" <<'PY'
+import json, sys
+path, defect = sys.argv[1:]
+row = lambda tool, args: {"kind": "action", "tool": tool, "args": args, "decision": "confirm", "confirmed": "physical", "outcome": "completed"}
+rows = [row("fleet.forward", {"text": "green tea", **({} if defect == "plain" else {"purpose": "remember"})})]
+rows += [row("memory.propose", {})] if defect == "written" else []
+open(path, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+  call selftest_record "$tmp/trace.json" "$tmp/satellite-audit" "$tmp/record.json" idle "" tts "remember green tea" cli:b "/a home" local false key \
+    "{\"id\":\"1791633002-1-3\",\"kind\":\"directive\",\"delivery_id\":\"$key\"}" completed true "$tmp/brain.jsonl" \
+    '{"speechEndMs":null,"firstMs":null,"longestGapMs":null,"sounds":[]}' '{"daemon":[],"recordings":[],"unread":0}' '{"reference":null}' \
+    "{\"ssh\":[],\"outbox\":$outbox,\"memory\":{\"before\":\"sum\",\"after\":\"$after\"}}" >/dev/null || return 1
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["passed"])' "$tmp/record.json")" == "$want" ]]
+}
+for row in "${satellite_rows[@]}"; do holds "a satellite record for [${row%%|*}] reads passed ${row##*|}" satellite_case "$row"; done
+control cut_functions "a satellite judge that takes a forward no main mailbox row holds" ' and r["key"] in keys)' ')' satellite_case "${satellite_rows[2]}"
+control cut_functions "a satellite judge that takes a turn with nothing forwarded" ' and satellite["forwarded"] != []' '' satellite_case "${satellite_rows[1]}"
+control cut_functions "a satellite judge that takes any forward as a remember" '(row.get("args") or {}).get("purpose") == "remember"' 'True' satellite_case "${satellite_rows[3]}"
+control cut_functions "a satellite judge that reads no memory write row" ' and not written' '' satellite_case "${satellite_rows[4]}"
+control cut_functions "a satellite judge that reads no memory folder" ' and satellite["memory"]["before"] == satellite["memory"]["after"]' '' satellite_case "${satellite_rows[5]}"
 
 echo "--- the verdict"
 # One table for the run's end: the turn reader's last word, what the run
@@ -1723,8 +1762,8 @@ control cut_functions "a verdict that reads no voxtype models checksum" '[[ $sum
 control cut_functions "a verdict that passes a run that reached an authentication stand-in" 'if [[ -s $auth_log ]]; then kept=false;' 'if [[ -s $auth_log ]]; then' finish_case "${finish_rows[7]}"
 control cut_functions "a verdict that passes a run with a failed sandbox check" '[[ $failures -eq 0 ]] || { kept=false;' '[[ $failures -eq 0 ]] || {' finish_case "${finish_rows[8]}"
 control cut_functions "a run whose exit status is not its record's mark" '  [[ $verdict == passed ]] || exit 1' '  :' finish_case "${finish_rows[5]}"
-control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json")' '"$end" true "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json")'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[7]}"
-control cut_functions "a finish record that drops dictation" '"$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json")' '"$end" "$kept" "$brain_text" "$audio_json" "" "$sidecar_json")' finish_case "${finish_rows[0]}"
+control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json" "$satellite_json")' '"$end" true "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json" "$satellite_json")'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[7]}"
+control cut_functions "a finish record that drops dictation" '"$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json" "$satellite_json")' '"$end" "$kept" "$brain_text" "$audio_json" "" "$sidecar_json" "$satellite_json")' finish_case "${finish_rows[0]}"
 runner_final_wires_dictation() { grep -q -F -- '"$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"' "$tree/scripts/jarvis-selftest.sh"; }
 holds "the runner final call passes the dictation record into the verdict" runner_final_wires_dictation
 control plant "a runner final call that passes an empty dictation record" '"$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"' '"$audio_json" "" "$voxtype_models_sum" "$voxtype_models"' runner_final_wires_dictation
@@ -1913,7 +1952,7 @@ holds "the cloned voice with the realtime voice is refused" cloned_realtime
 holds "the sidecar handed the recording reads reference true" cloned_sidecar yes '{"reference": true}'
 holds "the sidecar without it reads reference false" cloned_sidecar no '{"reference": false}'
 holds "the record holds the sidecar field and a case that wanted the clone differs without it" cloned_record
-control cut_functions "a case check that takes any clonedVoice value" 'if data.get("clonedVoice", True) is not True:' 'if False:' cloned_case
+control cut_functions "a case check that takes any clonedVoice value" '    if data.get(key, True) is not True:' '    if False:' cloned_case
 control cut_functions "a child argument builder that drops the cloned voice" '    print("--cloned-voice")' '    pass' cloned_case
 control plant "a runner that leaves the setting off" '    row["clonedVoice"] = True' '    pass' cloned_settings
 control plant "a runner that copies the recording with its own mode" 'install -m 600 -- "$clone_state/clone-ready.json"' 'cp -- "$clone_state/clone-ready.json"' cloned_settings

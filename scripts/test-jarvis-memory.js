@@ -504,7 +504,7 @@ world(() => {
         logic => assert.deepEqual(offeredMemory(logic, () => ({ home: () => null })), []));
     controls++;
     // A satellite reads its home's notes and never writes one: main's
-    // memory writer is the one writer.
+    // Jarvis session writes the note a satellite's remember forwards.
     const satelliteOffer = logic => assert.deepEqual(offeredMemory(logic, folder => ({ home: () => folder, main: () => false })),
         ["memory.read", "memory.search"]);
     satelliteOffer(Memory);

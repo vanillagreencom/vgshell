@@ -165,7 +165,7 @@ world(async () => {
                 assert.deepEqual([result.outcome, result.content.includes(cause)], ["completed", true], label + " is queued and names its cause");
             }
             // A remember names its own line, delivered or queued, and sends
-            // the record any forward sends: main's memory writer writes the note.
+            // the record any forward sends: main's Jarvis session writes the note.
             for (const [label, args, state, line] of [["plain forward", {}, {}, undefined],
                 ["delivered remember", { purpose: "remember" }, {}, "remember-delivered"],
                 ["queued remember", { purpose: "remember" }, { forward: { exit: 75, cause: "main-unreachable" } }, "remember-queued"]]) {

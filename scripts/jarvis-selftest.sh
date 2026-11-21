@@ -10,7 +10,7 @@
 #                                   --brain ID [--home PATH] [--model NAME]
 #                                   [--voice local|realtime|gemini|elevenlabs]
 #                                   [--confirm key|none] [--cloned-voice]
-#                                   [--out FILE]
+#                                   [--satellite] [--out FILE]
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh), with the
 # checkout's Jarvis plugin put back over the harness's instrumented copy, so
@@ -67,6 +67,18 @@
 # the Jarvis session does, with the checkout's lane-mail: once before Jarvis
 # starts, which makes the mailbox where the folder has none and marks the
 # rows it holds as read, and once after the turn, for the rows the turn added.
+# --satellite, which needs --home, runs the turn on a satellite: the copy
+# stands as the main, and Jarvis's home is a git clone of it, as a second
+# computer's home is, so no untracked file of the copy, its private env
+# file among them, reaches it. Main Jarvis host names the copy on
+# vgs-selftest-main.invalid, and an ssh stand-in first on the shell's PATH
+# is the one hop stood in: it refuses any argv but the package's
+# `-o BatchMode=yes -o ConnectTimeout=10 vgs-selftest-main.invalid CMD`,
+# logs each argv, and runs CMD with bash in HOME, stdin passed through, so
+# the package's own reads and sends reach the copy's mailbox. The input
+# waits for the main's reading to name a satellite. A home whose tracked
+# settings put JARVIS_LOG_DIR outside the sandbox is refused. A case asks
+# for it with "satellite": true; a suite without --home does not run it.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
@@ -117,7 +129,11 @@
 # record reads during the voice window),
 # `sidecar` ({reference}: whether the running local speech sidecar was
 # handed the cloned voice's recording, read from its argv, null for none),
-# `mailbox` (with --home, each row the Jarvis session's read of
+# `satellite` (with --satellite, null without: `ssh`, each argv the
+# stand-in logged; `outbox`, the requests of the package's `status --main`;
+# `memory`, the clone's memory/ checksum before and after the turn, or
+# absent; `forwarded`, the delivered keys a mailbox row holds as its
+# delivery_id), `mailbox` (with --home, each row the Jarvis session's read of
 # its mailbox hands over after the turn, as lane-mail prints it; null
 # without), `widget` (each bar widget state as {ms, state}), `phases` (each
 # Session phase as {ms, phase}), `audio`
@@ -128,7 +144,10 @@
 # `end.kind` is completed, fault, gate-down or timeout; `passed`
 # is true only for a completed turn with a heard text, in
 # a run whose --home folder, when named, reads as before, that reached no
-# authentication stand-in and failed no sandbox check.
+# authentication stand-in and failed no sandbox check; with --satellite,
+# only where a completed fleet.forward with purpose remember is forwarded,
+# and no memory.propose or memory.replace row or changed memory/ shows a
+# write on the satellite.
 #
 # The last line is `selftest=<key>`: `selftest=<end.kind> record=<file>`
 # after a turn, else the reason no turn ran. Exit 0 for a passed record, 1
@@ -462,6 +481,37 @@ selftest_mailbox() { # TREE HOME
   env -i PATH="$PATH" "$BASH" "$1/.agents/skills/mailbox/scripts/lane-mail" inbox --item overseer --root "$2"
 }
 
+# selftest_log_dir HOME SANDBOX_HOME: the JARVIS_LOG_DIR the package's own
+# settings reader gives the Jarvis home HOME under SANDBOX_HOME, where a
+# delivered forward writes its event.
+selftest_log_dir() { # HOME SANDBOX_HOME
+  env -i PATH="$PATH" HOME="$2" XDG_STATE_HOME="$2/.local/state" "$BASH" "$1/.agents/skills/jarvis/scripts/lib/jarvis-env.sh" config "$1" |
+    HOME="$2" python3 -c 'import json,os,sys; print(os.path.expanduser(json.load(sys.stdin)["JARVIS_LOG_DIR"]))'
+}
+
+# selftest_memory_sum HOME: selftest_tree_sum of HOME's memory/, `absent`
+# where it has none.
+selftest_memory_sum() { # HOME
+  if [[ -e $1/memory ]]; then selftest_tree_sum "$1/memory"; else echo absent; fi
+}
+
+# selftest_satellite HOME SSH_LOG MEMORY_BEFORE SANDBOX_HOME: the record's
+# `satellite` object but `forwarded`, from the stand-in's log, the requests
+# HOME's own `jarvis-session status --main` lists, which makes no ssh call,
+# under the sandbox's HOME and state as the daemon's call of it runs, and
+# HOME's memory/ now.
+selftest_satellite() { # HOME SSH_LOG MEMORY_BEFORE SANDBOX_HOME
+  local status after
+  status="$(env -i PATH="$PATH" HOME="$4" XDG_STATE_HOME="$4/.local/state" "$BASH" "$1/.agents/skills/jarvis/scripts/jarvis-session" status --main --home "$1")" || return 1
+  after="$(selftest_memory_sum "$1")" || return 1
+  python3 - "$2" "$status" "$3" "$after" <<'PY'
+import json, os, sys
+log, status, before, after = sys.argv[1:]
+ssh = [json.loads(line) for line in open(log)] if os.path.exists(log) else []
+print(json.dumps({"ssh": ssh, "outbox": json.loads(status)["requests"], "memory": {"before": before, "after": after}}, separators=(",", ":")))
+PY
+}
+
 # selftest_daemon WANT_JSON: `applied` once the Jarvis service on stdin, the
 # probe's jarvisProcess reply, is ready and its Session holds every setting
 # of WANT_JSON; else the first thing still missing: the probe's own word,
@@ -765,12 +815,14 @@ PY
 }
 
 # selftest_record TRACE AUDIT OUT PHASE FAULT KIND VALUE BRAIN HOME VOICE
-# HOLD_TO_TALK CONFIRM MAILBOX END KEPT BRAIN_TEXT AUDIO_JSON DICTATION_JSON: the record the header describes,
+# HOLD_TO_TALK CONFIRM MAILBOX END KEPT BRAIN_TEXT AUDIO_JSON DICTATION_JSON
+# SIDECAR_JSON SATELLITE_JSON: the record the header describes,
 # written to OUT by rename, from the probe's trace in the file TRACE, the
 # audit records under AUDIT, which may be absent, and the daemon's own trace
 # of brain text in the file BRAIN_TEXT. HOME is "" for none, MAILBOX is
-# selftest_mailbox's lines, END is selftest_end's word and KEPT says whether
-# the run kept every rule selftest_finish reads. Prints `passed` or `failed`.
+# selftest_mailbox's lines, END is selftest_end's word, KEPT says whether
+# the run kept every rule selftest_finish reads and SATELLITE_JSON is
+# selftest_satellite's object or null. Prints `passed` or `failed`.
 selftest_record() {
   python3 - "$@" <<'PY'
 import json, os, sys
@@ -778,6 +830,8 @@ trace, audit, out, phase, fault, kind, value, brain, home, voice, hold_to_talk, 
 audio = json.loads(rest[0]) if rest else {"speechEndMs": None, "firstMs": None, "longestGapMs": None, "sounds": []}
 dictation = json.loads(rest[1]) if len(rest) > 1 else {"daemon": [], "recordings": [], "unread": 0}
 sidecar = json.loads(rest[2]) if len(rest) > 2 else {"reference": None}
+satellite = json.loads(rest[3]) if len(rest) > 3 else None
+mail = [json.loads(line) for line in mailbox.splitlines()] if home else None
 events = json.load(open(trace))
 # ChainedEngine.js writes one line for each text event of a brain turn.
 raw, turn = [], None
@@ -818,17 +872,24 @@ for event in events[first:]:
     if new:
         sentences.append({"ms": event["at"] - start, "text": new})
     shown = "" if caption["stage"] == "final" else text
-tools = []
+tools, remembered = [], False
 for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
     for line in open(os.path.join(audit, name)):
         row = json.loads(line)
         if row["kind"] == "action":
             tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})
+            remembered = remembered or row["tool"] == "fleet.forward" and row["outcome"] == "completed" and (row.get("args") or {}).get("purpose") == "remember"
 passed = end == "completed" and heard is not None and kept == "true"
+if satellite is not None:
+    # Main's Jarvis session, not this run, turns the directive into a note,
+    # so the forward ends at the main's mailbox.
+    keys = {row.get("delivery_id") for row in mail or []}
+    satellite["forwarded"] = sorted(r["key"] for r in satellite["outbox"] if r["state"] in ("delivered", "read") and r["key"] in keys)
+    written = any(row["tool"] in ("memory.propose", "memory.replace") for row in tools)
+    passed = passed and remembered and satellite["forwarded"] != [] and not written and satellite["memory"]["before"] == satellite["memory"]["after"]
 record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home or None, "voice": voice,
           "holdToTalk": hold_to_talk == "true", "confirm": confirm, "heard": heard, "sentences": sentences, "raw": raw, "tools": tools,
-          "dictation": dictation, "sidecar": sidecar,
-          "mailbox": [json.loads(line) for line in mailbox.splitlines()] if home else None,
+          "dictation": dictation, "sidecar": sidecar, "satellite": satellite, "mailbox": mail,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
           "phases": [{"ms": e["at"] - start, "phase": e["value"]} for e in events if e["kind"] == "phase" and e["value"]],
           "audio": audio, "end": {"kind": end, "phase": phase, "fault": fault or None}, "passed": passed}
@@ -934,7 +995,7 @@ except Exception as error:
     print(f"case=malformed path={path} reason=json", file=sys.stderr)
     sys.exit(1)
 required = {"input", "confirm", "heard", "tool", "said"}
-if not required.issubset(data) or set(data) - (required | {"clonedVoice"}):
+if not required.issubset(data) or set(data) - (required | {"clonedVoice", "satellite"}):
     print(f"case=malformed path={path} reason=keys", file=sys.stderr)
     sys.exit(1)
 def check_input(key):
@@ -950,9 +1011,10 @@ def check_input(key):
         print(f"case=malformed path={path} reason={key}-wav-unreadable", file=sys.stderr)
         sys.exit(1)
 check_input("input")
-if data.get("clonedVoice", True) is not True:
-    print(f"case=malformed path={path} reason=clonedVoice", file=sys.stderr)
-    sys.exit(1)
+for key in ("clonedVoice", "satellite"):
+    if data.get(key, True) is not True:
+        print(f"case=malformed path={path} reason={key}", file=sys.stderr)
+        sys.exit(1)
 if data["confirm"] not in ("none", "key"):
     print(f"case=malformed path={path} reason=enum", file=sys.stderr)
     sys.exit(1)
@@ -1033,6 +1095,8 @@ for word in ("--" + kind, value, "--confirm", case["confirm"]):
     print(word)
 if case.get("clonedVoice"):
     print("--cloned-voice")
+if case.get("satellite"):
+    print("--satellite")
 PY
 }
 
@@ -1089,6 +1153,11 @@ PY
     done < <(selftest_case_child_args "$case_file" "$voices_dir")
     if [[ $voice != local && " ${case_args[*]} " == *" --cloned-voice "* ]]; then
       printf 'case=%s source=%s skipped=cloned-voice-local-voice\n' "$name" "$source"
+      not_run=$((not_run + 1))
+      continue
+    fi
+    if [[ -z $home_source && " ${case_args[*]} " == *" --satellite "* ]]; then
+      printf 'case=%s source=%s skipped=satellite-needs-home\n' "$name" "$source"
       not_run=$((not_run + 1))
       continue
     fi
@@ -1169,6 +1238,7 @@ input_tail=0
 confirm=none
 confirm_seen=false
 cloned=false
+satellite=false
 out=""
 key_references=()
 refuse() { printf 'jarvis-selftest: refused: %s\n' "$*" >&2; exit 2; }
@@ -1214,8 +1284,8 @@ selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=nul
 }
 # selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
 # KIND VALUE BRAIN HOME VOICE HOLD_TO_TALK CONFIRM TREE HOME_COPY BRAIN_TEXT AUDIO_JSON
-# DICTATION_JSON VOXTYPE_MODELS_SUM VOXTYPE_MODELS SIDECAR_JSON: the run's
-# one verdict.
+# DICTATION_JSON VOXTYPE_MODELS_SUM VOXTYPE_MODELS SIDECAR_JSON
+# SATELLITE_JSON: the run's one verdict.
 # It reads the rows the turn added to the mailbox of HOME_COPY, Jarvis's copy
 # of HOME, with TREE's lane-mail, and what the run broke outside its turn:
 # the folder HOME, when named, no longer sums to HOME_SUM; an authentication
@@ -1227,7 +1297,7 @@ selftest: setup=null setupVoice=null daemon=null gate={"kind":"none"} causes=nul
 # broken, then the run's last line, and exits 0 for a passed record and 1
 # for any other.
 selftest_finish() {
-  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" dictation_json="${21:-}" voxtype_models_sum="${22:-}" voxtype_models="${23:-}" sidecar_json="${24:-}" end sum kept=true verdict mailbox=""
+  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${17}" home_copy="${18}" brain_text="${19}" audio_json="${20:-}" dictation_json="${21:-}" voxtype_models_sum="${22:-}" voxtype_models="${23:-}" sidecar_json="${24:-}" satellite_json="${25:-null}" end sum kept=true verdict mailbox=""
   [[ -n $audio_json ]] || audio_json='{"speechEndMs":null,"firstMs":null,"longestGapMs":null,"sounds":[]}'
   [[ -n $dictation_json ]] || dictation_json='{"daemon":[],"recordings":[],"unread":0}'
   [[ -n $sidecar_json ]] || sidecar_json='{"reference":null}'
@@ -1241,7 +1311,7 @@ selftest_finish() {
   if [[ -s $auth_log ]]; then kept=false; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
   [[ $failures -eq 0 ]] || { kept=false; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
   mkdir -p -- "$(dirname -- "$out")"
-  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json")" || stopped record-not-written
+  verdict="$(selftest_record "${@:5:12}" "$mailbox" "$end" "$kept" "$brain_text" "$audio_json" "$dictation_json" "$sidecar_json" "$satellite_json")" || stopped record-not-written
   printf 'selftest=%s record=%s\n' "$end" "$out"
   [[ $verdict == passed ]] || exit 1
   exit 0
@@ -1269,6 +1339,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && $2 =~ ^(key|none)$ ]] || refuse "argument=--confirm value=${2-}"
       confirm="$2"; confirm_seen=true; shift 2 ;;
     --cloned-voice) cloned=true; shift ;;
+    --satellite) satellite=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) refuse "argument=$1" ;;
   esac
@@ -1287,6 +1358,7 @@ if [[ -n $suite_name ]]; then
   [[ -z $voices_dir || -d $voices_dir ]] || refuse "argument=--voices value=$voices_dir reason=not-a-directory"
   [[ $suite_name == all || -f $selftest_cases_dir/$suite_name.json ]] || refuse "argument=--suite value=$suite_name reason=unknown-case"
   [[ $cloned == false ]] || refuse "argument=--cloned-voice reason=case-key"
+  [[ $satellite == false ]] || refuse "argument=--satellite reason=case-key"
 elif ((cold_count > 0)); then
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -z $input_kind ]] || refuse "argument=--cold reason=exclusive-with-input"
@@ -1296,11 +1368,13 @@ elif ((cold_count > 0)); then
   [[ $voice == local ]] || refuse "argument=--cold reason=exclusive-with-voice"
   [[ $confirm == none ]] || refuse "argument=--cold reason=exclusive-with-confirm"
   [[ $cloned == false ]] || refuse "argument=--cloned-voice reason=exclusive-with-cold"
+  [[ $satellite == false ]] || refuse "argument=--satellite reason=exclusive-with-cold"
 else
   [[ -z $voices_dir ]] || refuse "argument=--voices reason=requires-suite"
   [[ -n $input_kind ]] || refuse "argument=input reason=missing want=--wav|--tts|--type"
   [[ -n $brain ]] || refuse "argument=--brain reason=missing"
   [[ $cloned == false || $voice == local ]] || refuse "argument=--cloned-voice reason=needs-local-voice"
+  [[ $satellite == false || -n $home_source ]] || refuse "argument=--satellite reason=needs-home"
 fi
 if [[ $input_kind == wav ]]; then
   [[ -f $input_value && -r $input_value ]] || refuse "argument=--wav value=$input_value reason=unreadable"
@@ -1541,12 +1615,34 @@ if [[ -n $home_source ]]; then
   # only the rows the turn added.
   selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread
 fi
+satellite_home=""
+main_host=""
+if [[ $satellite == true ]]; then
+  satellite_home="$home/jarvis-satellite"
+  main_host="vgs-selftest-main.invalid:$home_copy"
+  env -i PATH="$PATH" HOME="$home" git clone -q -- "$home_copy" "$satellite_home" || stopped satellite-not-cloned
+  # A delivered forward writes its event under JARVIS_LOG_DIR; outside the
+  # sandbox that write fails after delivery, which is no product fault.
+  log_dir="$(selftest_log_dir "$satellite_home" "$home")" || stopped satellite-settings-unread
+  [[ $log_dir == "$sandbox"/* ]] || refuse "argument=--home reason=log-dir-outside-sandbox value=$log_dir"
+  satellite_memory="$(selftest_memory_sum "$satellite_home")" || stopped satellite-memory-unread
+  # The package's ssh call, Forwarder.host in its forward.py, by name off
+  # PATH; a real ssh cannot resolve the .invalid name if this is bypassed.
+  cat >"$shim/ssh.next" <<SH
+#!/usr/bin/env bash
+python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "\$@" >>$(printf %q "$sandbox/selftest-ssh.jsonl")
+[[ \$# -eq 6 && \$1 == -o && \$2 == BatchMode=yes && \$3 == -o && \$4 == ConnectTimeout=10 && \$5 == vgs-selftest-main.invalid ]] || { echo 'ssh: refused by the self-test stand-in' >&2; exit 255; }
+cd "\$HOME" && exec bash -c "\$6"
+SH
+  chmod 755 "$shim/ssh.next"
+  mv -T -- "$shim/ssh.next" "$shim/ssh"
+fi
 # The settings Jarvis starts with, written while it is still disabled.
 # Speech plays to a null sink and never into the feed, and the microphone is
 # the feed's source by name, whatever WirePlumber's defaults are.
-settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "${voice_account:-}" "$cloned" "$model" <<'PY'
+settings="$(python3 - "$home/.config/vgshell/shell.json" "$brain" "$devices_voice_feed_source" "$home_copy" "$voice" "${voice_account:-}" "$cloned" "$model" "$satellite_home" "$main_host" <<'PY'
 import json, sys
-path, brain, microphone, home, voice, voice_account, cloned, model = sys.argv[1:]
+path, brain, microphone, home, voice, voice_account, cloned, model, satellite, main_host = sys.argv[1:]
 config = json.load(open(path))
 row = {"holdToTalk": False, "brain": brain, "voiceProvider": voice, "microphone": microphone, "speaker": "vgs-smoke-speakers"}
 if model:
@@ -1557,6 +1653,8 @@ if voice_account:
     row["voiceAccount"] = voice_account
 if home:
     row["home"] = home
+if satellite:
+    row["home"], row["mainHost"] = satellite, main_host
 config["plugins"] = [r for r in config["plugins"] if r["id"] != "vgs.jarvis"] + [dict(row, id="vgs.jarvis")]
 json.dump(config, open(path, "w"))
 print(json.dumps(row))
@@ -1597,6 +1695,13 @@ speaker_capture="$sandbox/selftest-speaker.jsonl"
 devices_speaker_record "$speaker_capture"
 speaker_state() { [[ -s $speaker_capture ]] && echo ready || echo waiting; }
 selftest_wait 10 ready speaker_state || stopped speaker-capture-not-started
+if [[ $satellite == true ]]; then
+  # A brain keeps the tools it started with, so the input waits until the
+  # main's reading names a satellite and fleet.forward is offered. A
+  # recovery bound for a reading that never comes, not a measured latency.
+  main_reach() { ipc smoke jarvisProcess | py_reply 'import json,sys; print((json.load(sys.stdin)["status"].get("mainReach") or {}).get("kind", "none"))'; }
+  selftest_wait 60 satellite main_reach || stopped_gate satellite-not-ready "reach=$reading"
+fi
 
 input_started_ms=""
 speech_end_ms=""
@@ -1636,6 +1741,10 @@ audio_json="$(selftest_audio_record "$speaker_sounds" "$speech_end_ms" "$window_
 dictation_json="$(selftest_dictation_record "$selftest_dictation_daemon" "$selftest_dictation_recordings" "$selftest_dictation_unread")" || stopped dictation-unread
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 sidecar_json="$(selftest_sidecar "$home/.local/state/vgshell/jarvis")" || stopped sidecar-unread
+satellite_json=null
+if [[ $satellite == true ]]; then
+  satellite_json="$(selftest_satellite "$satellite_home" "$sandbox/selftest-ssh.jsonl" "$satellite_memory" "$home")" || stopped satellite-unread
+fi
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
-  "$phase" "$fault" "$record_kind" "$record_value" "$brain" "$home_source" "$voice" false "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models" "$sidecar_json"
+  "$phase" "$fault" "$record_kind" "$record_value" "$brain" "$home_source" "$voice" false "$confirm" "$source_repo" "$home_copy" "$sandbox/selftest-brain.jsonl" "$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models" "$sidecar_json" "$satellite_json"
