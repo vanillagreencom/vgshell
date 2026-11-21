@@ -594,6 +594,8 @@ def install(judge, state, data, tier, reading, progress):
                              "This model needs an NVIDIA graphics card, which this computer does not have. "
                              "Under Local voice on the Jarvis page, choose a model that runs on any computer.")
         data.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Loads lock DATA itself (D107: remove the old lock file in place).
+        (data / "local-load.lock").unlink(missing_ok=True)
         # Setup holds about twice the download at its peak: archives beside
         # their extracted models and uv's cache beside the environment. A
         # 2.26 GB download measured 4.2 GB on disk after setup. The runtime

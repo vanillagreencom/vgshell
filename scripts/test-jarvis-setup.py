@@ -741,7 +741,7 @@ esac
                 result = self.install(1)
                 self.assertEqual(result.stderr.splitlines()[0].split("=", 2)[:2],
                                  ["jarvis-setup: failed", "probe log"])
-                self.assertIn(str(self.home / ".local/share/vgshell/jarvis/local/local-load.lock"),
+                self.assertIn(f"No such file or directory: '{self.home / '.local/share/vgshell/jarvis/local'}'",
                               (self.state / "setup-local.log").read_text())
                 self.assertFalse((self.state / "local-ready.json").exists())
                 report = self.report()

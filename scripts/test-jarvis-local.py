@@ -532,6 +532,13 @@ m.fcntl.flock=observed
 m.measure=lambda *args: print("entered",flush=True)
 m.run({},[],Path(sys.argv[2]),"cpu",None,"probe")
 '''
+            # The prepared voice reaches a test copy of the shell read-only.
+            self.root.chmod(0o555)
+            try:
+                locked(module, program)
+            finally:
+                self.root.chmod(0o700)
+        def locked(module, program):
             with module.loading(self.models):
                 child = subprocess.Popen([sys.executable, "-I", "-c", program, str(self.program), str(self.models)],
                     env={"PATH": os.environ["PATH"], "LC_ALL": "C"}, stdout=subprocess.PIPE,
@@ -551,7 +558,6 @@ m.run({},[],Path(sys.argv[2]),"cpu",None,"probe")
                 raise
             self.assertEqual(child.returncode, 0, err)
             self.assertEqual((first, out.strip()), ("blocked", "entered"))
-            self.assertTrue((self.models.parent / "local-load.lock").is_file())
         check()
         text = SOURCE.read_text()
         for needle, replacement in [

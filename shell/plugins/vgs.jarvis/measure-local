@@ -179,12 +179,15 @@ def rss():
 def loading(root):
     """Serialize VGS model loads for the same installed model directory.
 
-    The lock stays outside models, which setup replaces. Never unlink it:
-    another opener must reach the same inode while a load holds it.
+    The lock is the directory that holds models, which setup replaces:
+    every opener reaches its one inode, through a read-only view too.
     """
-    with (root.resolve().parent / "local-load.lock").open("a") as lock:
+    lock = os.open(root.resolve().parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
+    finally:
+        os.close(lock)
 
 
 def memory_need(record, scope, provider, ids):

@@ -506,12 +506,14 @@ def admission_case(m):
         judge = m.module("admission_measure", PLUGIN / "measure-local")
         loaded = []
         def locked():
-            with (state / "local-load.lock").open("a") as other:
-                try:
-                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    return
-                raise AssertionError("memory reading or model load ran without the load lock")
+            other = os.open(state, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return
+            finally:
+                os.close(other)
+            raise AssertionError("memory reading or model load ran without the load lock")
         def reading(resource):
             locked()
             return 1024
