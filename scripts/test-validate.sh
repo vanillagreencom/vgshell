@@ -1147,6 +1147,25 @@ commit() {
   "${base_env[@]}" git -C "$1" commit -q -m "$2"
 }
 
+# The branch point must read the configured branch without an environment
+# override. The control removes only the requested key from the call.
+for variant in settings missing-key; do
+  d="$tmp/branch-point-$variant"; fresh "$d"
+  sed -n '/^branch_point() {/,/^}/p' "$d/scripts/validate" >"$d/branch-point.sh"
+  if [[ $variant == missing-key ]]; then
+    plant "$d/branch-point.sh" ' -- WORKTREE_DEFAULT_BRANCH' ''
+  fi
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" "$BASH" -c 'repo=$PWD; source branch-point.sh; branch_point' 2>&1)" || status=$?
+  if [[ $variant == settings && $status == 0 && $out == "$trunk" ]]; then
+    ok "branch point reads the settings branch with no environment override"
+  elif [[ $variant == missing-key && $status == 1 && $out == 'missing=base-branch source=WORKTREE_DEFAULT_BRANCH' ]]; then
+    ok "control: omitting the settings key loses the branch point"
+  else
+    fail "branch point $variant: status=$status output=[$out]"
+  fi
+done
+
 # A plugin README reaches product rows through their real input patterns.
 # Mixed changes keep that reach, except through a wildcard input of a qml
 # row, which starts the shell; a text-only change suppresses it. A file the
