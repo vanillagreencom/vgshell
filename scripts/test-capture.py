@@ -11,6 +11,7 @@ import json
 import ctypes
 import fcntl
 import math
+import io
 import runpy
 import os
 from pathlib import Path
@@ -70,6 +71,61 @@ def release_deadline():
         control = Path(directory) / "capture.py"
         control.write_text(source.replace(needle, "child.wait(timeout=4)", 1))
         assert not release_deadline_holds(control), "per-child cleanup waits exceed the shell window"
+
+
+def processing_progress():
+    """Advance a fake clock through FFmpeg's protocol, not real sleeps.
+
+    FFmpeg n9.1 fftools/ffmpeg.c print_report writes out_time_us=N or N/A,
+    then progress=continue/end (https://ffmpeg.org/ffmpeg.html#Main-options).
+    Only an increasing media timestamp keeps a processing child alive.
+    """
+    module = runpy.run_path(str(HELPER), run_name="capture_progress_test")
+    stall = module["PROCESSING_STALL"]
+    for name, reports, ends, wanted in [
+        ("no-output", [], None, False),
+        ("reports-without-advance", [(1, b"out_time_us=N/A\nprogress=continue\n"),
+                                      (2, b"out_time_us=0\nprogress=continue\n"),
+                                      (4, b"out_time_us=0\nprogress=continue\n")], None, False),
+        ("regressing", [(1, b"out_time_us=100\nprogress=continue\n"),
+                         (4, b"out_time_us=90\nprogress=continue\n")], None, False),
+        ("advancing-past-stall", [(1, b"out_time_"), (1.1, b"us=100\nprogress=continue\n"),
+                                 (4, b"out_time_us=200\nprogress=continue\n"),
+                                 (7, b"out_time_us=300\nprogress=end\n")], 8, True),
+        ("closed-pipe-live-child", [(1, b"")], None, False),
+        ("exited", [], 0, True),
+    ]:
+        clock, queue, reaped = [0.0], list(reports), []
+        class Child:
+            stdout = io.BytesIO()
+            returncode = None
+            killed = False
+            def poll(self):
+                if ends is not None and clock[0] >= ends:
+                    self.returncode = 0
+                return self.returncode
+            def kill(self):
+                self.killed = True
+            def communicate(self, timeout=None):
+                assert self.killed or self.returncode == 0, name
+                self.returncode = -signal.SIGKILL if self.killed else 0
+                reaped.append(True)
+                return b"", None
+        child = Child()
+        owner = module["Capture"].__new__(module["Capture"])
+        owner.signalled = 0
+        def select_progress(readers, *_):
+            clock[0] += 0.1
+            assert clock[0] < 4 * stall, "processing wait has no progress bound: " + name
+            return ([child.stdout] if readers and queue and clock[0] >= queue[0][0] else [], [], [])
+        with patch.object(module["time"], "monotonic", lambda: clock[0]), \
+                patch.object(module["select"], "select", select_progress), \
+                patch.object(module["os"], "read", lambda *_: queue.pop(0)[1]), \
+                patch.object(child.stdout, "fileno", return_value=10):
+            result = owner.wait_processing(child, io.BytesIO())
+        assert result == wanted and child.killed == (not wanted) and reaped, name
+        if name == "advancing-past-stall":
+            assert clock[0] > stall, name
 
 
 def window_source():
@@ -1391,7 +1447,7 @@ def saved_holds(root, helper, audio="desktop", post=True):
                   if post else "")
         edges = start + levels + "[a];anullsrc=r=48000:d=0.05[z];[a][z]acrossfade=d=0.05"
         audio_args = ["-map", "0:a?", "-c:v", "copy", "-filter:a:0", edges, "-ar", "48000", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
-        if (temp is None or processing[0][:-1] != ["-hide_banner", "-loglevel", "warning", "-y", *trim, "-i", str(path), "-map", "0:v:0", *audio_args]
+        if (temp is None or processing[0][:-1] != ["-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-y", *trim, "-i", str(path), "-map", "0:v:0", *audio_args]
                 or temp.parent != path.parent or not temp.name.startswith(".screencast-processing-") or temp.exists() or saved["processing"] != "done"):
             return False
     elif processing or saved["processing"] != "off":
@@ -1905,11 +1961,14 @@ def media(ffprobe, path):
 def real_processing(base, source):
     """Function 18 with the real ffmpeg on a 2 s fixture video this check makes:
     the saved file is 0.1 s shorter, its audio AAC with quiet ends, its
-    thumbnail a JPEG; without Clean up, only the audio's ends change.
+    thumbnail a JPEG; without Clean up, either its ends change or a stalled
+    processing run preserves the original with the existing failure notice.
     Answers the cause when ffmpeg or its lavfi source is absent, else None."""
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
         return "ffmpeg-unavailable"
+    version = subprocess.run([ffmpeg, "-version"], stdin=subprocess.DEVNULL, capture_output=True,
+                             env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=5).stdout.splitlines()[0]
     fixture, quiet = base / "real-fixture.mp4", base / "real-quiet.mp4"
     for path, level in ((fixture, 0), (quiet, -45)):
         made = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=30",
@@ -1917,17 +1976,57 @@ def real_processing(base, source):
                                "-shortest", str(path)], stdin=subprocess.DEVNULL, capture_output=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=60)
         if made.returncode != 0:
             return "lavfi-unavailable"
-    def run(name, helper, audio, post=True, video=fixture):
+    def generation_ended(marker):
+        pid = marker.name.removeprefix("ffmpeg-pid-")
+        try:
+            started = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        except FileNotFoundError:
+            return True
+        return started != marker.read_text()
+    def run(name, helper, audio, post=True, video=fixture, control=False):
         root = base / name
         plant(root, {"video": str(video)})
-        (root / "bin/ffmpeg").unlink()
-        (root / "bin/ffmpeg").symlink_to(ffmpeg)
+        # Exec preserves PID and /proc start time. Compare that generation,
+        # so reuse of an ended child's PID cannot look like a survivor.
+        (root / "bin/ffmpeg").write_text(f"#!{sys.executable}\nimport os, sys\nfrom pathlib import Path\n"
+                                        "started = Path('/proc/self/stat').read_text().rsplit(')', 1)[1].split()[19]\n"
+                                        f"Path({str(root)!r}, 'ffmpeg-pid-' + str(os.getpid())).write_text(started)\n"
+                                        f"os.execv({ffmpeg!r}, [{ffmpeg!r}, *sys.argv[1:]])\n")
         payload = request(root, "record-output")
         payload.update(audio=audio, postProcess=post)
         code, messages, argv, err = recorded(root, payload, helper)
+        if control:
+            # The control removes the stall guard, restoring today's wait.
+            # A killed worker's FFmpeg may ignore its parent-death TERM on
+            # n9.1. Adopted, unreaped children retain our signal authority.
+            for marker in root.glob("ffmpeg-pid-*"):
+                pid = int(marker.name.removeprefix("ffmpeg-pid-"))
+                try:
+                    ended, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    assert generation_ended(marker), (name, "unowned survivor", pid)
+                    continue
+                if not ended:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+            assert code is None and err == "timeout", (name, code, messages, err)
+            print(f"test-capture: control={name} rejected=worker-timeout ffmpeg-ended=true", flush=True)
+            return False
         assert code == 0 and messages[-1]["event"] == "saved", (name, messages, err)
-        thumbnail = Path(messages[-1]["thumbnail"]).read_bytes() if messages[-1]["thumbnail"] else b""
-        return messages[-1]["processing"], *media(ffprobe, messages[-1]["path"]), thumbnail[:3] == b"\xff\xd8\xff", messages[-1]["path"]
+        saved = messages[-1]
+        markers = list(root.glob("ffmpeg-pid-*"))
+        assert markers, (name, "no FFmpeg child observed")
+        for marker in markers:
+            assert generation_ended(marker), (name, "FFmpeg generation left behind", marker.name)
+        if saved["processing"] == "failed":
+            path = Path(saved["path"])
+            log = Path(saved["log"])
+            assert path.read_bytes() == video.read_bytes() and log == path.with_suffix(".log") and log.stat().st_size > 0, name
+            assert log.read_bytes().startswith(f"fixture recorder started {path.name}\n".encode()) and not list(path.parent.glob(".screencast-processing-*")), name
+            assert service_notices(), "failed processing selects the existing cleanup notice and recorder-log action"
+        thumbnail = Path(saved["thumbnail"]).read_bytes() if saved["thumbnail"] else b""
+        print(f"test-capture: case={name} processing={saved['processing']} ffmpeg-ended=true version={version.decode(errors='replace')}", flush=True)
+        return saved["processing"], *media(ffprobe, saved["path"]), thumbnail[:3] == b"\xff\xd8\xff", saved["path"]
     def trimmed(result, streams, seconds=(1.8, 1.95)):
         processing, duration, codecs, thumbnail, _ = result
         return processing == "done" and seconds[0] <= duration <= seconds[1] and codecs == streams and thumbnail
@@ -1951,18 +2050,30 @@ def real_processing(base, source):
     assert trimmed(cleaned, [("audio", "aac"), ("video", "mpeg4")]) and quiet_ends(cleaned), "real ffmpeg trim, loudness and quiet ends"
     assert capped(run("real-quiet", HELPER, "desktop", video=quiet)), "real ffmpeg loudness gain cap"
     raw = run("real-unprocessed", HELPER, "desktop", post=False)
-    assert trimmed(raw, [("audio", "aac"), ("video", "mpeg4")], (1.95, 2.05)) and quiet_ends(raw), "real ffmpeg quiet ends without clean-up"
+    if raw[0] == "failed":
+        assert ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) == 0, "real processing control subreaper setup"
+        before = "if not self.wait_processing(child, log):\n                    return False"
+        assert source.count(before) == 1, "processing stall control match"
+        helper = base / "no-processing-stall.py"
+        helper.write_text(source.replace(before, "self.wait(child)"))
+        assert not run("real-unprocessed-no-stall", helper, "desktop", post=False, control=True), "control did not fail: no processing stall"
+    else:
+        assert trimmed(raw, [("audio", "aac"), ("video", "mpeg4")], (1.95, 2.05)) and quiet_ends(raw), "real ffmpeg quiet ends without clean-up"
     assert trimmed(run("real-silent", HELPER, "none"), [("video", "mpeg4")]), "real ffmpeg drops audio"
-    for name, before, after, check, post in [
-        ("no-trim", 'trim = ["-ss", "0.1"] if clean else []', 'trim = []', lambda r: trimmed(r, [("audio", "aac"), ("video", "mpeg4")]), True),
-        ("loud-start", 'AUDIO_START + levels + AUDIO_END', '"anull" + levels + AUDIO_END', quiet_ends, False),
-        ("loud-end", 'AUDIO_START + levels + AUDIO_END', 'AUDIO_START + levels', quiet_ends, False),
-        ("uncapped-loudness", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', capped, True),
+    # Video trimming has no audio prerequisite. Its control must not restore
+    # the untrimmed audio graph that stalls in FFmpeg n9.1.
+    for name, before, after, check, post, audio in [
+        ("no-trim", 'trim = ["-ss", "0.1"] if clean else []', 'trim = []', lambda r: trimmed(r, [("video", "mpeg4")]), True, "none"),
+        ("loud-start", 'AUDIO_START + levels + AUDIO_END', '"anull" + levels + AUDIO_END', quiet_ends, False, "desktop"),
+        ("loud-end", 'AUDIO_START + levels + AUDIO_END', 'AUDIO_START + levels', quiet_ends, True, "desktop"),
+        ("uncapped-loudness", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', capped, True, "desktop"),
     ]:
         assert source.count(before) == 1, name
         helper = base / (name + ".py")
         helper.write_text(source.replace(before, after))
-        assert not check(run("real-" + name, helper, "desktop", post, quiet if check is capped else fixture)), "control did not fail: " + name
+        result = run("real-" + name, helper, audio, post, quiet if check is capped else fixture)
+        assert result[0] == "done", "feature control must finish processing: " + name
+        assert not check(result), "control did not fail: " + name
     return None
 
 
@@ -2144,12 +2255,12 @@ def recording_functions(base, source):
     # Popen waitpid lock, as a handler that interrupts poll() runs; and an
     # ffmpeg that outlives the handler's SIGTERM, so only the main thread's
     # release ends it. Each case has the control that fails it.
-    window = [("child = self.spawn(args + [str(temp)], stdout=log, stderr=log)\n",
-               "child = self.spawn(args + [str(temp)], stdout=log, stderr=log)\n            signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGTERM])\n"),
-              ("            try:\n                output = child.communicate(", "            if signal.SIGTERM in signal.sigpending():\n                with child._waitpid_lock:\n"
-               "                    signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGTERM])\n            try:\n                output = child.communicate(")]
+    window = [("child = self.spawn(args + [str(temp)], stdout=subprocess.PIPE, stderr=log)\n",
+               "child = self.spawn(args + [str(temp)], stdout=subprocess.PIPE, stderr=log)\n            signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGTERM])\n"),
+              ("        while child.poll() is None:\n            self.exit_if_signalled()\n            left = PROCESSING_STALL", "        while child.poll() is None:\n            if signal.SIGTERM in signal.sigpending():\n                with child._waitpid_lock:\n"
+               "                    signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGTERM])\n            self.exit_if_signalled()\n            left = PROCESSING_STALL")]
     reaping = [("        self.signalled = self.signalled or signum\n", "        self.release()\n        raise SystemExit(128 + signum)\n")]
-    untimed = [("            self.wait(child)\n            code = child.returncode\n", "            child.wait()\n            code = child.returncode\n")]
+    untimed = [("                if not self.wait_processing(child, log):\n                    return False\n", "                child.wait()\n")]
     for name, edits, outlives, wanted in [("term-in-poll", window, False, ""), ("reaping-handler", window + reaping, False, "worker-not-exited: SIGTERM"),
                                           ("term-outlived", [], True, ""), ("untimed-processing-wait", untimed, True, "worker-not-exited: SIGTERM")]:
         changed = source
@@ -2263,6 +2374,7 @@ def hyprctl_records(base):
 
 def main():
     release_deadline()
+    processing_progress()
     config = {}
     output = "NESTED"
     dimensions = (320, 240)
