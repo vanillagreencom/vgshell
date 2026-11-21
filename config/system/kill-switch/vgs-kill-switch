@@ -51,7 +51,7 @@
 # setpriv, so a link planted in that directory reaches nothing its owner
 # cannot already read.
 #
-# sync holds the lock /run/vgs-kill-switch.lock, mode 0600, and removes
+# sync holds the lock /run/vgs-kill-switch/lock, mode 0600, and removes
 # pending, as the file's owner, before each read. With meant-on empty or
 # kill-switch=off it deletes the profile cache and then the table.
 # Otherwise it reads the profile's type, interface name and WireGuard peers
@@ -168,7 +168,7 @@ state_file="$state_dir/state"
 pending_file="$state_dir/pending"
 cache_dir="$state_parent/kill-switch"
 cache_file="$cache_dir/profile"
-lock_file=/run/vgs-kill-switch.lock
+lock_file=/run/vgs-kill-switch/lock
 status_socket=/run/vgs-kill-switch.sock
 table=vgshell_kill_switch
 # Deletes both tables whether or not each exists: a declaration first makes
@@ -244,11 +244,12 @@ root_dir() { # PATH
 
 # Takes the lock sync and the root off share, or sets lock_error and returns
 # 1. Any account that can open a lock can hold it, so it is root's alone;
-# root alone writes /run, so the chmod of a lock an older copy made 0644
-# meets no link.
+# root alone writes its directory. CLI off can run before the service's
+# first start, so it also creates the directory systemd normally manages.
 try_lock() {
   lock_error="lock=open path=$lock_file"
   umask 077
+  mkdir -p -m 0700 -- "${lock_file%/*}" || { umask 022; return 1; }
   exec {lock_fd}>>"$lock_file" || { umask 022; return 1; }
   umask 022
   chmod 0600 -- "$lock_file" || return 1

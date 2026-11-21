@@ -547,6 +547,7 @@ rows=(
   "cli|VPN file import|scripts/test-vpn-import.sh|shell/plugins/vgs.vpn/tui/import.sh bin/lib/tui.sh"
   "cli|VPN kill switch namespace proof|scripts/test-vpn-kill-switch.sh|config/system/kill-switch/vgs-kill-switch config/system/kill-switch/vgs-kill-switch.service scripts/fixtures/kill-switch/hotel.py shell/plugins/vgs.vpn/VpnLogic.js shell/Commons/Nmcli.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "cli|VPN kill switch unit sandbox|scripts/test-vpn-kill-switch-unit.sh|config/system/kill-switch/vgs-kill-switch.service"
+  "cli|VPN kill switch fresh systemd start|scripts/test-vpn-kill-switch-unit.sh --start|config/system/kill-switch/vgs-kill-switch.service config/system/kill-switch/vgs-kill-switch|control"
   "cli|automations linger TUI|scripts/test-automations-linger.sh|shell/plugins/vgs.automations/tui/linger.sh bin/lib/tui.sh"
   "cli|themes browser-policy TUI|scripts/test-themes-browser-policy-tui.sh|shell/plugins/vgs.themes/tui/browser-policy.sh bin/lib/tui.sh"
   "cli|notifications open TUI|scripts/test-notifications-open.sh|shell/plugins/vgs.notifications/tui/open.sh bin/lib/tui.sh"

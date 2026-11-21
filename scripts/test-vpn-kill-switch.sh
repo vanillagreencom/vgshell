@@ -114,7 +114,7 @@ tmp="$2"
 state=/var/lib/vgshell/vpn/state
 pending=/var/lib/vgshell/vpn/pending
 cache=/var/lib/vgshell/kill-switch/profile
-lock=/run/vgs-kill-switch.lock
+lock=/run/vgs-kill-switch/lock
 sock=/run/vgs-kill-switch.sock
 frames="$tmp/frames.log"
 queries="$tmp/queries.log"
@@ -523,7 +523,12 @@ profile "$uuid" wireguard wgnord "$peers"
 check "with no state file the status socket reads off" status_is "state=off reason=disarmed" "tunnel=" "profile="
 check "the status line names no count but zero while off" test "$blocked" == 0
 
-# A lock an older copy made 0644 is narrowed to root's alone.
+# CLI sync can precede the service's first start on a fresh /run.
+run_sync
+check "sync creates its lock directory before the service starts" synced disarmed
+check "the CLI lock directory is root's alone" test "$(stat -c '%u %a' -- "${lock%/*}")" == "0 700"
+check "the CLI creates its lock root's alone" test "$(stat -c '%u %a' -- "$lock")" == "0 600"
+# Sync also narrows an existing lock's mode.
 install -m 0644 /dev/null "$lock"
 write_state "$uuid" block
 run_sync
@@ -1258,11 +1263,11 @@ check "sync refuses an unprivileged caller" test "$(head -n 1 "$tmp/unprivileged
 # ---------------------------------------------------------------- the unit's limits
 
 # A start of vgs-kill-switch.service as at boot, under the limits its unit
-# file names, read from that file: ExecStartPre= as root with every
-# capability and the unit's UMask=, onto a /run that holds no lock, then
+# file names, read from that file: its managed runtime directory onto a
+# /run that holds no lock, then
 # sync in a mount namespace of its own, read-only but for each
-# ReadWritePaths= entry, the StateDirectory=, /tmp, which PrivateTmp= keeps
-# writable, and this suite's own directory, where the stand-ins log; through
+# ReadWritePaths= entry, RuntimeDirectory=, StateDirectory=, /tmp, which
+# PrivateTmp= keeps writable, and this suite's own directory, where the stand-ins log; through
 # setpriv, with no new privileges and the unit's capability bounding set.
 # The owner setpriv takes here is uid 0, the namespace's only one, so no
 # control shows CAP_SETUID, CAP_SETGID or CAP_KILL needed: each acts only
@@ -1275,18 +1280,17 @@ unit_caps="$(service_value CapabilityBoundingSet)"
 unit_writable="$(service_value ReadWritePaths)"
 unit_state_dir="$(service_value StateDirectory)"
 unit_state_mode="$(service_value StateDirectoryMode)"
-unit_pre="$(service_value ExecStartPre)"
-unit_umask="$(service_value UMask)"
+unit_runtime_dir="$(service_value RuntimeDirectory)"
+unit_runtime_mode="$(service_value RuntimeDirectoryMode)"
 one_line() { [[ -n $1 && $1 != *$'\n'* ]]; } # VALUE
-for key in caps writable state_dir state_mode pre umask; do
+for key in caps writable state_dir state_mode runtime_dir runtime_mode; do
   value="unit_$key"
   check "the unit names its $key once" one_line "${!value}"
 done
-check "the unit's pre-start runs with full privileges" test "${unit_pre:0:1}" == +
-read -r -a unit_pre_argv <<<"${unit_pre#+}"
 read -r -a unit_cap_list <<<"$unit_caps"
 read -r -a unit_writable_list <<<"$unit_writable"
 unit_state_path="/var/lib/$unit_state_dir"
+unit_runtime_path="/run/$unit_runtime_dir"
 # setpriv's --bounding-set form of the unit's capabilities, less DROPPED.
 bounding_set() { # [DROPPED]
   local cap set=-all
@@ -1346,14 +1350,14 @@ EOF
 # COMMAND as the unit's ExecStart= runs, with CAPS for its bounding set.
 limited() { # CAPS COMMAND...
   unshare --mount --propagation private -- "$BASH" "$tmp/limited.sh" "$real_setpriv" "$1" \
-    /tmp "$tmp" "$unit_state_path" "${unit_writable_list[@]}" -- "${@:2}"
+    /tmp "$tmp" "$unit_state_path" "$unit_runtime_path" "${unit_writable_list[@]}" -- "${@:2}"
 }
-# What systemd does before ExecStart=: the state directory, root's, with
-# the unit's mode, then ExecStartPre= with the unit's umask.
+# Only a model of the directory preparation; the unit suite's --start row
+# owns proof of systemd's actual namespace ordering.
 pre_start() {
-  mkdir -p -- "$unit_state_path"
+  mkdir -p -- "$unit_state_path" "$unit_runtime_path"
   chmod -- "$unit_state_mode" "$unit_state_path"
-  (umask "$unit_umask" && "${unit_pre_argv[@]}")
+  chmod -- "$unit_runtime_mode" "$unit_runtime_path"
 }
 # A start with CAPS for the bounding set, setting sync_status and sync_out
 # as run_sync does.
@@ -1377,10 +1381,12 @@ unit_limits() {
   delete_tables
   rm -f -- "$lock"
   pre_start || true
-  check "the unit's pre-start makes the missing lock root's alone before sync opens it" test "$(stat -c '%u %a' -- "$lock")" == "0 600"
+  check "the unit's runtime directory is root's alone before sync opens the missing lock" test "$(stat -c '%u %a' -- "$unit_runtime_path")" == "0 700"
+  check "the lock is absent before sync" test ! -e "$lock"
   touch "$pending"
   unit_sync "$(bounding_set)"
   check "under the unit's limits sync arms" synced armed
+  check "sync creates the lock root's alone" test "$(stat -c '%u %a' -- "$lock")" == "0 600"
   check "under the unit's limits both tables are armed" table_armed
   check "under the unit's limits sync removes the pending mark" test ! -e "$pending"
   check "under the unit's limits the status reads passing for the profile it cached" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid"

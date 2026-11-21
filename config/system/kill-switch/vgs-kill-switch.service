@@ -43,14 +43,13 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-# /run is a tmpfs, so the lock is missing at each boot, and ReadWritePaths=
-# below makes writable only a path that exists: sync could not create the
-# lock, and would refuse before it arms. This one command runs with full
-# privileges (`+`), and UMask= makes the lock 0600 as sync's own open does
-# (a `+` command keeps UMask=: a file it made read 0600 under UMask=0077 and
-# 0644 without, systemd-run --user, systemd 262, 2026-11-11). sync sets its
-# own umask.
-ExecStartPre=+/usr/bin/touch /run/vgs-kill-switch.lock
+# systemd creates this directory before building the mount namespace and
+# keeps it writable under ProtectSystem=strict (systemd.exec(5), v262,
+# RuntimeDirectory=). Preserve it after each oneshot: CLI off and later
+# syncs must keep locking the same inode until reboot.
+RuntimeDirectory=vgs-kill-switch
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 ExecStart=/usr/local/bin/vgs-kill-switch sync
 UMask=0077
 # CAP_NET_ADMIN: nft's transactions and its check, over netlink.
@@ -74,7 +73,7 @@ NoNewPrivileges=yes
 # that must exist would fail the start. systemd makes the cache directory
 # root's, mode 0700, where sync would make it, as apply does.
 ProtectSystem=strict
-ReadWritePaths=/run/vgs-kill-switch.lock -/var/lib/vgshell/vpn
+ReadWritePaths=-/var/lib/vgshell/vpn
 StateDirectory=vgshell/kill-switch
 StateDirectoryMode=0700
 # bash writes a long here-string to a temporary file, and refuses it on a
