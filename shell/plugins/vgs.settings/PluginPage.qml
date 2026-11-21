@@ -344,7 +344,6 @@ FocusScope {
             readonly property bool subText: item !== null && item.subText === true
             readonly property bool keyValueRow: item !== null && item.keyValueRow === true
             width: parent.width
-            active: choiceField.present
             sourceComponent: choiceField.idleField === null ? settingEditor : idleEditor
         }
         Component {
@@ -770,13 +769,13 @@ FocusScope {
                     Repeater {
                         id: groups
                         property int limit: 1
-                        property int loaded: 0
-                        property bool prefetched: false
-                        function extend() { prefetched = true; }
+                        property int prefetched: 0
+                        readonly property int loaded: Math.min(count, Math.max(needed, prefetched))
+                        function extend() { prefetched = Math.min(count, loaded + 1); }
                         // Window focus can change while delegates tear down.
                         // These connections end with the groups they promote.
                         readonly property Connections prefetch: Connections {
-                            target: groups !== null && page.visible && !groups.prefetched ? page.Window.window : null
+                            target: groups !== null && page.visible && groups.loaded < groups.count ? page.Window.window : null
                             function onFrameSwapped() { if (groups !== null) Qt.callLater(groups.extend); }
                         }
                         readonly property Connections promotion: Connections {
@@ -816,29 +815,23 @@ FocusScope {
                             required property int index
                             width: body.width
                             title: modelData.group
-                            visible: index <= groups.needed || rows.status === Loader.Ready
+                            visible: index <= groups.needed || rows.count > 0
 
                             // Keep headings in their original Column so they
-                            // measure the ink above them. Incubate offscreen
-                            // rows; an on-screen row or a Tab target is ready
-                            // synchronously, even during incubation.
-                            Loader {
+                            // measure the ink above them. Build one offscreen
+                            // group after each frame; visible and keyboard
+                            // targets extend the same prefix synchronously.
+                            // Model delegates run destruction handlers before
+                            // clearing their context (Qt 6.12 destroyObjectLater).
+                            // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qmlmodels/qqmldelegatemodel.cpp
+                            Repeater {
                                 id: rows
-                                width: section.width
-                                active: page.row !== null && (section.index < groups.needed || groups.prefetched)
-                                asynchronous: section.index >= groups.needed
-                                property bool counted: false
-                                onStatusChanged: {
-                                    if (counted === (status === Loader.Ready)) return;
-                                    counted = status === Loader.Ready;
-                                    groups.loaded += counted ? 1 : -1;
-                                }
-                                Component.onDestruction: if (counted && groups) groups.loaded--
-                                sourceComponent: section.contents
+                                model: page.row !== null && section.index < groups.loaded ? 1 : 0
+                                delegate: section.contents
                             }
                             Item {
                                 id: pendingRows
-                                visible: rows.status !== Loader.Ready && section.index === groups.needed
+                                visible: rows.count === 0 && section.index === groups.needed
                                 width: section.width
                                 height: page.maximumHeight
                                 function fillView() {
@@ -858,6 +851,7 @@ FocusScope {
                             }
 
                             property Component contents: Column {
+                                width: section.width
                                 spacing: section.rowSpacing
                                 Repeater {
                                     model: ScriptModel {
@@ -1087,15 +1081,15 @@ FocusScope {
                     }
                     spacing: Theme.stack.page
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab !== "Settings") Qt.callLater(page.revealField)
-                    Loader {
-                        active: setupHolder.visited && page.hasSetup
-                        width: parent.width
-                        sourceComponent: tabs.setupBody
+                    Repeater {
+                        model: setupHolder.visited && page.hasSetup ? 1 : 0
+                        delegate: tabs.setupBody
                     }
                 }
 
                 property Component setupBody: Column {
                     id: setupPage
+                    width: setupHolder.width
                     spacing: Theme.stack.page
 
                     // While the plugin is off, the tab opens with one Turn on
@@ -1202,17 +1196,17 @@ FocusScope {
                     // The strip shows and hides its own pages alone, and hid
                     // this one as its third.
                     onParentChanged: if (parent === setupHolder) visible = true
-                    // TabPages owns this stable page's geometry; Loader
-                    // gives the deferred body that width and follows its height.
-                    // https://doc.qt.io/qt-6/qml-qtquick-loader.html#loader-sizing-behavior
-                    Loader {
-                        active: detailsPage.visited
-                        width: parent.width
-                        sourceComponent: tabs.detailsBody
+                    // The holder owns body geometry and focus; Repeater
+                    // puts the deferred Column directly in that hierarchy.
+                    // https://doc.qt.io/qt-6/qml-qtquick-repeater.html
+                    Repeater {
+                        model: detailsPage.visited ? 1 : 0
+                        delegate: tabs.detailsBody
                     }
                 }
 
                 property Component detailsBody: Column {
+                    width: detailsPage.width
                     spacing: Theme.stack.page
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab === "Details") Qt.callLater(page.revealField)
 
