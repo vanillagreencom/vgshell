@@ -66,14 +66,22 @@ jobs:
           # the Liberation Sans family the ImageText layout test names.
           # xorg-server-xvfb and xorg-xauth give the MultiEffect unit test
           # the X display that scripts/qml-unit.sh draws it on. bind gives
-          # the VPN kill switch row dig.
+          # the VPN kill switch row dig. rust gives scripts/validate's
+          # kendex-runtimes input step the cargo that builds the runtimes the
+          # Jarvis self-test controls run; a failed build ends the run.
           pacman -Syu --noconfirm --needed \
-            git base-devel nodejs python python-dbus python-gobject python-numpy jq rclone bind \
+            git base-devel rust nodejs python python-dbus python-gobject python-numpy jq rclone bind \
             qt6-declarative quickshell util-linux bubblewrap lua gnupg sequoia-sqv \
             libsecret xdg-dbus-proxy sudo tmux ghostty neovim fd fzf gum file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu ttf-liberation wayland-protocols \
             xorg-server-xvfb xorg-xauth
           useradd --create-home ci
+          # The runtime build writes under ci's cache folder. The catalog
+          # inputs' restore, which runs as root, and install -d (whose
+          # missing parents get default attributes,
+          # https://www.gnu.org/software/coreutils/manual/html_node/install-invocation.html)
+          # leave a missing parent owned by root, so the folder is ci's first.
+          install -d -o ci -g ci /home/ci/.cache
           # Ubuntu restricts user namespaces to processes an AppArmor profile
           # allows, and the container's processes run unconfined.
           if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
@@ -192,7 +200,7 @@ jobs:
           esac
           {
             printf '### %s: %s\n\nexit=%s secs=%s\n\n```\n' "$AREA" "$verdict" "$status" "$((SECONDS - started))"
-            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:)' -- "$log" ||
+            grep -E '^validate: (secs=[0-9]+ exit=[1-9]|failed=|status=not-measured|refused:|input-step=failed)' -- "$log" ||
               tail -n 20 -- "$log"
             grep -E '^validate: unselected ' -- "$log" || true
             printf '```\n'

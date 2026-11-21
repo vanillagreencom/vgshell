@@ -127,8 +127,8 @@
 # A run that prints its verdict line, `validate: ok`, `validate: failed=` or
 #   `validate: status=not-measured skipped=`, prints
 #   `validate: lanes=<area> selection=<value>` after it, the line
-#   dev-validate-run --record reads: battery when the run left out no row of
-#   its area, all when the changed paths, the text-only filter or the
+#   `orch-runtime validate entry --record` reads: battery when the run left
+#   out no row of its area, all when the changed paths, the text-only filter or the
 #   rebased scope stood rows down or its rows were handed
 #   VGS_VALIDATE_CHANGED, and subset when --skip-unprepared left out a row
 #   as well. A reused row counts as run. A `validate: row-records=` line
@@ -198,6 +198,7 @@ skip_unprepared=false
 unselected=false
 catalog_prepare_only=false
 catalog_listings=""
+runtime_cache=""
 if [[ $# == 1 && $1 == --prepare-catalog-inputs ]]; then
   catalog_prepare_only=true
   set --
@@ -278,11 +279,15 @@ fi
 # store. The world's control runs outside so it can test the actual boundary.
 run() { # SCRATCH WORLD-OWNER LABEL CMD...
   local row_home="$1" owner="${2:-row}" label="$3" started status elapsed
-  local path_count=-1 paths=() declarations=(--fresh)
+  local path_count=-1 paths=() declarations=(--fresh) cache_input=""
   shift 3
   if [[ $1 == catalog_wallpaper_names ]]; then
     declarations+=(--input "$catalog_listings")
     set -- "$@" "$catalog_listings"
+  fi
+  if [[ $1 == scripts/test-jarvis-selftest.sh ]]; then
+    declarations+=(--input "$runtime_cache")
+    cache_input="$runtime_cache"
   fi
   echo "== $label"
   started=$SECONDS
@@ -301,6 +306,7 @@ run() { # SCRATCH WORLD-OWNER LABEL CMD...
       "$@"
     else
       [[ $owner != network ]] || declarations+=(--net)
+      [[ -z $cache_input ]] || export AGENT_RUNTIME_CACHE="$cache_input"
       if [[ -n ${VGS_VALIDATE_CHANGED:-} ]]; then
         mapfile -d '' -t paths <"$VGS_VALIDATE_CHANGED" || exit 1
         path_count=${#paths[@]}
@@ -326,6 +332,25 @@ catalog_input_prepare() {
     printf 'validate: input-step=failed name=catalog exit=%s\n' "$status" >&2
   fi
   return "$status"
+}
+
+# The kendex runtimes the Jarvis self-test controls run, built or found
+# built in the caller's cache by orch's setup before the row enters the
+# world, whose HOME and cache are its own and which has no build toolchain.
+# The row reads that cache through a read-only input AGENT_RUNTIME_CACHE
+# names.
+runtime_input_prepare() {
+  local built status=0
+  built="$("$repo/.agents/skills/orch/scripts/setup" 2>&1)" || status=$?
+  if [[ $status != 0 ]]; then
+    printf '%s\n' "$built" >&2
+    printf 'validate: input-step=failed name=kendex-runtimes exit=%s\n' "$status" >&2
+    return 1
+  fi
+  runtime_cache="$("$BASH" -c '. "$1" && agent_runtime_cache' _ "$repo/.agents/skills/agent-runtime/scripts/lib/key.sh")" &&
+    runtime_cache="$(realpath -e -- "$runtime_cache")" ||
+    { echo 'validate: input-step=failed name=kendex-runtimes reason=missing-output' >&2; return 1; }
+  printf 'validate: input-step=kendex-runtimes path=%q\n' "$runtime_cache"
 }
 
 catalog_wallpaper_names() {
@@ -656,7 +681,7 @@ rows=(
   "tools|Jarvis actual local models|scripts/check-jarvis-local.sh|shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local/* \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
   "tools|Jarvis local speech sidecar controls|python3 scripts/test-jarvis-local-speech.py|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/backend/clone-speech.py scripts/fixtures/jarvis-local-speech/clone-standin.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local-speech.sh"
   "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
-  "tools|Jarvis self-test host-side controls|scripts/test-jarvis-selftest.sh|scripts/jarvis-selftest.sh scripts/jarvis-selftest-cases/* scripts/smoke/devices.sh scripts/smoke/harness.sh shell/plugins/vgs.jarvis/* bin/lib/anchored.js bin/lib/account-folders.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js .agents/skills/orch/scripts/* .agents/skills/orch/scripts/lib/* .agents/skills/mailbox/scripts/* .agents/skills/mailbox/scripts/lib/* config/voxtype/* scripts/smoke/gpu-fence.sh"
+  "tools|Jarvis self-test host-side controls|scripts/test-jarvis-selftest.sh|scripts/jarvis-selftest.sh scripts/jarvis-selftest-cases/* scripts/smoke/devices.sh scripts/smoke/harness.sh shell/plugins/vgs.jarvis/* bin/lib/anchored.js bin/lib/account-folders.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js .agents/skills/orch/scripts/* .agents/skills/orch/scripts/lib/* .agents/skills/agent-runtime/scripts/* .agents/skills/agent-runtime/scripts/lib/* .agents/skills/agent-runtime/runtime/* .agents/skills/orch/runtime/* .agents/skills/mailbox/scripts/* .agents/skills/mailbox/scripts/lib/* config/voxtype/* scripts/smoke/gpu-fence.sh"
   "tools|QML source comment reader controls|python3 scripts/test-qml-source.py|scripts/qml_source.py bin/vgshell-scan bin/lib/dbus_wire.py"
   "tools|smoke edit needles|python3 scripts/check-smoke-needles.py|scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
   "tools|smoke edit needle controls|python3 scripts/test-check-smoke-needles.py|scripts/check-smoke-needles.py scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
@@ -698,7 +723,7 @@ branch_point() { # [COMMIT]
   local commit="${1:-HEAD}" branch="${WORKTREE_DEFAULT_BRANCH:-}" loader="$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" ref refs=()
   if [[ -z $branch && -f $repo/kendex.settings.toml ]]; then
     # shellcheck source=/dev/null
-    branch="$(source "$loader" && kendex_load_settings_file "$repo/kendex.settings.toml" && printf '%s' "${WORKTREE_DEFAULT_BRANCH:-}")" || branch=""
+    branch="$(source "$loader" && kendex_load_settings_file "$repo/kendex.settings.toml" -- WORKTREE_DEFAULT_BRANCH && printf '%s' "${WORKTREE_DEFAULT_BRANCH:-}")" || branch=""
   fi
   if [[ -z $branch ]]; then
     echo "missing=base-branch source=WORKTREE_DEFAULT_BRANCH"
@@ -2994,6 +3019,12 @@ fi
 for command in "${row_command[@]}"; do
   if [[ $command == catalog_wallpaper_names ]]; then
     catalog_input_prepare || exit 1
+    break
+  fi
+done
+for command in "${row_command[@]}"; do
+  if [[ $command == scripts/test-jarvis-selftest.sh ]]; then
+    runtime_input_prepare || exit 1
     break
   fi
 done

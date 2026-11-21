@@ -1420,6 +1420,7 @@ root = os.environ["VGSHELL_WORLD_ROOT"]
 for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR"):
     assert pathlib.Path(os.environ[name]).is_relative_to(root), name
 result["session"] = [name for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DBUS_SESSION_BUS_ADDRESS", "VGS_WORLD_PLANTED") if name in os.environ]
+result["cache"] = os.environ.get("AGENT_RUNTIME_CACHE")
 result["named"] = "hidden"
 if "WAYLAND_DISPLAY" in os.environ:
     with socket.socket(socket.AF_UNIX) as client:
@@ -1445,7 +1446,11 @@ result["root"] = root
 pathlib.Path(output, "result.json").write_text(json.dumps(result))
 ''')
     source = Path(fence).read_text()
-    def run(name, file=fence, extra=()):
+    # A runtime cache the caller's environment names but no --input
+    # declares, as an orch lane's own cache is.
+    lane_cache = base / "lane-runtime-cache"
+    lane_cache.mkdir()
+    def run(name, file=fence, extra=(), cache=lane_cache):
         fixture, output = base / (name + "-fixtures"), base / (name + "-output")
         fixture.mkdir()
         for member in ("checkout", "home"):
@@ -1462,7 +1467,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
                "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
                "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted",
-               "VGSHELL_WORLD_ROOT": temporary}
+               "VGSHELL_WORLD_ROOT": temporary, "AGENT_RUNTIME_CACHE": str(cache)}
         completed = subprocess.run([bash, file, "--checkout", repo, "--input", prepared, "--out", str(output), "--out", mutants, *extra,
                                     "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), prepared, repo],
                                    env=env, capture_output=True, text=True, timeout=20)
@@ -1470,9 +1475,10 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         result = json.loads((output / "result.json").read_text())
         assert Path(result["root"]).exists() == ("--keep" in extra), (name, result)
         return result
-    def holds(result):
+    def holds(result, cache=None):
         return result["input"] == errno.EROFS and all(result[name] == errno.EROFS for name in ("checkout", "sibling", "home")) and \
-            all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp", "named")) and not result["session"]
+            all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp", "named")) and not result["session"] and \
+            result["cache"] == cache
     result = run("world")
     assert holds(result), result
     print("world-contract: readonly=checkout,sibling,home sockets=hidden runtime=0700 devices=opened render=" + ",".join(result["render"]))
@@ -1480,6 +1486,9 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     assert holds(result), result
     # This kept root is a disposable test fixture; its test owner removes it.
     shutil.rmtree(result["root"])
+    result = run("declared-cache", cache=prepared)
+    assert holds(result, prepared), result
+    print("world-contract: runtime-cache=declared-input-only")
     controls = (
         ("writable-input", 'mounts+=(--ro-bind "$input" "$input")', 'mounts+=(--bind "$input" "$input")', "input", "writable"),
         ("parent-world-marker", "if fenced /; then", 'if [[ -n ${VGSHELL_WORLD_ROOT:-} ]]; then', "tmp", "connected"),
@@ -1487,6 +1496,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
         ("session-pass", "passed=(PATH USER", "passed=(WAYLAND_DISPLAY PATH USER", "session", ["WAYLAND_DISPLAY"]),
         ("network", "network=(--unshare-net)", "network=()", "abstract", "connected"),
+        ("undeclared-cache", '[[ $name != AGENT_RUNTIME_CACHE ]] || input_declared "${!name}" || continue', ":", "cache", str(lane_cache)),
     )
     for name, old, new, key, expected in controls:
         assert source.count(old) == 1, name

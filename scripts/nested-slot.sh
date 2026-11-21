@@ -45,8 +45,9 @@ if [ "${NESTED_FULL_LOCK:-}" = 0 ]; then full=0; fi
 if [ "${NESTED_FULL_LOCK:-}" = 1 ]; then full=1; fi
 [ $# -gt 0 ] || { echo "nested-slot: no command" >&2; exit 2; }
 # A command already running under a held slot (an outer nested-slot.sh call,
-# such as a lane's named unit around dev-validate-run, whose configured
-# command calls this script again) runs at once: one run holds one slot.
+# such as a lane's named unit around `orch-runtime validate entry`, whose
+# configured command calls this script again) runs at once: one run holds
+# one slot.
 if [ "${NESTED_SLOT_HELD:-}" = 1 ]; then exec "$@"; fi
 start=$(date +%s)
 # Run-time warning (gen 290, VGS-2465, Jarvis 1794460659/1794461043): past the

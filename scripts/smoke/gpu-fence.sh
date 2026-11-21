@@ -575,9 +575,23 @@ case "$mode" in
       VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS VGSHELL_SMOKE_RECONCILE_BUDGET_MS
       VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS
       JARVIS_LOCAL_MODELS JARVIS_LOCAL_PYTHON VOXTYPE_MODELS
-      VGSHELL_SELFTEST_ACCOUNTS VGSHELL_SELFTEST_PROGRAM VGSHELL_SHOTS_SOURCE)
+      VGSHELL_SELFTEST_ACCOUNTS VGSHELL_SELFTEST_PROGRAM VGSHELL_SHOTS_SOURCE AGENT_RUNTIME_CACHE)
+    # AGENT_RUNTIME_CACHE passes only where it names a declared --input,
+    # the kendex runtime cache its caller prepared before entry. A cache the
+    # caller's environment names for itself, as an orch lane's does, stays
+    # out of the world.
+    input_declared() { # PATH
+      local wanted input
+      wanted="$(realpath -e -- "$1" 2>/dev/null)" || return 1
+      for input in "${inputs[@]}"; do
+        [[ $(realpath -e -- "$input" 2>/dev/null) != "$wanted" ]] || return 0
+      done
+      return 1
+    }
     for name in "${passed[@]}"; do
-      [[ ! -v $name ]] || environment+=(--setenv "$name" "${!name}")
+      [[ -v $name ]] || continue
+      [[ $name != AGENT_RUNTIME_CACHE ]] || input_declared "${!name}" || continue
+      environment+=(--setenv "$name" "${!name}")
     done
     mounts=()
     parent_mounts=()

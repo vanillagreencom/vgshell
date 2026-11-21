@@ -310,9 +310,11 @@ try:
         protected = [entry.name for entry in runs if re.fullmatch(r"\d{8}T\d{6}Z", entry.name)
                      and intersects(record + "/" + entry.name)]
     # Package state and the fleet's live helper roots have another owner.
+    # orch keeps each item's state under items/<ITEM>/ and its validation
+    # runs, run index and round receipts at the tmp/ root.
     owned = ("lane-archive", "lane-mail", "progress-reports", "handoffs", "nested-slot.sh",
              "nested-slots", "oversee-watch", "oversee-watch.*", "waiter.*", "workflow-state-*",
-             "dev-validate-*", ".dev-validate-runs.*", "validation-runs", "dev-round-*", "dev-return-*",
+             "items", "dev-validate-*", "validation-runs", "dev-round-*", "dev-return-*",
              "round-recovered-*", "cycle-state", "container-close*", "lane-wake-*", "lane-status-*")
     def visit(fd, relative=""):
         with os.scandir(fd) as entries:
