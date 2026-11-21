@@ -146,6 +146,9 @@ PICKED_OUTPUT = "picked-output "
 # to release's 4 s bound inside the service's 5 s cleanup grace
 # (docs/architecture/runtime.md § Process).
 POLL = 0.1
+# Ten default FFmpeg progress intervals without advancing output time end
+# only the processing run; the original recording remains available.
+PROCESSING_STALL = 5
 
 
 class Capture:
@@ -729,7 +732,7 @@ class Capture:
             # The lock marks this output live for remove_stale_processing.
             fcntl.flock(fd, fcntl.LOCK_EX)
             trim = ["-ss", "0.1"] if clean else []
-            args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", *trim, "-i", str(path), "-map", "0:v:0"]
+            args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-y", *trim, "-i", str(path), "-map", "0:v:0"]
             if tracks:
                 args += ["-map", "0:a?", "-c:v", "copy"]
                 for track in range(tracks):
@@ -742,8 +745,10 @@ class Capture:
                 args += ["-ar", "48000", "-c:a", "aac", "-b:a", "192k"]
             else:
                 args += ["-c:v", "copy", "-an"]
-            child = self.spawn(args + [str(temp)], stdout=log, stderr=log)
-            self.wait(child)
+            child = self.spawn(args + [str(temp)], stdout=subprocess.PIPE, stderr=log)
+            with child.stdout:
+                if not self.wait_processing(child, log):
+                    return False
             code = child.returncode
             if code or temp.stat().st_size == 0:
                 return False
@@ -752,6 +757,41 @@ class Capture:
         finally:
             temp.unlink(missing_ok=True)
             os.close(fd)
+
+    def wait_processing(self, child, log):
+        """Reap the processing run; False if its output time stops advancing."""
+        # -progress emits key=value lines, ending each report with progress:
+        # https://ffmpeg.org/ffmpeg.html#Main-options. FFmpeg n9.1's
+        # fftools/ffmpeg.c print_report emits out_time_us in microseconds.
+        # Repeated reports (including N/A before output) are not progress.
+        advanced, output_time, pending = time.monotonic(), 0, b""
+        readers = [child.stdout]
+        while child.poll() is None:
+            self.exit_if_signalled()
+            left = PROCESSING_STALL - (time.monotonic() - advanced)
+            if left <= 0:
+                child.kill()
+                self.wait(child)
+                log.write(b"ffmpeg processing stalled without advancing output time\n")
+                log.flush()
+                return False
+            ready, _, _ = select.select(readers, [], [], min(POLL, left))
+            if ready:
+                data = os.read(child.stdout.fileno(), 4096)
+                if not data:
+                    readers = []
+                pending += data
+                while b"\n" in pending:
+                    line, pending = pending.split(b"\n", 1)
+                    if line.startswith(b"out_time_us="):
+                        try:
+                            current = int(line.split(b"=", 1)[1])
+                        except ValueError:
+                            continue
+                        if current > output_time:
+                            advanced, output_time = time.monotonic(), current
+        self.wait(child)
+        return True
 
     def loudness(self, path, track, log):
         """loudnorm for TRACK, aimed at -14 LUFS but at most LOUDNESS_GAIN dB
