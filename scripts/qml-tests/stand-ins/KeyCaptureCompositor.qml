@@ -4,15 +4,22 @@ import QtQml
 // The Compositor calls KeyCapture makes, recorded: each pass-through verb
 // it sends, with the callback that takes its answer, which a test answers
 // by hand; `refuse`, when set, is the answer a pass-through request gets at
-// once, as a refused request does.
+// once, as a refused request does. MonitorState's monitor evals are
+// recorded as { lua, done }, each answered by hand.
 QtObject {
     signal keyboardLayoutSwitched()
     property var requests: []
     property var answers: []
     property string refuse: ""
     property var activations: []
+    property var evals: []
 
     function activateWindow(window) { activations = activations.concat([window]); }
+
+    function monitorEval(lua, done) {
+        evals = evals.concat([{ lua: lua, done: done }]);
+        return "ok";
+    }
 
     function passthrough(verb, done) {
         requests = requests.concat([verb]);
@@ -38,5 +45,6 @@ QtObject {
         requests = [];
         answers = [];
         refuse = "";
+        evals = [];
     }
 }

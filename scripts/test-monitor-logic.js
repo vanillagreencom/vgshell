@@ -181,8 +181,17 @@ function suite(lib, check) {
     const desk = lib.parseOutputs(reply(DESK));
     const connected = desk.outputs.slice(0, 2);
     const names = connected.map(output => output.name);
+    // DP-2 at 5120x2880 against DP-1's 3840x2160.
+    const larger = [connected[0], { ...connected[1], width: 5120, height: 2880 }];
     for (const [label, outputs, rules, primary, screens, want] of [
-        ["automatic", connected, {}, "", names, "DP-1"],
+        ["automatic: a tie keeps Hyprland's order", connected, {}, "", names, "DP-1"],
+        ["automatic: the most pixels", larger, {}, "", names, "DP-2"],
+        ["automatic: the most pixels whatever the scale", [connected[0], { ...larger[1], scale: 4 }], {}, "", names, "DP-2"],
+        ["automatic: the largest output off", [connected[0], { ...larger[1], disabled: true }], {}, "", names, "DP-1"],
+        ["automatic: the largest output mirroring", [connected[0], { ...larger[1], mirrorOf: "DP-1" }], {}, "", names, "DP-1"],
+        ["automatic: the largest output a rule turns off", larger, { "DP-2": { disabled: true } }, "", names, "DP-1"],
+        ["disconnected primary: the most pixels", larger, {}, "DP-404", names, "DP-2"],
+        ["all-off guard relit: the most pixels", larger, { "DP-1": { disabled: true }, "DP-2": { disabled: true } }, "", names, "DP-2"],
         ["saved connector", connected, {}, "DP-2", names, "DP-2"],
         ["saved description", connected, {}, connected[0].identifier, names, "DP-1"],
         ["disconnected", connected, {}, "DP-404", names, "DP-1"],
@@ -198,6 +207,7 @@ function suite(lib, check) {
         ["tiled description", [connected[0], { ...connected[0], name: "DP-5" }], {}, connected[0].identifier, ["DP-1", "DP-5"], "DP-1"],
         ["connector overrides disabled description", connected, { [connected[0].identifier]: { disabled: true }, "DP-1": {} }, connected[0].identifier, names, "DP-1"]
     ]) check("login placement: " + label, lib.loginOutput(outputs, rules, primary, screens), want);
+    homeSuite(lib, check);
     check("primary choices omit off and mirroring outputs",
         lib.primaryOutputs(desk.outputs, { "DP-2": { mirror: "DP-1" } }).map(output => output.name), ["DP-1"]);
     check("parseOutputs: a mode list parsed to numbers", desk.ok ? desk.outputs[1].availableModes : desk, [{ width: 3840, height: 2160, refresh: 60 }]);
@@ -374,8 +384,7 @@ function suite(lib, check) {
     for (const [name, lit, want] of restoreRows) check("restore: " + name, luaEvents([plan.restore], [["reload", lit], ["tick"]]), want);
     check("trialPlan judges the trial against the outputs first", lib.trialPlan({}, { "eDP-1": { disabled: true }, "HDMI-A-1": { disabled: true } }, office),
         { ok: false, error: "refused: monitors.layout=all-off" });
-    check("captureRules records an output that is off", lib.captureRules(outputs, { "eDP-1": {} }),
-        { "eDP-1": { mode: { width: 2880, height: 1800, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0, disabled: true } });
+    check("captureRules records an output that is off as off alone", lib.captureRules(outputs, { "eDP-1": { cm: "hdr", bitdepth: 10 } }), { "eDP-1": { disabled: true } });
     check("captureRules records a mirror by the target's identifier", lib.captureRules(mirroring, { "DP-2": {} })["DP-2"].mirror, DELL);
     check("captureRules records a mirror of a tiled member by connector",
         lib.captureRules(lib.parseOutputs(reply([DESK[0], monitor(3, "DP-5", { make: "Dell, Inc.", serial: "8YT0R13", x: 3840 }), monitor(4, "HDMI-A-1", { mirrorOf: "3" })])).outputs, { "HDMI-A-1": {} })["HDMI-A-1"].mirror, "DP-5");
@@ -400,6 +409,82 @@ function suite(lib, check) {
         { "SMOKE-DISPLAYS-MODES": { position: { x: 0, y: 0 }, scale: 1.5, transform: 0 } });
 
     colourSuite(lib, check, outputs);
+}
+
+// The login screen's layout on home: Hyprland lists the portrait Studio
+// Display on DP-2 first, then the Pro Display XDR on DP-1, as the session's
+// own Hyprland file sets them, with nothing saved in Settings.
+const STUDIO = "desc:Apple Computer Inc StudioDisplay 0x00001234";
+const XDR = "desc:Apple Computer Inc ProDisplayXDR 0x00005678";
+const HOME = [
+    monitor(0, "DP-2", { make: "Apple Computer Inc", model: "StudioDisplay", serial: "0x00001234", width: 5120, height: 2880, refreshRate: 60,
+        x: 0, y: 0, scale: 2, transform: 1, availableModes: ["5120x2880@60.00Hz"] }),
+    monitor(1, "DP-1", { make: "Apple Computer Inc", model: "ProDisplayXDR", serial: "0x00005678", width: 6016, height: 3384, refreshRate: 60,
+        x: 1440, y: 620, scale: 2, transform: 0, availableModes: ["6016x3384@60.00Hz"] })
+];
+const STUDIO_LINE = 'hl.monitor({ output = "' + STUDIO + '", mode = "5120x2880@60", position = "0x0", scale = 2, transform = 1 })';
+const XDR_LINE = 'hl.monitor({ output = "' + XDR + '", mode = "6016x3384@60", position = "1440x620", scale = 2, transform = 0 })';
+
+// The copy the session hands the greeter, as the greeter renders it and
+// places its form: layoutRules, rulesLines, loginOutput.
+function homeSuite(lib, check) {
+    const home = lib.parseOutputs(reply(HOME)).outputs;
+    // rows: [name, saved rules, saved primary, rendered lines, login output]
+    const rows = [
+        ["nothing saved", {}, "", [XDR_LINE, STUDIO_LINE], "DP-1"],
+        ["a saved connector rule wins", { "DP-2": { transform: 3 } }, "", ['hl.monitor({ output = "DP-2", transform = 3 })', XDR_LINE], "DP-1"],
+        ["a saved description rule wins", { [XDR]: { scale: 1 } }, "", ['hl.monitor({ output = "' + XDR + '", scale = 1 })', STUDIO_LINE], "DP-1"],
+        ["a saved primary wins", {}, STUDIO, [XDR_LINE, STUDIO_LINE], "DP-2"]
+    ];
+    for (const [name, saved, primary, lines, login] of rows) {
+        const rules = lib.layoutRules(home, saved);
+        const rendered = lib.rulesLines(rules);
+        check("home layout: " + name, [rendered.ok ? rendered.lines : rendered.error, lib.loginOutput(home, rules, primary, ["DP-2", "DP-1"])], [lines, login]);
+    }
+    // The next boot puts each display on the other's connector: each keeps
+    // its own rule, the saved one and the one captured from Hyprland.
+    const rules = lib.layoutRules(home, { [STUDIO]: { transform: 1 } });
+    const swapped = lib.parseOutputs(reply([{ ...HOME[0], name: "DP-1" }, { ...HOME[1], name: "DP-2" }])).outputs;
+    check("home layout: a connector swap", swapped.map(output => [output.model, lib.ruleFor(rules, output)]), [
+        ["StudioDisplay", { transform: 1 }],
+        ["ProDisplayXDR", { mode: { width: 6016, height: 3384, refresh: 60 }, position: { x: 1440, y: 620 }, scale: 2, transform: 0 }]
+    ]);
+    const tiled = lib.parseOutputs(reply([monitor(0, "DP-1", { serial: "8YT0R13" }), monitor(1, "DP-5", { serial: "8YT0R13", x: 2560 })])).outputs;
+    check("layoutRules keys a tiled group's members by connector", Object.keys(lib.layoutRules(tiled, {})), ["DP-1", "DP-5"]);
+    // A docked laptop's panel that is off, listed with no refresh and no
+    // scale: it enters the copy off, and the copy still renders.
+    const docked = lib.parseOutputs(reply(HOME.concat([monitor(2, "eDP-1", { make: "BOE", model: "0x0BCA", disabled: true, refreshRate: 0, scale: 0 })]))).outputs;
+    const withPanel = lib.layoutRules(docked, {});
+    check("home layout: a panel that is off enters the copy off", [withPanel["eDP-1"], lib.rulesLines(withPanel).ok], [{ disabled: true }, true]);
+
+    // The trial directory as a guard leaves it. A trial made at 1000 has its
+    // deadline at 1015; another shell's guard counts until 1045 on the wall
+    // clock, and any guard for 30 listings past its deadline.
+    const other = (now, checks) => ({ now: now, own: "", due: false, checks: checks || 0 });
+    const mine = (now, due, checks) => ({ now: now, own: "1000-7.token", due: due, checks: checks });
+    // rows: [name, entries, wait, seconds to the next listing]
+    const listings = [
+        ["an empty directory", [], other(1010), null],
+        ["a guard's log alone", ["1000-7.token.log"], other(1010), null],
+        ["another shell's token before its deadline", ["1000-7.token", "1000-7.token.log"], other(1010), 6],
+        ["another shell's token at its deadline", ["1000-7.token"], other(1015), 1],
+        ["another shell's claim past its deadline", ["1000-7.token.revert"], other(1020, 5), 1],
+        ["another shell's claim past the grace", ["1000-7.token.revert"], other(1045), null],
+        ["another shell's token past the grace", ["1000-7.token"], other(1050), null],
+        ["the earliest of two guards", ["1000-7.token", "1003-9.token"], other(1010), 6],
+        ["Keep's own claim", ["1000-7.token.keep"], other(1010), null],
+        ["a name in another shape", ["display.token", "1000-7.token.revert.tmp"], other(1010), null],
+        ["a clock stepped back: another shell's token waits at most a trial", ["5000-7.token"], other(1010), 16],
+        ["a clock stepped back: another shell's token after its last listing", ["5000-7.token"], other(1010, 30), null],
+        ["this shell's token before its deadline timer", ["1000-7.token"], mine(1010, false, 0), 6],
+        ["this shell's token, the clock stepped back", ["1000-7.token"], mine(-2600, false, 0), 16],
+        ["this shell's listings before its deadline timer count for nothing", ["1000-7.token"], mine(1010, false, 40), 6],
+        ["this shell's claim through a suspend", ["1000-7.token.revert"], mine(1100, true, 0), 1],
+        ["this shell's claim at its last listing", ["1000-7.token.revert"], mine(1100, true, 29), 1],
+        ["this shell's claim after its last listing", ["1000-7.token.revert"], mine(1100, true, 30), null],
+        ["another shell's claim beside this shell's", ["1000-7.token.revert", "990-3.token.revert"], mine(1100, true, 0), 1]
+    ];
+    for (const [name, entries, wait, want] of listings) check("guardRecheck: " + name, lib.guardRecheck(entries, wait), want);
 }
 
 // Colour mode, depth and HDR levels, and the panel support they need.
@@ -544,6 +629,20 @@ suite(load(LOGIC), report);
 const CONTROLS = [
     ["HDR candidate loses BT2020 admission", "hardware.hdr === true && hardware.bt2020 === true", "hardware.hdr === true", "HDR candidate: no wide colour"],
     ["the login ignores the saved primary", "if (preferred.length > 0) return preferred[0].name;", "", "login placement: saved connector"],
+    ["the login takes the first eligible output", "if (eligible.length > 0) return mostPixels(eligible).name;", "if (eligible.length > 0) return eligible[0].name;", "home layout: nothing saved"],
+    ["the login ranks by pixels on no tie", "return output.width * output.height > best.width * best.height ? output : best;", "return best;", "login placement: all-off guard relit: the most pixels"],
+    ["a tie takes the last output", "output.width * output.height > best.width", "output.width * output.height >= best.width", "login placement: automatic: a tie keeps Hyprland's order"],
+    ["a saved description rule is captured over", "if (ruleFor(saved, output) === null) unnamed[output.name] = {};", "if (!hasOwn(saved, output.name)) unnamed[output.name] = {};", "home layout: a saved description rule wins"],
+    ["a captured rule keyed by connector", "rules[mirrorTarget(outputs, name)] = captured[name];", "rules[name] = captured[name];", "home layout: a connector swap"],
+    ["the running layout never reaches the copy", "var rules = Object.assign({}, saved);", "return Object.assign({}, saved);", "home layout: nothing saved"],
+    ["another shell's guard counts past the grace", "if (!own && deadline + GUARD_GRACE_SECONDS <= wait.now) return;", "", "guardRecheck: another shell's token past the grace"],
+    ["this shell's guard is aged by the wall clock", "if (!own && deadline + GUARD_GRACE_SECONDS <= wait.now) return;", "if (deadline + GUARD_GRACE_SECONDS <= wait.now) return;", "guardRecheck: this shell's claim through a suspend"],
+    ["a guard's claim is no guard", "\\.token(\\.revert)?$/;", "\\.token$/;", "guardRecheck: another shell's claim past its deadline"],
+    ["a guard is listed only at its deadline", "Math.min(TRIAL_SECONDS + 1, Math.max(1, deadline + 1 - wait.now))", "1", "guardRecheck: another shell's token before its deadline"],
+    ["a clock stepped back delays a listing past a trial", "Math.min(TRIAL_SECONDS + 1, Math.max(1, deadline + 1 - wait.now))", "Math.max(1, deadline + 1 - wait.now)", "guardRecheck: a clock stepped back: another shell's token waits at most a trial"],
+    ["listings never end a guard", "if ((!own || wait.due) && wait.checks >= GUARD_RECHECKS) return;", "", "guardRecheck: this shell's claim after its last listing"],
+    ["this shell's listings count before its deadline timer", "(!own || wait.due) && wait.checks", "wait.checks", "guardRecheck: this shell's listings before its deadline timer count for nothing"],
+    ["an output that is off keeps its listed mode", "if (output.disabled) {\n                selected[output.name] = { disabled: true };\n                return;\n            }", "", "home layout: a panel that is off enters the copy off"],
     ["the VRR capability is discarded", '["vrr", "\\t\\tvrr capable "]', '["", "\\t\\tvrr capable "]'],
     ["a serial keys by description", 'if (output.serial === "") return output.name;', "return output.name;"],
     ["commas leave the identifier", '.trim().replace(/,/g, "");', ".trim();"],
@@ -604,7 +703,7 @@ const CONTROLS = [
     ["a restore never reloads", 'restore: restore.lua + "\\n" + relightLines("").join("\\n")', "restore: restore.lua"],
     ["a trial ignores the saved rules", "var badKept = rulesError(kept, null);", 'var badKept = "";'],
     ["Keep saves the trial alone", "var kept = Object.assign({}, saved, rules);", "var kept = rules;"],
-    ["restore leaves an output off on", "if (output.disabled) rule.disabled = true;", ""],
+    ["restore leaves an output off on", "selected[output.name] = { disabled: true };", "selected[output.name] = {};", "captureRules records an output that is off as off alone"],
     ["restore drops a mirror", "if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);", ""],
     ["restore names a tiled mirror by its group", "return outputs.filter(function (output) { return output.identifier === target.identifier; }).length > 1 ? name : target.identifier;", "return target.identifier;"],
     ["overridden ignores disabled", "return (rule.disabled === true ? othersOn && !output.disabled : output.disabled)\n        || !mirrored", "return !mirrored"],

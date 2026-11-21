@@ -10,7 +10,8 @@ Displays sets each screen's mode, scale, orientation and brightness. Apple Pro D
 - The brightness keys change the display you work on, or every display, and show the new level on screen.
 - System Settings → Displays: arrange your displays and set each one's resolution, refresh rate, scale, orientation, colour and HDR.
 - A mode change runs as a trial. Keep saves it; otherwise the old mode comes back.
-- Choose the primary display for the login form. Saved layouts reach the login screen automatically once it is set up.
+- Once the login screen is set up, it shows your displays as your last session arranged them, with your saved layout taking precedence. A display that was off stays off there while another display is on. A display that was unplugged gets the login screen's defaults.
+- Choose the primary display for the login form. With Automatic, the form uses the display with the most pixels.
 - Identify shows each screen's name, so you can tell two displays of one model apart.
 - The displays dim after a time without input. A playing video keeps them bright.
 

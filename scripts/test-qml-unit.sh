@@ -111,7 +111,7 @@ mutations=(
   "search reports no first ink inset|controls/TextField.qml|readonly property real contentInkTop: Math.min(|readonly property real contentInkTop: 0 * Math.min(|tst_textfield.qml"
   "search regains the form inset|controls/TextField.qml|sidePadding: searchVariant ? Theme.textField.searchPadding :|sidePadding: false ? Theme.textField.searchPadding :|tst_textfield.qml"
   "search keyboard focus draws a full ring|controls/TextField.qml|opacity: root.searchVariant && root.searchUnderline ? 0 : 1|opacity: 1|tst_textfield.qml"
-  "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
+  "layout changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onGreeterLayoutChanged: queueLayout()|onGreeterLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "an unknown Updates failure repeats generic detail|../plugins/vgs.updates/UpdatesLogic.js|return causeOnly === true ? \"\" : checkText(CHECK_FAILED[0], CHECK_FAILED[1], false);|return checkText(CHECK_FAILED[0], CHECK_FAILED[1], causeOnly);|tst_updates_refresh.qml|test_failed_source_detail"
   "Updates requests the maximum height for short content|../plugins/vgs.updates/Window.qml|implicitHeight: Math.floor(layout.implicitHeight)|implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))|tst_updates_refresh.qml|test_flyout_fits_content_up_to_cap"

@@ -62,7 +62,7 @@ rescan "rescan discovers the monitors fixture"
 expect_poll "the monitors fixture is known" True plugin_known acme.monitors
 expect "enabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors true
 expect_poll "the monitors fixture builds" True record_exists acme.monitors
-expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,primaryOutputs,revert,support,trial,trialState,wantSupport"' read_monitors members
+expect_poll "the fixture reads back the exact monitors members it was given" '"keep,layoutRules,outputs,overridden,primaryOutputs,revert,support,trial,trialState,wantSupport"' read_monitors members
 expect_poll "the core reads the outputs while a plugin holds monitors" true reads_active
 
 if ! outputs_names="$(listed_names)" || ! outputs_first="$(first_name)" || ! outputs_base="$(unscaled_mode_of "$outputs_first")" || ! outputs_double="$(hidpi_mode_of "$outputs_first")"; then

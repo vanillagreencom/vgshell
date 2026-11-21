@@ -1,4 +1,4 @@
-// The displays service publishes its saved settings as
+// The displays service publishes the login screen's layout as
 // { outputs: <MonitorLogic rules>, primaryOutput: <identifier or ""> } on stdin:
 //   node bin/lib/greeter-layout.js copy
 // The greeter compositor consumes `render`; the greeter host consumes `read`.

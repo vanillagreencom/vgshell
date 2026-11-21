@@ -155,18 +155,58 @@ for file, old, new in [
 PY
 rescan "the saved-layout fixture supplies a ready greeter destination"
 expect_poll "the saved-layout service observes its ready setup input" true read_displays greeterReady
+# Both readers print sorted JSON with whole numbers as integers, since
+# Hyprland prints 60.00000 where the copy holds 60.
 layout_copy_value() {
   python3 - "$layout_fixture/displays.json" <<'PY'
 import json, sys
+def whole(v):
+    if isinstance(v, float) and v.is_integer(): return int(v)
+    if isinstance(v, dict): return {k: whole(x) for k, x in v.items()}
+    return v
 try:
     with open(sys.argv[1]) as source:
         value = json.load(source)
-    print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+    print(json.dumps(whole(value), sort_keys=True, separators=(",", ":")))
 except (OSError, ValueError):
     print("unreadable")
 PY
 }
-expect_poll "ready setup automatically copies the initial saved settings" '{"outputs":{},"primaryOutput":""}' layout_copy_value
+# greeter_copy_json SAVED PRIMARY: the copy the login screen should hold,
+# built from Hyprland's own reading: SAVED, plus each listed output SAVED
+# names no rule for as Hyprland applied it, keyed by its identifier, or by
+# its connector where a tiled group shares one, and one that is off as off
+# alone.
+greeter_copy_json() {
+  hypr -j monitors all | py_reply '
+import json, sys
+def whole(v):
+    if isinstance(v, float) and v.is_integer(): return int(v)
+    if isinstance(v, dict): return {k: whole(x) for k, x in v.items()}
+    return v
+saved, primary = json.loads(sys.argv[1]), sys.argv[2]
+rows = json.load(sys.stdin)
+def ident(m):
+    return m["name"] if m["serial"] == "" else "desc:" + (m["make"] + " " + m["model"] + " " + m["serial"]).strip().replace(",", "")
+def key(m):
+    return m["name"] if sum(1 for o in rows if ident(o) == ident(m)) > 1 else ident(m)
+outputs = dict(saved)
+for m in rows:
+    if m["name"] in saved or ident(m) in saved:
+        continue
+    if m["disabled"]:
+        outputs[key(m)] = {"disabled": True}
+        continue
+    rule = {"position": {"x": m["x"], "y": m["y"]}, "scale": m["scale"], "transform": m["transform"]}
+    if m["width"] > 0 and m["height"] > 0:
+        rule["mode"] = {"width": m["width"], "height": m["height"], "refresh": m["refreshRate"]}
+    if m["mirrorOf"] != "none":
+        rule["mirror"] = key(next(o for o in rows if str(o["id"]) == m["mirrorOf"]))
+    outputs[key(m)] = rule
+print(json.dumps(whole({"outputs": outputs, "primaryOutput": primary}), sort_keys=True, separators=(",", ":")))
+' "$1" "$2"
+}
+expect_poll "ready setup copies the running layout while nothing is saved" "$(greeter_copy_json '{}' '')" layout_copy_value
 display_record_call mark displays-row-start >/dev/null || true
 display_record_call require-display "$shell_pid" "$shell_qs_pid" >/dev/null || true
 display_observer_arm="$(ipc smoke displayEventArm displays-modes)" || display_observer_arm=unavailable
@@ -213,28 +253,31 @@ expect_poll "vgs.displays still has outputs after the second monitor appears" pr
 expect_poll "vgs.displays reads the second monitor with a sized mode" present output_present "$extra_output"
 extra_base_position="$(position_of "$extra_output")"
 extra_position_rules="$(position_rule_json "$extra_output" "$position_x" "$position_y")"
-expect "the second output's position trial starts" ok invoke_displays trialRules "$extra_position_rules"
+# A trial starts once no guard may still restore: until then it is refused
+# with monitors-trial=settling.
+expect_poll "the second output's position trial starts" ok invoke_displays trialRules "$extra_position_rules"
 expect_poll "the second output's position trial reads back ${position_x}x${position_y}" "${position_x}x${position_y}" position_of "$extra_output"
 sleep 16
 expect_poll "the guard reverts the second output's position trial" "$extra_base_position" position_of "$extra_output"
+greeter_before_trial="$(greeter_copy_json '{}' '')"
+expect_poll "the greeter copy follows the running layout after the guard" "$greeter_before_trial" layout_copy_value
 # Give the judge and compositor the connected layout together. The peer's
 # right edge stays at x=0 across primary scales and fixture restoration;
 # a raw fixture eval would not refresh MonitorState before the next trial.
 rules="$(rule_json "$output" "$trial_mode" "$trial_scale" "$extra_output")"
-expect "the display trial starts" ok invoke_displays trialRules "$rules"
+expect_poll "the display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
-expect "a trial is never copied to the greeter" '{"outputs":{},"primaryOutput":""}' layout_copy_value
+expect "a trial is never copied to the greeter" "$greeter_before_trial" layout_copy_value
 token="$(token_of)"
 sleep 16
 expect_poll "the guard reverts the unkept trial" 1 scale_of "$output"
 
-expect "the second display trial starts" ok invoke_displays trialRules "$rules"
+expect_poll "the second display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the second trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
 expect "Keep saves the rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
 expect_poll "the layer holds the saved monitor rule" yes layer_has_rule
-layout_kept="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:""}; process.stdout.write(JSON.stringify(data));' "$rules" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
-expect_poll "Keep automatically hands the confirmed saved rule to the greeter" "$layout_kept" layout_copy_value
+expect_poll "Keep automatically hands the confirmed saved rule to the greeter" "$(greeter_copy_json "$rules" '')" layout_copy_value
 save_primary_output() {
   python3 - "$user_config" "$output" <<'PY'
 import json, os, sys
@@ -252,8 +295,7 @@ print("ok")
 PY
 }
 expect "the primary output is saved after Keep" ok save_primary_output
-layout_primary="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:process.argv[2]}; process.stdout.write(JSON.stringify(data));' "$rules" "$output" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
-expect_poll "a primary-only saved change automatically updates the greeter" "$layout_primary" layout_copy_value
+expect_poll "a primary-only saved change automatically updates the greeter" "$(greeter_copy_json "$rules" "$output")" layout_copy_value
 if [[ ${#mode_hold_suspended[@]} -gt 0 ]]; then
   expect "the run's held rule is out of the configuration when the kept rule reloads" absent hold_file_state
 fi
@@ -261,14 +303,14 @@ expect "reload keeps the saved rule" ok hypr reload config-only
 expect_poll "the kept rule survives reload" "$trial_scale" scale_of "$output"
 expect "clearing saved display rules is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the saved monitor rule" no layer_has_rule
-expect_poll "clear automatically removes the greeter rules without inventing a primary" "{\"outputs\":{},\"primaryOutput\":\"$output\"}" layout_copy_value
+expect_poll "clear hands the greeter the running layout and keeps the primary" "$(greeter_copy_json '{}' "$output")" layout_copy_value
 cp -- "$sandbox/layout-service.saved" "$repo/shell/plugins/vgs.displays/Service.qml"
 cp -- "$sandbox/layout-helper.saved" "$repo/bin/lib/greeter-layout.js"
 rescan "the production readiness input and fixed destination are restored"
 expect "reload drops the saved rule" ok hypr reload config-only
 release_mode "display modes restores $output" "$output" "$base" 1
 
-expect "the stopped-shell trial starts" ok invoke_displays trialRules "$rules"
+expect_poll "the stopped-shell trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the stopped-shell trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
 expect_poll "the detached guard is running before the shell stops" yes guard_running "$token"
@@ -283,11 +325,14 @@ expect_poll "the stopped-shell trial state is idle" idle trial_phase
 cp -- "$repo/bin/vgshell-display-guard" "$repo/bin/vgshell-display-guard.good"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/bin/vgshell-display-guard"
 chmod 755 "$repo/bin/vgshell-display-guard"
-expect "the control display trial starts" ok invoke_displays trialRules "$rules"
+expect_poll "the control display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the control trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
 sleep 16
 expect "control: a guard that never restores leaves the trial's token held and no guard log" "token=held log=none" guard_left "$token"
+# A shipped guard would have claimed it; left, the shell counts it as a
+# guard at work for 30 listings.
+rm -f -- "${token:?}"
 mv -f -- "$repo/bin/vgshell-display-guard.good" "$repo/bin/vgshell-display-guard"
 release_mode "display modes control restores $output" "$output" "$base" 1
 
@@ -321,7 +366,7 @@ display_modes_warning_filter_control() {
 }
 expect "control: the same warning for another monitor still fails the log check" only-other display_modes_warning_filter_control
 off_rules="$(off_rule_json "$output" "$trial_mode")"
-expect "the off trial starts" ok invoke_displays trialRules "$off_rules"
+expect_poll "the off trial starts" ok invoke_displays trialRules "$off_rules"
 expect_poll "the off trial turns $output off" true disabled_of "$output"
 expect_poll "the shell drops its bar on $output once it is off" no shell_bar_on "$output"
 token="$(token_of)"

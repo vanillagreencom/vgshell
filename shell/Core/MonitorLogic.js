@@ -347,19 +347,29 @@ function primaryOutputs(outputs, rules) {
     });
 }
 
-// One screen name for the login form. SCREENS are the Wayland screens
-// actually available to draw on, in their current order. A lost saved
-// choice is kept, not rewritten, so reconnecting it restores placement.
-// The final fallback keeps login available after the layer's all-off
-// guard relights an output, or while an output read has failed.
+// The output of LIST with the most physical pixels in its current mode, the
+// first in Hyprland's order on a tie; Hyprland has no primary output.
+function mostPixels(list) {
+    return list.reduce(function (best, output) {
+        return output.width * output.height > best.width * best.height ? output : best;
+    });
+}
+
+// One screen name for the login form: the saved primary while it is
+// connected and eligible, else the eligible output with the most pixels.
+// SCREENS are the Wayland screens actually available to draw on, in their
+// current order. A lost saved choice is kept, not rewritten, so reconnecting
+// it restores placement. The final fallback keeps login available after the
+// layer's all-off guard relights an output, or while an output read has
+// failed.
 function loginOutput(outputs, rules, primary, screens) {
     var connected = (outputs || []).filter(function (output) { return screens.indexOf(output.name) !== -1; });
     var eligible = primaryOutputs(connected, rules);
     var preferred = outputsByKey(eligible, primary);
     if (preferred.length > 0) return preferred[0].name;
-    if (eligible.length > 0) return eligible[0].name;
+    if (eligible.length > 0) return mostPixels(eligible).name;
     var live = connected.filter(function (output) { return !output.disabled && output.mirrorOf === null; });
-    return live.length > 0 ? live[0].name : screens.length > 0 ? screens[0] : "";
+    return live.length > 0 ? mostPixels(live).name : screens.length > 0 ? screens[0] : "";
 }
 
 // The mirror of rule ID, judged against RULES alone: not its own output,
@@ -638,15 +648,21 @@ function liveSdr(output) {
     return { sdrbrightness: output.sdrBrightness, sdrsaturation: output.sdrSaturation };
 }
 
-// The outputs RULES name as OUTPUTS list them, by connector: each one's
-// mode, position, scale, orientation, off and mirror state, and each colour
-// field its rule names, so a restore sets back what the trial set and
-// leaves the rest as Hyprland holds it.
+// The outputs RULES name as OUTPUTS list them, by connector: one that is
+// off as off alone, any other with its mode, position, scale, orientation
+// and mirror state, and each colour field its rule names, so a restore sets
+// back what the trial set and leaves the rest as Hyprland holds it.
 function captureRules(outputs, rules) {
     var selected = {};
     Object.keys(rules).forEach(function (id) {
         var named = rules[id];
         outputsByKey(outputs, id).forEach(function (output) {
+            // An output that is off shows no mode, scale or orientation, and
+            // no recorded reading shows what Hyprland lists for them then.
+            if (output.disabled) {
+                selected[output.name] = { disabled: true };
+                return;
+            }
             var rule = {
                 mode: modeOf(output),
                 position: positionOf(output),
@@ -654,7 +670,6 @@ function captureRules(outputs, rules) {
                 transform: output.transform
             };
             if (output.width <= 0 || output.height <= 0) delete rule.mode;
-            if (output.disabled) rule.disabled = true;
             if (output.mirrorOf !== null) rule.mirror = mirrorTarget(outputs, output.mirrorOf);
             if (named.cm !== undefined) {
                 rule.cm = output.colorManagementPreset;
@@ -666,6 +681,67 @@ function captureRules(outputs, rules) {
         });
     });
     return selected;
+}
+
+// The layout the login screen copies: the SAVED rules, and for each listed
+// output no saved rule names, by connector or identifier, its rule as
+// Hyprland applied it. A captured rule is keyed by the output's identifier,
+// as a saved one is, so a saved description rule keeps its display when
+// connectors change between boots; where a tiled group shares the
+// identifier, by connector.
+function layoutRules(outputs, saved) {
+    var unnamed = {};
+    outputs.forEach(function (output) { if (ruleFor(saved, output) === null) unnamed[output.name] = {}; });
+    var captured = captureRules(outputs, unnamed);
+    var rules = Object.assign({}, saved);
+    Object.keys(captured).forEach(function (name) { rules[mirrorTarget(outputs, name)] = captured[name]; });
+    return rules;
+}
+
+// A trial lasts TRIAL_SECONDS. Its token in the trial directory is
+// `<created>-<random>.token`, and its detached guard wakes at created +
+// TRIAL_SECONDS, renames an unclaimed token to `.token.revert`, restores,
+// reads back and removes the claim (bin/vgshell-display-guard). A guard
+// outlives the shell that started it, so whether one may still restore is
+// read from the directory.
+var TRIAL_SECONDS = 15;
+// How many listings past the deadline a token or claim still counts as its
+// guard at work; the shell lists once a second then. A later one belongs to
+// a guard that never started or died, as when the shell ended between the
+// token and the guard or the machine stopped mid-restore, and it holds
+// nothing.
+var GUARD_RECHECKS = 30;
+// How long past its deadline, on the wall clock, a token another shell
+// started still counts as its guard at work.
+var GUARD_GRACE_SECONDS = 30;
+var GUARD_FILE = /^([0-9]+)-[0-9]+\.token(\.revert)?$/;
+
+// Seconds until the trial directory, listed as NAMES, is listed again, or
+// null when no guard may still restore. WAIT is { now, own, due, checks }:
+// `now` the wall clock in epoch seconds, `own` the name of the token this
+// shell started and waits on, or "", `due` whether this shell's own
+// deadline timer has fired, and `checks` the listings since that, or since
+// activation. The own token counts by listings after its deadline, never by
+// its wall-clock age: this shell's timers, which Qt counts on its steady
+// clock (qtimerinfo_unix.cpp), and the guard's sleep (nanosleep(2)) both
+// run on CLOCK_MONOTONIC, which stops while the machine is suspended
+// (clock_gettime(2)), and the wall clock does not. A token another shell started
+// is judged by its wall-clock age and by the listings since activation, so
+// a clock stepped back holds it no longer than the listings allow. No wait
+// exceeds TRIAL_SECONDS + 1, so such a step delays no listing longer.
+function guardRecheck(names, wait) {
+    var next = null;
+    names.forEach(function (name) {
+        var file = GUARD_FILE.exec(name);
+        if (file === null) return;
+        var deadline = Number(file[1]) + TRIAL_SECONDS;
+        var own = wait.own !== "" && (name === wait.own || name === wait.own + ".revert");
+        if ((!own || wait.due) && wait.checks >= GUARD_RECHECKS) return;
+        if (!own && deadline + GUARD_GRACE_SECONDS <= wait.now) return;
+        var seconds = own && wait.due ? 1 : Math.min(TRIAL_SECONDS + 1, Math.max(1, deadline + 1 - wait.now));
+        if (next === null || seconds < next) next = seconds;
+    });
+    return next;
 }
 
 // Whether the colour of OUTPUT, on and mirroring nothing, differs from the

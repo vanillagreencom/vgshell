@@ -44,6 +44,21 @@ Scope {
     property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     property string restoreLua: ""
     property var restoreRules: ({})
+    // Whether a trial's detached guard may still be restoring, read from
+    // the trial directory, since a guard outlives the shell that started it
+    // (MonitorLogic.guardRecheck): `unread` until a listing answers,
+    // `pending` from a trial's arming and while a guard's token or claim
+    // stands, `rereading` while the outputs read that follows the guard
+    // runs, `settled` once it answered. layoutRules is null and trial()
+    // refuses until `settled`.
+    property string guard: "unread"
+    // The name of the token this shell's last trial armed its guard with,
+    // "" once that guard is done or Keep claimed it; whether this shell's
+    // deadline timer has fired for it; and the listings since that, or since
+    // activation.
+    property string ownToken: ""
+    property bool ownDue: false
+    property int guardChecks: 0
     // The rule set the trial's Keep saves.
     property var keptRules: ({})
     property string trialLua: ""
@@ -54,11 +69,15 @@ Scope {
 
     onActiveChanged: {
         if (active) {
+            guardChecks = 0;
             readOutputs();
+            listGuards();
             return;
         }
         outputs = null;
         support = null;
+        guard = "unread";
+        guardCheck.stop();
     }
 
     onSupportWantedChanged: readMissingSupport()
@@ -72,6 +91,7 @@ Scope {
             get support() { return root.support === null ? null : Logic.frozenJson(root.support); },
             get trialState() { return Logic.frozenJson(root.trialState); },
             primaryOutputs: rules => Logic.frozenJson(Monitors.primaryOutputs(root.outputs || [], rules)),
+            layoutRules: saved => root.layoutRules(saved),
             overridden: rules => root.overridden(rules),
             trial: (rules, saved) => root.trial(ctx.id, rules, saved),
             keep: (token, done) => root.keep(ctx.id, token, done),
@@ -112,6 +132,54 @@ Scope {
         return id === ownerId ? "" : "refused: monitors-owner=" + ownerId + " caller=" + id;
     }
 
+    // The layout the login screen copies, SAVED over what Hyprland applied,
+    // or null while the outputs are unread or a trial holds or its guard may
+    // still hold them, so no trial reaches the copy.
+    function layoutRules(saved) {
+        if (outputs === null || trialState.phase !== "idle" || guard !== "settled") return null;
+        return Logic.frozenJson(Monitors.layoutRules(outputs, saved));
+    }
+
+    // List the trial directory, once more after a listing in flight, since
+    // that one may predate the change asked about.
+    function listGuards() {
+        guardCheck.stop();
+        if (guardLister.running) {
+            guardLister.again = true;
+            return;
+        }
+        guardLister.completion = null;
+        guardLister.running = true;
+    }
+
+    function guardsListed() {
+        if (!active) return;
+        if (guardLister.again) {
+            guardLister.again = false;
+            listGuards();
+            return;
+        }
+        if (guardLister.completion !== 0) {
+            // Unlisted is not settled: the next activation or trial lists again.
+            guard = "unread";
+            console.error("monitors: trial-guards=unlisted " + (guardLister.completion === null ? "start=failed" : "exit=" + guardLister.completion) + " dir=" + trialDir);
+            return;
+        }
+        const next = Monitors.guardRecheck(guardNames.text.split("\n").filter(name => name !== ""),
+            { now: Math.floor(Date.now() / 1000), own: ownToken, due: ownDue, checks: guardChecks });
+        guardChecks += 1;
+        if (next !== null) {
+            guard = "pending";
+            guardCheck.interval = next * 1000;
+            guardCheck.restart();
+            return;
+        }
+        // The read after the guard is the layout, whatever it shows.
+        ownToken = "";
+        guard = "rereading";
+        readOutputs();
+    }
+
     function overridden(rules) {
         if (outputs === null) return {};
         const out = {};
@@ -129,16 +197,27 @@ Scope {
         if (ownership !== "") return ownership;
         if (outputs === null) return "refused: monitors=unread";
         if (trialState.phase !== "idle") return "refused: monitors-trial=active";
+        // A restore is captured only from outputs no guard may still change.
+        if (guard !== "settled") {
+            if (guard === "unread") listGuards();
+            else if (guard === "rereading") readOutputs();
+            return "refused: monitors-trial=settling";
+        }
         if (Monitors.supportNeeded(rules) && Monitors.supportMissing(outputs, support).length > 0) readSupport();
         const trial = Monitors.trialPlan(saved, rules, outputs, support);
         if (!trial.ok) return trial.error;
         const now = Math.floor(Date.now() / 1000);
+        // From here a guard may restore, so the copy waits until it is done,
+        // a Keep claims the token, or no guard starts. The previous trial's
+        // deadline timer must not mark this one due.
+        guard = "pending";
+        deadline.stop();
         tokenPath = trialDir + "/" + now + "-" + Math.floor(Math.random() * 1000000) + ".token";
         trialLua = trial.lua;
         restoreLua = trial.restore;
         restoreRules = trial.restoreRules;
         keptRules = Logic.clone(trial.kept);
-        trialState = { phase: "arming", token: tokenPath, deadline: now + 15, failure: "" };
+        trialState = { phase: "arming", token: tokenPath, deadline: now + Monitors.TRIAL_SECONDS, failure: "" };
         tokenInit.command = ["bash", "-c", "[[ -x \"$2\" ]] && mkdir -p -- \"${1%/*}\" && : >\"$1\"", "vgs-display-token", tokenPath, guardPath];
         tokenInit.running = true;
         return "ok";
@@ -161,7 +240,8 @@ Scope {
         if (ownership !== "") return ownership;
         if (token !== trialState.token || trialState.phase === "idle") return "refused: monitors-token=unknown";
         const lua = restoreLua;
-        deadline.stop();
+        // The deadline timer keeps running: it marks this shell's own token
+        // due, which a refused eval leaves to the guard.
         trialState = { phase: "reverting", token: token, deadline: 0, failure: "" };
         // A refused eval runs no callback, and the trial must still end,
         // since the Hyprland layer holds its writes while one runs. Its
@@ -177,10 +257,14 @@ Scope {
         return "ok";
     }
 
+    // A refused eval leaves the token to the guard. A queued one's claim
+    // runs beside the eval, and the directory is listed once it ended: its
+    // rename either took the token, or found the guard's claim.
     function endRevert(answer) {
         trialState = { phase: "idle", token: "", deadline: 0, failure: answer === "ok" ? "" : answer };
         keptRules = {};
         readOutputs();
+        if (!reverter.running) listGuards();
     }
 
     Connections {
@@ -216,8 +300,11 @@ Scope {
             if (!read.ok) {
                 root.outputs = null;
                 console.error("monitors: " + read.error);
-            } else if (JSON.stringify(read.outputs) !== JSON.stringify(root.outputs)) {
-                root.outputs = read.outputs;
+            } else {
+                if (JSON.stringify(read.outputs) !== JSON.stringify(root.outputs)) root.outputs = read.outputs;
+                // HyprctlReader answers only the last read asked for, which
+                // started after the guard.
+                if (root.guard === "rereading") root.guard = "settled";
             }
         }
     }
@@ -245,15 +332,19 @@ Scope {
             if (running) return;
             if (root.trialState.phase !== "arming") return;
             if (completion !== 0) {
+                root.guard = "settled";
                 root.trialState = { phase: "idle", token: "", deadline: 0, failure: "guard=failed" };
                 return;
             }
             const guardCommand = [root.guardPath, String(root.trialState.deadline), root.trialState.token, root.hyprlandSignature, root.restoreLua, JSON.stringify(root.restoreRules)];
             if (!guardPath.length) {
+                root.guard = "settled";
                 root.trialState = { phase: "idle", token: "", deadline: 0, failure: "guard=missing" };
                 return;
             }
             Quickshell.execDetached({ command: guardCommand, environment: { VGSHELL_RUNNER_PID: null } });
+            root.ownToken = root.trialState.token.slice(root.trialDir.length + 1);
+            root.ownDue = false;
             root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: "" };
             deadline.interval = Math.max(1, root.trialState.deadline - Math.floor(Date.now() / 1000)) * 1000;
             deadline.restart();
@@ -271,13 +362,20 @@ Scope {
 
     Timer {
         id: deadline
+        // The guard's sleep for this shell's own token ends now, on the same
+        // clock, so listings count from here.
         onTriggered: {
-            if (root.trialState.phase !== "holding") return;
-            const token = root.trialState.token;
-            root.trialState = { phase: "idle", token: "", deadline: 0, failure: "deadline" };
-            root.keptRules = {};
-            root.readOutputs();
-            // The detached guard owns the actual restore.
+            root.ownDue = true;
+            root.guardChecks = 0;
+            if (root.trialState.phase === "holding") {
+                root.trialState = { phase: "idle", token: "", deadline: 0, failure: "deadline" };
+                root.keptRules = {};
+                root.readOutputs();
+                // The detached guard owns the actual restore.
+                root.listGuards();
+            } else if (root.guard === "pending" && root.trialState.phase === "idle") {
+                root.listGuards();
+            }
         }
     }
 
@@ -293,10 +391,40 @@ Scope {
             const saved = rules;
             done = null;
             rules = {};
+            // Kept, no guard restores. Claimed, the guard took the token
+            // before Keep and restores.
+            if (completion === 0) {
+                root.ownToken = "";
+                root.guard = "settled";
+            }
             if (root.trialState.phase === "keeping") root.trialState = { phase: "idle", token: "", deadline: 0, failure: completion === 0 ? "" : "claimed" };
             root.keptRules = {};
+            if (completion !== 0) root.listGuards();
             if (callback !== null) callback(completion === 0 ? { ok: true, rules: saved } : { ok: false, error: "refused: monitors-token=claimed" });
         }
     }
-    Process { id: reverter }
+    Process {
+        id: reverter
+        onRunningChanged: if (!running && root.guard === "pending" && root.trialState.phase === "idle") root.listGuards()
+    }
+
+    // The trial directory's entries, one per line; a missing directory has
+    // none. Its stdout is complete once running turns false
+    // (StdioCollector.waitForEnd, as the keeper's and copier's runs read it).
+    Process {
+        id: guardLister
+        property var completion: null
+        property bool again: false
+        command: ["bash", "-c", "[[ -e $1 ]] || exit 0; cd -- \"$1\" && shopt -s nullglob dotglob && printf '%s\\n' *", "vgs-display-guards", root.trialDir]
+        stdout: StdioCollector { id: guardNames; waitForEnd: true }
+        onExited: code => completion = code
+        onRunningChanged: if (!running) root.guardsListed()
+    }
+
+    // One second past a pending guard's deadline, then each second while it
+    // may still be at work, until MonitorLogic.GUARD_GRACE_SECONDS past it.
+    Timer {
+        id: guardCheck
+        onTriggered: root.listGuards()
+    }
 }

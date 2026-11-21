@@ -3785,8 +3785,9 @@ try {
         if (row.owner === 'monitor') {
             let trialState = { phase: row.phase || 'idle', token: 'existing-token', deadline: 0, failure: '' };
             let publications = 0;
+            // The trial gate settled: no guard may still restore.
             const state = { ownerId: 'owner', outputs: row.unread ? null : parsed.outputs,
-                support: {}, Monitors: monitors };
+                support: {}, Monitors: monitors, guard: 'settled' };
             Object.defineProperty(state, 'trialState', { configurable: true,
                 get: () => trialState, set: value => { trialState = value; publications++; } });
             context(source, ['mustOwn', 'trial', 'keep', 'revert'], 4, state);

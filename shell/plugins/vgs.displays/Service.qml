@@ -95,9 +95,14 @@ Item {
     readonly property string restorePath: Paths.stateDir + "/plugins/vgs.displays/restore.json"
     readonly property string helperPath: String(Qt.resolvedUrl("helper/brightness.py")).replace(/^file:\/\//, "")
     readonly property bool greeterReady: steps !== null && steps.greeter !== undefined && steps.greeter.state === "ready"
-    // Only confirmed saved settings enter this payload, never trialState,
-    // a pane's draft or the compositor's temporary reading.
-    readonly property string savedLayout: shell === null ? "" : JSON.stringify({ outputs: shell.settings.outputs, primaryOutput: shell.settings.primaryOutput })
+    // The login screen's copy: the confirmed saved rules, and Hyprland's
+    // applied reading of each output they name no rule for, never a pane's
+    // draft or a trial. "" while the capability has no settled reading
+    // (layoutRules null), so the last copy stands.
+    readonly property string greeterLayout: {
+        const rules = shell === null ? null : shell.monitors.layoutRules(shell.settings.outputs);
+        return rules === null ? "" : JSON.stringify({ outputs: rules, primaryOutput: shell.settings.primaryOutput });
+    }
     // choices status ids are nonempty; Settings maps the first offer to
     // the unset string. The pane makes that same explicit Automatic choice.
     readonly property var primaryChoices: [{ label: "Automatic", value: "automatic" }].concat(shell === null ? [] : Logic.outputChoices(shell.monitors.primaryOutputs(shell.settings.outputs)))
@@ -116,7 +121,7 @@ Item {
     onSystemRevisionChanged: rescan.restart()
     onRequirementsRevisionChanged: rescan.restart()
     onDimAfterSecondsChanged: watchIdle()
-    onSavedLayoutChanged: queueLayout()
+    onGreeterLayoutChanged: queueLayout()
     onGreeterReadyChanged: {
         layoutCopied = null;
         if (greeterReady) queueLayout();
@@ -125,8 +130,8 @@ Item {
     onLayoutValuesChanged: publish()
 
     function queueLayout() {
-        if (!greeterReady || savedLayout === "") return;
-        layoutPending = savedLayout;
+        if (!greeterReady || greeterLayout === "") return;
+        layoutPending = greeterLayout;
         Qt.callLater(pumpLayout);
     }
 

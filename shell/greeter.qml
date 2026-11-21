@@ -28,8 +28,10 @@ import "Core/MonitorLogic.js" as Monitors
 //
 // An accepted view prints `greeter: view=<path> screens=<n>`. It is built
 // on one overlay layer surface per screen, each covering its output, with
-// the screen and whether it is the interactive one: the saved primary, which
-// alone takes the keyboard and talks to greetd. The surface is the
+// the screen and whether it is the interactive one: the output
+// MonitorLogic.loginOutput picks, the saved primary, else the eligible
+// output with the most pixels. It alone takes the keyboard and talks to
+// greetd. The surface is the
 // theme's background colour, as the lock host's is.
 ShellRoot {
     id: root
