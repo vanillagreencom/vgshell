@@ -121,6 +121,7 @@ COMMIT_GUARDS_MD_REFS_SOURCE_PATHS = "*.rs *.go *.c *.h *.cc *.cpp *.hpp *.java 
 # Diff-scoped local checks, including the isolated smoke only when affected.
 DEV_VALIDATE_CMD = "scripts/validate"
 DEV_VALIDATE_RANGE_CMD = "scripts/validate"
+DEV_VALIDATE_EXPECTED_SECS = "7200"
 # The expected run time the run-time warning reads: a time is a reading, never a stop.
 
 # The optional stages VGS runs. VGS arms no git hooks (AGENTS.md), and the
