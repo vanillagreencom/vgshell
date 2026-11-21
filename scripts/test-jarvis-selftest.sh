@@ -186,10 +186,20 @@ voxtype_cpuinfo="$tmp/cpuinfo"
 mkdir -p "$voxtype_models/parakeet-tdt-0.6b-v3"
 mkdir -p "$voxtype_builds"
 echo model >"$voxtype_models/parakeet-tdt-0.6b-v3/model.bin"
-printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx2"
-printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx512"
-chmod +x "$voxtype_builds/voxtype-onnx-avx2" "$voxtype_builds/voxtype-onnx-avx512"
-echo 'flags	: avx2 avx512f' >"$voxtype_cpuinfo"
+# cpu_fixture FLAGS INCLUDED BUILDS: /proc/cpuinfo's flags, the voxtype-bin
+# package-variants record of what it installed, and the voxtype-V files
+# present. The neutral world holds both CPU ONNX builds.
+cpu_fixture() {
+  printf 'flags\t: %s\n' "$1" >"$voxtype_cpuinfo"
+  printf '# voxtype-bin 1.3.0-1: variants selected when the package was built\ninstall_method=aur-bin\nincluded=%s\nexplicit=\n' "$2" >"$voxtype_builds/package-variants"
+  rm -f -- "${voxtype_builds:?}"/voxtype-*
+  local build
+  for build in $3; do
+    printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-$build" && chmod +x "$voxtype_builds/voxtype-$build"
+  done
+}
+cpu_world() { cpu_fixture "avx2 avx512f" "baseline avx512 vulkan onnx-avx2 onnx-avx512 onnx-cuda-13" "baseline avx512 vulkan onnx-avx2 onnx-avx512"; }
+cpu_world
 voice_inputs=(JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models")
 
 # The scratch tree: the runner's copy, the checkout's shell, bin and agent
@@ -372,21 +382,19 @@ voxtype_case() { # ROW
   return "$held"
 }
 for row in "${voxtype_rows[@]}"; do holds "${row%%|*} ends as selftest=input-missing name=VOXTYPE_MODELS, exit 77" voxtype_case "$row"; done
-cpu_fixture() { # FLAGS AVX2 AVX512
-  printf 'flags\t: %s\n' "$1" >"$voxtype_cpuinfo"
-  rm -f -- "$voxtype_builds/voxtype-onnx-avx2" "$voxtype_builds/voxtype-onnx-avx512"
-  if [[ $2 == yes ]]; then printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx2" && chmod +x "$voxtype_builds/voxtype-onnx-avx2"; fi
-  if [[ $3 == yes ]]; then printf '#!/bin/sh\nexit 0\n' >"$voxtype_builds/voxtype-onnx-avx512" && chmod +x "$voxtype_builds/voxtype-onnx-avx512"; fi
-}
+# Rows: LABEL|CPU FLAGS|package-variants included=|files present|chosen build|status.
+# The voxtype-bin 1.3.0 rows read home's install with and without onnx-avx512.
 cpu_rows=(
-  "avx512f flag and avx512 present chooses avx512|avx2 avx512f|yes|yes|$voxtype_builds/voxtype-onnx-avx512|0"
-  "no avx512f flag chooses avx2|avx2|yes|yes|$voxtype_builds/voxtype-onnx-avx2|0"
-  "no CPU build ends input-missing|avx2 avx512f|no|no||77"
+  "1.3.0 with both CPU ONNX builds on an avx512f CPU chooses onnx-avx512|avx2 avx512f|baseline avx512 vulkan onnx-avx2 onnx-avx512 onnx-cuda-13|baseline avx512 vulkan onnx-avx2 onnx-avx512|$voxtype_builds/voxtype-onnx-avx512|0"
+  "no avx512f flag chooses onnx-avx2|avx2|baseline avx2 vulkan onnx-avx2 onnx-avx512|baseline avx2 vulkan onnx-avx2 onnx-avx512|$voxtype_builds/voxtype-onnx-avx2|0"
+  "1.3.0 as installed with onnx-cuda-13 alone ends input-missing|avx2 avx512f|baseline avx512 vulkan onnx-cuda-13|baseline avx512 vulkan|none|77"
+  "an included build whose file is absent ends input-missing|avx2 avx512f|baseline avx512 vulkan onnx-avx512|baseline avx512 vulkan|none|77"
+  "an onnx-avx512 file the package does not list is not chosen|avx2 avx512f|baseline avx512 vulkan onnx-avx2|baseline avx512 vulkan onnx-avx2 onnx-avx512|$voxtype_builds/voxtype-onnx-avx2|0"
 )
 cpu_case() { # ROW
-  local label flags avx2 avx512 want status_want held=0
-  IFS='|' read -r label flags avx2 avx512 want status_want <<<"$1"
-  cpu_fixture "$flags" "$avx2" "$avx512"
+  local label flags included builds want status_want held=0
+  IFS='|' read -r label flags included builds want status_want <<<"$1"
+  cpu_fixture "$flags" "$included" "$builds"
   if [[ $status_want == 77 ]]; then
     ends 77 "selftest=input-missing name=voxtype-cpu" --type hello --brain "$sign_in" || held=1
   else
@@ -396,7 +404,7 @@ cpu_case() { # ROW
     [[ "$(grep '^exec ' "$sandbox/shim/voxtype")" == "exec $want \"\$@\"" ]] || held=1
     echo 1 >"$tmp/fence-answer"
   fi
-  cpu_fixture "avx2 avx512f" yes yes
+  cpu_world
   return "$held"
 }
 for row in "${cpu_rows[@]}"; do holds "${row%%|*}" cpu_case "$row"; done
@@ -482,8 +490,9 @@ if [[ $hears_here == true ]]; then' 'voxtype_models=""
 voxtype_models_sum=""
 voxtype_cpu=""
 if false; then' voxtype_case "${voxtype_rows[0]}"
-control plant "a runner that takes avx2 while avx512f is available" 'if grep -qw avx512f "$selftest_cpuinfo" && [[ -x $selftest_voxtype_builds/voxtype-onnx-avx512 ]]; then' 'if false && grep -qw avx512f "$selftest_cpuinfo" && [[ -x $selftest_voxtype_builds/voxtype-onnx-avx512 ]]; then' cpu_case "${cpu_rows[0]}"
+control plant "a runner that takes avx2 while avx512f is available" '  for pick in onnx-avx512:avx512f onnx-avx2:avx2; do' '  for pick in onnx-avx2:avx2 onnx-avx512:avx512f; do' cpu_case "${cpu_rows[0]}"
 control plant "a runner that starts without a CPU voxtype build" '  voxtype_cpu="$(selftest_voxtype_cpu)" || unavailable input-missing name=voxtype-cpu' '  voxtype_cpu="$selftest_voxtype_builds/voxtype-onnx-avx2"' cpu_case "${cpu_rows[2]}"
+control plant "a runner that takes a build the package does not list" '    [[ " $included " == *" $variant "* ]] && grep' '    grep' cpu_case "${cpu_rows[4]}"
 
 echo "--- what the run makes before its shell starts"
 echo 0 >"$tmp/fence-answer"

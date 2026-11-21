@@ -106,10 +106,12 @@
 # VOXTYPE_MODELS names the caller's voxtype model directory. The run writes
 # the sandbox HOME's voxtype config from config/voxtype/config.toml, keeps
 # its named model and links only that prepared model into the sandbox's
-# normal inventory. It reads the model in place. voxtype 1.1.0 has no config
-# key that selects the CPU ONNX build, so
-# the run puts a voxtype wrapper in the sandbox command shim, ahead of the
-# shell's PATH, and that wrapper execs the canonical CPU build directly.
+# normal inventory. It reads the model in place. voxtype has no config key
+# that selects the CPU ONNX build, so the run puts a voxtype wrapper in the
+# sandbox command shim, ahead of the shell's PATH, and that wrapper execs the
+# canonical CPU ONNX build directly. The run takes that build from the
+# variants the voxtype package records as installed; with none for this CPU
+# it ends as selftest=input-missing name=voxtype-cpu.
 #
 # With --cold N, the record is one JSON object: `kind: "cold-starts"`,
 # `starts` and `cpuPressure`. Each start disables and enables Jarvis and
@@ -274,18 +276,21 @@ selftest_local_inputs() {
   printf '%s\n%s\n' "$root" "$(readlink -f -- "$marker")"
 }
 
-# selftest_voxtype_cpu: the canonical CPU voxtype build the sandbox shell
-# must run. voxtype 1.1.0 chooses the ONNX build through the installed
-# executable, not through config, and ORT needs the canonical binary path.
+# selftest_voxtype_cpu: the canonical CPU ONNX voxtype build the sandbox
+# shell must run. voxtype-bin's PKGBUILD writes the variants it installed to
+# the `included=` line of package-variants and installs CPU variant V as
+# voxtype-V; ORT needs that canonical path. The main CPU builds carry no
+# ONNX engine, and the CUDA build needs a GPU the sandbox does not get.
 selftest_voxtype_cpu() {
-  if grep -qw avx512f "$selftest_cpuinfo" && [[ -x $selftest_voxtype_builds/voxtype-onnx-avx512 ]]; then
-    printf '%s\n' "$selftest_voxtype_builds/voxtype-onnx-avx512"
+  local included pick variant flag
+  included="$(sed -n 's/^included=//p' -- "$selftest_voxtype_builds/package-variants")" || return 1
+  for pick in onnx-avx512:avx512f onnx-avx2:avx2; do
+    variant="${pick%%:*}" flag="${pick#*:}"
+    [[ " $included " == *" $variant "* ]] && grep -qw -- "$flag" "$selftest_cpuinfo" || continue
+    [[ -x $selftest_voxtype_builds/voxtype-$variant ]] || return 1
+    printf '%s\n' "$selftest_voxtype_builds/voxtype-$variant"
     return 0
-  fi
-  if [[ -x $selftest_voxtype_builds/voxtype-onnx-avx2 ]]; then
-    printf '%s\n' "$selftest_voxtype_builds/voxtype-onnx-avx2"
-    return 0
-  fi
+  done
   return 1
 }
 
