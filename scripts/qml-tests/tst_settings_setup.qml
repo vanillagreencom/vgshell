@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
 import qs.Unit
 import qs.Commons
@@ -35,6 +36,145 @@ Item {
     id: root
     width: 1200
     height: 1200
+    Component {
+        id: geometryObserver
+        Connections {
+            required property var watched
+            required property var sample
+            target: watched
+            ignoreUnknownSignals: true
+            function onPressed() { sample("pressed", watched); }
+            function onReleased() { sample("released", watched); }
+            function onClicked() { sample("clicked", watched); }
+            function onCanceled() { sample("canceled", watched); }
+            function onPressedChanged() { sample("pressedChanged", watched); }
+            function onDownChanged() { sample("downChanged", watched); }
+            function onActiveFocusChanged() { sample("activeFocusChanged", watched); }
+            function onActiveFocusItemChanged() { sample("activeFocusItemChanged", watched); }
+            function onFocusChanged() { sample("focusChanged", watched); }
+            function onXChanged() { sample("xChanged", watched); }
+            function onYChanged() { sample("yChanged", watched); }
+            function onWidthChanged() { sample("widthChanged", watched); }
+            function onHeightChanged() { sample("heightChanged", watched); }
+            function onVisibleChanged() { sample("visibleChanged", watched); }
+            function onContentYChanged() { sample("contentYChanged", watched); }
+            function onContentHeightChanged() { sample("contentHeightChanged", watched); }
+            function onCurrentIndexChanged() { sample("currentIndexChanged", watched); }
+            function onCurrentPageChanged() { sample("currentPageChanged", watched); }
+            function onCustomVisibleChanged() { sample("customVisibleChanged", watched); }
+            function onAfterAnimating() { sample("afterAnimating", watched); }
+            function onFrameSwapped() { sample("frameSwapped", watched); }
+        }
+    }
+    QtObject {
+        id: geometryProbe
+        function identity(item) {
+            if (item === null || item === undefined) return null;
+            const out = { object: String(item) };
+            for (const name of ["objectName", "key", "text", "label", "visible", "enabled", "opacity", "clip", "focus", "active", "activeFocus", "focusReason", "pressed", "down", "hovered", "containsMouse"])
+                if (name in item && ["string", "number", "boolean"].includes(typeof item[name])) out[name] = item[name];
+            return out;
+        }
+
+        function rectangle(item, boundary) {
+            if (!item || typeof item.mapToItem !== "function") return null;
+            const at = item.mapToItem(boundary, 0, 0);
+            const end = item.mapToItem(boundary, item.width, item.height);
+            return [at.x, at.y, end.x - at.x, end.y - at.y];
+        }
+
+        function describe(item, boundary) {
+            const out = identity(item);
+            if (out === null) return null;
+            for (const name of ["x", "y", "width", "height", "implicitWidth", "implicitHeight", "contentY", "contentHeight", "currentIndex", "focusInset", "clipPadding", "fadeTopInset", "fadeExtent", "fadeAbove", "fadeBelow"])
+                if (name in item) out[name] = item[name];
+            out.mapped = rectangle(item, boundary);
+            return out;
+        }
+
+        function ancestors(item, boundary) {
+            const out = [];
+            for (let at = item; at; at = at.parent) out.push(describe(at, boundary));
+            return out;
+        }
+
+        // childAt is a visual lookup, not evidence of which item accepted input.
+        // The signal emitter recorded beside it supplies the event recipient.
+        function visualPath(item, point) {
+            const out = [];
+            for (let at = item; at;) {
+                out.push(identity(at));
+                const next = at.childAt(point.x, point.y);
+                if (next === null) break;
+                point = next.mapFromItem(at, point.x, point.y);
+                at = next;
+            }
+            return out;
+        }
+
+        function descendants(item) {
+            const out = [item];
+            for (let i = 0; i < out.length; i++)
+                for (const child of out[i].children || []) out.push(child);
+            return out;
+        }
+
+        function install(testCase, component, owner, context) {
+            function sample(stage, emitter) {
+                const subject = context.subject();
+                const native = context.nativeWindow;
+                const nativeRoot = native === null ? null : native.contentItem;
+                const nativePoint = subject && nativeRoot ? subject.mapToItem(nativeRoot, subject.width / 2, subject.height / 2) : null;
+                const strip = context.tabs.tabs;
+                const record = {
+                    caseName: context.caseName, qt: context.qtVersion, stage: stage, timeMs: Date.now(),
+                    emitter: identity(emitter), subject: describe(subject, context.boundary),
+                    subjectObserved: unique.indexOf(subject) !== -1,
+                    sceneRect: rectangle(subject, nativeRoot), clickPoint: nativePoint,
+                    visualPath: nativePoint === null ? [] : visualPath(nativeRoot, nativePoint),
+                    ancestors: ancestors(subject, context.boundary),
+                    viewport: describe(context.viewport, context.boundary),
+                    contentItem: describe(context.viewport.contentItem, context.boundary),
+                    tabs: describe(context.tabs, context.boundary),
+                    tabPage: describe(context.tabs.currentPage, context.boundary),
+                    strip: describe(strip, context.boundary),
+                    stripTargetY: context.viewport.contentY + context.viewport.focusInset + context.pane.ringRoom - context.tabs.y,
+                    nativeWindow: identity(native), nativeSize: native === null ? null : [native.width, native.height],
+                    nativeActiveFocusItem: describe(native === null ? null : native.activeFocusItem, context.boundary),
+                    polishScheduled: native === null ? null : testCase.isPolishScheduled(native),
+                    slide: context.surface === null ? null : {
+                        actualX: context.page.parent.x,
+                        targetX: context.surface.page === "" ? 0 : -context.surface.width,
+                        surfaceWidth: context.surface.width, page: context.surface.page, tab: context.page.tab
+                    },
+                    extra: context.extra()
+                };
+                console.info("vgs2681-geometry " + JSON.stringify(record));
+            }
+            const watched = [context.nativeWindow, context.viewport, context.tabs, context.tabs.tabs];
+            for (let at = context.subject(); at; at = at.parent) watched.push(at);
+            for (const item of descendants(owner))
+                if (("down" in item && "pressed" in item) || "containsMouse" in item || "customVisible" in item)
+                    watched.push(item);
+            const unique = watched.filter((item, index) => item !== null && watched.indexOf(item) === index);
+            const observers = [];
+            for (const item of unique) {
+                const observer = testCase.createTemporaryObject(component, owner, { watched: item, sample: sample });
+                testCase.verify(observer !== null, "the passive geometry observer is created");
+                observers.push(observer);
+            }
+            console.info("vgs2681-observers " + JSON.stringify({ caseName: context.caseName, targets: unique.map(identity) }));
+            return {
+                snapshot: stage => sample(stage, null),
+                stop: () => {
+                    for (const observer of observers) {
+                        observer.enabled = false;
+                        observer.target = null;
+                    }
+                }
+            };
+        }
+    }
     readonly property var screen: ({ name: "DP-1", x: 0, y: 0, width: 1920, height: 1080 })
     readonly property var stepped: ({
         requirements: [], tui: { connect: { requires: [] } },
@@ -225,6 +365,7 @@ Item {
     }
     Component { id: windowComponent; Window { shell: fakeShell } }
     UnitCase {
+        id: geometryCase
         name: "settingsSetup"
         when: windowShown
         function descendants(item) {
@@ -390,11 +531,25 @@ Item {
             compare(onTab(window, StatusRow).map(row => row.entry.label), ["Feature state", "Health"]);
             const fact = onTab(window, StatusRow).find(row => row.entry.key === "featureState");
             const action = () => descendants(fact).find(item => item instanceof RowAction && item.visible);
-            verify(action() !== undefined, "the feature's state draws its action");
-            compare(action().text, "Configure feature");
-            tryVerify(() => action().height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
-            mouseClick(action());
-            compare(fakeManager.acts, [["acme.optional", "featureState"]], "the action takes its status entry's route");
+            const probe = geometryProbe.install(geometryCase, geometryObserver, root, {
+                caseName: "configure-feature", qtVersion: UnitQt.VERSION, subject: action, boundary: root, page: pageOf(window),
+                viewport: pageOf(window).scrollArea, tabs: tabsOf(window),
+                pane: descendants(pageOf(window)).find(item => item instanceof Pane),
+                nativeWindow: root.Window.window, surface: window,
+                extra: () => ({ updates: fakeManager.updates, acts: fakeManager.acts })
+            });
+            try {
+                probe.snapshot("after-tab-selection");
+                verify(action() !== undefined, "the feature's state draws its action");
+                compare(action().text, "Configure feature");
+                tryVerify(() => action().height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+                probe.snapshot("before-click");
+                mouseClick(action());
+                probe.snapshot("after-click-before-route-assertion");
+                compare(fakeManager.acts, [["acme.optional", "featureState"]], "the action takes its status entry's route");
+            } finally {
+                probe.stop();
+            }
             compare(onTab(window, RequirementRow).map(row => row.requirement.name), ["optional-tool"], "Details lists the optional tool");
             compare(onTab(window, RowAction).filter(item => item.text === Steps.REVIEW_LABEL).length, 0, "Details offers no install");
             window.openPlugin("acme.optional", Qt.OtherFocusReason, "Setup");
@@ -891,8 +1046,23 @@ Item {
             const window = opened(); window.openPlugin(data.before, Qt.OtherFocusReason); window.openPlugin(data.id, Qt.OtherFocusReason);
             tabsOf(window).currentIndex = data.index; compare(pageOf(window).tab, "Details");
             const update = () => shown(window, RowAction).find(item => item.text === "Update");
-            tryVerify(() => update() !== undefined && update().height > 0 && pageOf(window).parent.x === -window.width, 2000);
-            mouseClick(update()); compare(fakeManager.updates, [data.id]);
+            const probe = data.index !== 2 ? null : geometryProbe.install(geometryCase, geometryObserver, root, {
+                caseName: "third-page-update", qtVersion: UnitQt.VERSION, subject: update, boundary: root, page: pageOf(window),
+                viewport: pageOf(window).scrollArea, tabs: tabsOf(window),
+                pane: descendants(pageOf(window)).find(item => item instanceof Pane),
+                nativeWindow: root.Window.window, surface: window,
+                extra: () => ({ updates: fakeManager.updates, acts: fakeManager.acts })
+            });
+            try {
+                if (probe !== null) probe.snapshot("after-tab-selection");
+                tryVerify(() => update() !== undefined && update().height > 0 && pageOf(window).parent.x === -window.width, 2000);
+                if (probe !== null) probe.snapshot("before-click");
+                mouseClick(update());
+                if (probe !== null) probe.snapshot("after-click-before-route-assertion");
+                compare(fakeManager.updates, [data.id]);
+            } finally {
+                if (probe !== null) probe.stop();
+            }
         }
     }
 }

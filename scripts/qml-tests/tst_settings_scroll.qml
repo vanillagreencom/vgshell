@@ -15,6 +15,145 @@ Item {
     height: 460
     property Item page: null
     property var fixtures: ({})
+    Component {
+        id: geometryObserver
+        Connections {
+            required property var watched
+            required property var sample
+            target: watched
+            ignoreUnknownSignals: true
+            function onPressed() { sample("pressed", watched); }
+            function onReleased() { sample("released", watched); }
+            function onClicked() { sample("clicked", watched); }
+            function onCanceled() { sample("canceled", watched); }
+            function onPressedChanged() { sample("pressedChanged", watched); }
+            function onDownChanged() { sample("downChanged", watched); }
+            function onActiveFocusChanged() { sample("activeFocusChanged", watched); }
+            function onActiveFocusItemChanged() { sample("activeFocusItemChanged", watched); }
+            function onFocusChanged() { sample("focusChanged", watched); }
+            function onXChanged() { sample("xChanged", watched); }
+            function onYChanged() { sample("yChanged", watched); }
+            function onWidthChanged() { sample("widthChanged", watched); }
+            function onHeightChanged() { sample("heightChanged", watched); }
+            function onVisibleChanged() { sample("visibleChanged", watched); }
+            function onContentYChanged() { sample("contentYChanged", watched); }
+            function onContentHeightChanged() { sample("contentHeightChanged", watched); }
+            function onCurrentIndexChanged() { sample("currentIndexChanged", watched); }
+            function onCurrentPageChanged() { sample("currentPageChanged", watched); }
+            function onCustomVisibleChanged() { sample("customVisibleChanged", watched); }
+            function onAfterAnimating() { sample("afterAnimating", watched); }
+            function onFrameSwapped() { sample("frameSwapped", watched); }
+        }
+    }
+    QtObject {
+        id: geometryProbe
+        function identity(item) {
+            if (item === null || item === undefined) return null;
+            const out = { object: String(item) };
+            for (const name of ["objectName", "key", "text", "label", "visible", "enabled", "opacity", "clip", "focus", "active", "activeFocus", "focusReason", "pressed", "down", "hovered", "containsMouse"])
+                if (name in item && ["string", "number", "boolean"].includes(typeof item[name])) out[name] = item[name];
+            return out;
+        }
+
+        function rectangle(item, boundary) {
+            if (!item || typeof item.mapToItem !== "function") return null;
+            const at = item.mapToItem(boundary, 0, 0);
+            const end = item.mapToItem(boundary, item.width, item.height);
+            return [at.x, at.y, end.x - at.x, end.y - at.y];
+        }
+
+        function describe(item, boundary) {
+            const out = identity(item);
+            if (out === null) return null;
+            for (const name of ["x", "y", "width", "height", "implicitWidth", "implicitHeight", "contentY", "contentHeight", "currentIndex", "focusInset", "clipPadding", "fadeTopInset", "fadeExtent", "fadeAbove", "fadeBelow"])
+                if (name in item) out[name] = item[name];
+            out.mapped = rectangle(item, boundary);
+            return out;
+        }
+
+        function ancestors(item, boundary) {
+            const out = [];
+            for (let at = item; at; at = at.parent) out.push(describe(at, boundary));
+            return out;
+        }
+
+        // childAt is a visual lookup, not evidence of which item accepted input.
+        // The signal emitter recorded beside it supplies the event recipient.
+        function visualPath(item, point) {
+            const out = [];
+            for (let at = item; at;) {
+                out.push(identity(at));
+                const next = at.childAt(point.x, point.y);
+                if (next === null) break;
+                point = next.mapFromItem(at, point.x, point.y);
+                at = next;
+            }
+            return out;
+        }
+
+        function descendants(item) {
+            const out = [item];
+            for (let i = 0; i < out.length; i++)
+                for (const child of out[i].children || []) out.push(child);
+            return out;
+        }
+
+        function install(testCase, component, owner, context) {
+            function sample(stage, emitter) {
+                const subject = context.subject();
+                const native = context.nativeWindow;
+                const nativeRoot = native === null ? null : native.contentItem;
+                const nativePoint = subject && nativeRoot ? subject.mapToItem(nativeRoot, subject.width / 2, subject.height / 2) : null;
+                const strip = context.tabs.tabs;
+                const record = {
+                    caseName: context.caseName, qt: context.qtVersion, stage: stage, timeMs: Date.now(),
+                    emitter: identity(emitter), subject: describe(subject, context.boundary),
+                    subjectObserved: unique.indexOf(subject) !== -1,
+                    sceneRect: rectangle(subject, nativeRoot), clickPoint: nativePoint,
+                    visualPath: nativePoint === null ? [] : visualPath(nativeRoot, nativePoint),
+                    ancestors: ancestors(subject, context.boundary),
+                    viewport: describe(context.viewport, context.boundary),
+                    contentItem: describe(context.viewport.contentItem, context.boundary),
+                    tabs: describe(context.tabs, context.boundary),
+                    tabPage: describe(context.tabs.currentPage, context.boundary),
+                    strip: describe(strip, context.boundary),
+                    stripTargetY: context.viewport.contentY + context.viewport.focusInset + context.pane.ringRoom - context.tabs.y,
+                    nativeWindow: identity(native), nativeSize: native === null ? null : [native.width, native.height],
+                    nativeActiveFocusItem: describe(native === null ? null : native.activeFocusItem, context.boundary),
+                    polishScheduled: native === null ? null : testCase.isPolishScheduled(native),
+                    slide: context.surface === null ? null : {
+                        actualX: context.page.parent.x,
+                        targetX: context.surface.page === "" ? 0 : -context.surface.width,
+                        surfaceWidth: context.surface.width, page: context.surface.page, tab: context.page.tab
+                    },
+                    extra: context.extra()
+                };
+                console.info("vgs2681-geometry " + JSON.stringify(record));
+            }
+            const watched = [context.nativeWindow, context.viewport, context.tabs, context.tabs.tabs];
+            for (let at = context.subject(); at; at = at.parent) watched.push(at);
+            for (const item of descendants(owner))
+                if (("down" in item && "pressed" in item) || "containsMouse" in item || "customVisible" in item)
+                    watched.push(item);
+            const unique = watched.filter((item, index) => item !== null && watched.indexOf(item) === index);
+            const observers = [];
+            for (const item of unique) {
+                const observer = testCase.createTemporaryObject(component, owner, { watched: item, sample: sample });
+                testCase.verify(observer !== null, "the passive geometry observer is created");
+                observers.push(observer);
+            }
+            console.info("vgs2681-observers " + JSON.stringify({ caseName: context.caseName, targets: unique.map(identity) }));
+            return {
+                snapshot: stage => sample(stage, null),
+                stop: () => {
+                    for (const observer of observers) {
+                        observer.enabled = false;
+                        observer.target = null;
+                    }
+                }
+            };
+        }
+    }
 
     function row(enabled, listCase) {
         // Registry.managerRows retains m.schema/m.fieldRows while replacing
@@ -74,6 +213,7 @@ Item {
         return out;
     }
     UnitCase {
+        id: geometryCase
         name: "SettingsScroll"
         when: windowShown
         function enabledSwitch() {
@@ -116,11 +256,27 @@ Item {
         function test_choosing_custom_still_reveals_the_editor() {
             const home = descendants(page).find(item => item instanceof SettingField && item.key === "home");
             const select = descendants(home).find(item => item instanceof Select);
-            select.choose(home.choices.length);
-            tryVerify(() => home.customVisible && page.scrollArea.contentY > 0);
-            const input = descendants(home).find(item => item instanceof TextInput && item.visible);
-            verify(input !== undefined);
-            verify(input.mapToItem(page.scrollArea, 0, input.height).y <= page.scrollArea.height);
+            const probe = geometryProbe.install(geometryCase, geometryObserver, root, {
+                caseName: "custom-editor", qtVersion: UnitQt.VERSION,
+                subject: () => descendants(home).find(item => item instanceof TextInput && item.visible) || select,
+                boundary: root, page: page, viewport: page.scrollArea,
+                tabs: descendants(page).find(item => item instanceof TabPages),
+                pane: descendants(page).find(item => item instanceof Pane),
+                nativeWindow: root.Window.window, surface: null,
+                extra: () => ({ customVisible: home.customVisible, field: geometryProbe.describe(home, root) })
+            });
+            try {
+                probe.snapshot("before-choose");
+                select.choose(home.choices.length);
+                probe.snapshot("after-choose");
+                tryVerify(() => home.customVisible && page.scrollArea.contentY > 0);
+                const input = descendants(home).find(item => item instanceof TextInput && item.visible);
+                verify(input !== undefined);
+                probe.snapshot("before-viewport-assertion");
+                verify(input.mapToItem(page.scrollArea, 0, input.height).y <= page.scrollArea.height);
+            } finally {
+                probe.stop();
+            }
         }
 
         function test_keyboard_focus_still_reveals_the_control() {
