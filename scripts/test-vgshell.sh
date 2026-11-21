@@ -221,6 +221,82 @@ run_restart_capture() { # RUNTIME_DIR RECORD DISPATCH REPLY [ENV...]
 dead_pid="$(( $(cat /proc/sys/kernel/pid_max) + 1 ))"
 ipc_error_line="$(printf '\033[31m ERROR\033[97m quickshell.ipc\033[0m: Error occurred while waiting for response.')" || { echo "test-vgshell: ipc-error-line=build-failed" >&2; exit 1; }
 
+echo "=== public IPC streams ==="
+# Script consumers parse the whole stdout stream. The stand-in also puts
+# warnings on stdout, as Qt can, and preserves its own stderr and status.
+if python3 - "$repo" "$tmp" <<'PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+repo, scratch = map(Path, sys.argv[1:])
+world = scratch
+# Reuse the suite's qs stand-in and live parent recorded in rt-live.
+env = {"PATH": f"{world}:/usr/bin:/bin", "HOME": str(world / "home"),
+       "XDG_RUNTIME_DIR": str(world / "rt-live"), "VGS_TEST_RUN": "1"}
+for name in ("CONFIG", "DATA", "STATE", "CACHE"):
+    env[f"XDG_{name}_HOME"] = str(world / name.lower())
+cases = [
+    (["call", "shell", "locked"], "false", 0, 0),
+    (["call", "shell", "count"], "42", 0, 0),
+    (["call", "shell", "data"], '{"value":"a b"}', 0, 0),
+    (["call", "shell", "ping"], "ok", 3, 3),
+    (["call", "shell", "missing"], "Function not found.", 0, 69),
+    (["show", "shell"], "shell\n  ping()", 0, 0),
+    ([], "shell\nother", 0, 0),
+    (["show", "missing"], "detail\nfailed", 3, 3),
+    ([], "Target required to send message.", 0, 69),
+]
+
+def check(cli, locale, noise, case):
+    args, reply, status, want_status = case
+    result = subprocess.run(["/usr/bin/bash", str(cli), "ipc", *args],
+                            env={**env, "LC_ALL": locale, "STUB_NOISE": noise.rstrip("\n"),
+                                 "STUB_REPLY": reply, "STUB_STATUS": str(status),
+                                 "STUB_STDERR": "native warning"},
+                            capture_output=True, text=True, timeout=10)
+    call = bool(args and args[0] == "call")
+    want_out = (reply + "\n" if reply else "") if call else noise + reply + "\n"
+    want_err = "native warning\n" + (noise if call else "")
+    assert result.returncode == want_status, (args, result.returncode, want_status)
+    assert result.stdout == want_out, (args, result.stdout, want_out)
+    if want_status == 69:
+        assert result.stderr.startswith(want_err + "vgshell: refused:"), result.stderr
+    else:
+        assert result.stderr == want_err, (args, result.stderr, want_err)
+    if call and reply in ("false", "42", '{"value":"a b"}'):
+        assert json.loads(result.stdout) == json.loads(reply)
+
+cli = repo / "bin/vgshell"
+for locale in ("C", "C.UTF-8"):
+    for noise in ("", "Qt warning one\nQt warning two\n"):
+        for case in cases:
+            check(cli, locale, noise, case)
+
+copy = world / "copy/bin"
+copy.mkdir(parents=True)
+(copy / "lib").symlink_to(repo / "bin/lib", target_is_directory=True)
+source = cli.read_text()
+needle = '    if [[ ${1:-} == call ]]; then\n'
+assert source.count(needle) == 1
+mutated = source.replace(needle, '    if false; then\n')
+assert mutated != source
+(copy / "vgshell").write_text(mutated)
+try:
+    check(copy / "vgshell", "C", "Qt warning\n", cases[0])
+except AssertionError:
+    print("  ok    control: unfiltered public stdout fails the stream assertion")
+else:
+    raise AssertionError("public IPC stream control passed")
+print("  ok    public calls parse in both locales; other IPC modes preserve streams and status")
+PY
+then
+  ok "public IPC stream contract"
+else
+  fail "public IPC stream contract"
+fi
+
 run_row "enable prints ok" "$rt_live" "STUB_REPLY=ok" "plugin enable vgs.clock" "ok" 0 ""
 run_row "raw ipc prints ok" "$rt_live" "STUB_REPLY=ok" "ipc call shell ping" "ok" 0 ""
 run_row "reply is the last stdout line, log noise ahead of it is ignored" "$rt_live" "STUB_REPLY=ok STUB_NOISE=INFO:something" "plugin enable vgs.clock" "ok" 0 ""
