@@ -19,9 +19,10 @@
 #   vgshell: refused: argument=<arg>              exit 2; lock takes no argument
 #   vgshell: refused: shell=not-running ...       exit 69; vgshell pid's refusal
 #   vgshell: refused: lock=no-answer pid=<pid>    exit 1; the shell runs but no
-#                                              vgs.lock answered, as when it
-#                                              is disabled and qs answers
-#                                              `Target not found.`
+#                                              client call answered
+#   vgshell: refused: lock=disabled pid=<pid>     exit 1; vgs.lock is disabled
+#   vgshell: refused: lock=starting pid=<pid>     exit 1; vgs.lock is not loaded
+#                                              after the startup wait
 #   vgshell: refused: ipc-judge=failed            exit 70; bin/lib/ipc-reply.sh
 #                                              could not classify a reply
 #   vgshell: refused: <refusal>                   exit 1; the plugin's own refusal,
@@ -50,13 +51,14 @@ pid="$("$vgshell" pid)" || exit $?
 # ahead of the reply, so the reply is the last line. Quickshell 0.3.1's
 # client exits 0 on its own failures, such as `Target not found.` while
 # vgs.lock is disabled, so bin/lib/ipc-reply.sh judges that line, as
-# `vgshell ipc` does. Returns 1 when no vgs.lock answered: a failed call or a
-# client failure line; 70 when the judge could not classify the line.
+# `vgshell ipc` does. Returns 75 for its target-not-found key, 1 for other
+# failed calls, and 70 when the judge could not classify the line.
 call() { # FUNCTION
-  local out status=0
-  out="$(qs ipc --pid "$pid" call vgs.lock invoke "$1" "" 2>/dev/null)" || return 1
+  local out reason status=0
+  out="$(qs ipc --pid "$pid" call vgs.lock invoke "$1" "" 2>&1)" || return 1
   vgs_ipc_last_line_into "$out"
-  vgs_ipc_reply_failure "$vgs_ipc_last_line" >/dev/null || status=$?
+  reason="$(vgs_ipc_reply_failure "$vgs_ipc_last_line")" || status=$?
+  [[ $status != 0 || $reason != target-not-found ]] || return 75
   [[ $status != 0 ]] || return 1
   [[ $status == 1 ]] || return 70
   printf '%s\n' "$vgs_ipc_last_line"
@@ -64,7 +66,7 @@ call() { # FUNCTION
 # The whole number after `"refusals":` in a status reply, -1 for none.
 refusals_of() { [[ $1 =~ \"refusals\":([0-9]+) ]] && echo "${BASH_REMATCH[1]}" || echo -1; }
 
-no_answer() { refuse 1 "lock=no-answer pid=$pid" "vgs.lock is disabled, or the shell did not answer; enable it in the Plugins window"; }
+no_answer() { refuse 1 "lock=no-answer pid=$pid" "the shell did not answer"; }
 # After a failed call: its status, 70 for a reply the judge could not
 # classify, else no answer.
 unanswered() { # STATUS
@@ -72,11 +74,50 @@ unanswered() { # STATUS
   no_answer
 }
 
-before="$(call status)" || unanswered $?
-reply="$(call lock)" || unanswered $?
+# Registry.listJson reports scanned/config.ready and the effective enabled
+# flag; Plugins.builtJson reports service construction. Read those shell
+# answers only while the target or its function is missing. listPlugins
+# can page its reply; the shared IPC library owns reassembly.
+shell_reply() { # FUNCTION
+  local reply
+  reply="$("$vgshell" ipc call shell "$1" 2>/dev/null)" || no_answer
+  if vgs_ipc_paged_id shell "$reply"; then
+    vgs_ipc_pages shell_page "$vgs_ipc_paged" || no_answer
+    reply="$vgs_ipc_document"
+  fi
+  printf '%s\n' "$reply"
+}
+shell_page() { # ID INDEX
+  vgs_ipc_page="$("$vgshell" ipc call shell page "$@" 2>/dev/null)"
+}
+
+starting_call() { # FUNCTION
+  local reply status listing enabled built loaded attempt
+  # At most 20 missing-function/target attempts, with 100 ms between them
+  # while shell built says the service is still loading (2 s of delays).
+  # A built service is retried immediately, without an unconditional sleep.
+  for ((attempt = 0; attempt < 20; attempt++)); do
+    status=0
+    reply="$(call "$1")" || status=$?
+    if [[ $status == 0 && $reply != "unknown: $1" ]]; then printf '%s\n' "$reply"; return; fi
+    [[ $status == 0 || $status == 75 ]] || unanswered "$status"
+    listing="$(shell_reply listPlugins)" || exit $?
+    enabled="$(jq -er '
+      if (.scanned | type) != "boolean" or (.config.ready | type) != "boolean" or (.plugins | type) != "array" then error("plugin listing")
+      elif .scanned and .config.ready and any(.plugins[]; .id == "vgs.lock" and .enabled == false) then "disabled"
+      else "loading" end' <<<"$listing")" || no_answer
+    [[ $enabled != disabled ]] || refuse 1 "lock=disabled pid=$pid" "vgs.lock is disabled; enable it in the Plugins window"
+    built="$(shell_reply built)" || exit $?
+    loaded="$(jq -er 'if type != "object" then error("built plugins") else any(.service[]?; .id == "vgs.lock") | tostring end' <<<"$built")" || no_answer
+    [[ $loaded == true ]] || sleep 0.1
+  done
+  refuse 1 "lock=starting pid=$pid" "the shell is still starting, or vgs.lock is not loaded"
+}
+
+before="$(starting_call status)" || exit $?
+reply="$(starting_call lock)" || exit $?
 case "$reply" in
   ok) ;;
-  "unknown: lock"|"unknown: status") refuse 1 "lock=no-answer pid=$pid" "vgs.lock has not registered its functions yet" ;;
   *) refuse 1 "${reply#refused: }" ;;
 esac
 refusals="$(refusals_of "$before")"
