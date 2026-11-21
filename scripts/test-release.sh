@@ -300,7 +300,10 @@ if "--preserve-fds=1" not in sys.argv:
 pending = cache / ("download-" + key)
 pending.mkdir()
 (pending / "partial").write_bytes(b"pending")
-(area / (key + ".entered")).write_text(str(os.getpid()))
+entered = area / (key + ".entered")
+pending_pid = entered.with_suffix(".pending")
+pending_pid.write_text(str(os.getpid()))
+os.replace(pending_pid, entered)
 deadline = time.monotonic() + 15
 while not (area / (key + ".release")).exists():
     if time.monotonic() >= deadline:
