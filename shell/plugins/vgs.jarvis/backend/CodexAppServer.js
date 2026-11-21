@@ -13,31 +13,37 @@ const CLIENT = Object.freeze({ name: "vgs-jarvis", title: "VGS Jarvis", version:
 const SERVER = "vgs_jarvis";
 // Feature switches that give the model a built-in tool, run a program the
 // gate cannot see or pick an access program VGS has not reviewed
-// (cli_daybreak, api_key_cyber_access_programs). Codex 0.169.0 with these
-// off, web search disabled, the user-input tool off and catalog()'s
-// catalog offered the model apply_patch alone, besides MCP access.
+// (cli_daybreak, api_key_cyber_access_programs), each judged against its
+// description in codex-rs/features/src/lib.rs at rust-v0.171.0.
+// multi_agent_v2 is off by default there, and a user's config.toml can
+// switch on its sub-agent routing. Codex 0.169.0 with these off, web search
+// disabled, the user-input tool off and catalog()'s catalog offered the
+// model apply_patch alone, besides MCP access.
 const FEATURES_OFF = Object.freeze(["shell_tool", "unified_exec", "view_image", "image_generation", "browser_use",
-    "browser_use_external", "computer_use", "multi_agent", "apps", "plugins", "memories", "goals", "tool_suggest",
-    "skill_search", "sleep_tool", "in_app_browser", "hooks", "code_mode_host", "remote_plugin",
+    "browser_use_external", "computer_use", "multi_agent", "multi_agent_v2", "apps", "plugins", "memories", "goals",
+    "tool_suggest", "skill_search", "sleep_tool", "in_app_browser", "hooks", "code_mode_host", "remote_plugin",
     "workspace_dependencies", "skill_mcp_dependency_install", "shell_snapshot", "cli_daybreak",
     "api_key_cyber_access_programs"]);
-// Every feature 0.169.0 reports enabled on a thread started with FEATURES_OFF,
-// each judged against its description in codex-rs/features/src/lib.rs at
-// rust-v0.169.0. worktrees and realtime_conversation read enabled whatever
-// the thread sets and act only when the app asks for them. Any other enabled
-// feature may be a new tool, so the thread is refused.
+// Every feature codex-cli 0.171.0 reports enabled on a thread started with
+// FEATURES_OFF, each judged against its description in
+// codex-rs/features/src/lib.rs at rust-v0.171.0. tui_workspace acts only in
+// the TUI's side conversations. incremental_tools_legacy and its _gcp
+// sibling change how tool declarations are sent, never which tools.
+// worktrees and realtime_conversation read enabled whatever the thread sets
+// and act only when the app asks for them. Any other enabled feature may be
+// a new tool, so the thread is refused.
 const FEATURES_ENABLED = Object.freeze(["api_key_model_discovery", "auth_elicitation", "bedrock_setup_wizard",
     "browser_annotation_api", "browser_use_full_cdp_access", "code_mode_host_grpc", "code_mode_host_output_truncation",
     "code_mode_interrupt", "collaboration_modes", "compaction_image_budget", "content_item_kinds", "daemon_auto_start",
     "deferred_tool_world_state", "enable_request_compression", "fast_mode", "guardian_approval",
     "guardian_include_additional_context", "guardian_reuse_parent_compaction", "in_app_chat", "in_app_dictation",
-    "in_app_local_automation", "in_app_updates", "in_app_voice", "incremental_tools", "incremental_tools_legacy_gcp",
-    "instant_interrupt", "item_ids", "mcp_oauth_refresh_coordination", "mentions_v2", "plugin_sharing",
-    "prediction_preserve_parent_tools", "realtime_conversation", "reasoning_effort_override", "resize_all_images",
-    "retain_client_tool_outputs", "sqlite", "steer", "system_proxy_fallback", "terminal_resize_reflow",
-    "tool_call_mcp_elicitation", "tool_search_always_defer_mcp_tools", "tui_app_server", "ultrafast_mode",
-    "unbounded_connection_retries", "unified_exec", "unified_exec_tty", "unified_image_budget",
-    "untrusted_as_tool_output", "worktrees", "write_stdin_approval"]);
+    "in_app_local_automation", "in_app_updates", "in_app_voice", "incremental_tools", "incremental_tools_legacy",
+    "incremental_tools_legacy_gcp", "instant_interrupt", "item_ids", "mcp_oauth_refresh_coordination", "mentions_v2",
+    "plugin_sharing", "prediction_preserve_parent_tools", "realtime_conversation", "reasoning_effort_override",
+    "resize_all_images", "retain_client_tool_outputs", "sqlite", "steer", "system_proxy_fallback",
+    "terminal_resize_reflow", "tool_call_mcp_elicitation", "tool_search_always_defer_mcp_tools", "tui_app_server",
+    "tui_workspace", "ultrafast_mode", "unbounded_connection_retries", "unified_exec", "unified_exec_tty",
+    "unified_image_budget", "untrusted_as_tool_output", "worktrees", "write_stdin_approval"]);
 // The model catalog's entry keys: the 42 that `codex debug models --bundled`
 // prints on codex-cli 0.169.0 and the six optional ModelInfo fields it
 // omits, which an account's catalog can carry, each judged against ModelInfo

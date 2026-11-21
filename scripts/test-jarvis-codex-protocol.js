@@ -4,8 +4,8 @@
 // (fixtures/jarvis-codex/app-server.schema.json); every line it narrows comes
 // from the sanitized 0.160.0 recording in fixtures/jarvis-codex/recorded.ndjson,
 // made 2026-10-02 against a loopback model stub with no account, or is a
-// synthetic refusal row. Its feature list is codex-cli 0.169.0's reading for
-// a Jarvis thread, from the VGS-2571 capture on 2026-11-15 with no account.
+// synthetic refusal row. Its feature list is codex-cli 0.171.0's reading for
+// a Jarvis thread, captured on 2026-11-21 with no account.
 // Mutants run in J09.
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
@@ -20,7 +20,7 @@ const recorded = fs.readFileSync(path.join(tree, "scripts/fixtures/jarvis-codex/
 const OFF = ["shell_tool", "unified_exec", "view_image", "image_generation", "browser_use", "browser_use_external",
     "computer_use", "multi_agent", "apps", "plugins", "memories", "goals", "tool_suggest", "skill_search",
     "sleep_tool", "in_app_browser", "hooks", "code_mode_host", "remote_plugin", "workspace_dependencies",
-    "skill_mcp_dependency_install", "shell_snapshot", "cli_daybreak", "api_key_cyber_access_programs"];
+    "skill_mcp_dependency_install", "shell_snapshot", "cli_daybreak", "api_key_cyber_access_programs", "multi_agent_v2"];
 const RESPONSES = { "turn/started": "TurnStartedNotification", "turn/completed": "TurnCompletedNotification",
     "item/started": "ItemStartedNotification", "item/completed": "ItemCompletedNotification",
     "item/agentMessage/delta": "AgentMessageDeltaNotification", "error": "ErrorNotification" };
