@@ -993,6 +993,8 @@ vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmean
 vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
 vpn_kill_pending() { [[ -e $devices_vpn_kill_root/vpn/pending ]] && echo present || echo absent; }
 vpn_kill_problem() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps(v.get("problem") != ""))'; }
+# Whether the kill switch's own row carries a problem line.
+vpn_kill_failed() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState") or {}; print(json.dumps(v.get("problem", "") != ""))'; }
 # vpn_reconnect_steps LABEL: with the kill switch step set up, Lab tunnel
 # listed off and the vgs-kill-switch stand-in holding for it, its switch's
 # IPC connects it behind the kill switch with autoconnect yes written
@@ -1250,16 +1252,21 @@ device_reply_clear curl
 # connect writes meant-on first and runs `nmcli connection up` only once
 # the vgs-kill-switch stand-in reads the table armed for that profile; a
 # reading of the root half's refusal for it runs no connect and puts the
-# file's profile back. A tree whose VPN plugin ships no kill switch skips.
+# file's profile back. A switch turned on for a named profile whose table
+# never arms, as when the sync service cannot start, reads the failure on
+# the switch until a read gives the table. The step set up or undone with
+# no scan, as from a terminal, reads on the next press or pane open. A
+# tree whose VPN plugin ships no kill switch skips.
 if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   # The refusal's arm-wait line, and the status read the stand-in no
   # longer answers once the step's world is gone.
-  expected_errors+=('vpn: operation=kill-switch-arm completion=unavailable reason=endpoint-hostname$' 'vpn: operation=kill-switch-status completion=unreachable code=1$')
+  expected_errors+=('vpn: operation=kill-switch-arm completion=unavailable reason=endpoint-hostname$' 'vpn: operation=kill-switch-status completion=unreachable code=1$'
+    'vpn: operation=kill-switch-on completion=timeout$')
   vpn_plant
   devices_vpn_kill_tree ready
   device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
-  rescan "the core probes the kill switch step set up"
-  expect_poll "the kill switch step reads set up" '"ready"' vpn_kill_read step
+  expect "a press before the shell reads the setup is refused" "refused: kill-switch=not-set-up" ipc vgs.vpn invoke kill-switch block
+  expect_poll "the refused press reads the kill switch step set up, with no rescan" '"ready"' vpn_kill_read step
   expect_poll "no state file reads off" '"off"' vpn_kill_read mode
   expect_poll "profiles publish behind the kill switch" '"available"' vpn_profiles state
   expect "the switch's IPC turns the kill switch on" ok ipc vgs.vpn invoke kill-switch block
@@ -1267,8 +1274,22 @@ if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   expect "the write leaves the pending file" present vpn_kill_pending
   expect "the write leaves no temporary file" '[]' python3 -c 'import json,os,sys; print(json.dumps([n for n in os.listdir(sys.argv[1]) if n.startswith(".state.")]))' "$devices_vpn_kill_root/vpn"
   vpn_kill_write "$vpn_home" block 1794203888
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-home profile=$vpn_home peers=203.0.113.10:51820" status
   expect "Allow local network's IPC writes block-lan" ok ipc vgs.vpn invoke kill-switch block-lan
   expect_poll "block-lan keeps meant-on and portal-until" "$(vpn_kill_text "$vpn_home" block-lan 1794203888)" vpn_kill_file
+  expect_poll "block-lan's wait ends on Home tunnel's table" false vpn_kill_read busy
+  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
+  vpn_kill_write "$vpn_lab" off 0
+  expect "a failed arm: the switch's IPC starts the change" ok ipc vgs.vpn invoke kill-switch block
+  expect_poll "a failed arm: the file names Lab tunnel with the switch on" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  expect_poll "a failed arm: no table for Lab tunnel reads the failure on the switch" true vpn_kill_failed
+  expect "a failed arm: Allow local network's IPC starts the change" ok ipc vgs.vpn invoke kill-switch block-lan
+  expect_poll "a failed arm: the file keeps Lab tunnel with the local network" "$(vpn_kill_text "$vpn_lab" block-lan 0)" vpn_kill_file
+  expect_poll "a failed arm: Allow local network keeps the failure while no table arms" true vpn_kill_failed
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+  expect "a failed arm: VPN reads the table again" ok vpn_refresh
+  expect_poll "a failed arm: the table armed for Lab tunnel ends the failure" false vpn_kill_failed
+  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
   vpn_kill_write "" block 0
   expect "VPN reads the cleared profile" ok vpn_refresh
   vpn_kill_calls="$(vpn_call_count)"
@@ -1320,6 +1341,8 @@ if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   expect "off: the state file no longer names Lab tunnel" "$(vpn_kill_text "" block 0)" vpn_kill_file
   expect "off: NetworkManager's rule leaves Lab tunnel off" "" vpn_nm_autoconnect "$vpn_lab" "$vpn_reconnect_from"
   devices_vpn_kill_tree remove
+  expect "a pane open after the step is undone reads VPN" ok vpn_refresh
+  expect_poll "the pane open reads the kill switch step not set up, with no rescan" false ipc smoke readInstance service vgs.vpn killReady
   rescan "the kill switch step's world is gone"
 fi
 

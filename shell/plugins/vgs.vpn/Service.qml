@@ -96,6 +96,19 @@ Item {
     property var stage: null
     property bool killChanging: false
     property string killProblem: ""
+    // A switch change that leaves the switch on for a named profile waits
+    // for the table armed for it (VpnLogic.switchArm), { uuid, held, phase,
+    // expired, answered }, as a connect's stage does; a wait that ends unarmed
+    // leaves killProblem, with killUnarmed the profile, until a status
+    // read no longer upholds it (VpnLogic.switchArmStands).
+    property var killArm: null
+    property string killUnarmed: ""
+    // A kill switch change in flight: a state write, a profile change
+    // waiting on its write or table, or the switch waiting for its table.
+    readonly property bool killBusy: stateWrite !== null || stage !== null || killArm !== null
+    // Any change in flight, since one runs at a time: a profile change, a
+    // Nord change, which holds profileAction, or a kill switch change.
+    readonly property bool changeBusy: profileAction !== null || killBusy
     // From a write's end until the next poll's status read ends: the grace
     // a sync takes to follow the write (VpnLogic.killSwitchState).
     property bool killSettling: false
@@ -243,6 +256,9 @@ Item {
         // an editor handoff passes its UUID to also forget learned failures.
         // Invalidation lives here even if that pane is then destroyed.
         // An in-flight detail read coalesces a new read through readDetails.
+        // A pane open also probes the kill switch step, so a setup or undo
+        // run outside VGS, as in a terminal, reads here.
+        if (editedUuid === "") probeSystem();
         failures = Logic.afterRescan(failures, editedUuid);
         profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
         detailsRead = "";
@@ -503,10 +519,10 @@ Item {
         }
         if (networks.state === "available" && networks.activeWired.length > 0 && trusted.wired.length > 0 && wiredIdentity.value === null) wiredIdentity.read(networks.activeWired);
         const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
-            profileAction !== null || stateWrite !== null || killStep === undefined || (unknown && autoProbe !== "done"),
+            changeBusy || killStep === undefined || (unknown && autoProbe !== "done"),
             wiredIdentity.value);
         let memory = plan.memory;
-        if (plan.why === "waiting" && unknown && autoProbe === "" && profileAction === null && stateWrite === null) {
+        if (plan.why === "waiting" && unknown && autoProbe === "" && !changeBusy) {
             autoProbe = "running";
             autoMemory = memory;
             const probe = shell.system.refresh(() => {
@@ -599,7 +615,7 @@ Item {
     // before the change (VpnLogic.autoconnectArgv), an off's whether or not
     // the step is set up; the change shows in flight meanwhile.
     function startAction(kind, uuid, argv, feed) {
-        if (profileAction !== null || stateWrite !== null) return "busy";
+        if (changeBusy) return "busy";
         const row = profiles.rows.find(candidate => candidate.uuid === uuid);
         profileAction = { kind: kind, uuid: row.uuid, name: row.name, password: feed !== null };
         profileProblem = null;
@@ -748,20 +764,89 @@ Item {
     }
 
     // The switches' IPC: MODE, one of block, block-lan or off, written as
-    // kill-switch=.
+    // kill-switch=. `ok` acknowledges the change and does not report the
+    // arm: a change that leaves the switch on for a named profile then
+    // waits for its table (armSwitch), whose failure the switch's line
+    // shows. A press while the step does not read set up asks for a fresh
+    // probe, so a setup run outside VGS reads on the next press.
     function setKillSwitch(mode) {
         if (profileAction !== null && profileAction.kind === "nord") return "busy";
         if (Logic.KILL_MODES.indexOf(mode) === -1) return "refused: kill-switch=mode";
-        if (!killReady) return "refused: kill-switch=not-set-up";
-        if (stateWrite !== null || stage !== null) return "busy";
+        if (!killReady) {
+            probeSystem();
+            return "refused: kill-switch=not-set-up";
+        }
+        if (killBusy) return "busy";
         killChanging = true;
         killProblem = "";
-        writeState(() => ({ mode: mode }), ok => {
+        killUnarmed = "";
+        writeState(() => ({ mode: mode }), (ok, before) => {
+            const wait = ok ? Logic.switchArm(before, mode, root.killStatus) : null;
+            if (wait !== null) {
+                root.armSwitch(wait);
+                return;
+            }
             root.killChanging = false;
             root.killProblem = ok ? "" : "VGS could not save the kill switch setting.";
             root.readKillStatus();
         });
         return "ok";
+    }
+    // A fresh probe of the system steps, whose reading reaches killStep.
+    function probeSystem() {
+        const reply = shell.system.refresh();
+        if (reply !== "ok") console.warn("vpn: operation=kill-switch-probe completion=" + reply);
+    }
+    // The switch's wait for WAIT.uuid's table: status reads on the arm
+    // retry, for at most Logic.ARM_WAIT_MS, then a fresh probe names the
+    // cause (switchProbed), as a connect's wait does (armRead, waitEnd).
+    // A held wait takes the table only at the deadline, from the last read,
+    // as a connect's nudged refusal decides.
+    function armSwitch(wait) {
+        killArm = { uuid: wait.uuid, held: wait.held, phase: "arm", expired: false, answered: false };
+        armDeadline.restart();
+        readKillStatus();
+    }
+    function switchArmRead() {
+        if (Logic.tableArmed(killStatus, killArm.uuid) && (!killArm.held || killArm.expired)) {
+            armDeadline.stop();
+            armRetry.stop();
+            switchArmEnded("");
+            return;
+        }
+        if (Logic.armOutcome(killStatus, killArm.uuid) !== "failed" && !killArm.answered) killArm = Object.assign({}, killArm, { answered: true });
+        if (killArm.expired) switchWaitEnd();
+        else armRetry.restart();
+    }
+    function switchArmExpired() {
+        if (killArm === null || killArm.phase !== "arm") return;
+        killArm = Object.assign({}, killArm, { expired: true });
+        if (!killReader.running) switchArmRead();
+    }
+    function switchWaitEnd() {
+        armRetry.stop();
+        killArm = Object.assign({}, killArm, { phase: "probe" });
+        const reply = shell === null ? "refused" : shell.system.refresh(() => root.switchProbed());
+        if (reply !== "ok") switchProbed();
+    }
+    // A step that reads needed shows Set up in the switch's place, which
+    // is the answer; otherwise the switch keeps its line.
+    function switchProbed() {
+        if (killArm === null || killArm.phase !== "probe") return;
+        switchArmEnded(Logic.stepWord(killStep) === "setup" ? "setup" : killArm.answered ? "timeout" : "unchecked");
+    }
+    // CAUSE "" for a table armed in the wait.
+    function switchArmEnded(cause) {
+        const uuid = killArm.uuid;
+        killArm = null;
+        killChanging = false;
+        if (cause !== "") console.warn("vpn: operation=kill-switch-on completion=" + cause);
+        if (cause === "timeout" || cause === "unchecked") {
+            const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+            killUnarmed = uuid;
+            killProblem = Logic.switchArmProblem(cause, row === undefined ? "the VPN" : row.name);
+        }
+        readKillSwitch();
     }
 
     // The state file and the status line, on the profile poll. A read
@@ -999,7 +1084,10 @@ Item {
     Timer {
         id: armDeadline
         interval: Logic.ARM_WAIT_MS
-        onTriggered: root.armExpired()
+        onTriggered: {
+            if (root.killArm !== null) root.switchArmExpired();
+            else root.armExpired();
+        }
     }
     Timer {
         id: stateDeadline
@@ -1126,6 +1214,10 @@ Item {
                 if (failed && (root.killStatus === null || root.killStatus.state !== next.state))
                     console.warn("vpn: operation=kill-switch-status completion=" + next.state + " code=" + code);
                 root.killStatus = next;
+                if (root.killUnarmed !== "" && !Logic.switchArmStands(root.killUnarmed, root.killFile, next)) {
+                    root.killUnarmed = "";
+                    root.killProblem = "";
+                }
             }
             if (forCheck) {
                 forCheck = false;
@@ -1135,8 +1227,22 @@ Item {
                 settles = false;
                 root.killSettling = false;
             }
-            if (again) { again = false; root.readKillStatus(); }
-            else if (root.stage !== null && root.stage.phase === "arm") root.armRead();
+            if (again) {
+                again = false;
+                root.readKillStatus();
+            }
+            // A read the again started decides at its own end. With none
+            // started, as once the step no longer reads set up, the wait
+            // decides now, so a wait past its deadline still ends. The
+            // Quickshell 0.3.1 Process reference does not say whether
+            // `running` reads a start made in this handler at once
+            // (https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/);
+            // if it does not, the wait decides over the read that just
+            // ended, which is as sound, and the new read's end decides again.
+            if (!running) {
+                if (root.stage !== null && root.stage.phase === "arm") root.armRead();
+                else if (root.killArm !== null && root.killArm.phase === "arm") root.switchArmRead();
+            }
         }
     }
 

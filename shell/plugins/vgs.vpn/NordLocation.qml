@@ -61,7 +61,7 @@ Item {
             return "ok";
         }
         if (request.kind !== "city" || opened === "" || catalog.kind !== "ready") return "refused: nord=state";
-        if (changing || controller.profileAction !== null || controller.stateWrite !== null || worker.running) return "busy";
+        if (changing || controller.changeBusy || worker.running) return "busy";
         if (controller.killReady && controller.killFile.kind !== "valid" && controller.killFile.kind !== "missing") return "refused: nord=kill-switch";
         const uuid = controller.shell.settings.nordProfile;
         const row = controller.profiles.rows.find(candidate => candidate.uuid === uuid && candidate.type === "wireguard");

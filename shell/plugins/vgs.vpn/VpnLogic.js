@@ -804,6 +804,48 @@ function stageProblem(kind, name, cause, reason, unrestored) {
     return unavailableWords(reason, name) + " VGS did not connect it.";
 }
 
+// Whether STATUS gives the table armed for UUID, a lower-case uuid: a
+// table without a usable profile is armed too, and its own line says so
+// (killSwitchView).
+function tableArmed(status, uuid) {
+    const outcome = armOutcome(status, uuid);
+    return outcome === "armed" || outcome === "unavailable";
+}
+// The wait a switch change takes, over BEFORE, the file as the write read
+// it, and STATUS, the last status read: null for none, else { uuid, held }
+// with uuid the profile in lower case. A change that leaves the switch on
+// while the file names a profile waits for that profile's table, since the
+// write keeps meant-on and the sync arms for it; a switch that was on
+// already keeps a table STATUS gives, so it waits only when STATUS gives
+// none, as after a failed arm. HELD marks a switch turned on from off while
+// STATUS still gives the table: that line can predate the off's own sync,
+// so only the wait's last read decides (switchArmRead). With no profile
+// named nothing arms until a connect, whose own wait checks the table
+// (meantOnPlan).
+function switchArm(before, mode, status) {
+    if (!isPlain(before) || before.kind !== "valid" || before.meantOn === "" || (mode !== "block" && mode !== "block-lan")) return null;
+    const uuid = String(before.meantOn).toLowerCase();
+    const armed = tableArmed(status, uuid);
+    if (before.mode !== "off") return armed ? null : { uuid: uuid, held: false };
+    return { uuid: uuid, held: armed };
+}
+// Whether the line a switch arm for UUID left still holds over FILE, the
+// last read, and STATUS, the last status read: while the file names UUID
+// with the switch on and STATUS does not give its table.
+function switchArmStands(uuid, file, status) {
+    if (uuid === "" || !isPlain(file) || file.kind !== "valid" || file.mode === "off" || String(file.meantOn).toLowerCase() !== uuid) return false;
+    return !tableArmed(status, uuid);
+}
+// The problem line a switch turned on leaves when no table armed for
+// NAME, the profile the file names: CAUSE `timeout` when the status reads
+// gave no table for it, `unchecked` when none of them gave a line.
+function switchArmProblem(cause, name) {
+    const words = cause === "unchecked"
+        ? "VGS could not check that the kill switch started for " + name + ", so traffic may not be blocked if it drops."
+        : "The kill switch did not start for " + name + ", so traffic is not blocked if it drops.";
+    return words + " To try again, " + KILL_OFF + ", then turn it on again.";
+}
+
 // The step's reading as one word: `checking` before the first probe,
 // `setup` while it can be applied, `ready`, `denied`, `unknown` or
 // `absent`.

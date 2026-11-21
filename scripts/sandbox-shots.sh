@@ -10159,6 +10159,8 @@ vpn_kill_state="$devices_vpn_kill_root/vpn/state"
 vpn_kill_status() { device_reply vgs-kill-switch 0 "$1" status; }
 # vpn_kill_read KEY: a key of the published killSwitchState, as JSON.
 vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); k=sys.argv[1]; print("unpublished" if v is None else json.dumps(v["status"]["state"] if k == "status" and v["status"] else v.get(k)))' "$1"; }
+# vpn_kill_failed: whether the kill switch row carries its problem line.
+vpn_kill_failed() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState") or {}; print(json.dumps(v.get("problem", "") != ""))'; }
 # vpn_kill_file: the state file's bytes, or `absent`.
 vpn_kill_file() { if [[ -f $vpn_kill_state ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$vpn_kill_state"; else echo absent; fi; }
 vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n" % tuple(sys.argv[1:])))' "$@"; } # MEANT MODE PORTAL
@@ -10332,11 +10334,14 @@ vpn_kill_plant() { # MEANT MODE PORTAL LINE STATE
 # a state directory made read-only once the connect's write landed, it
 # says it could not clear the profile; with the units disabled while it
 # waits, the fresh probe reads the step needed and the line points to Set
-# up. A tree without it connects through the nmcli stand-in, which then
-# lists Home tunnel connected, the before side of each pair.
+# up. With Home tunnel meant on and off, the switch turned on with the
+# table never arming leaves the switch's own failure line on the row. A
+# tree without it connects through the nmcli stand-in, which then lists
+# Home tunnel connected, the before side of each pair.
 vpn_kill_problem_shots() { # MODE
-  local kill=false list unit
+  local kill=false arm=false list unit
   tree_has shell/plugins/vgs.vpn/VpnBody.qml "KillSwitch {" && kill=true
+  tree_has shell/plugins/vgs.vpn/VpnLogic.js "function switchArm(" && arm=true
   list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect):' "$repo/scripts/fixtures/vpn/list.txt" | sed "s/:$vpn_shot_home:wireguard:activated\$/:$vpn_shot_home:wireguard:/")" || { fail "the VPN stand-in list is unreadable"; return; }
   device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_shot_home"
   devices_vpn_kill_tree ready
@@ -10373,6 +10378,24 @@ vpn_kill_problem_shots() { # MODE
     expect_poll "the grace after the rollback ends" false vpn_kill_read settling
     expect_poll "after a poll the row draws no line beside the problem" '["", ""]' vpn_kill_lines window
     expect "the VPN System window closes after the row read" ok ipc shell hide window vgs.system
+  fi
+
+  # The switch turned on with Home tunnel meant on and off, and the table
+  # never arming, as when the sync service cannot start: a tree with the
+  # switch's arm wait draws the failure under the switch once the wait
+  # ends; an earlier tree draws the row with no line at the same step.
+  if [[ $kill == true ]]; then
+    vpn_kill_text "$vpn_shot_home" off 0 | python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.load(sys.stdin))' "$vpn_kill_state"
+    vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile= peers="
+    expect "VPN reads Home tunnel meant on with the switch off" ok ipc vgs.vpn invoke refresh ""
+    expect_poll "the row reads the switch off before the failed arm" '"off"' vpn_kill_read mode
+    expect "the switch's IPC turns the kill switch on with no table arming" ok ipc vgs.vpn invoke kill-switch block
+    expect_poll "the switch's write names Home tunnel with the switch on" "$(vpn_kill_text "$vpn_shot_home" block 0)" vpn_kill_file
+    expect_poll "the switch's change ends" false vpn_kill_read busy
+    [[ $arm == false ]] || expect_poll "the row reads the failed arm" true vpn_kill_failed
+    vpn_kill_take unarmed "$1" row
+  else
+    vpn_kill_take unarmed "$1"
   fi
 
   vpn_kill_home_off "the units' failure" "$list"

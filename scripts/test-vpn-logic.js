@@ -345,6 +345,15 @@ function nordAllowanceSuite(logic) {
     ]) assert.equal(logic.nordRefreshOutcome(observation, target), outcome, name);
 }
 
+// SOURCE's readonly property NAME as a getter on OWNER, its binding read
+// over OWNER's fields at each read, as QML keeps it current.
+function bindProperty(source, owner, name) {
+    const found = new RegExp("readonly property \\w+ " + name + ": (.+)\\n").exec(source);
+    assert.ok(found, name);
+    const read = new Function("owner", "with (owner) { return (" + found[1] + "); }");
+    Object.defineProperty(owner, name, { get: () => read(owner), configurable: true });
+}
+
 function suite(logic, service = serviceSource) {
     vpnRequirementSuite(logic);
     vpnReadinessSuite(logic);
@@ -840,7 +849,8 @@ function suite(logic, service = serviceSource) {
     const actionOwner = (stale = false) => {
         const owner = { profiles, shell: { requirements: { missing: [] } }, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
             profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } },
-            stateWrite: null, killReady: false, killFile: { kind: "reading" }, killSwitch: null };
+            stateWrite: null, stage: null, killArm: null, killReady: false, killFile: { kind: "reading" }, killSwitch: null };
+        for (const name of ["killBusy", "changeBusy"]) bindProperty(service, owner, name);
         method(owner, "connectWithPassword");
         method(owner, "startAction");
         method(owner, "launch");
@@ -894,13 +904,13 @@ function suite(logic, service = serviceSource) {
     for (const [uuid, kind, kept] of [[BRANCH, "profile-up", false], [LAB, "profile-up", false], [OFFICE, "profile-up", true],
         [TRAVEL, "profile-up", true], [BRANCH, "profile-remove", true]]) {
         const rescanned = { listing, failures: recorded, profileProblem: { uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) },
-            detailsRead: key, detailReads: 0, refreshed: 0,
-            readDetails() { rescanned.detailReads++; }, readProfiles() { rescanned.refreshed++; }, readKillSwitch() {} };
+            detailsRead: key, detailReads: 0, refreshed: 0, probes: 0,
+            readDetails() { rescanned.detailReads++; }, readProfiles() { rescanned.refreshed++; }, readKillSwitch() {}, probeSystem() { rescanned.probes++; } };
         method(rescanned, "refresh");
         runRescan(rescanned);
         assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL, CAMPUS].sort());
         assert.equal(rescanned.profileProblem === null, !kept, "a rescan's problem line for " + kind + " " + byUuid(uuid).name);
-        assert.deepEqual([rescanned.detailsRead, rescanned.detailReads, rescanned.refreshed], ["", 1, 1]);
+        assert.deepEqual([rescanned.detailsRead, rescanned.detailReads, rescanned.refreshed, rescanned.probes], ["", 1, 1, 0], "a scan's own probe covers the step");
     }
     assert.deepEqual(plain(recorded)[BRANCH].kind, "sign-in", "the rescan leaves the old map unchanged");
     // An editor save changes the facts for one published UUID, including
@@ -909,16 +919,18 @@ function suite(logic, service = serviceSource) {
         const learned = { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } };
         const updated = { listing, failures: learned,
             profileProblem: { uuid: OFFICE, kind: "profile-up", text: "fixture" },
-            detailsRead: key, readDetails() {}, readProfiles() {}, readKillSwitch() {} };
+            detailsRead: key, probes: 0, readDetails() {}, readProfiles() {}, readKillSwitch() {}, probeSystem() { updated.probes++; } };
         method(updated, "refresh");
         assert.equal(updated.refresh(OFFICE), "ok", kind);
+        assert.equal(updated.probes, 0, "an editor handoff probes no step");
         assert.deepEqual(plain(updated.failures), { [TRAVEL]: learned[TRAVEL] }, kind);
         assert.equal(updated.profileProblem, null, kind);
         assert.deepEqual(plain(learned), { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } });
         const focused = { listing, failures: learned, profileProblem: null,
-            detailsRead: key, readDetails() {}, readProfiles() {}, readKillSwitch() {} };
+            detailsRead: key, probes: 0, readDetails() {}, readProfiles() {}, readKillSwitch() {}, probeSystem() { focused.probes++; } };
         method(focused, "refresh");
         focused.refresh("");
+        assert.equal(focused.probes, 1, "a pane open probes the kill switch step, so a terminal setup reads");
         assert.deepEqual(plain(focused.failures), learned, "ordinary metadata refresh preserves " + kind);
         const published = logic.compose(listing, details, {}, updated.failures, null, "");
         const passwordBody = /function passwordRow\(uuid\) \{([\s\S]*?)\n    \}/.exec(bodySource);
@@ -1434,10 +1446,10 @@ function killSwitchSuite(logic, service, profiles) {
                     owner.killStep = owner.probeStep;
                     owner.killReady = owner.probeStep.state === "ready";
                 }
-                done();
+                if (done !== undefined) done();
                 return "ok";
             } } },
-            killStatus: null, stateWrite: null, stage: null, killChanging: false, killProblem: "", registered: true,
+            killStatus: null, stateWrite: null, stage: null, killChanging: false, killProblem: "", killArm: null, killUnarmed: "", registered: true,
             killSettling: false, killSettlePoll: false, stateSerial: 0, killSwitch: null,
             profileActor: { running: false, stdinEnabled: false, command: [], completion: "old" },
             profileActionDeadline: { restart() {} },
@@ -1499,8 +1511,10 @@ function killSwitchSuite(logic, service, profiles) {
         owner.root = owner;
         owner.Object = Object;
         owner.console = { warn(message) { events.push(["warn", message]); }, log() {} };
+        for (const name of ["killBusy", "changeBusy"]) bindProperty(service, owner, name);
         for (const name of ["startAction", "launch", "run", "runStaged", "staged", "armRead", "armExpired", "waitEnd", "probed", "rollBack", "stageEnded", "autoEnded", "setKillSwitch", "writeState", "stateRead",
-            "writeEnded", "readKillStatus", "tempSaved", "tempSaveFailed", "moded", "renamed", "makePending", "removeTemp", "pendingMade", "stateExpired", "stateInterrupted"]) bind(owner, name);
+            "writeEnded", "readKillStatus", "tempSaved", "tempSaveFailed", "moded", "renamed", "makePending", "removeTemp", "pendingMade", "stateExpired", "stateInterrupted",
+            "probeSystem", "armSwitch", "switchArmRead", "switchArmExpired", "switchWaitEnd", "switchProbed", "switchArmEnded"]) bind(owner, name);
         // Each status read ends at once with the next line of `lines`; a
         // `null` line leaves the read running.
         owner.lines = fields.lines || [];
@@ -1511,6 +1525,7 @@ function killSwitchSuite(logic, service, profiles) {
             if (next === null) { owner.killReader.running = true; return; }
             owner.killStatus = plain(next);
             if (owner.stage !== null && owner.stage.phase === "arm") owner.armRead();
+            else if (owner.killArm !== null && owner.killArm.phase === "arm") owner.switchArmRead();
         };
         const launch = owner.launch;
         owner.launch = (argv, autoconnect) => { events.push(["launch", argv]); launch(argv, autoconnect); };
@@ -1795,7 +1810,7 @@ function killSwitchSuite(logic, service, profiles) {
         assert.equal(stuck.stateWrite, null, name);
     }
     // The switches write the mode and keep every other key.
-    const toggled = serviceOwner({ disk: textOf(HOME, "block", "1794203888") });
+    const toggled = serviceOwner({ disk: textOf(HOME, "block", "1794203888"), killStatus: plain(status("holding", "tunnel-down", HOME)) });
     assert.equal(toggled.setKillSwitch("on"), "refused: kill-switch=mode");
     assert.equal(toggled.setKillSwitch("block-lan"), "ok");
     assert.deepEqual(writes(toggled), [textOf(HOME, "block-lan", "1794203888")]);
@@ -1806,6 +1821,83 @@ function killSwitchSuite(logic, service, profiles) {
     const unsaved = serviceOwner({ saveFails: true });
     assert.equal(unsaved.setKillSwitch("off"), "ok");
     assert.notEqual(unsaved.killProblem, "", "a failed save leaves a problem");
+    // A press while the step reads not set up asks for a fresh probe, so a
+    // setup run in a terminal reads on the next press with no rescan.
+    const appliedElsewhere = serviceOwner({ killReady: false, killWritable: false, killStep: { state: "needed", reason: "not-set-up" },
+        probeStep: { state: "ready", reason: "granted" } });
+    assert.equal(appliedElsewhere.setKillSwitch("block"), "refused: kill-switch=not-set-up");
+    assert.deepEqual([appliedElsewhere.events.filter(event => event === "probe").length, appliedElsewhere.killReady], [1, true], "the press probes the step");
+    assert.equal(appliedElsewhere.setKillSwitch("block"), "ok", "the next press reads the step set up");
+
+    // The wait a switch change takes: a change that leaves the switch on
+    // for a named profile waits for its table, unless the switch was on and
+    // the last read gives the table; a switch turned on from off while that
+    // read still gives it is held.
+    const offLine = status("off", "disarmed", "");
+    const labHolding = status("holding", "tunnel-down", LAB);
+    for (const [name, before, mode, read, wait] of [
+        ["on from off for a named profile", file(LAB, "off"), "block", offLine, { uuid: LAB, held: false }],
+        ["on with the local network, the name in upper case", file(LAB.toUpperCase(), "off"), "block-lan", null, { uuid: LAB, held: false }],
+        ["on from off while a read still gives its table", file(LAB, "off"), "block", labHolding, { uuid: LAB, held: true }],
+        ["on from off while a read gives it armed without a usable profile", file(LAB, "off"), "block", status("unavailable", "endpoint-hostname", LAB), { uuid: LAB, held: true }],
+        ["on to on after a failed arm", file(LAB, "block"), "block-lan", offLine, { uuid: LAB, held: false }],
+        ["the same mode again after a failed arm", file(LAB, "block"), "block", offLine, { uuid: LAB, held: false }],
+        ["on to on with another profile's table", file(LAB, "block-lan"), "block", status("passing", "tunnel-up", OFFICE), { uuid: LAB, held: false }],
+        ["on to on keeps the table it has", file(LAB, "block"), "block-lan", labHolding, null],
+        ["off", file(LAB, "off"), "off", offLine, null],
+        ["on to off", file(LAB, "block"), "off", labHolding, null],
+        ["no profile named", file("", "off"), "block", offLine, null],
+        ["no file", { kind: "missing" }, "block", offLine, null],
+        ["a malformed file", { kind: "malformed" }, "block", offLine, null],
+        ["an unreadable file", { kind: "unreadable" }, "block", offLine, null]
+    ]) assert.deepEqual(plain(logic.switchArm(before, mode, read === null ? null : plain(read))), wait, name);
+    // The line a failed switch arm leaves stands while the file names the
+    // profile with the switch on and no read gives its table.
+    const unreachable = logic.killStatus(1, "");
+    for (const [name, uuid, kill, read, stands] of [
+        ["no table read", LAB, file(LAB, "block"), offLine, true],
+        ["no status read yet", LAB, file(LAB, "block-lan"), null, true],
+        ["an unreachable read", LAB, file(LAB, "block"), unreachable, true],
+        ["another profile's table", LAB, file(LAB, "block"), status("passing", "tunnel-up", OFFICE), true],
+        ["its table holding", LAB, file(LAB, "block"), labHolding, false],
+        ["its table armed without a usable profile", LAB, file(LAB, "block"), status("unavailable", "endpoint-hostname", LAB), false],
+        ["the switch turned off", LAB, file(LAB, "off"), offLine, false],
+        ["the file names another profile", LAB, file(HOME, "block"), offLine, false],
+        ["the file unread", LAB, { kind: "reading" }, offLine, false],
+        ["no failed arm", "", file(LAB, "block"), offLine, false]
+    ]) assert.equal(logic.switchArmStands(uuid, kill, read === null ? null : plain(read)), stands, name);
+    // A switch change for Lab tunnel waits for its table and reads a failed
+    // arm on the switch, never a quiet change: KILL is the status read
+    // before the press, LINES the reads in the wait.
+    for (const [name, disk, mode, kill, lines, probeStep, cause] of [
+        ["no table arms", textOf(LAB, "off"), "block", offLine, [offLine], null, "timeout"],
+        ["another profile's table", textOf(LAB, "off"), "block", offLine, [status("passing", "tunnel-up", OFFICE)], null, "timeout"],
+        ["no read gives a line", textOf(LAB, "off"), "block", offLine, [unreachable], null, "unchecked"],
+        ["its table holds", textOf(LAB, "off"), "block", offLine, [offLine, labHolding], null, ""],
+        ["its table without a usable profile", textOf(LAB, "off"), "block", offLine, [status("unavailable", "endpoint-hostname", LAB)], null, ""],
+        ["the step reads needed after the wait", textOf(LAB, "off"), "block", offLine, [offLine], { state: "needed", reason: "units-failed" }, "setup"],
+        ["a table read before the off's sync, then none", textOf(LAB, "off"), "block", labHolding, [labHolding, offLine], null, "timeout"],
+        ["a table read before the off's sync that stays", textOf(LAB, "off"), "block", labHolding, [labHolding, labHolding], null, ""],
+        ["Allow local network after a failed arm", textOf(LAB, "block"), "block-lan", offLine, [offLine], null, "timeout"],
+        ["Allow local network once the table arms", textOf(LAB, "block"), "block-lan", offLine, [labHolding], null, ""]
+    ]) {
+        const owner = serviceOwner({ disk, lines, probeStep, killStatus: plain(kill), killUnarmed: LAB, killProblem: logic.switchArmProblem("timeout", "Lab tunnel") });
+        assert.equal(owner.setKillSwitch(mode), "ok", name);
+        assert.equal(writes(owner).length, 1, name);
+        const held = disk === textOf(LAB, "off") && logic.tableArmed(plain(kill), LAB);
+        if (cause !== "" || held) {
+            assert.deepEqual([owner.killArm.uuid, owner.killChanging, owner.setKillSwitch("off"), owner.startAction("profile-up", HOME, UP, null)],
+                [LAB, true, "busy", "busy"], "the wait holds the switch and the profiles: " + name);
+            owner.switchArmExpired();
+        }
+        const failed = cause === "timeout" || cause === "unchecked";
+        assert.deepEqual([owner.killArm, owner.killChanging, owner.killUnarmed, owner.killProblem],
+            [null, false, failed ? LAB : "", failed ? logic.switchArmProblem(cause, "Lab tunnel") : ""], name);
+        assert.deepEqual(owner.events.filter(event => Array.isArray(event) && event[0] === "warn"),
+            cause === "" ? [] : [["warn", "vpn: operation=kill-switch-on completion=" + cause]], name);
+        assert.equal(owner.events.includes("probe"), cause !== "", "only a wait that ends unarmed probes: " + name);
+    }
+    assert.notEqual(logic.switchArmProblem("timeout", "Lab tunnel"), logic.switchArmProblem("unchecked", "Lab tunnel"), "a wait with no line has its own words");
 }
 
 // Execute the production editor planner and the pane's production click
@@ -2162,12 +2254,29 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         ["set up, no status command", true, null, logic.killStatus(-1, "", ""), logic.killStatus(-1, "", "")]
     ]) {
         const handedReads = [];
-        const owner = { killReady: ready, killStatus: null, killSettling: false, stage: null, readKillStatus() {}, armRead() {},
+        const owner = { killReady: ready, killStatus: null, killSettling: false, stage: null, killArm: null, killUnarmed: "", readKillStatus() {}, armRead() {}, switchArmRead() {},
             codeOf: done => done === null || done.status !== 0 ? -1 : done.code };
         const reader = { running: false, completion, forCheck: true, settles: false, again: false };
         finishStatus(owner, logic, { text: completion === null ? "" : line }, { text: "" }, { stop() {} }, { warn() {} },
             { statusRead(read) { handedReads.push(read); } }, reader);
         assert.deepEqual(plain([owner.killStatus, handedReads]), plain([killStatus, [handed]]), name);
+    }
+    // A read asked for again during a wait decides at its own end; when the
+    // again starts no read, as once the step no longer reads set up, the
+    // wait decides at this end, so one past its deadline still ends.
+    for (const [name, wait, starts, routed] of [
+        ["a switch wait whose again starts no read", { killArm: { uuid: HOME, held: false, phase: "arm", expired: true, answered: true } }, false, ["switch"]],
+        ["a connect wait whose again starts no read", { stage: { uuid: HOME, phase: "arm", expired: true } }, false, ["stage"]],
+        ["a switch wait whose again starts a read", { killArm: { uuid: HOME, held: false, phase: "arm", expired: true, answered: true } }, true, []],
+        ["a switch wait in its probe", { killArm: { uuid: HOME, held: false, phase: "probe", expired: true, answered: true } }, false, []]
+    ]) {
+        const decided = [];
+        const reader = { running: false, completion: { code: 0, status: 0 }, forCheck: false, settles: false, again: true };
+        const owner = Object.assign({ killReady: false, killStatus: null, killSettling: false, stage: null, killArm: null, killUnarmed: "",
+            readKillStatus() { if (starts) reader.running = true; }, armRead() { decided.push("stage"); }, switchArmRead() { decided.push("switch"); },
+            codeOf: done => done === null || done.status !== 0 ? -1 : done.code }, wait);
+        finishStatus(owner, logic, { text: line }, { text: "" }, { stop() {} }, { warn() {} }, { statusRead() {} }, reader);
+        assert.deepEqual([decided, reader.again], [routed, false], name);
     }
 
     // Only a WireGuard profile is checked: a connect's own start of a
@@ -2587,11 +2696,12 @@ function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
     const autoOwner = (reply, fields = {}) => {
         const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", autoProbe: "", trusted: { wifi: [WIFI], wired: [] },
             wiredCapturing: false, wiredProblem: "", launched: [],
-            networks: hotelRead.networks, profiles: hotelRead.profiles, profileAction: null, stateWrite: null, killStep: { state: "absent", reason: "" },
+            networks: hotelRead.networks, profiles: hotelRead.profiles, profileAction: null, stateWrite: null, stage: null, killArm: null, killStep: { state: "absent", reason: "" },
             killSwitch: null, asked: [], probes: [], reply, probeReply: "ok",
             shell: { requirements: { missing: [] }, system: { refresh(done) { owner.probes.push(done); return owner.probeReply; } } },
             actProfile(request) { owner.asked.push(plain(request)); return owner.reply; } }, fields);
         owner.root = owner;
+        for (const name of ["killBusy", "changeBusy"]) bindProperty(service, owner, name);
         for (const name of ["autoConnect", "autoRetry", "autoEnded", "forgetWired", "wiredSettled"]) serviceFunction(owner, name);
         // WiredIdentity's own functions over reader doubles that record
         // each launch as [key, argv].
@@ -2636,7 +2746,8 @@ function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
     reading.autoConnect();
     assert.deepEqual(plain([reading.autoMemory.pending, reading.autoMemory.problem]), [true, null], "a profile still read keeps the change pending");
     for (const [name, fields] of [["a change in flight", { profileAction: { kind: "profile-down", uuid: HOME, name: "Home tunnel" } }],
-        ["a kill switch write", { stateWrite: { serial: 1, phase: "read" } }], ["a kill switch step not yet read", { killStep: undefined }]]) {
+        ["a kill switch write", { stateWrite: { serial: 1, phase: "read" } }], ["a kill switch step not yet read", { killStep: undefined }],
+        ["the switch waiting for its table", { killArm: { uuid: LAB, held: false, phase: "arm", expired: false, answered: false } }]]) {
         const waiting = autoOwner("ok", fields);
         waiting.autoConnect();
         assert.deepEqual([waiting.asked.length, waiting.autoMemory.pending], [0, true], name + " waits");
@@ -2814,6 +2925,9 @@ try {
         ["a wait with no line says VGS could not check", 'if (cause === "unchecked") return', 'if (false) return'],
         ["Set up has its own line", 'if (cause === "setup")', 'if (false)'],
         ["the switch off waits for nothing", 'arm: mode !== "off"', "arm: true"],
+        ["a switch left on waits when no table holds", 'if (before.mode !== "off") return armed ? null : { uuid: uuid, held: false };', 'if (before.mode !== "off") return null;'],
+        ["a switch turned on over a table read is held", 'return { uuid: uuid, held: armed };', 'return { uuid: uuid, held: false };'],
+        ["a switch arm's line ends once its table arms", 'return !tableArmed(status, uuid);', "return true;"],
         ["only holding or passing is armed", 'if (status.state === "holding" || status.state === "passing") return "armed";', 'if (status.state !== "unreachable") return "armed";'],
         ["a refused status read is unreachable", "const found = code === 0 ?", "const found = true ?"],
         ["the temporary file is dot-prefixed", 'return STATE_DIR + "/.state." + name;', 'return STATE_DIR + "/state." + name;'],
@@ -2874,7 +2988,16 @@ try {
         ["a password connect opens stdin", "profileActor.stdinEnabled = connectFeed !== null;", "profileActor.stdinEnabled = false;"],
         ["a password connect is marked", "password: feed !== null }", "password: false }"],
         ["a password connect holds its feed", "connectFeed = feed;", ""],
-        ["one change at a time", 'if (profileAction !== null || stateWrite !== null) return "busy";', ""],
+        ["one change at a time", 'if (changeBusy) return "busy";', ""],
+        ["a switch arm wait holds every change", 'readonly property bool killBusy: stateWrite !== null || stage !== null || killArm !== null', 'readonly property bool killBusy: stateWrite !== null || stage !== null'],
+        ["a profile change in flight holds every change", 'readonly property bool changeBusy: profileAction !== null || killBusy', 'readonly property bool changeBusy: killBusy'],
+        ["a switch change that leaves the switch on waits for its table", '            if (wait !== null) {\n                root.armSwitch(wait);', '            if (false) {\n                root.armSwitch(wait);'],
+        ["a held switch wait decides only at the deadline", ' && (!killArm.held || killArm.expired)) {', ') {'],
+        ["the switch wait's deadline decides from the last read", 'if (!killReader.running) switchArmRead();', 'if (!killReader.running) switchWaitEnd();'],
+        ["a switch arm that ends unarmed leaves its line", "            killProblem = Logic.switchArmProblem(cause, row === undefined ? \"the VPN\" : row.name);", ""],
+        ["a switch arm wait asks for a fresh probe first", 'const reply = shell === null ? "refused" : shell.system.refresh(() => root.switchProbed());', 'const reply = "refused";'],
+        ["a press while not set up asks for a probe", '            probeSystem();\n            return "refused: kill-switch=not-set-up";', '            return "refused: kill-switch=not-set-up";'],
+        ["a pane open probes the step", '        if (editedUuid === "") probeSystem();\n', ''],
         ["a connect with the switch on waits for the table", "if (plan === null || !plan.arm) {", "if (true) {"],
         ["only an armed table runs the connect", 'if (outcome === "armed") {', "if (true) {"],
         ["an unusable profile runs nothing", '} else if (outcome === "unavailable" && !stage.nudged) {', "} else if (false) {"],
@@ -2892,7 +3015,7 @@ try {
         ["a read the poll starts ends the grace", "        killReader.settles = killSettlePoll;\n", ""],
         ["a failed write runs nothing", 'if (!ok) {\n            stageEnded("write", "", false);', 'if (false) {\n            stageEnded("write", "", false);'],
         ["the switches take three modes", 'if (Logic.KILL_MODES.indexOf(mode) === -1) return "refused: kill-switch=mode";', ""],
-        ["one state write at a time", 'if (stateWrite !== null || stage !== null) return "busy";', ""],
+        ["one state write at a time", 'if (killBusy) return "busy";', ""],
         ["a profile the switch refuses runs nothing", "if (plan !== null && plan.refuse !== undefined) {", "if (false) {"],
         ["the deadline marks a running read's wait", "        stage = Object.assign({}, stage, { expired: true });\n", ""],
         ["the deadline ends an idle wait", '        if (!killReader.running) waitEnd();', '        if (false) waitEnd();'],
@@ -2928,7 +3051,7 @@ try {
         ["each list read decides Connect automatically", "rows, failures);\n        autoConnect();\n", "rows, failures);\n"],
         ["the read's networks are in place before the list decides", "root.networks = Logic.networkList(code, profilesText.text);", ""],
         ["the switch's answer reaches Connect automatically", "memory = Logic.autoConnectReply(memory, reply, row,", "memory = Logic.autoConnectOff(memory, reply, row,"],
-        ["Connect automatically waits on a kill switch write", "stateWrite !== null || killStep === undefined ||", "killStep === undefined ||"],
+        ["Connect automatically waits on any change in flight", "changeBusy || killStep === undefined ||", "killStep === undefined ||"],
         ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined ||", "||"],
         ["an unknown kill switch step waits on a fresh probe", ' || (unknown && autoProbe !== "done")', ""],
         ["a pending change asks for one probe", 'if (!memory.pending) autoProbe = "";', 'if (plan.why !== "waiting") autoProbe = "";'],
@@ -3070,7 +3193,8 @@ try {
         ["the check's status read runs while the step is not set up", "if (!registered || !(killReady || checkWantsStatus || root.nordWantsStatus === true)) return;", "if (!registered || !(killReady || root.nordWantsStatus === true)) return;"],
         ["a step that rules out a table hands none", 'if (Logic.checkKillPlan(killStep) === "none") {', "if (!killReady) {"],
         ["the check's own read leaves the switch's reading", "            if (root.killReady) {\n                const failed", "            if (true) {\n                const failed"],
-        ["the status read hands the check its reading", "leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));", "leakCheck.statusRead(next);"]
+        ["the status read hands the check its reading", "leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));", "leakCheck.statusRead(next);"],
+        ["a wait whose again starts no read decides at this end", '            if (!running) {\n                if (root.stage', '            if (false) {\n                if (root.stage']
     ]) {
         assert.equal(serviceSource.split(needle).length - 1, 1, name);
         assert.throws(() => leakCheckSuite(load(file, commons), serviceSource.replace(needle, replacement)), undefined, "control: " + name);
