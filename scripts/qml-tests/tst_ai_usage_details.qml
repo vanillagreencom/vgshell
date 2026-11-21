@@ -5,8 +5,8 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.ai-usage"
 
-// The delivered card readings are the result: one secondary heading and
-// body-sized rows in plain ink. Geometry reads the production
+// The delivered card readings are the result: one muted capital heading,
+// a space step closer than a page heading, and body-sized rows in plain ink. Geometry reads the production
 // meters, including a barless credit and a final row with no trailing room.
 Item {
     width: 700
@@ -109,14 +109,22 @@ Item {
             compare(label(card, "Unreported credit"), null, "a pool with no value has no row");
             if (expected.length === 0) return;
             const heading = headings[0], primary = label(card, source.limit), first = reading(card, source.limit);
-            compare(heading.role, "bodyStrong");
-            compare(String(heading.color), String(Qt.color(Theme.color.text)), "plain text ink, not accent");
-            compare(heading.font.pixelSize, primary.font.pixelSize, "secondary title keeps the body size");
+            compare(heading.role, "label");
+            compare(heading.font.capitalization, Font.AllUppercase, "a capital label");
+            compare(String(heading.color), String(Qt.color(Theme.color.textMuted)), "muted ink, neither accent nor body");
+            verify(heading.font.pixelSize < primary.font.pixelSize, "smaller than the body rows");
             const limits = source.windows.map(row => reading(card, row.name === "credits" ? source.limit
                 : row.name === "seven_day" ? "Weekly limit" : "5-hour limit"));
             const lastLimit = limits[limits.length - 1];
             tryVerify(() => heading.mapToItem(card, 0, 0).y >= lastLimit.mapToItem(card, 0, lastLimit.height).y,
                 5000, "all plan limits precede the secondary heading");
+            // Ink to capital top, as SectionHeader measures its space above.
+            const header = heading.parent.parent;
+            const gap = () => header.mapToItem(card, 0, header.topPadding).y + Math.floor(header.titleCapTop)
+                - (lastLimit.mapToItem(card, 0, lastLimit.height).y - Math.floor(Theme.inkBelow(lastLimit)));
+            const wantGap = Theme.stack.heading - Theme.space.xs;
+            tryVerify(() => gap() === wantGap, 5000, "the heading settles");
+            compare(gap(), wantGap, "one space step under a page heading's gap");
             let previous = heading;
             for (const wanted of expected) {
                 const row = reading(card, wanted[0]);
