@@ -564,6 +564,8 @@ case "$mode" in
     # These are the complete environment tables. Graphics/session variables
     # never enter either table. Prepared selftest values hold paths or account
     # references, never credentials; the runner computes them before entry.
+    # AGENT_RUNTIME_CACHE names the kendex runtime cache its caller prepared
+    # before entry and declared as a read-only input.
     environment=(--clearenv
       --setenv HOME "$fence_dir/home" --setenv XDG_CONFIG_HOME "$fence_dir/config"
       --setenv XDG_DATA_HOME "$fence_dir/data" --setenv XDG_STATE_HOME "$fence_dir/state"
@@ -575,7 +577,7 @@ case "$mode" in
       VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS VGSHELL_SMOKE_RECONCILE_BUDGET_MS
       VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS
       JARVIS_LOCAL_MODELS JARVIS_LOCAL_PYTHON VOXTYPE_MODELS
-      VGSHELL_SELFTEST_ACCOUNTS VGSHELL_SELFTEST_PROGRAM VGSHELL_SHOTS_SOURCE)
+      VGSHELL_SELFTEST_ACCOUNTS VGSHELL_SELFTEST_PROGRAM VGSHELL_SHOTS_SOURCE AGENT_RUNTIME_CACHE)
     for name in "${passed[@]}"; do
       [[ ! -v $name ]] || environment+=(--setenv "$name" "${!name}")
     done

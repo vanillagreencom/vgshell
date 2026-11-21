@@ -116,6 +116,11 @@ if [[ -f "$tmp/planted-default-source" ]]; then cat -- "$tmp/planted-default-sou
 SH
 chmod +x "$tmp/bin/pw-dump" "$tmp/bin/pw-metadata"
 path="$tmp/bin:$(dirname -- "$node_bin"):$PATH"
+# The caller's cache of the built kendex runtimes, by agent-runtime's own
+# rule. A run under the world's HOME is pointed at it, so the runner's call
+# of the home copy's setup finds the binaries the checkout's sources built
+# there rather than building them again under the world.
+runtime_cache="$("$BASH" -c '. "$1" && agent_runtime_cache' _ "$repo/.agents/skills/agent-runtime/scripts/lib/key.sh")"
 
 # The accounts: a sign-in folder, and the saved key references a case names
 # as PROVIDER/ACCOUNT words. account_id KIND LABEL is the id the plugin's own
@@ -274,7 +279,7 @@ selftest_proxy_env=()
 run() {
   : >"$tmp/fence.log"; : >"$tmp/harness.log"; rm -f -- "$tmp/default-source" "$tmp/pw-metadata.calls"
   status=0
-  (cd -- "$tmp" && env -i PATH="$path" HOME="$world" "${inputs[@]}" "${session_bus[@]}" "${selftest_proxy_env[@]}" "$BASH" "$tree/scripts/jarvis-selftest.sh" "$@") >"$tmp/out" 2>"$tmp/err" || status=$?
+  (cd -- "$tmp" && env -i PATH="$path" HOME="$world" AGENT_RUNTIME_CACHE="$runtime_cache" "${inputs[@]}" "${session_bus[@]}" "${selftest_proxy_env[@]}" "$BASH" "$tree/scripts/jarvis-selftest.sh" "$@") >"$tmp/out" 2>"$tmp/err" || status=$?
 }
 # Outside a control the tree's runner and the cut functions are the
 # checkout's own: plant FILE puts FILE in the tree as the runner, and
@@ -644,18 +649,23 @@ make_folder() {
   ln -s AGENTS.md "$folder/CLAUDE.md"
 }
 # kendex_home DIR: DIR made a git repository of its own holding a copy of
-# the checkout's kendex orch skill, as the Install kendex setup leaves a
-# Jarvis home.
+# the checkout's kendex orch skill and the skills it needs beside it, as
+# the Install kendex setup leaves a Jarvis home.
 kendex_home() { # DIR
-  mkdir -p "$1/.agents/skills" && git -C "$1" init -q && cp -a -- "$repo/.agents/skills/orch" "$repo/.agents/skills/mailbox" "$1/.agents/skills/"
+  mkdir -p "$1/.agents/skills" && git -C "$1" init -q &&
+    cp -a -- "$repo/.agents/skills/orch" "$repo/.agents/skills/agent-runtime" "$repo/.agents/skills/mailbox" "$1/.agents/skills/"
 }
-# workflow_get DIR EXPR: EXPR of DIR's own fleet state, read by DIR's own
-# workflow-state.
-workflow_get() { (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/workflow-state get oversee "$2" 2>>"$tmp/err"); }
+# fleet_get DIR POINTER: the JSON value at POINTER of DIR's own fleet state,
+# read by DIR's own orch-runtime from the runtime cache.
+fleet_get() { # DIR POINTER
+  (cd -- "$1" && env -i PATH="$path" HOME="$world" AGENT_RUNTIME_CACHE="$runtime_cache" "$BASH" .agents/skills/orch/scripts/orch-runtime state get --fleet "$2" 2>>"$tmp/err") |
+    python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["result"]["value"]))'
+}
 # lane_send DIR FILE: the text in FILE sent to the Jarvis session's mailbox
-# in DIR by DIR's own lane-mail.
+# in DIR by DIR's own lane-mail, with the world as HOME, which the cases
+# that send name as the run's sandbox HOME.
 lane_send() { # DIR FILE
-  (cd -- "$1" && env -i PATH="$path" "$BASH" .agents/skills/mailbox/scripts/lane-mail send --item overseer --directive \
+  (cd -- "$1" && env -i PATH="$path" HOME="$world" "$BASH" .agents/skills/mailbox/scripts/lane-mail send --item overseer --directive \
     --file "$2" --root "$1") >"$tmp/out" 2>"$tmp/err"
 }
 home_untouched() {
@@ -683,7 +693,7 @@ mail_made() {
 mail_read_before() {
   local rows
   make_folder
-  kendex_home "$folder" && call selftest_overseer "$folder" || return 1
+  kendex_home "$folder" && call selftest_overseer "$folder" "$world" || return 1
   printf 'an earlier request\n' >"$tmp/request.txt"
   lane_send "$folder" "$tmp/request.txt" || return 1
   starts --home "$folder" || return 1
@@ -1720,58 +1730,70 @@ holds "the runner final call passes the dictation record into the verdict" runne
 control plant "a runner final call that passes an empty dictation record" '"$audio_json" "$dictation_json" "$voxtype_models_sum" "$voxtype_models"' '"$audio_json" "" "$voxtype_models_sum" "$voxtype_models"' runner_final_wires_dictation
 
 echo "--- the mailbox"
-# The record the run writes in the home copy: with it lane-mail's send
-# lands, an overseer record already there is kept, and a home without
-# kendex gets none. A fleet state that lies outside the copy is refused
-# before anything is written.
+# The controller the run registers in the home copy: with it lane-mail's
+# send lands, a controller copied from the folder is cleared rather than
+# adopted over, the adoption's account seat stays in the sandbox's HOME
+# whatever the copy's settings name, and a home without kendex gets no
+# fleet state. A fleet state that lies outside the copy is refused before
+# anything is written. Each case's sandbox HOME is the world.
 overseer_dir="$tmp/overseer home"
 overseer_lands() {
   rm -rf -- "${overseer_dir:?}"
   kendex_home "$overseer_dir" || return 1
-  call selftest_overseer "$overseer_dir" || return 1
+  call selftest_overseer "$overseer_dir" "$world" || return 1
   printf 'a request\n' >"$tmp/request.txt"
   lane_send "$overseer_dir" "$tmp/request.txt"
 }
-overseer_kept() {
+overseer_fresh() {
   rm -rf -- "${overseer_dir:?}"
   kendex_home "$overseer_dir" || return 1
-  call selftest_overseer "$overseer_dir" || return 1
-  (cd -- "$overseer_dir" && env -i PATH="$path" "$BASH" .agents/skills/orch/scripts/workflow-state update oversee \
-    '.overseer = {"server": "kept"}' >/dev/null) || return 1
-  call selftest_overseer "$overseer_dir" || return 1
-  [[ "$(workflow_get "$overseer_dir" .overseer.server)" == kept ]]
+  call selftest_overseer "$overseer_dir" "$world" || return 1
+  [[ "$(fleet_get "$overseer_dir" /controller/generation)" == 1 ]] || return 1
+  call selftest_overseer "$overseer_dir" "$world" || return 1
+  [[ "$(fleet_get "$overseer_dir" /controller/generation)" == 1 ]]
+}
+overseer_seat() {
+  local seats="$world/.local/state/kendex/agent-runtime/accounts/seats"
+  rm -rf -- "${overseer_dir:?}" "${seats:?}" "${tmp:?}/settings-seats"
+  kendex_home "$overseer_dir" || return 1
+  printf '[env]\nAGENT_RUNTIME_ACCOUNT_STATE_DIR = "%s"\n' "$tmp/settings-seats" >"$overseer_dir/kendex.settings.toml"
+  call selftest_overseer "$overseer_dir" "$world" || return 1
+  [[ -n "$(ls -A -- "$seats" 2>/dev/null)" && ! -e $tmp/settings-seats ]]
 }
 overseer_none() {
-  rm -rf -- "${overseer_dir:?}"
-  mkdir -p "$overseer_dir"
-  call selftest_overseer "$overseer_dir" && [[ -z "$(ls -A -- "$overseer_dir")" ]]
+  rm -rf -- "${overseer_dir:?}" "${tmp:?}/none-home"
+  mkdir -p "$overseer_dir" "$tmp/none-home"
+  call selftest_overseer "$overseer_dir" "$tmp/none-home" && [[ -z "$(ls -A -- "$overseer_dir")" && -z "$(ls -A -- "$tmp/none-home")" ]]
 }
 overseer_outside() {
-  local tool="$overseer_dir/.agents/skills/orch/scripts/workflow-state"
+  local tool="$overseer_dir/.agents/skills/orch/scripts/orch-runtime"
   rm -rf -- "${overseer_dir:?}" "${tmp:?}/overseer-writes"
-  mkdir -p "$(dirname -- "$tool")"
-  printf '#!/usr/bin/env bash\n[[ $1 == path ]] && { echo %q; exit 0; }\necho "$@" >>%q\n' "$tmp/elsewhere/state.json" "$tmp/overseer-writes" >"$tool"
-  chmod +x "$tool"
-  ! call selftest_overseer "$overseer_dir" 2>/dev/null && [[ ! -e $tmp/overseer-writes ]]
+  kendex_home "$overseer_dir" || return 1
+  printf '#!/usr/bin/env bash\n[[ $1 == ready ]] && exit 0\n[[ $1 == state && $2 == path ]] && { echo %q; exit 0; }\necho "$@" >>%q\n' \
+    "{\"result\":{\"path\":\"$tmp/elsewhere/state.json\"}}" "$tmp/overseer-writes" >"$tool"
+  ! call selftest_overseer "$overseer_dir" "$world" 2>/dev/null && [[ ! -e $tmp/overseer-writes ]]
 }
-holds "the overseer record the run writes in a kendex home lets lane-mail's send land" overseer_lands
-holds "an overseer record already in the home copy is kept" overseer_kept
+holds "the controller the run registers in a kendex home lets lane-mail's send land" overseer_lands
+holds "a controller already in the home copy is cleared, never adopted over" overseer_fresh
+holds "the adoption's account seat lands in the sandbox's HOME, not where the copy's settings point" overseer_seat
 holds "a home without kendex gets no fleet state" overseer_none
 holds "a fleet state outside the home copy is refused before any write" overseer_outside
-control cut_functions "a run that records no overseer" \
-  "  (cd -- \"\$1\" && env -i PATH=\"\$PATH\" \"\$BASH\" \"\$tool\" update oversee '.overseer //= {}' >/dev/null)" '  :' overseer_lands
-control cut_functions "a run that replaces the overseer record" "'.overseer //= {}'" "'.overseer = {}'" overseer_kept
+control cut_functions "a run that registers no controller" ' register --fleet >%q' ' version >%q' overseer_lands
+control cut_functions "a run that adopts over the copied controller" \
+  '  [[ ! -e $file ]] || (cd -- "$1" && "${runtime[@]}" "$orch/orch-runtime" state set --fleet /controller null >/dev/null) || return 1' '  :' overseer_fresh
+control cut_functions "a run whose seat follows the copy's settings" ' AGENT_RUNTIME_ACCOUNT_STATE_DIR="$2/.local/state/kendex/agent-runtime/accounts")' ')' overseer_seat
 control cut_functions "a run that writes a fleet state outside the home copy" \
   '  [[ $file == "$1"/* || $file == "$real"/* ]] ||' '  true ||' overseer_outside
-# The runner writes the record in its copy of the home, never in the folder.
+# The runner registers the controller in its copy of the home, never in the
+# folder.
 overseer_copy() {
   make_folder
   kendex_home "$folder" || return 1
   starts --home "$folder" || return 1
-  [[ "$(workflow_get "$sandbox/home/jarvis-home" '.overseer | type')" == object && ! -e $folder/tmp ]]
+  [[ "$(fleet_get "$sandbox/home/jarvis-home" /controller/generation)" == 1 && ! -e $folder/tmp ]]
 }
-holds "the run records an overseer in the home copy alone" overseer_copy
-control plant "a runner that records no overseer in the home copy" '  selftest_overseer "$home_copy" || stopped overseer-unrecorded' '  :' overseer_copy
+holds "the run registers a controller in the home copy alone" overseer_copy
+control plant "a runner that registers no controller in the home copy" '  selftest_overseer "$home_copy" "$home" || stopped overseer-unrecorded' '  :' overseer_copy
 # hands HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string, which
 # can hold half of a surrogate pair as a model's call can, handed to the
 # Jarvis session's mailbox in HOME by the plugin's guidance executor with
@@ -1800,7 +1822,7 @@ finish_mail() {
   rm -rf -- "${finish_copy:?}"
   cp -a -- "$folder" "$finish_copy"
   kendex_home "$finish_copy" || return 1
-  call selftest_overseer "$finish_copy" || return 1
+  call selftest_overseer "$finish_copy" "$world" || return 1
   : >"$tmp/auth.calls"
   call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
   answer="$(hands "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1

@@ -5140,7 +5140,7 @@ else
 fi
 
 # The last `validate:` line of a run that reaches its verdict is the one
-# dev-validate-run --record reads for the run's selection. The changed
+# `orch-runtime validate entry --record` reads for the run's selection. The changed
 # path reaches only the first row; the third is unprepared while its
 # `$NAME` is unset. The control is a copy that always claims battery.
 selection_case() { # NAME|ARGS|WANT|control

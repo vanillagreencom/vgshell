@@ -534,7 +534,7 @@ for phase, attempt_stop, worlds, native in cases:
         print('  CONTROL  ' + line)
 # A unit's stop: TERM to the driver and every process under it at once, as
 # systemd stops a unit (systemd.kill(5), KillMode=control-group), the way
-# dev-validate-run's unit ends a run at its bound. The attempt waits inside
+# a stop of the unit a validation run is held in ends it. The attempt waits inside
 # a row whose output runs through a filter the stop also ends, as
 # harness.sh's smoke_row does; the row has lost its sink, as the stop ends
 # it, so the teardown writes the sink's exit to that dead filter before its

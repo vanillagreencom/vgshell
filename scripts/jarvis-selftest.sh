@@ -60,10 +60,10 @@
 # through that filter whether each key is there and unlocked.
 # --home PATH copies that folder into the sandbox's HOME and names the copy
 # as the Jarvis home folder; the folder itself is read twice, for its
-# checksums before and after, and never written. Where the copy holds the
-# kendex mail tool, the run records a Jarvis session in the copy's fleet
-# state with the copy's own kendex workflow-state, so the send Jarvis makes
-# with that tool lands. The run reads the copy's Jarvis session mailbox as
+# checksums before and after, and never written. Where the copy holds
+# kendex's orch skill, the run registers a stand-in Jarvis session as the
+# controller of the copy's fleet state with the copy's own orch-runtime, so
+# the send Jarvis makes with the copy's mail tool lands. The run reads the copy's Jarvis session mailbox as
 # the Jarvis session does, with the checkout's lane-mail: once before Jarvis
 # starts, which makes the mailbox where the folder has none and marks the
 # rows it holds as read, and once after the turn, for the rows the turn added.
@@ -394,20 +394,62 @@ selftest_home_copy() { # SOURCE DEST
   cp -a -- "$1" "$2"
 }
 
-# selftest_overseer HOME: where the Jarvis home folder HOME holds kendex's
-# orch skill, an `overseer` member in HOME's fleet state, written by HOME's
-# own workflow-state, which lane-mail's send reads before it appends and
-# otherwise refuses as overseer-absent: one that names no session, which the
-# send needs no more of. A record already there is kept, and a state file outside HOME is refused,
-# so no write reaches the folder the copy was made from.
-selftest_overseer() { # HOME
-  local tool="$1/.agents/skills/orch/scripts/workflow-state" file real
-  [[ -x $tool ]] || return 0
+# selftest_overseer HOME SANDBOX_HOME: where the Jarvis home folder HOME
+# holds kendex's orch skill, a controller in HOME's fleet state, registered
+# by HOME's own `orch-runtime register --fleet`. lane-mail's send asks
+# agent-runtime's controller status for that record before it appends and
+# refuses as overseer-absent without one; no flag or root form skips the
+# read. Register reads the harness off the tmux pane it runs in, so a
+# stand-in runs it in a tmux server of the run's own, never the caller's:
+# the stand-in is named by its absolute path in
+# AGENT_RUNTIME_HARNESS_BINARIES, and its basename is no harness's, so
+# nothing else reads it as one. The stand-in is a script whose interpreter
+# its `#!` line names directly, since the process name agent-runtime reads
+# is then the script's basename; through `env` it would be the
+# interpreter's. The server ends with the stand-in once the record stands:
+# the send needs the record, not a live session. A controller copied from
+# the folder is cleared first, so the adoption never reads the server it
+# names.
+# Every runtime call runs with SANDBOX_HOME as HOME and no other variable,
+# as Jarvis's own send does (ComputerHelp.js MAIL_ENVIRONMENT): the binaries
+# HOME's setup built, or found built, in the caller's cache are copied into
+# SANDBOX_HOME's cache, and the account seat the adoption records goes to a
+# state folder under SANDBOX_HOME, named outright so no settings file of the
+# copy moves it. A fleet state outside HOME is refused before any write, so
+# no write reaches the folder the copy was made from.
+selftest_overseer() { # HOME SANDBOX_HOME
+  local orch="$1/.agents/skills/orch/scripts" real built binary cache file dir harness status
+  local runtime=(env -i PATH="$PATH" HOME="$2" AGENT_RUNTIME_ACCOUNT_STATE_DIR="$2/.local/state/kendex/agent-runtime/accounts")
+  [[ -x $orch/orch-runtime ]] || return 0
   real="$(cd -- "$1" && pwd -P)" || return 1
-  file="$(cd -- "$1" && env -i PATH="$PATH" "$BASH" "$tool" path oversee)" || return 1
+  built="$(cd -- "$1" && "$BASH" "$orch/setup" 2>&1)" || { printf '%s\n' "$built" >&2; return 1; }
+  cache="$(env -i HOME="$2" "$BASH" -c '. "$1" && agent_runtime_cache' _ "$1/.agents/skills/agent-runtime/scripts/lib/key.sh")" || return 1
+  install -d -m 700 -- "$cache/bin" || return 1
+  while IFS= read -r binary; do
+    cp -- "$binary" "$cache/bin/" || return 1
+  done < <(sed -n 's/^[a-z-]*-setup: key=[0-9a-f]* binary=//p' <<<"$built")
+  file="$(cd -- "$1" && "${runtime[@]}" "$orch/orch-runtime" state path --fleet |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["path"])')" || return 1
   [[ $file == "$1"/* || $file == "$real"/* ]] || { printf 'selftest: the fleet state lies outside the home copy: %s\n' "$file" >&2; return 1; }
-  [[ -e $file ]] || (cd -- "$1" && env -i PATH="$PATH" "$BASH" "$tool" init oversee >/dev/null) || return 1
-  (cd -- "$1" && env -i PATH="$PATH" "$BASH" "$tool" update oversee '.overseer //= {}' >/dev/null)
+  [[ ! -e $file ]] || (cd -- "$1" && "${runtime[@]}" "$orch/orch-runtime" state set --fleet /controller null >/dev/null) || return 1
+  # tmux's socket path is bounded at about 100 bytes, so its folder is a
+  # short one of its own under /tmp.
+  dir="$(mktemp -d /tmp/vgs-selftest.XXXXXX)" || return 1
+  harness="$dir/vgs-selftest-harness"
+  printf '#!%s\ncd -- %q && %q register --fleet >%q 2>&1\necho $? >%q\n' \
+    "$BASH" "$1" "$orch/orch-runtime" "$dir/register.out" "$dir/register.status" >"$harness" && chmod +x -- "$harness" &&
+    "${runtime[@]}" SHELL="$BASH" AGENT_RUNTIME_HARNESS_BINARIES="claude=$harness" \
+      tmux -S "$dir/tmux" -f /dev/null new-session -d -x 80 -y 24 "$harness" || { rm -rf -- "${dir:?}"; return 1; }
+  # A recovery bound for a registration that hangs, not a measured latency.
+  if selftest_wait 30 registered eval '[[ -s $dir/register.status ]] && echo registered'; then
+    status="$(<"$dir/register.status")"
+  else
+    status=timeout
+  fi
+  tmux -S "$dir/tmux" kill-server 2>/dev/null || true
+  [[ $status == 0 ]] || printf 'selftest: register=%s %s\n' "$status" "$(cat -- "$dir/register.out" 2>/dev/null)" >&2
+  rm -rf -- "${dir:?}"
+  [[ $status == 0 ]]
 }
 
 # selftest_mailbox TREE HOME: the Jarvis session's read of its mailbox in the
@@ -1076,14 +1118,38 @@ PY
   selftest_suite_summary "$total" "$matched" "$differ" "$not_run" "$failed" "$dir"
 }
 
+# selftest_runtimes HOME: where the Jarvis home folder HOME holds kendex's
+# orch skill, the cache holding the runtimes HOME's setup built, or found
+# built, there. The entry runs it before the world, whose HOME and cache
+# are its own and which has no build toolchain; the world reads the cache
+# through a read-only input AGENT_RUNTIME_CACHE names, so each setup inside
+# finds the binaries and builds nothing. Prints nothing for a home without
+# the skill.
+selftest_runtimes() { # HOME
+  local orch="$1/.agents/skills/orch/scripts" built cache
+  [[ -x $orch/setup ]] || return 0
+  built="$(cd -- "$1" && "$BASH" "$orch/setup" 2>&1)" || { printf '%s\n' "$built" >&2; return 1; }
+  cache="$("$BASH" -c '. "$1" && agent_runtime_cache' _ "$1/.agents/skills/agent-runtime/scripts/lib/key.sh")" || return 1
+  realpath -e -- "$cache"
+}
+
 selftest_gpu_fence() {
   local world_args=(--net --out "$repo/tmp/display-record" --out "$repo/tmp/selftest-records" --out "$repo/tmp/qml-smoke")
-  local output
+  local output runtimes
   output="$(realpath -m -- "$out")"
   if [[ -n $suite_name ]]; then world_args+=(--out "$output"); else world_args+=(--out "${output%/*}"); fi
   if [[ ${brain_kind:-} == cli ]]; then world_args+=(--sign-in "$brain_first" "$brain_second"); fi
   if [[ ${#key_references[@]} -gt 0 || ${copilot_keyring:-false} == true ]]; then world_args+=(--secrets); fi
   export VGSHELL_SELFTEST_ACCOUNTS="${accounts:-}" VGSHELL_SELFTEST_PROGRAM="${brain_program:-}"
+  # Inside the world the cache is the one the entry passed, which holds the
+  # binaries already.
+  if [[ -n $home_source ]]; then
+    runtimes="$(selftest_runtimes "$home_source")" || unavailable input-missing name=kendex-runtimes
+    if [[ -n $runtimes ]]; then
+      export AGENT_RUNTIME_CACHE="$runtimes"
+      world_args+=(--input "$runtimes")
+    fi
+  fi
   "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" "${argv[@]}"
 }
 
@@ -1468,7 +1534,7 @@ if [[ -n $home_source ]]; then
   home_copy="$home/jarvis-home"
   home_sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
   selftest_home_copy "$home_source" "$home_copy" || stopped home-not-copied
-  selftest_overseer "$home_copy" || stopped overseer-unrecorded
+  selftest_overseer "$home_copy" "$home" || stopped overseer-unrecorded
   # The Jarvis session's read before the turn: the read after it hands over
   # only the rows the turn added.
   selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread

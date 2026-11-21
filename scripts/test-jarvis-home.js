@@ -437,7 +437,7 @@ world(() => {
                 fs.writeFileSync(path.join(folder, entry), "#!/bin/sh\n", { mode });
             };
             assert.equal(Home.mailTool(folder), null, "a home without the canonical mail tool");
-            for (const entry of ["skills/lane-mail", ".agents/skills/orch/scripts/workflow-state", ".agents/skills/other/scripts/lane-mail",
+            for (const entry of ["skills/lane-mail", ".agents/skills/orch/scripts/orch-runtime", ".agents/skills/other/scripts/lane-mail",
                 ".agents/skills/orch/lane-mail", ".agents/skills/mailbox/scripts/other-tool",
                 [".agents", "skills", "orch", "scripts", "lane-mail"].join("/"), "lane-mail", "state/lane-mail"]) {
                 plant(entry);

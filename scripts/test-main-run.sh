@@ -579,8 +579,8 @@ PY
   printf '[{"id":"VGS-2127","state":"Verifying","description":"tmp/%s/kept/file"},{"id":"VGS-1","state":"Done","description":"tmp/%s/expired"},{"id":"VGS-2","state":"Canceled","description":"tmp/%s/mixed/old"},{"id":"VGS-3","state":"Triage","description":null},{"id":"VGS-4","state":"Todo","description":"`tmp/` `tmp/main-run/` `tmp/qml-smoke/` tmp/* `*` tmp/*/mixed/old tmp/VGS-1-focused-%s-b* `VGS-1-focused-%s-*` `VGS-1-focused-%s-a` `#[test]`"}]\n' "$base" "$base" "$base" "$1" "$1" "$1" >"$TMP_ROOT/kept/issues"
   printf '{"VGS-2127":[{"body":"tmp/%s/comment/file tmp/%s/%s/ `tmp/%s/kept/file with space`"}],"VGS-3":[],"VGS-4":[]}\n' "$base" "$record" "${planted[referenced]}" "$base" >"$TMP_ROOT/kept/comments"
   printf '{"kind":"ask","to":"owner","text":"Read tmp/%s/ask/file\\nKeep the evidence."}\n' "$base" >"$TMP_ROOT/kept/asks"
-  local package_paths=("lane-archive/$1" "waiter.$1/file" "dev-validate-old/record" "validation-runs" "cycle-state/state.json" "container-close.lock")
-  mkdir -p "$records/VGS-2127-focused-$1" "$records/${span%/*}" "$records/${family%/*}" "$records/lane-archive" "$records/waiter.$1" "$records/dev-validate-old" "$records/cycle-state"
+  local package_paths=("lane-archive/$1" "waiter.$1/file" "items/VGS-1/workflow-state-VGS-1.json" "validation-runs" "cycle-state/state.json" "container-close.lock")
+  mkdir -p "$records/VGS-2127-focused-$1" "$records/${span%/*}" "$records/${family%/*}" "$records/lane-archive" "$records/waiter.$1" "$records/items/VGS-1" "$records/cycle-state"
   for path in "VGS-2127-focused-$1/file" "$span" "$family" "${package_paths[@]}"; do
     touch -d '10 days ago' "$records/$path"
   done
