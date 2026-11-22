@@ -529,6 +529,8 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 | `design` | Visual design, tokens, typography and surface layout; theme rules are in `docs/architecture/configuration.md`. |
 | `component` | Reusable widget/control work, especially primitives in `shell/Ui/`. |
 | `releases` | Cutting a release, versioning, and publishing to the distribution channels. |
+| `vpn` | The VPN plugin, `shell/plugins/vgs.vpn`, and its connections. |
+| `power` | The power plugin, `shell/plugins/vgs.power`: idle stages, inhibitors, energy settings and power keys. |
 
 ### Work priority
 

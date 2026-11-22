@@ -6169,13 +6169,13 @@
     "skill:project-management:claude": {
       "installation": "060213f3706dd430",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8486372513be3ccfd589f8e3978fbe6f5bb95d982f926121d07b465026f557ac",
+      "sourceHash": "33d65abe3838239fb34fd77d3ae804278eef58de75299c7f49f2f9cf5f361511",
       "sourceCommit": "040d3d4d3b3093d1f12d307918039fc706e94bc1",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bb875766325da261841f810f632079aef768a27b43a07c148beac11f8d683147",
+      "renderedHash": "1167da98472a3bb205696a4d13a5a273184f173a6e3d8b50584685cf4aa2c0ea",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6191,13 +6191,13 @@
     "skill:project-management:codex": {
       "installation": "c7d0ab1e4c686077",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8486372513be3ccfd589f8e3978fbe6f5bb95d982f926121d07b465026f557ac",
+      "sourceHash": "33d65abe3838239fb34fd77d3ae804278eef58de75299c7f49f2f9cf5f361511",
       "sourceCommit": "040d3d4d3b3093d1f12d307918039fc706e94bc1",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bb875766325da261841f810f632079aef768a27b43a07c148beac11f8d683147",
+      "renderedHash": "1167da98472a3bb205696a4d13a5a273184f173a6e3d8b50584685cf4aa2c0ea",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6212,13 +6212,13 @@
     "skill:project-management:copilot": {
       "installation": "56019ad5521a11c0",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8486372513be3ccfd589f8e3978fbe6f5bb95d982f926121d07b465026f557ac",
+      "sourceHash": "33d65abe3838239fb34fd77d3ae804278eef58de75299c7f49f2f9cf5f361511",
       "sourceCommit": "040d3d4d3b3093d1f12d307918039fc706e94bc1",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bb875766325da261841f810f632079aef768a27b43a07c148beac11f8d683147",
+      "renderedHash": "1167da98472a3bb205696a4d13a5a273184f173a6e3d8b50584685cf4aa2c0ea",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6233,13 +6233,13 @@
     "skill:project-management:pi": {
       "installation": "f46022c4709acc75",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "8486372513be3ccfd589f8e3978fbe6f5bb95d982f926121d07b465026f557ac",
+      "sourceHash": "33d65abe3838239fb34fd77d3ae804278eef58de75299c7f49f2f9cf5f361511",
       "sourceCommit": "040d3d4d3b3093d1f12d307918039fc706e94bc1",
       "selector": {
         "sourceRev": null,
         "rev": null
       },
-      "renderedHash": "bb875766325da261841f810f632079aef768a27b43a07c148beac11f8d683147",
+      "renderedHash": "1167da98472a3bb205696a4d13a5a273184f173a6e3d8b50584685cf4aa2c0ea",
       "enabled": true,
       "emitted": {
         "kind": "skill",
