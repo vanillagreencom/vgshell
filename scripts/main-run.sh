@@ -315,7 +315,8 @@ try:
     owned = ("lane-archive", "lane-mail", "progress-reports", "handoffs", "nested-slot.sh",
              "nested-slots", "oversee-watch", "oversee-watch.*", "waiter.*", "workflow-state-*",
              "items", "dev-validate-*", "validation-runs", "dev-round-*", "dev-return-*",
-             "round-recovered-*", "cycle-state", "container-close*", "lane-wake-*", "lane-status-*")
+             "round-recovered-*", "cycle-state", "container-close*", "lane-wake-*", "lane-status-*",
+             "slack")
     def visit(fd, relative=""):
         with os.scandir(fd) as entries:
             entries = list(entries)
