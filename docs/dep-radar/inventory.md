@@ -1,6 +1,6 @@
 # Dependency inventory
 
-The dep-radar sweep reads this file: one row per pinned surface, as [sweep.md § Phase 0](../../.agents/skills/dep-radar/workflows/sweep.md#phase-0-inventory-self-maintaining) sets out. Rule keys in the owner rules are the dep-radar [operating policy](../../.agents/skills/dep-radar/SKILL.md#operating-policy-the-contract-with-the-product-owner)'s.
+The dep-radar sweep reads this file: one row per pinned surface, as [sweep.md § Phase 0](../../.agents/skills/dep-radar/workflows/sweep.md#phase-0-inventory) sets out. Rule keys in the owner rules are the dep-radar [operating policy](../../.agents/skills/dep-radar/SKILL.md#operating-policy-the-contract-with-the-product-owner)'s.
 
 The overseer starts the reading: once a day it runs each row's upstream check, by the dependency pin check in [orch § Project Instructions](../../.agents/skills/orch/SKILL.md#project-instructions), whose source is `kendex.toml` `[skill-instructions].orch`.
 
