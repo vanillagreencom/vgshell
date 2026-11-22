@@ -57,11 +57,12 @@ try{
  // Ownership metadata is injected only in this child. The caller has no
  // permission to chown a real directory to another user's identity. A link,
  // to updates/ or in place of <runtime>/vgshell, is refused before any
- // chmod could reach the folder it names.
+ // chmod could reach the folder it names. The target is 0775, a mode either
+ // repair would change through the link.
  function unsafeUpdatesRoot(kind,folder="updates-refuse-"+kind,owner=path.resolve(__dirname,"../../../bin/vgshell-pkg")){
   const world=create(path.join(scratch,folder)),parent=path.join(world.env.XDG_RUNTIME_DIR,"vgshell"),updates=path.join(parent,"updates");
   const target=path.join(world.root,"link-target");
-  fs.mkdirSync(target);fs.chmodSync(target,0o755);
+  fs.mkdirSync(target);fs.chmodSync(target,0o775);
   if(kind==="parent-link")fs.symlinkSync(target,parent);
   else fs.mkdirSync(parent,{mode:0o700});
   if(kind==="link")fs.symlinkSync(target,updates);
@@ -71,7 +72,7 @@ try{
   const result=cp.spawnSync(process.execPath,["-e",code,path.resolve(path.dirname(owner),"lib/pkg-review.js"),updates,kind],{env:world.env,encoding:"utf8",timeout:30000});
   assert.notEqual(result.status,0,kind+": unsafe updates root refused");
   assert.match(result.stderr,/review=directory-unsafe/,kind+": directory refusal");
-  assert.equal(fs.statSync(target).mode&0o777,0o755,kind+": the linked folder keeps its mode");
+  assert.equal(fs.statSync(target).mode&0o777,0o775,kind+": the linked folder keeps its mode");
  }
  for(const kind of ["link","parent-link","foreign","file"])unsafeUpdatesRoot(kind);
  // Each entry point reaches the same file-manager operation. The picker and
@@ -338,6 +339,7 @@ try{
   ["runtime-repair",'return repairedFolder(path.join(real, "vgshell"), 0o022);','return ownedFolder(path.join(real, "vgshell"), 0o022);',owner=>updatesRoot("control-runtime-repair",owner),/^updates review: admitted after check:/],
   ["updates-folder-repair",'repairedFolder(path.join(runtimeRoot(), "updates"), 0o077)','ownedFolder(path.join(runtimeRoot(), "updates"))',owner=>updatesRoot("control-updates-folder-repair",owner),/^updates review: admitted over an older updates folder:/],
   ["chmod-before-check","    ownedDirectory(dir, 0);\n    const old","    const old",owner=>unsafeUpdatesRoot("link","control-chmod-before-check",owner),/^link: the linked folder keeps its mode$/],
+  ["chmod-before-check-parent","    ownedDirectory(dir, 0);\n    const old","    const old",owner=>unsafeUpdatesRoot("parent-link","control-chmod-before-check-parent",owner),/^parent-link: the linked folder keeps its mode$/],
   ["updates-link",
    "const stat = fs.lstatSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode) || fs.realpathSync(dir) !== dir)",
    "const stat = fs.statSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode))",
