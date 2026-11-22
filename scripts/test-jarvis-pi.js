@@ -103,7 +103,7 @@ world(async () => {
             effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
             harness: { bridge: value, env, runtime: () => runtime, clock: options.clock } });
         const brain = create();
-        brain.start({ instructions: "Be brief.", tools: [] });
+        brain.start({ instructions: "Be brief.", tools: router.offer() });
         owners.push(() => { brain.close(); bridge.close(); audit.close(); });
         return { Policy, Harness, runner, router, bridge, brain, starts, runtime, recipients, audit, root, create,
             say: (text, labels = ["speech"]) => brain.send({ kind: "user", items: [Policy.item(text, labels)] }) };
@@ -297,6 +297,9 @@ world(async () => {
         async bridge(folder) {
             scenario({ turns: [[{ mcp: { tool: "windows_list", arguments: {} } }, chunk("Listed."), { stop: "stop" }]] });
             const w = make(folder);
+            // An executor that registers after the brain started is not in
+            // the offer the engine started it with, so the bridge lists none of it.
+            w.router.register("clipboard", { commands: ["wl-paste"], timeoutMs: 1000, cancellable: false, start: () => assert.fail("not offered") });
             const done = drain(w.say("list windows"));
             // An assertion below may leave this turn unread; its own failure is not the finding.
             done.catch(() => {});
@@ -307,6 +310,7 @@ world(async () => {
             const [mcp] = read("pi-log").filter(row => row.direction === "mcp").map(row => row.message);
             assert.ok(mcp.tools.includes("windows_list"));
             assert.equal(mcp.tools.some(name => name.startsWith("harness_")), false, "no harness row is offered");
+            assert.equal(mcp.tools.includes("clipboard_read"), false, "the bridge opens with the started offer, not a later one");
             assert.deepEqual(mcp.result.result, { content: [{ type: "text", text: "[]" }], isError: false });
         },
         // A tool other than the bridge's ends the conversation as it starts,
@@ -721,6 +725,7 @@ world(async () => {
             ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "accounts"],
             ["account-row", "AccountProviders.js", [['{ id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",\n        "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },', ""]], "accounts"],
             ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "engine"],
+            ["started-tools", H, [["bridge.open({ gen, recipients, tools })", "bridge.open({ gen, recipients })"]], "bridge"],
             ["floor", H, [['if (part < floor[i]) fail("update need=" + FLOOR);', ""]], "floor"],
             ["floor-read", H, [["    version(env);\n    let session = null;", "    let session = null;"]], "floor"],
             ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],

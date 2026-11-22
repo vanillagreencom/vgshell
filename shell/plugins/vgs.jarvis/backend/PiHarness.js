@@ -161,6 +161,9 @@ function create({ provider, model, effort, recipients, account, gen, harness }) 
     if (effort !== "") Pi.level(effort);
     const { bridge, env, runtime, clock } = harness;
     let instructions = null;
+    // The offer the engine started this brain with, which it records as
+    // its fleet route; the bridge opens with this list, never a later offer.
+    let tools = null;
     let opening = null;
     let launch = null;
     let session = null;
@@ -182,13 +185,15 @@ function create({ provider, model, effort, recipients, account, gen, harness }) 
     function start(value) {
         usable();
         if (typeof value.instructions !== "string") fail("instructions");
+        if (!Array.isArray(value.tools)) fail("tools");
         instructions = value.instructions;
+        tools = value.tools;
     }
 
     // One program per conversation, with the bridge session of its generation.
     function ensure() {
         if (opening === null) opening = (async () => {
-            launch = await bridge.open({ gen, recipients });
+            launch = await bridge.open({ gen, recipients, tools });
             if (suspended) launch.suspend();
             else launch.resume({ gen, recipients });
             // A close during the open found no launch to end.

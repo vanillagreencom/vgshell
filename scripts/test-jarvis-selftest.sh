@@ -1686,12 +1686,13 @@ control cut_functions "a mark that passes a run that broke a rule" ' and kept ==
 control cut_functions "a mark that passes a turn with no heard text" 'heard is not None and ' '' not_passed "${failed_rows[4]}"
 # The satellite judge, one table: what one planted satellite run left, and
 # the mark. A good run's remember forward is delivered and a main mailbox
-# row holds its key as delivery_id; each other row plants one defect. The
-# rows and their controls prove the judge over planted records, not the
-# chain a run drives.
+# row holds its key as delivery_id; each other row plants one defect. The audit rows hold each argument as the real
+# audit writes it, "[redacted]". The rows and their controls prove the judge
+# over planted records, not the chain a run drives.
 satellite_rows=("a delivered remember the main's mailbox holds|none|True" "a forward the outbox does not hold|dropped|False"
   "a forward no main mailbox row holds|unmailed|False" "a forward that is no remember|plain|False"
-  "a memory write row|written|False" "a changed satellite memory folder|noted|False")
+  "a memory write row|written|False" "a changed satellite memory folder|noted|False"
+  "a remember forward that did not complete|failed|False")
 satellite_case() { # ROW
   local defect want key=forward-planted outbox after=sum
   IFS='|' read -r _ defect want <<<"$1"
@@ -1702,9 +1703,10 @@ satellite_case() { # ROW
   python3 - "$tmp/satellite-audit/a.jsonl" "$defect" <<'PY'
 import json, sys
 path, defect = sys.argv[1:]
-row = lambda tool, args: {"kind": "action", "tool": tool, "args": args, "decision": "confirm", "confirmed": "physical", "outcome": "completed"}
-rows = [row("fleet.forward", {"text": "green tea", **({} if defect == "plain" else {"purpose": "remember"})})]
-rows += [row("memory.propose", {})] if defect == "written" else []
+row = lambda tool, args, outcome="completed": {"kind": "action", "tool": tool, "args": args, "decision": "confirm", "confirmed": "physical", "outcome": outcome}
+args = {"text": "[redacted]"} if defect == "plain" else {"text": "[redacted]", "purpose": "[redacted]"}
+rows = [row("fleet.forward", args, "failed" if defect == "failed" else "completed")]
+rows += [row("memory.propose", {"text": "[redacted]"})] if defect == "written" else []
 open(path, "w").write("".join(json.dumps(r) + "\n" for r in rows))
 PY
   call selftest_record "$tmp/trace.json" "$tmp/satellite-audit" "$tmp/record.json" idle "" tts "remember green tea" cli:b "/a home" local false key \
@@ -1716,7 +1718,8 @@ PY
 for row in "${satellite_rows[@]}"; do holds "a satellite record for [${row%%|*}] reads passed ${row##*|}" satellite_case "$row"; done
 control cut_functions "a satellite judge that takes a forward no main mailbox row holds" ' and r["key"] in keys)' ')' satellite_case "${satellite_rows[2]}"
 control cut_functions "a satellite judge that takes a turn with nothing forwarded" ' and satellite["forwarded"] != []' '' satellite_case "${satellite_rows[1]}"
-control cut_functions "a satellite judge that takes any forward as a remember" '(row.get("args") or {}).get("purpose") == "remember"' 'True' satellite_case "${satellite_rows[3]}"
+control cut_functions "a satellite judge that takes any forward as a remember" '"purpose" in (row.get("args") or {})' 'True' satellite_case "${satellite_rows[3]}"
+control cut_functions "a satellite judge that takes a remember forward that did not complete" ' and row["outcome"] == "completed" and "purpose"' ' and "purpose"' satellite_case "${satellite_rows[6]}"
 control cut_functions "a satellite judge that reads no memory write row" ' and not written' '' satellite_case "${satellite_rows[4]}"
 control cut_functions "a satellite judge that reads no memory folder" ' and satellite["memory"]["before"] == satellite["memory"]["after"]' '' satellite_case "${satellite_rows[5]}"
 

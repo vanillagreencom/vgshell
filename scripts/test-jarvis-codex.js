@@ -128,7 +128,7 @@ world(async () => {
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const brain = Harness.create({ model: options.model ?? "", effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account },
             gen: runner.state.gen, harness: { bridge, gate, env, runtime: () => runtime, clock: options.clock } });
-        brain.start({ instructions: "Be brief.", tools: [] });
+        brain.start({ instructions: "Be brief.", tools: router.offer() });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
         const installEngine = value => {
             engine = value;
@@ -357,6 +357,9 @@ world(async () => {
                 { request: "item/tool/requestUserInput", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "q", questions: [] } },
                 { complete: "completed" }]] });
             const w = make(folder);
+            // An executor that registers after the brain started is not in
+            // the offer the engine started it with, so the bridge lists none of it.
+            w.router.register("clipboard", { commands: ["wl-paste"], timeoutMs: 1000, cancellable: false, start: () => assert.fail("not offered") });
             const done = drain(w.say("list windows"));
             // An assertion below may leave this turn unread; its own failure is not the finding.
             done.catch(() => {});
@@ -368,6 +371,7 @@ world(async () => {
             const [mcp] = read("codex-log").filter(row => row.direction === "mcp").map(row => row.message);
             assert.ok(mcp.tools.includes("windows_list"));
             assert.equal(mcp.tools.some(name => name.startsWith("harness_")), false, "no harness row is offered");
+            assert.equal(mcp.tools.includes("clipboard_read"), false, "the bridge opens with the started offer, not a later one");
             assert.deepEqual(mcp.result.result, { content: [{ type: "text", text: "[]" }], isError: false });
             assert.deepEqual(answered("item/tool/requestUserInput").map(m => m.error.code), [-32601]);
             validWrites();
@@ -998,6 +1002,7 @@ world(async () => {
             ["handoff-runtime", "backend/Accounts.js", [["CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: this.runtime, model, text", 'CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"), model, text']], "verify"],
             ["default-runtime", "backend/Accounts.js", [["runtime = runtimeDirectory(env.XDG_RUNTIME_DIR)) {", 'runtime = "") {']], "verify"],
             ["harness-reason", "backend/Accounts.js", [[": harness ? harness[1]", ": false ? harness[1]"]], "verify"],
+            ["started-tools", "backend/CodexHarness.js", [["bridge.open({ gen, recipients, tools })", "bridge.open({ gen, recipients })"]], "bridge"],
             ["gate-outcome", "backend/CodexHarness.js", [['outcome: item.status === "completed" ? "completed"', 'outcome: item.status === "unreachable" ? "completed"']], "allowed"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));

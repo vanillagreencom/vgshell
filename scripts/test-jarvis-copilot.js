@@ -133,7 +133,7 @@ world(async () => {
             recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
             harness: { bridge: value, gate, env, runtime: () => runtime, clock: options.clock } });
         const brain = create();
-        brain.start({ instructions: "Be brief.", tools: [] });
+        brain.start({ instructions: "Be brief.", tools: router.offer() });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
         return { Policy, Harness, runner, router, gate, bridge, brain, rows, starts, harnessRequests, runtime, recipients, audit, create,
             time: value => { at = value; },
@@ -385,6 +385,9 @@ world(async () => {
                 { request: "terminal/create", params: { sessionId: "$SESSION", command: "sh" } },
                 progress("completed"), { stop: "end_turn" }]] });
             const w = make(folder);
+            // An executor that registers after the brain started is not in
+            // the offer the engine started it with, so the bridge lists none of it.
+            w.router.register("clipboard", { commands: ["wl-paste"], timeoutMs: 1000, cancellable: false, start: () => assert.fail("not offered") });
             const done = drain(w.say("list windows"));
             // An assertion below may leave this turn unread; its own failure is not the finding.
             done.catch(() => {});
@@ -395,6 +398,7 @@ world(async () => {
             const [mcp] = read("copilot-log").filter(row => row.direction === "mcp").map(row => row.message);
             assert.ok(mcp.tools.includes("windows_list"));
             assert.equal(mcp.tools.some(name => name.startsWith("harness_")), false, "no harness row is offered");
+            assert.equal(mcp.tools.includes("clipboard_read"), false, "the bridge opens with the started offer, not a later one");
             assert.deepEqual(mcp.result.result, { content: [{ type: "text", text: "[]" }], isError: false });
             assert.deepEqual([...outcomes("fs/read_text_file"), ...outcomes("terminal/create")], [-32601, -32601]);
             validWrites();
@@ -763,6 +767,7 @@ world(async () => {
             ["probe-tools", H, [["model, bridge: null }, hooks);", "model, bridge: { command: \"x\", args: [], env: {} } }, hooks);"]], "probe"],
             ["probe-timer", H, [['timer = setTimeout(() => reject(new Error("jarvis: brain=copilot-probe-deadline")), PROBE_MS);', ""]], "probeHang"],
             ["probe-permission", H, [['value.kind === "permission" ? "reject" : "cancelled"', '"cancelled"']], "probePermission"],
+            ["started-tools", H, [["bridge.open({ gen, recipients, tools })", "bridge.open({ gen, recipients })"]], "bridge"],
             ["gate-outcome", H, [['outcome: status === "completed" ? "completed"', 'outcome: status === "unreachable" ? "completed"']], "allowed"],
             ["handoff-route", "backend/Accounts.js", [['case "copilot":', 'case "copilot-removed":']], "verify"],
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CopilotHarness.probe(", "(send => send())(() => CopilotHarness.probe("]], "verify"],

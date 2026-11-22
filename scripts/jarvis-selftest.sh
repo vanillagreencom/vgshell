@@ -147,9 +147,9 @@
 # is true only for a completed turn with a heard text, in
 # a run whose --home folder, when named, reads as before, that reached no
 # authentication stand-in and failed no sandbox check; with --satellite,
-# only where a completed fleet.forward with purpose remember is forwarded,
-# and no memory.propose or memory.replace row or changed memory/ shows a
-# write on the satellite.
+# only where a completed fleet.forward with a purpose is forwarded, and no
+# memory.propose or memory.replace row or changed memory/ shows a write on
+# the satellite.
 #
 # The last line is `selftest=<key>`: `selftest=<end.kind> record=<file>`
 # after a turn, else the reason no turn ran. Exit 0 for a passed record, 1
@@ -883,7 +883,10 @@ for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
         row = json.loads(line)
         if row["kind"] == "action":
             tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})
-            remembered = remembered or row["tool"] == "fleet.forward" and row["outcome"] == "completed" and (row.get("args") or {}).get("purpose") == "remember"
+            # The audit keeps each argument's key and redacts its value
+            # (Redact.argumentsFor), and fleet.forward's purpose has one
+            # value, remember (Tools.js), so the key alone marks a remember.
+            remembered = remembered or row["tool"] == "fleet.forward" and row["outcome"] == "completed" and "purpose" in (row.get("args") or {})
 passed = end == "completed" and heard is not None and kept == "true"
 if satellite is not None:
     # Main's Jarvis session, not this run, turns the directive into a note,

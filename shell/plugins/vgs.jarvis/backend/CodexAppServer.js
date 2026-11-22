@@ -30,8 +30,10 @@ const FEATURES_OFF = Object.freeze(["shell_tool", "unified_exec", "view_image", 
 // the TUI's side conversations. incremental_tools_legacy and its _gcp
 // sibling change how tool declarations are sent, never which tools.
 // worktrees and realtime_conversation read enabled whatever the thread sets
-// and act only when the app asks for them. Any other enabled feature may be
-// a new tool, so the thread is refused.
+// and act only when the app asks for them. tool_search_always_defer_mcp_tools
+// is Stage::Removed and reads enabled: MCP tools are always deferred when
+// tool_search is available, which threadStart's bridge entry opts out of.
+// Any other enabled feature may be a new tool, so the thread is refused.
 const FEATURES_ENABLED = Object.freeze(["api_key_model_discovery", "auth_elicitation", "bedrock_setup_wizard",
     "browser_annotation_api", "browser_use_full_cdp_access", "code_mode_host_grpc", "code_mode_host_output_truncation",
     "code_mode_interrupt", "collaboration_modes", "compaction_image_budget", "content_item_kinds", "daemon_auto_start",
@@ -56,8 +58,9 @@ const FEATURES_ENABLED = Object.freeze(["api_key_model_discovery", "auth_elicita
 // naming, reasoning, speed tiers, context and prompt text give no tool;
 // shell_type, apply_patch_tool_type, web_search_tool_type and
 // use_responses_lite shape a tool the thread switches off or the gate
-// judges; supports_search_tool defers the bridge's tools behind
-// tool_search; node_repl_*, model_specialty, guardian and
+// judges; supports_search_tool would defer MCP tools behind tool_search, and
+// threadStart's bridge entry omits the deferred surface; node_repl_*,
+// model_specialty, guardian and
 // auto_review_model_override steer only the automatic reviewer, its model
 // and prefix rules, and thread() keeps the reviewer at the user;
 // auto_compact_token_limit and supports_reasoning_summary_parameter set the
@@ -122,7 +125,14 @@ function configRead(id, cwd) { return request(id, "config/read", { cwd, includeL
 function threadStart(id, { cwd, model, effort, instructions, foreign, bridge }) {
     if (foreign.includes(SERVER)) fail("mcp-name");
     const servers = Object.fromEntries(foreign.map(name => [name, { enabled: false }]));
-    if (bridge !== null) servers[SERVER] = { command: bridge.command, args: [...bridge.args], env: { ...bridge.env } };
+    // A model with supports_search_tool, every bundled one at codex-cli
+    // 0.171.0, loses an MCP tool's direct exposure while its surfaces still
+    // hold "deferred" (codex-rs/core/src/tools/spec_plan.rs at rust-v0.171.0),
+    // and a deferred tool is absent from the model's initial tool list.
+    // omit_tools_from (codex-rs/config/src/mcp_types.rs) drops that surface,
+    // so the bridge's tools stay direct.
+    if (bridge !== null) servers[SERVER] = { command: bridge.command, args: [...bridge.args], env: { ...bridge.env },
+        omit_tools_from: ["deferred"] };
     const params = { cwd, approvalPolicy: "untrusted", approvalsReviewer: "user", sandbox: "read-only",
         ephemeral: true, baseInstructions: instructions,
         config: { features: Object.fromEntries(FEATURES_OFF.map(name => [name, false])), web_search: "disabled",

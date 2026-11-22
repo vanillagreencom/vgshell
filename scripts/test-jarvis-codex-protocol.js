@@ -63,7 +63,8 @@ world(() => {
         assert.equal(p.config.web_search, "disabled");
         assert.deepEqual(p.config.tools, { experimental_request_user_input: { enabled: false } });
         assert.deepEqual(p.config.mcp_servers, { userfs: { enabled: false }, notes: { enabled: false },
-            vgs_jarvis: { command: bridge.command, args: bridge.args, env: bridge.env } });
+            vgs_jarvis: { command: bridge.command, args: bridge.args, env: bridge.env, omit_tools_from: ["deferred"] } },
+            "the bridge's tools stay in the model's initial list, never deferred behind tool_search");
         assert.deepEqual(Object.keys(p).sort(), ["approvalPolicy", "approvalsReviewer", "baseInstructions", "config",
             "cwd", "ephemeral", "sandbox"]);
         const bare = logic.threadStart(4, { cwd, model: "gpt-fixture", effort: "high", instructions: "x", foreign: [], bridge: null });
@@ -259,6 +260,7 @@ world(() => {
         ["foreign-servers", "foreign.map(name => [name, { enabled: false }])", "[]"],
         ["server-name-collision", 'if (foreign.includes(SERVER)) fail("mcp-name");', ""],
         ["bridge-env", "env: { ...bridge.env }", "env: {}"],
+        ["bridge-direct", 'omit_tools_from: ["deferred"]', "omit_tools_from: []"],
         ["approval-policy", 'approvalPolicy: "untrusted", approvalsReviewer', 'approvalPolicy: "on-request", approvalsReviewer'],
         ["approval-reviewer", 'approvalsReviewer: "user", sandbox', 'approvalsReviewer: "auto_review", sandbox'],
         ["sandbox", 'sandbox: "read-only",\n', 'sandbox: "workspace-write",\n'],
