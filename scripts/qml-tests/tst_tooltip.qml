@@ -117,7 +117,6 @@ Item {
         function test_one_tooltip_shows_and_the_pointer_wins() {
             after.forceActiveFocus(Qt.TabFocusReason);
             opened(after);
-            compare(after.tip.shownByPointer, false);
             hoverOpen(bare);
             tryCompare(after.tip, "opened", false);
             compare(shownTips(), ["bare"], "the pointer's tooltip closes the focus's");
@@ -131,6 +130,23 @@ Item {
             compare(shownTips(), ["linked"], "the focus's tooltip opens once the pointer's closed");
         }
 
+        // A tooltip the focus opened and the pointer then came to rest on
+        // stays while the focus moves to another item: that item's
+        // tooltip waits until the pointer leaves.
+        function test_a_tooltip_the_pointer_holds_stays_when_the_focus_moves() {
+            after.forceActiveFocus(Qt.TabFocusReason);
+            opened(after);
+            mouseMove(after, after.width / 2, after.height / 2);
+            compare(after.tip.pointerResting, true);
+            bare.forceActiveFocus(Qt.TabFocusReason);
+            wait(3 * Theme.tooltip.delay);
+            compare(shownTips(), ["after"], "the tooltip under the pointer stays");
+            away();
+            tryCompare(after.tip, "opened", false);
+            tryCompare(bare.tip, "opened", true);
+            compare(shownTips(), ["bare"], "the focus's tooltip opens once the pointer left");
+        }
+
         // A tooltip its item scrolled away from closes, and opens again
         // when the pointer comes to rest on the item, though the focus
         // stayed on it the whole time.
@@ -142,7 +158,6 @@ Item {
             compare(scrolled.activeFocus, true, "the focus stays on the item");
             scroller.contentY = 0;
             hoverOpen(scrolled);
-            compare(scrolled.tip.shownByPointer, true);
         }
 
         // The fill the tooltip draws, read from its surface's body, as
@@ -257,6 +272,12 @@ Item {
             compare(linked.activeFocus, true);
             wait(3 * Theme.tooltip.delay);
             compare(linked.tip.opened, false);
+            // The pointer coming to rest on the item while the focus stays
+            // there opens no tooltip Escape closed.
+            mouseMove(linked, linked.width / 2, linked.height / 2);
+            wait(3 * Theme.tooltip.delay);
+            compare(linked.tip.opened, false, "a pointer rest leaves an Escape-closed tooltip closed");
+            away();
 
             // Past the last link, Tab goes on to the next item.
             root.forceActiveFocus();

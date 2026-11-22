@@ -16,12 +16,14 @@ import qs.Ui
 // (`placed`), and takes no focus. Its window takes its place and size
 // before it first shows. One tooltip shows at a time (OverlayState
 // `tooltip`): one that opens closes the one that shows, except that a
-// tooltip the focus alone opens does not close one the pointer opened.
+// tooltip the focus alone opens does not close one the pointer rests on.
 // It closes when the pointer leaves and focus leaves, on a press on
 // the item, when the item hides or scrolls out of view, and it does
-// not open while another overlay is open. It opens again when the
-// pointer or the focus comes to rest on the item again, or, while it
-// waits for the pointer's tooltip to close, once that one closes.
+// not open while another overlay is open. Closed by a scroll or by
+// another tooltip, it opens again when the pointer or the focus comes to
+// rest on the item again, or, while it waits for the pointer's tooltip
+// to close, once that one closes; closed by Escape or a link it opens
+// again only after the pointer and the focus have both left the item.
 // After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
@@ -39,9 +41,8 @@ import qs.Ui
 // tooltip never takes the keyboard. The item hands each key it gets to
 // `takeKey` first, which answers whether the tooltip took it: Tab moves
 // to the next link and draws its focus ring, and past the last one goes
-// on to the next item; Shift+Tab moves back; Escape closes the tooltip,
-// which opens again only after the pointer and the focus have both left
-// the item. A tooltip with no link takes no key. Under a last line that
+// on to the next item; Shift+Tab moves back; Escape closes the tooltip.
+// A tooltip with no link takes no key. Under a last line that
 // is a link, the tooltip is as much taller as keeps that link's ring
 // `focusRing.offset` clear of its border. The declaring item is an
 // invisible, sizeless member of its parent. Its hover and press handlers
@@ -81,8 +82,9 @@ Item {
     // A "clear" tooltip is no wider than the box its window's content spans.
     readonly property real clearWidth: scene === null ? Infinity : scene.content.width
     property bool shown: false
-    // Whether the pointer rested on the item when the tooltip opened.
-    property bool shownByPointer: false
+    // Whether Escape or a link closed the tooltip while the item still
+    // holds the pointer or the focus: it then waits for both to leave.
+    property bool dismissed: false
     // Whether the tooltip waits for another tooltip to close before it
     // opens again (OverlayState `tooltip`).
     property bool waiting: false
@@ -193,6 +195,7 @@ Item {
     }
 
     function activate(page, tab) {
+        dismissed = true;
         pageActivated(page, tab);
         closing.restart();
     }
@@ -201,6 +204,7 @@ Item {
     function takeKey(event) {
         if (!shown || links.length === 0) return false;
         if (event.key === Qt.Key_Escape) {
+            dismissed = true;
             shown = false;
             return true;
         }
@@ -428,11 +432,14 @@ Item {
 
     // The delay starts as the pointer or the focus comes to rest on the
     // item, also while the other already rests there, so a tooltip a
-    // scroll or another tooltip closed opens again on the next rest.
+    // scroll or another tooltip closed opens again on the next rest; one
+    // Escape or a link closed does not (`dismissed`).
     function arm() {
+        if (dismissed) return;
         if (resting && !shown) delay.restart();
     }
     onRestingChanged: {
+        dismissed = false;
         if (resting) delay.restart();
         else {
             delay.stop();
@@ -473,16 +480,15 @@ Item {
         interval: Theme.tooltip.delay
         // The window is read before the popup is built, so the popup is
         // built at the width that content box allows. A tooltip the focus
-        // alone opens waits while the pointer's tooltip shows.
+        // alone opens waits while another one shows under the pointer.
         onTriggered: {
             if (!(root.resting && OverlayState.open === 0)) return;
             const other = OverlayState.tooltip;
-            if (other !== null && other !== root && other.shownByPointer && !root.pointerResting) {
+            if (other !== null && other !== root && other.pointerResting && !root.pointerResting) {
                 root.waiting = true;
                 return;
             }
             if (root.side === "clear") root.scene = root.survey();
-            root.shownByPointer = root.pointerResting;
             root.shown = true;
         }
     }
