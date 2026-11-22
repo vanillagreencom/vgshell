@@ -8,12 +8,19 @@ source, and on a Jarvis manifest whose orb styles cannot be read
 (`shader-judge: failed orb-styles=unread ...`) or are invalid
 (`shader-judge: failed orb-styles=invalid reason=...`). shaders() holds the
 shipped shaders, VoiceOrb's, RadialBackdrop's, GlassSurface's lens,
-vgs.voice's plasma and one jarvis-STYLE row for each orb style orb_styles()
-reads, each with its source and the rules that source keeps; the judge checks
-each, or the one --shader names. A source's rules are read over the text the
-compiler reads: the source with each file it includes in its place.
-It judges no other shader. --write
-regenerates the pack. --source, with --shader, selects a disposable copy.
+vgs.voice's plasma, the launcher's and notifications' edge lights and one
+jarvis-STYLE row for each orb style orb_styles() reads, each with its source
+and the rules that source keeps; the judge checks each, or the one --shader
+names. A source's rules are read over the text the compiler reads: the
+source with each file it includes in its place.
+With no --shader, the judge first reads every pack git tracks under shell/,
+the packs packaging/install-system.sh ships, and exits 1 before judging on
+a pack no row names (`shader-judge: failed pack=unjudged path=...`), a row
+whose pack git does not track (`shader-judge: failed pack=untracked
+path=...`) or an unreadable list (`shader-judge: failed packs=unread
+cause=...`). --write regenerates each pack; the vgshell-git package's
+build() runs it, so the package ships packs compiled from their sources.
+--source, with --shader, selects a disposable copy.
 The qsb --qt6 targets and --qsbversion 64 are the reproducible build contract.
 A pack is fresh when it holds the shader a fresh compile holds. A pack is
 qCompress output, a 4-byte big-endian length and a zlib stream, and two zlib
@@ -40,8 +47,9 @@ PATTERNS = {
     "texture": r"\b(?:sampler\w*|texture\w*|texelFetch\w*)\b",
 }
 # The shaders this judge holds, each with its source and the rules it keeps;
-# another shipped shader is not judged here. VoiceOrb, RadialBackdrop and
-# GlassSurface's lens are analytic and need no iteration. Voice's plasma is
+# main() refuses a shipped pack with no row. VoiceOrb, RadialBackdrop,
+# GlassSurface's lens and the two edge lights are analytic and need no
+# iteration. Voice's plasma is
 # a short volumetric raymarch and each style of Jarvis's orb draws a bounded
 # set of shells, bands, blades or strands per pixel, so each may loop, every
 # loop to a constant bound. None samples a texture.
@@ -50,10 +58,17 @@ FIXED = {
     "radial-backdrop": (ROOT / "shell/Ui/feedback/shaders/radialbackdrop.frag", ("loop", "texture")),
     "glass-lens": (ROOT / "shell/Ui/foundation/shaders/glasslens.frag", ("loop", "texture")),
     "plasma": (ROOT / "shell/plugins/vgs.voice/shaders/plasma.frag", ("loop-bound", "texture")),
+    "launcher-edge-light": (ROOT / "shell/plugins/vgs.launcher/shaders/edgelight.frag", ("loop", "texture")),
+    "notifications-edge-light": (ROOT / "shell/plugins/vgs.notifications/shaders/edgelight.frag", ("loop", "texture")),
 }
 ORB_RULES = ("loop-bound", "texture")
 JARVIS = ROOT / "shell/plugins/vgs.jarvis"
 INCLUDE = re.compile(r'^[ \t]*#[ \t]*include[ \t]+"([^"]+)"[ \t]*$', re.M)
+
+
+class PacksUnread(OSError):
+    """The shipped pack list cannot be read; the message leads with its
+    stable key."""
 
 
 class OrbStylesRefused(ValueError):
@@ -85,6 +100,35 @@ def shaders():
     """The judge's table: the fixed shaders and one row per orb style."""
     _, styles = orb_styles()
     return {**FIXED, **{f"jarvis-{style}": (JARVIS / "shaders" / f"{style}.frag", ORB_RULES) for style in styles}}
+
+
+def pack_of(source):
+    """The pack compiled from SOURCE, beside it."""
+    return source.with_suffix(source.suffix + ".qsb")
+
+
+def shipped_packs():
+    """Every pack git tracks under shell/, relative to ROOT. In a git
+    pathspec `*` also matches `/` (gitglossary(7), pathspec), so the one
+    pattern reaches every folder."""
+    try:
+        result = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--", "shell/*.qsb"],
+                                capture_output=True, check=False)
+    except OSError as error:
+        raise PacksUnread(f"packs=unread cause={error}") from error
+    if result.returncode != 0:
+        cause = result.stderr.decode(errors="replace").strip().replace("\n", " ")
+        raise PacksUnread(f"packs=unread cause=git-exit-{result.returncode} {cause}")
+    return {path for path in result.stdout.decode().split("\0") if path}
+
+
+def coverage(table):
+    """The refusals of TABLE's coverage of the shipped packs, one keyed
+    line each: a pack no row names, then a row's pack git does not track."""
+    shipped = shipped_packs()
+    judged = {pack_of(source).relative_to(ROOT).as_posix() for source, _ in table.values()}
+    return ([f"pack=unjudged path={path}" for path in sorted(shipped - judged)]
+            + [f"pack=untracked path={path}" for path in sorted(judged - shipped)])
 
 
 def expanded(source, seen=()):
@@ -153,7 +197,7 @@ def check(source, write, rules, label):
                 print(f"{label}: compile-failed source={source} exit={result.returncode}")
                 print(result.stdout + result.stderr, end="")
                 return 1
-            compiled = source.with_suffix(source.suffix + ".qsb")
+            compiled = pack_of(source)
             fresh = output.read_bytes()
             if write:
                 compiled.write_bytes(fresh)
@@ -180,6 +224,15 @@ def main():
     args = parser.parse_args()
     if args.source is not None and args.shader is None:
         parser.error("--source needs --shader")
+    if args.shader is None:
+        try:
+            refusals = coverage(table)
+        except PacksUnread as error:
+            refusals = [str(error)]
+        for refusal in refusals:
+            print(f"shader-judge: failed {refusal}")
+        if refusals:
+            return 1
     status = 0
     for name in [args.shader] if args.shader is not None else list(table):
         default, rules = table[name]

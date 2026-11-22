@@ -2,8 +2,9 @@
 """Real compiler controls for check-voiceorb-shader.py: a shader for each
 rule set of its table, judged under its own rules, passes clean and refuses
 a stale pack, a texture and the loop its rules refuse; the pack contract's
-rows, the judge's reading of a loop bound, its reading of an included file
-and its reading of the orb styles are proved once."""
+rows, the judge's coverage of the shipped packs, its reading of a loop
+bound, its reading of an included file and its reading of the orb styles
+are proved once."""
 import importlib.util
 import json
 from pathlib import Path
@@ -37,7 +38,8 @@ def once(text, old, new):
 # Per shader: an edit that changes its compiled shader, and a loop its
 # rules refuse: any loop in an analytic shader, a uniform-bound loop
 # elsewhere. Every rule set of the table has a shader here; Glass bead also
-# holds the orb rule set over a source that includes the orb head.
+# holds the orb rule set over a source that includes the orb head, and the
+# launcher's edge light stands for the two edge lights.
 EDITS = {
     "voiceorb": (("max(ring, arcs)", "min(ring, arcs)"),
                  ("float ring =", "for (int i = 0; i < 5; ++i) { radius += pixel; }\n    float ring ="), "loop"),
@@ -45,6 +47,8 @@ EDITS = {
                         ("float m = min(", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float m = min("), "loop"),
     "glass-lens": (("vec3(light);", "vec3(light) * 0.9;"),
                    ("float depth =", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float depth ="), "loop"),
+    "launcher-edge-light": (("glow * 0.22 * light;", "glow * 0.2 * light;"),
+                            ("float light =", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float light ="), "loop"),
     "plasma": (("clamp(a, 0.0, 1.0)) * qt_Opacity;", "clamp(a, 0.0, 0.9)) * qt_Opacity;"),
                ("for (int i = 0; i < 16; i++)", "for (int i = 0; i < int(uAmp * 8.0); i++)"), "loop-bound"),
     "jarvis-glass-bead": (("discA += (1.0 - discA) * shadow(uv, Re);", "discA += (1.0 - discA) * shadow(uv, Re) * 0.9;"),
@@ -73,6 +77,11 @@ def checkout(folder, script_text, manifest):
     (jarvis / "shaders").mkdir(parents=True)
     (jarvis / "manifest.json").write_text(json.dumps(manifest))
     return script
+
+
+def git(*args, folder):
+    subprocess.run(["git", "-C", str(folder), *args], env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+                   capture_output=True, check=True)
 
 
 def rows(name):
@@ -251,6 +260,38 @@ class ShaderControls(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([line.split(":")[0] for line in result.stdout.splitlines()],
                          [name + "-shader" for name in SHADERS])
+
+    def test_every_shipped_pack_has_a_row(self):
+        # With no --shader, as scripts/validate and the vgshell-git build
+        # run it, the judge refuses before judging anything when git tracks
+        # a pack under shell/ that no row names, when a row's pack is not
+        # tracked, or when the folder is no checkout git can read. The
+        # tracked packs are empty: only their paths are read.
+        packs = [source.with_suffix(".frag.qsb").relative_to(checker.ROOT).as_posix() for source, _ in SHADERS.values()]
+        extra = "shell/plugins/vgs.probe/shaders/probe.frag.qsb"
+        cases = (
+            ("pack with no row", packs + [extra], f"shader-judge: failed pack=unjudged path={extra}"),
+            ("row with no pack", packs[1:], f"shader-judge: failed pack=untracked path={packs[0]}"),
+            ("no checkout", None, "shader-judge: failed packs=unread "),
+        )
+        for name, tracked, key in cases:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as scratch:
+                script = checkout(scratch, SCRIPT.read_text(), MANIFEST)
+                if tracked is not None:
+                    git("init", "-q", folder=scratch)
+                    for path in tracked:
+                        (Path(scratch) / path).parent.mkdir(parents=True, exist_ok=True)
+                        (Path(scratch) / path).touch()
+                    git("add", "--", *tracked, folder=scratch)
+                # The ceiling keeps git from reading a checkout that holds
+                # the scratch folder.
+                result = subprocess.run([sys.executable, str(script)],
+                                        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "QSB": TOOL,
+                                             "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)},
+                                        capture_output=True, text=True, check=False)
+                self.assert_row(result, 1, key)
+                self.assertTrue(all(line.startswith("shader-judge: failed ") for line in result.stdout.splitlines()),
+                                result.stdout)
 
     def test_an_orb_style_is_judged_from_the_manifest(self):
         # A style the manifest lists is a row of the table under the orb

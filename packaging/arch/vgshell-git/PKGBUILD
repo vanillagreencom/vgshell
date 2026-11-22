@@ -5,7 +5,7 @@
 # this file and on ../vgshell/PKGBUILD. makepkg rewrites pkgver from pkgver().
 
 pkgname=vgshell-git
-pkgver=0.1.4.r543.g150a531
+pkgver=0.1.4.r631.g113d782
 pkgrel=1
 pkgdesc='Desktop shell for Hyprland, built on Quickshell (development version)'
 arch=('any')
@@ -120,7 +120,7 @@ optdepends=(
   'rsync: runs the sync jobs that copy with rsync in the Local Sync plugin'
   'unison: runs the two-way sync jobs that use Unison in the Local Sync plugin'
 )
-makedepends=('git')
+makedepends=('git' 'qt6-shadertools')
 install=vgshell-git.install
 
 # REVISIT(D123): AUR helpers need the standard VCS source to track main.
@@ -139,6 +139,15 @@ pkgver() {
     return 1
   fi
   printf '%s\n' "$out"
+}
+
+# The package ships the shader packs this compiles, never the committed
+# ones, so a source review needs only the .frag files, qsb and this one
+# command. The judge compiles every pack git tracks under shell/ and fails
+# on a pack it has no row for, or with no qsb (exit 77).
+build() {
+  cd "$srcdir/vgshell"
+  python3 scripts/check-voiceorb-shader.py --write
 }
 
 package() {

@@ -37,13 +37,13 @@ The overlay's key handlers and `navigate` implement list navigation. The [Hyprla
 
 [Appearance.js](Appearance.js) owns the plugin's appearance values. The [appearance contract](../../../docs/architecture/design-system.md#appearance) defines the theme inputs. The shared glass component consumes the plugin's fill and rounding; the manifest declares blur for the overlay layer.
 
-After changing [the edge shader](shaders/edgelight.frag), regenerate its adjacent compiled asset from this plugin directory.
+After changing [the edge shader](shaders/edgelight.frag), regenerate its compiled asset from the repository root. The shader judge owns the compile options, and `scripts/validate` refuses a stale asset.
 
 <details>
 <summary>Show command</summary>
 
 ```text
-/usr/lib/qt6/bin/qsb --glsl "100es,120,150" --hlsl 50 --msl 12 -o shaders/edgelight.frag.qsb shaders/edgelight.frag
+python3 scripts/check-voiceorb-shader.py --shader launcher-edge-light --write
 ```
 
 </details>
