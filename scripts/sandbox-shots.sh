@@ -8297,8 +8297,8 @@ displays_outputs_applied() {
   fi
 }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
-# How many shown actions of the Mouse section offer the user's own value.
-mouse_offers() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(sum(1 for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]))'; }
+# How many shown messages of the Mouse section link the user's own value.
+mouse_offers() { ipc smoke itemValues window vgs.mouse MouseRow hyprlandWords,messageItem.visible,messageItem.links | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["messageItem.visible"] and any(l["words"] == r["hyprlandWords"] for l in r["messageItem.links"] or [])))'; }
 mouse_speed() { hypr -j getoption input:sensitivity | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("float"), v["set"]]))'; }
 take_mouse_overridden() { # MODE
   local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-mouse-shot.json"

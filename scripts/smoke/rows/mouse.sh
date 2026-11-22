@@ -5,7 +5,7 @@
 # a user table of two keys after the VGS loading line, reads that the pane's
 # value holds over it, that the pane holds the user's value, that the row
 # alone shows a message under it, that the slider keeps its width and that
-# the action stands beside the message in the pane and under it in the
+# the action is the link that ends the message in the pane and in the
 # narrower flyout, clicks
 # the row's one action and reads the setting gone, the user's value back, the
 # pointer-speed label at the user's value and the keys on the row's slider,
@@ -78,41 +78,27 @@ items = json.load(sys.stdin)
 slider = next(i for i in items if i["type"] == "Slider" and i["visible"])
 print(next(i["words"] for i in items if i["displayedOwner"] and not i["semanticLabel"] and i["parent"] == slider["parent"]))'; }
 mouse_slider_width() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"][2] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(r[0] if r else "absent")'; }
-# The boxes of the drawn "use my Hyprland value" actions, as a JSON list.
-mouse_actions() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(json.dumps([i["box"] for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]]))'; }
-# mouse_action_place HOST_KEY: where the first drawn action of the Mouse
-# instance under that host stands against its row's message: `beside`, on
-# the message's line past its end, `under`, below a message that has a
-# width, else both boxes.
-mouse_action_place() { ipc smoke descendantGeometry "$1" vgs.mouse | py_reply '
+# The rows of the Mouse instance under HOST_KEY whose shown message draws
+# the row's Use my Hyprland value link, each as `ends` when the link ends
+# the message's text, else that text, as a JSON list.
+mouse_action_links() { ipc smoke itemValues "$1" vgs.mouse MouseRow hyprlandWords,messageItem.visible,messageItem.plain,messageItem.links | py_reply '
 import json, sys
-items = json.load(sys.stdin)
-def row_of(index):
-    while index >= 0 and items[index].get("name") != "fieldRow":
-        index = items[index]["parent"]
-    return index
-found = [n for n, i in enumerate(items) if i["name"] == "useHyprlandValue" and i["visible"]]
-if not found:
-    print("absent"); sys.exit(0)
-row = row_of(found[0])
-action = items[found[0]]["box"]
-message = next(i["box"] for i in items if i["displayedOwner"] and i.get("role") == "tooltip" and i["visible"] and i["words"] and i["parent"] == row)
-if message[2] > 0 and action[1] >= message[1] + message[3]: print("under")
-elif message[2] > 0 and action[1] < message[1] + message[3] and action[0] >= message[0] + message[2]: print("beside")
-else: print("action=%s message=%s" % (action, message))'; }
-mouse_action_count() { mouse_actions | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-# The centre of the first drawn action once two readings 0.1 s apart match:
-# the row that holds it has just appeared, and the pane lays out again.
-mouse_action_point() {
-  local rect now last=""
-  for _ in $(seq 1 30); do
-    rect="$(mouse_actions | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[0]))')" && now="$(at_centre "window:System Settings" "$rect")" || return 1
-    [[ $now == "$last" ]] && { echo "$now"; return 0; }
-    last="$now"
-    sleep 0.1
-  done
-  echo "mouse_action_point: unsettled at $now" >&2
-  return 1
+rows = []
+for row in json.load(sys.stdin):
+    links = [link for link in row["messageItem.links"] or [] if link["words"] == row["hyprlandWords"]]
+    if row["messageItem.visible"] and links:
+        rows.append("ends" if links[-1]["end"] == len(row["messageItem.plain"]) else row["messageItem.plain"])
+print(json.dumps(rows))'; }
+mouse_action_count() { mouse_action_links window | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# Where the first drawn link of the Mouse instance under HOST_KEY stands in
+# its row's message: `ends` when it ends the message, else the message.
+mouse_action_place() { mouse_action_links "$1" | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[0] if r else "absent")'; }
+# One click on the Pointer speed row's Use my Hyprland value link.
+mouse_click_action() {
+  local message words
+  message="$(ipc smoke readMatchingDescendant window vgs.mouse MouseRow label "Pointer speed" warning | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return 1
+  words="$(ipc smoke readMatchingDescendant window vgs.mouse MouseRow label "Pointer speed" hyprlandWords | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return 1
+  click_link "System Settings" vgs.mouse "$message" "$words"
 }
 # The sensitivity the user file holds for Mouse in its plugins row,
 # `absent` when the row gives none.
@@ -246,21 +232,19 @@ expect_poll "the pane holds the user's value of the pointer speed" -0.5 mouse_us
 expect_poll "the pointer speed row alone shows a message under it" '[["Slider"]]' mouse_messages
 expect "the message leaves the pointer-speed slider its width" "$mouse_width" mouse_slider_width
 expect_poll "the pointer speed row alone offers the user's Hyprland value" 1 mouse_action_count
-expect "the pane draws the action beside its message" beside mouse_action_place window
+expect "the pane draws the action as the link that ends its message" ends mouse_action_place window
 expect "the Mouse pane closes before the flyout's action is read" ok ipc shell hide window vgs.system
 read -r fx fy < <(mouse_widget_point) || fail "the Mouse widget has no box before the action's flyout reading"
 hover "$fx" "$fy" || fail "hovering the Mouse widget before the action's flyout reading failed"
 click "$fx" "$fy" || fail "clicking the Mouse widget before the action's flyout reading failed"
 expect_poll "the widget opens its flyout while the user's value stands" 1 mouse_panel_built
-expect_poll "the flyout, too narrow for both, draws the action under its message" under mouse_action_place panel
+expect_poll "the narrower flyout draws the action as the link that ends its message" ends mouse_action_place panel
 expect "hiding the flyout after the action's reading is allowed" ok ipc shell hide panel vgs.mouse
 expect_poll "the flyout is gone after the action's reading" 0 mouse_panel_built
 expect_poll "the Mouse pane opens again for the action" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
 expect_poll "the Mouse pane is mounted again for the action" '["vgs.mouse"]' window_panes
 expect_poll "the reopened pane offers the user's Hyprland value" 1 mouse_action_count
-read -r ax ay < <(mouse_action_point) || fail "the Mouse action has no box"
-hover "$ax" "$ay" || fail "hovering the Mouse action failed"
-click "$ax" "$ay" || fail "clicking the Mouse action failed"
+mouse_click_action || fail "clicking the Mouse action's link failed"
 expect_poll "the action removes the setting from the plugins row" '["absent"]' mouse_saved_sensitivity
 expect_poll "the action leaves the keys on the row's slider" '["Slider",null]' mouse_focus
 expect_poll "with the setting gone getoption reads the user's value again" '[-0.5, true]' mouse_option input:sensitivity float

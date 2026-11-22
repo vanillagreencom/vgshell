@@ -33,7 +33,7 @@ A private control or literal drawing value creates a second style system that th
 - Resolve user Appearance values only through `ThemeLogic.withAppearance`. `scripts/test-theme-logic.js` checks resolution.
 - Use `radius.glass` for a zero-radius popup, menu, dialog or OSD only while glass is on. Preserve a positive theme or user radius and leave attached panels' `surface.radius` alone.
 - Apply interface fonts only to sans and caps families. Accept no colour Appearance value ([D025](../decisions/D025-no-theme-override-layer.md)).
-- Draw Hyprland-mapped values through `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)).
+- Draw Hyprland-mapped values through `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)). Its ways back, Use my Hyprland value and Use theme value, follow its message as links in the message's text, never as a separate action (owner, Slack 1795385366.653319). `scripts/qml-tests/tst_valuesourcerow.qml` checks it.
 
 ### Appearance
 

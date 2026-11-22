@@ -222,7 +222,7 @@ Item {
             const link = displayedTextItems(input(row)).find(item => displayedText(item) === "Also used by your other shortcuts.");
             verify(link !== null && link.linked, "the hint draws its cited text as a link");
             const before = root.linked;
-            link.activated();
+            link.clicked();
             compare(root.linked, before + 1);
             const plain = displayedTextItems(input(later)).find(item => displayedText(item) === "Also used by your other shortcuts.");
             verify(plain !== null && !plain.linked, "a field with no link draws plain text");

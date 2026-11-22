@@ -25,8 +25,11 @@ import qs.Ui
 // column, `field.gap` below its control's drawn ink, the measure key/value
 // rows stand by (Theme.inkBelow, a Label in the slot by its font), and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
-// `danger` or `muted`. `warningLink`, when set, names the substring of
-// `warning` that opens a cited file through `warningLinkActivated`. A page
+// `danger` or `muted`. `warningLink`, when set, names the words of
+// `warning` that are its links, one string or a list (LinkText), and a
+// link's activation emits `warningLinkActivated` with its words;
+// `messageItem` is the message, for an owner that hands the keys on from
+// it. A page
 // reference in `warning` (LinkText) is its link, activated through
 // `warningPageActivated`, and one in the `info` dialog's text through
 // `infoPageActivated`, each with the page and tab. The
@@ -87,7 +90,7 @@ Item {
 
     property string label: ""
     property string warning: ""
-    property string warningLink: ""
+    property var warningLink: ""
     property string warningTone: "warning"
     property string warningRole: "hint"
     property string info: ""
@@ -222,7 +225,8 @@ Item {
         }
         return 0;
     }
-    signal warningLinkActivated()
+    readonly property Item messageItem: message
+    signal warningLinkActivated(string words)
     signal warningPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
 
@@ -354,7 +358,7 @@ Item {
         y: root.shift + root.messageTop
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
-        onActivated: root.warningLinkActivated()
+        onActivated: words => root.warningLinkActivated(words)
         onPageActivated: (page, tab) => root.warningPageActivated(page, tab)
     }
 

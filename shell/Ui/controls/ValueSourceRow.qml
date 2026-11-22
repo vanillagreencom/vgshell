@@ -23,11 +23,14 @@ import qs.Ui
 // Hyprland is read is the theme's where the theme offers one, else the
 // user's.
 //
-// The actions are RowActions: Use my Hyprland value, which stops VGS from
-// writing the option, beside the user's own configured value, and Use
-// theme value, beside a user's or Hyprland's value of a value the theme can
-// set. An action hides once its edit lands, and a hidden item holds no
-// focus, so its activation first gives the focus back to the row's control.
+// The actions follow the message as its links, each a sentence of its
+// own after it, "The theme sets 0 px. Use theme value" (owner, Slack
+// 1795385366.653319): Use my Hyprland value, which stops VGS from writing
+// the option, after the user's own configured value, and Use theme value,
+// after a user's or Hyprland's value of a value the theme can set. An
+// action's link goes once its edit lands, and the message keeps the keys
+// on whatever link it then holds, or on none, so its activation first
+// gives the focus back to the row's control.
 FormRow {
     id: root
 
@@ -62,7 +65,10 @@ FormRow {
         : themeOffered ? source : ""
     readonly property bool offersHyprlandValue: messageKind === "config"
     readonly property bool offersThemeValue: themeOffered && source !== "theme" && messageKind !== "overridden"
-    readonly property bool offersAction: offersHyprlandValue || offersThemeValue
+    readonly property string configWords: "Hyprland config"
+    readonly property string hyprlandWords: "Use my Hyprland value"
+    readonly property string themeWords: "Use theme value"
+    readonly property var actionWords: (offersHyprlandValue ? [hyprlandWords] : []).concat(offersThemeValue ? [themeWords] : [])
 
     signal useHyprlandValue()
     signal useThemeValue()
@@ -81,10 +87,10 @@ FormRow {
         return "";
     }
 
-    // The item before FROM in the focus chain that the row's control holds,
-    // past the message's link and the other actions. It reads where the
-    // item sits in the row, not its place: the message stands under the
-    // control's ink and can overlap the row box.
+    // The item before FROM, the message, in the focus chain that the row's
+    // control holds, and none in a row whose control takes no keys. It reads
+    // where the item sits in the row, not its place: the message stands
+    // under the control's ink and can overlap the row box.
     function focusControl(from) {
         for (let item = from.nextItemInFocusChain(false); item !== null && item !== from; item = item.nextItemInFocusChain(false)) {
             if (root.holdsControl(item)) {
@@ -94,37 +100,28 @@ FormRow {
         }
     }
 
-    warning: messageText(messageKind)
-    // The smaller message role leaves room for the user's value beside its
-    // actions.
+    // An action is only offered beside a message: every kind that offers
+    // one names a source.
+    warning: [messageText(messageKind)].concat(actionWords).join(". ")
+    // The smaller role draws the message and its links as small text under
+    // the control.
     warningRole: "tooltip"
     warningTone: messageKind === "config" || messageKind === "overridden" ? "warning" : "muted"
-    warningLink: messageKind === "config" || messageKind === "overridden" || messageKind === "hyprland" ? "Hyprland config" : ""
-    onWarningLinkActivated: root.openHyprlandConfig()
-
-    action: RowActions {
-        visible: root.offersAction
-
-        RowAction {
-            id: hyprlandAction
-            objectName: "useHyprlandValue"
-            visible: root.offersHyprlandValue
-            text: "Use my Hyprland value"
-            onClicked: {
-                root.focusControl(hyprlandAction);
-                root.useHyprlandValue();
-            }
+    warningLink: (messageKind === "config" || messageKind === "overridden" || messageKind === "hyprland" ? [configWords] : []).concat(actionWords)
+    onWarningLinkActivated: words => {
+        switch (words) {
+        case root.configWords:
+            root.openHyprlandConfig();
+            return;
+        case root.hyprlandWords:
+            root.focusControl(root.messageItem);
+            root.useHyprlandValue();
+            return;
+        case root.themeWords:
+            root.focusControl(root.messageItem);
+            root.useThemeValue();
+            return;
         }
-
-        RowAction {
-            id: themeAction
-            objectName: "useThemeValue"
-            visible: root.offersThemeValue
-            text: "Use theme value"
-            onClicked: {
-                root.focusControl(themeAction);
-                root.useThemeValue();
-            }
-        }
+        console.error("ValueSourceRow: no link named " + JSON.stringify(words));
     }
 }

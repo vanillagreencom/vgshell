@@ -140,6 +140,16 @@ Item {
         text: "[notes](page:vgs.voice) or [notes](page:acme.models)."
         link: "notes"
     }
+    // Two cited words, named in another order than the text holds them, as
+    // a row's message links its source and its way back.
+    LinkText {
+        id: several
+        y: 680
+        width: 400
+        text: "Your config sets 4. Use the theme"
+        link: ["Use the theme", "Your config"]
+    }
+    SignalSpy { id: severalActivated; target: several; signalName: "activated" }
     SignalSpy { id: multiplePages; target: multiple; signalName: "pageActivated" }
     SignalSpy { id: explicitPages; target: explicit; signalName: "pageActivated" }
     SignalSpy { id: explicitActivated; target: explicit; signalName: "activated" }
@@ -297,6 +307,21 @@ Item {
             mouseClick(explicit, (span.left + span.right) / 2, explicit.height / 2);
             compare(explicitActivated.count, 2);
             compare(explicitPages.count, 0);
+        }
+
+        function test_each_cited_word_is_its_own_target() {
+            compare(several.links.map(item => item.words), ["Your config", "Use the theme"], "the links stand in the text's order");
+            compare(several.underlined.length, 2);
+            severalActivated.clear();
+            several.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Home);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Right);
+            compare(several.currentLink, 1, "an arrow selects the other words");
+            keyClick(Qt.Key_Space);
+            const span = several.underlined.find(item => item.index === 0);
+            mouseClick(several, (span.left + span.right) / 2, span.line * several.linePitch + several.linePitch / 2);
+            compare(severalActivated.signalArguments.map(args => args[0]), ["Your config", "Use the theme", "Your config"], "each activation names its words");
         }
 
         function test_a_page_reference_draws_its_words_as_the_link() {

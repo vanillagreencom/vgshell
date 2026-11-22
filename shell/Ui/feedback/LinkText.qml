@@ -5,8 +5,10 @@ import qs.Ui
 import "../foundation/LineBreak.js" as LineBreak
 
 // Text with cited substrings as independent links. The text property is plain
-// text; every occurrence of `link` is drawn as a link and activates the
-// component. `lineCount` is the wrapped label's line count, for owners that
+// text; `link` names the cited words, one string or a list of them, and
+// every occurrence of each is drawn as a link and activates the component
+// with those words (`activated`). The words of a list never overlap in a
+// text. `lineCount` is the wrapped label's line count, for owners that
 // measure whether the message stayed on one line, `inkAbove` and
 // `topForLeadingIcon()`, for an icon leading the first line, are the
 // label's (Label.qml), and `inkBelow` is the
@@ -53,7 +55,7 @@ T.Control {
     id: root
 
     property string text: ""
-    property string link: ""
+    property var link: ""
     property string role: "body"
     property bool focusPreview: false
     property bool parseReferences: true
@@ -71,10 +73,11 @@ T.Control {
     // The text drawn and the words of it that are the link.
     readonly property var references: parseReferences ? PageReference.references(text) : ({ text: text, links: [] })
     readonly property string plain: references.text
-    // Whether the text cites `link`: a link it does not cite gives way to
-    // the page reference.
-    readonly property bool cited: link !== "" && plain.indexOf(link) !== -1
-    readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
+    // The words of `link` the text holds, and whether it holds any: a link
+    // it does not cite gives way to the page reference.
+    readonly property var citedWords: (Array.isArray(link) ? link : [link]).filter(item => item !== "" && plain.indexOf(item) !== -1)
+    readonly property bool cited: citedWords.length > 0
+    readonly property string words: cited ? citedWords[0] : reference.page !== "" ? reference.words : ""
     readonly property var links: cited ? explicitLinks() : references.links.filter(item => item.page !== "")
     property int currentLink: 0
     property bool tabLinked: false
@@ -117,7 +120,7 @@ T.Control {
     readonly property real underlineThickness: Inset.underlineWidth(underline.lineWidth)
     // How far under each line's baseline the underline starts.
     readonly property real underlineOffset: Inset.underlineTop(DescenderInk.depth(label.font), Screen.devicePixelRatio)
-    signal activated()
+    signal activated(string words)
     signal pageActivated(string page, string tab)
     signal clicked()
 
@@ -167,9 +170,11 @@ T.Control {
     // gaps depend on, since a metric is a function a binding cannot follow.
     function explicitLinks() {
         const result = [];
-        for (let at = plain.indexOf(link); at !== -1; at = plain.indexOf(link, at + link.length))
-            result.push({ start: at, end: at + link.length, words: link, page: "", tab: "" });
-        return result;
+        for (const phrase of citedWords) {
+            for (let at = plain.indexOf(phrase); at !== -1; at = plain.indexOf(phrase, at + phrase.length))
+                result.push({ start: at, end: at + phrase.length, words: phrase, page: "", tab: "" });
+        }
+        return result.sort((a, b) => a.start - b.start);
     }
 
     function positioned(font) {
@@ -259,7 +264,7 @@ T.Control {
     onClicked: {
         const target = links[currentLink];
         if (target !== undefined && !cited && target.page !== "") pageActivated(target.page, target.tab);
-        else activated();
+        else activated(target === undefined ? "" : target.words);
     }
 
     readonly property real inkAbove: label.y + label.inkAbove
@@ -299,7 +304,8 @@ T.Control {
 
     // Qt Keys accepts handled events before the control's default handler:
     // https://doc.qt.io/qt-6/qml-qtquick-keys.html#key-handling-priorities
-    Keys.onPressed: event => { event.accepted = !cited && links.length > 1 && navigation.handle(event); }
+    // Arrows move between links only where they reach different targets.
+    Keys.onPressed: event => { event.accepted = links.length > 1 && (!cited || citedWords.length > 1) && navigation.handle(event); }
 
 
     Keys.onReturnPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }
@@ -397,7 +403,7 @@ T.Control {
         acceptedButtons: Qt.LeftButton
         onPressed: mouse => { mouse.accepted = root.onWords(mouse.x, mouse.y); }
         onClicked: mouse => {
-            root.currentLink = root.cited ? 0 : root.linkAt(mouse.x, mouse.y);
+            root.currentLink = root.linkAt(mouse.x, mouse.y);
             root.forceActiveFocus(Qt.MouseFocusReason);
             root.clicked();
         }

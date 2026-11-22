@@ -20,7 +20,7 @@
 # In the Windows section it reads the corner radius Set by theme, clicks the
 # slider to about 24, adds a user line `rounding = 10` after the VGS loading line,
 # reads that the section's value holds over it and that the row names the
-# user's 10, clicks Use my Hyprland value and reads the setting, the layer's
+# user's 10, clicks the line's Use my Hyprland value link and reads the setting, the layer's
 # radius group and VGS's rounding gone, Hyprland's 10 shown and the keys on
 # the slider, then Use theme value. A section a click on the sidebar opens
 # shows no focus ring. In the Motion
@@ -103,26 +103,14 @@ app_groupbar() {
 }
 # A section's row labelled LABEL, its PROPERTY as JSON.
 app_row() { ipc smoke readMatchingDescendant window "$1" ValueSourceRow label "$2" "$3"; }
-# The screen centre of the first shown row action named NAME in section ID,
-# once two readings 0.1 s apart match.
-app_action_point() { # ID NAME
-  local rect now last=""
-  for _ in $(seq 1 30); do
-    rect="$(ipc smoke descendantGeometry window "$1" | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "$2")" || return 1
-    [[ $rect == \[* ]] || { sleep 0.1; continue; }
-    now="$(at_centre "window:System Settings" "$rect")" || return 1
-    [[ $now == "$last" ]] && { echo "$now"; return 0; }
-    last="$now"
-    sleep 0.1
-  done
-  echo "app_action_point: no settled $2 in $1" >&2
-  return 1
-}
-app_click_action() { # ID NAME
-  local x y
-  read -r x y < <(app_action_point "$1" "$2") || { fail "the $2 action of $1 has no box"; return; }
-  hover "$x" "$y" || fail "hovering the $2 action of $1 failed"
-  click "$x" "$y" || fail "clicking the $2 action of $1 failed"
+# One click on the way back of the row labelled LABEL in section ID that
+# the row names by WORDS, `hyprlandWords` or `themeWords`: a link of the
+# row's message.
+app_click_action() { # ID LABEL WORDS
+  local message words
+  message="$(app_row "$1" "$2" warning | py_reply 'import json,sys; print(json.load(sys.stdin))')" || { fail "the $2 row of $1 has no message"; return; }
+  words="$(app_row "$1" "$2" "$3" | py_reply 'import json,sys; print(json.load(sys.stdin))')" || { fail "the $2 row of $1 names no $3"; return; }
+  click_link "System Settings" "$1" "$message" "$words" || fail "clicking $words in the $2 row of $1 failed"
 }
 # The screen point FRACTION along the first shown slider of section ID.
 app_slider_point() { # ID FRACTION
@@ -339,14 +327,14 @@ expect "the nested instance reloads with the user's rounding" ok hypr reload con
 expect_poll "the section's radius holds over the user's later line" "$app_radius" hypr_int decoration:rounding
 expect_poll "the row names the user's own rounding" 10 app_row vgs.windows "Corner radius" hyprlandConfigValue
 expect_poll "the row warns of the user's own line" '"config"' app_row vgs.windows "Corner radius" messageKind
-app_click_action vgs.windows useHyprlandValue
+app_click_action vgs.windows "Corner radius" hyprlandWords
 expect_poll "Use my Hyprland value keeps the user's own radius in the file" '{"windowRadius": "hyprland"}' app_saved
 expect_poll "the layer writes no radius group" no app_layer_has '^[[:space:]]*rounding ='
 expect_poll "Hyprland's rounding is the user's 10" 10 hypr_int decoration:rounding
 expect_poll "the row reads Set by your Hyprland config" '"hyprland"' app_row vgs.windows "Corner radius" messageKind
 expect_poll "the row shows Hyprland's own 10" 10 app_row vgs.windows "Corner radius" shownValue
 expect_poll "the action leaves the keys on the row's slider" '["Slider",null]' app_focus vgs.windows
-app_click_action vgs.windows useThemeValue
+app_click_action vgs.windows "Corner radius" themeWords
 expect_poll "Use theme value removes the corner radius from the file" null app_saved
 expect_poll "the theme's radius holds over the user's line again" 0 hypr_int decoration:rounding
 expect_poll "over the theme's value the row names the user's line" '"config"' app_row vgs.windows "Corner radius" messageKind
@@ -378,7 +366,7 @@ type_keys -k space || fail "Space on the Motion switch failed"
 expect_poll "Space turns Motion off in the file" '{"motion": false}' app_saved
 expect_poll "every duration goes still" 0 ipc smoke themeValue motion.duration.normal
 expect_poll "the Motion row reads the user's value" '"user"' app_row vgs.motion Motion messageKind
-app_click_action vgs.motion useThemeValue
+app_click_action vgs.motion Motion themeWords
 expect_poll "Use theme value removes Motion from the file" null app_saved
 expect_poll "the durations move again" 150 ipc smoke themeValue motion.duration.normal
 app_switch="$(ipc smoke windowGeometry window vgs.motion Switch "Use these settings for windows")" || app_switch=""
@@ -418,7 +406,7 @@ app_font="$(app_member interfaceFont)" || app_font=unread
 expect_poll "the interface font row reads the user's value" '"user"' app_row vgs.fonts Interface messageKind
 expect_poll "the reading text draws in the chosen family" "$app_font" ipc smoke themeValue text.body.family
 expect "the bar draws in the chosen family" "$app_font" ipc smoke themeValue text.bar.family
-app_click_action vgs.fonts useThemeValue
+app_click_action vgs.fonts Interface themeWords
 expect_poll "Use theme value removes the interface font from the file" null app_member interfaceFont
 expect_poll "the reading text is the theme's again" '"Inter Variable"' ipc smoke themeValue text.body.family
 expect_poll "the action leaves the keys on the row's select" '["Select",""]' app_focus vgs.fonts

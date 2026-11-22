@@ -308,12 +308,32 @@ keyboard_pointer_modifiers() {
 keyboard_pointer_modifiers window vgs.system 'window:System Settings' 'compose:ralt,ctrl:swapcaps' || { fail "the Keyboard page modifier footer did not complete"; keyboard_restore; return 0; }
 # The same checks must reject a row whose action leaves the VGS value saved.
 keyboard_source_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting repeatRate "$1"; }
-# Shared rows each construct a hidden action. Follow the actual focus item,
-# rather than the first objectName match, which can be a hidden sibling.
+# The focused message of the Keyboard pane against WORDS: `at` while its
+# selected link is WORDS, `other` while WORDS is another of its links, else
+# `none`. A row's message is one Tab stop whose links Left and Right select.
+keyboard_link_focus() { ipc smoke itemValues window vgs.keyboard LinkText activeFocus,links,currentLink | py_reply '
+import json, sys
+words = sys.argv[1]
+for item in json.load(sys.stdin):
+    if not item["activeFocus"]:
+        continue
+    names = [link["words"] for link in item["links"]]
+    print("at" if names[item["currentLink"]:item["currentLink"] + 1] == [words] else "other" if words in names else "none")
+    sys.exit(0)
+print("none")' "$1"; }
+# Tab to the message that links Use my Hyprland value, and Right to that
+# link, following the actual focus rather than a row's place.
 keyboard_source_focus() {
+  local words state
+  words="$(keyboard_source_row hyprlandWords | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return 1
   for _ in $(seq 1 40); do
-    [[ $(ipc smoke activeFocusItem window vgs.keyboard) == '["RowAction","Use my Hyprland value"]' ]] && return 0
-    keyboard_editor_keys -k Tab || return 1
+    state="$(keyboard_link_focus "$words")" || return 1
+    [[ $state == at ]] && return 0
+    if [[ $state == other ]]; then
+      keyboard_editor_keys -k Right || return 1
+    else
+      keyboard_editor_keys -k Tab || return 1
+    fi
   done
   fail "keyboard-input: status=source-action-unreachable"
   return 1

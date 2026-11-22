@@ -353,8 +353,8 @@ Item {
                     FormRow { label: "Pointer speed"; warning: "Overridden"; width: parent.width; Slider { from: 0; to: 100; value: 40; width: parent.width } }
                 }
                 // ValueSourceRow in each state, a value the theme can set
-                // and one mapped to a Hyprland option. Its actions are
-                // RowActions, whose focus example stands above.
+                // and one mapped to a Hyprland option. Its actions are links
+                // of its message, whose focus example is LinkText's.
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row

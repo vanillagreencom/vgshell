@@ -9,13 +9,15 @@ import qs.Unit
 // lends; a configured value is a warning that links the Hyprland
 // configuration and offers Use my Hyprland value, and outranks an override,
 // which outranks the theme's line; a row the theme can set says Set by
-// theme in muted text with no action, offers Use theme value beside a
-// user's or Hyprland's value, and links the configuration beside
+// theme in muted text with no action, offers Use theme value after a
+// user's or Hyprland's value, and links the configuration after
 // Hyprland's; a row the theme cannot set says nothing until Hyprland does;
-// two actions stand `rowAction.gap` apart; every message draws in the
-// tooltip role; the control shows the source's
-// value, the theme's while Hyprland is unread; an action emits its signal
-// and hands the keys back to the row's control; the link opens the
+// each action is a link that ends the row's message, in the link colour,
+// and every message draws in the tooltip role; the control shows the
+// source's value, the theme's while Hyprland is unread; the message is one
+// Tab stop whose links the arrows select, and an action's link emits its
+// signal from the keys or the pointer and hands the keys back to the row's
+// control, never to another row's; the configuration's link opens the
 // configuration; the row reads each member the capability lends once.
 Item {
     id: root
@@ -69,9 +71,10 @@ Item {
             path: "general.border_size"
             source: "user"
             userValue: 2
-            Slider { width: parent.width; from: 0; to: 10; value: 2 }
+            Slider { id: upperSlider; width: parent.width; from: 0; to: 10; value: 2 }
         }
 
+        // A row whose control takes no keys, as Keyboard's Variants row.
         ValueSourceRow {
             id: lower
             width: parent.width
@@ -79,13 +82,13 @@ Item {
             path: "general.gaps_in"
             source: "user"
             userValue: 4
-            Slider { id: lowerSlider; width: parent.width; from: 0; to: 20; value: 4 }
         }
     }
 
     SignalSpy { id: hyprlandUses; target: row; signalName: "useHyprlandValue" }
     SignalSpy { id: themeUses; target: row; signalName: "useThemeValue" }
     SignalSpy { id: opens; target: row; signalName: "openHyprlandConfig" }
+    SignalSpy { id: lowerUses; target: lower; signalName: "useHyprlandValue" }
 
     UnitCase {
         name: "valuesourcerow"
@@ -102,26 +105,38 @@ Item {
             hyprlandUses.clear();
             themeUses.clear();
             opens.clear();
+            lowerUses.clear();
         }
 
-        function action(name, target) {
-            const found = [target === undefined ? row : target];
-            for (let i = 0; i < found.length; i++) {
-                if (found[i].objectName === name) return found[i];
-                for (const child of found[i].children) found.push(child);
-            }
-            return null;
-        }
         function messageOf(target) { return displayedTextItems(target, true).find(child => child instanceof LinkText && !(child instanceof InfoButton)); }
-        function shownActions() { return ["useHyprlandValue", "useThemeValue"].filter(name => action(name).visible && row.actionItem !== null); }
+        // The signal each link of the row's message emits, in the order the
+        // message draws them.
+        function linkSignals() {
+            const message = messageOf(row);
+            const spies = [[opens, "openHyprlandConfig"], [hyprlandUses, "useHyprlandValue"], [themeUses, "useThemeValue"]];
+            const emitted = [];
+            for (let index = 0; index < message.links.length; index++) {
+                const before = spies.map(([spy]) => spy.count);
+                message.currentLink = index;
+                message.clicked();
+                emitted.push(spies.filter(([spy], at) => spy.count > before[at]).map(([, name]) => name).join(","));
+            }
+            opens.clear();
+            hyprlandUses.clear();
+            themeUses.clear();
+            return emitted;
+        }
+        // The centre of the link at INDEX of the row's message, in it.
+        function linkPoint(message, index) {
+            const span = message.underlined.find(item => item.index === index);
+            return Qt.point((span.left + span.right) / 2, span.line * message.linePitch + message.linePitch / 2);
+        }
 
         function test_a_theme_value_is_set_by_theme_in_muted_text() {
             compare(row.messageKind, "theme");
             compare(row.warningTone, "muted");
-            compare(row.warningLink, "");
             verify(row.warning !== "");
-            compare(shownActions(), []);
-            compare(row.actionItem, null, "no action takes room");
+            compare(messageOf(row).linked, false, "the line offers nothing");
             compare(row.shownValue, 4);
         }
 
@@ -130,7 +145,14 @@ Item {
             compare(row.messageKind, "user");
             compare(row.warningTone, "muted");
             verify(row.warning.indexOf(row.formatValue(4)) !== -1, "the line names the theme's value");
-            compare(shownActions(), ["useThemeValue"]);
+            compare(linkSignals(), ["useThemeValue"]);
+            const message = messageOf(row);
+            const link = message.links[0];
+            compare(link.end, message.plain.length, "the action ends the line");
+            verify(link.start > row.messageText("user").length && message.plain.indexOf(row.messageText("user")) === 0, "the action follows the theme's value");
+            verify(Qt.colorEqual(message.linkColor, Theme.color.accent), "in the link colour");
+            compare(message.role, "tooltip", "in the line's small text");
+            compare(row.actionItem, null, "no action stands apart from the line");
             compare(row.shownValue, 12);
         }
 
@@ -142,8 +164,7 @@ Item {
             compare(row.shownValue, 10, "the row shows Hyprland's own value");
             compare(row.messageKind, "hyprland");
             compare(row.warningTone, "muted");
-            verify(row.warningLink !== "" && row.warning.indexOf(row.warningLink) !== -1, "the line links the Hyprland configuration");
-            compare(shownActions(), ["useThemeValue"]);
+            compare(linkSignals(), ["openHyprlandConfig", "useThemeValue"], "the line links the Hyprland configuration, then the theme's value");
         }
 
         function test_a_configured_value_warns_and_offers_both_ways_back() {
@@ -154,13 +175,9 @@ Item {
             compare(row.warningTone, "warning");
             compare(messageOf(row).role, "tooltip", "the line draws in the tooltip role, 1 px under hint");
             verify(row.warning.indexOf(row.formatValue(10)) !== -1, "the line names the configured value");
-            verify(row.warningLink !== "" && row.warning.indexOf(row.warningLink) !== -1);
-            compare(shownActions(), ["useHyprlandValue", "useThemeValue"]);
-            const first = action("useHyprlandValue");
-            const second = action("useThemeValue");
-            compare(second.mapToItem(row, 0, 0).x - first.mapToItem(row, first.width, 0).x, Theme.rowAction.gap, "two actions stand the row action gap apart");
+            compare(linkSignals(), ["openHyprlandConfig", "useHyprlandValue", "useThemeValue"]);
             row.source = "theme";
-            compare(shownActions(), ["useHyprlandValue"], "over the theme's value only Use my Hyprland value");
+            compare(linkSignals(), ["openHyprlandConfig", "useHyprlandValue"], "over the theme's value only Use my Hyprland value");
         }
 
         function test_an_override_warns_without_an_action() {
@@ -169,8 +186,7 @@ Item {
             compare(row.overridden, true);
             compare(row.messageKind, "overridden");
             compare(row.warningTone, "warning");
-            verify(row.warningLink !== "");
-            compare(shownActions(), []);
+            compare(linkSignals(), ["openHyprlandConfig"], "the line links the configuration and offers no action");
             row.hyprland = lent({}, [{ path: "decoration.rounding", value: 10 }], ["decoration.rounding"]);
             compare(row.messageKind, "config", "a configured value outranks the override");
         }
@@ -193,39 +209,47 @@ Item {
             plain.source = "user";
         }
 
-        function test_an_action_emits_and_hands_the_keys_to_the_control() {
+        function test_each_action_link_takes_the_keys_and_hands_them_back() {
             row.source = "user";
             row.hyprland = lent({}, [{ path: "decoration.rounding", value: 10 }], []);
-            const use = action("useHyprlandValue");
-            use.forceActiveFocus(Qt.TabFocusReason);
+            const message = messageOf(row);
+            compare(message.links.length, 3, "the configuration's link and two actions");
+            control.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Tab);
+            compare(message.activeFocus, true, "Tab takes the keys from the control to the line");
+            compare(message.currentLink, 0);
+            keyClick(Qt.Key_Right);
+            compare(message.currentLink, 1, "an arrow selects the next link");
             keyClick(Qt.Key_Space);
             compare(hyprlandUses.count, 1);
             compare(control.activeFocus, true, "the keys go back to the row's control");
-            const back = action("useThemeValue");
-            back.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
+            keyClick(Qt.Key_Tab);
+            compare(message.activeFocus, true);
+            keyClick(Qt.Key_End);
+            compare(message.currentLink, 2);
+            keyClick(Qt.Key_Return);
             compare(themeUses.count, 1);
-            compare(control.activeFocus, true, "past the link and the other action");
+            compare(control.activeFocus, true, "past the configuration's link");
+            const point = linkPoint(message, 1);
+            mouseClick(message, point.x, point.y);
+            compare(hyprlandUses.count, 2, "a click on the action's words emits it");
+            compare(control.activeFocus, true, "a click hands the keys to the control too");
+            compare(opens.count, 0, "no action opens the configuration");
         }
 
-        // A row that stands under another key/value row with less room
-        // than the column's spacing and the message's starts its box above
-        // its own top, and its message's link and actions then start above
-        // the box's height from that top: the keys still go to the slider.
-        // A row space of 16 sets the lower box past `field.gap` above its
-        // top; at the default 20 it starts 2 above it (scripts/qml-unit.sh,
-        // 2026-11-02).
-        function test_an_action_on_a_row_under_another_hands_the_keys_to_its_control() {
-            compare(UnitTheme.override({ stack: { page: 16 } }), "ok");
+        // Keyboard's Variants row draws no control of its own: its link
+        // gives the keys to no other row's control.
+        function test_an_action_of_a_row_with_no_control_hands_the_keys_to_no_other_row() {
             const configured = lent({}, [{ path: "general.border_size", value: 3 }, { path: "general.gaps_in", value: 6 }], []);
             upper.hyprland = configured;
             lower.hyprland = configured;
-            tryVerify(() => lower.shift < -Theme.field.gap, 2000, "the lower row's box starts above its top: " + lower.shift);
-            const use = action("useHyprlandValue", lower);
-            verify(use !== null && use.visible, "the row offers Use my Hyprland value");
-            use.forceActiveFocus(Qt.TabFocusReason);
+            const message = messageOf(lower);
+            message.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_End);
             keyClick(Qt.Key_Space);
-            compare(lowerSlider.activeFocus, true, "the keys go back to the row's slider");
+            compare(lowerUses.count, 1, "the row emits its action");
+            compare(upperSlider.activeFocus, false, "the row above's slider takes no keys");
+            compare(messageOf(upper).activeFocus, false, "nor the row above's line");
         }
 
         // The capability builds `values`, `userValues` and `overridden`

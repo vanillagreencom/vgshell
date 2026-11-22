@@ -2136,6 +2136,39 @@ click_item() { # LOOKUP [DX DY]
   read -r x y <<<"$at" || return 1
   click "$x" "$y"
 }
+# click_link TITLE ID TEXT WORDS: click_item on the link WORDS of the first
+# shown LinkText that draws TEXT in instance ID of the window titled TITLE,
+# at the centre of the words' first laid-out span (LinkText.underlined,
+# local to the text, a line `linePitch` tall). The text lays its spans out
+# once its twin holds it, so the spans are read every 100 ms for up to
+# smoke_poll_bound_ms. Returns 1, with no click, when the text draws no
+# such link. Settings rows click a ValueSourceRow's way back through it:
+# appearance.sh and mouse.sh.
+click_link() { # TITLE ID TEXT WORDS
+  local offset="" dx dy
+  smoke_poll_tries 100 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    offset="$(ipc smoke itemValues window "$2" LinkText visible,text,links,underlined,linePitch | py_reply '
+import json, sys
+text, words = sys.argv[1:]
+for item in json.load(sys.stdin):
+    if not item["visible"] or item["text"] != text:
+        continue
+    index = next((n for n, link in enumerate(item["links"]) if link["words"] == words), None)
+    span = next((s for s in item["underlined"] if s["index"] == index), None)
+    if span is None:
+        break
+    pitch = item["linePitch"]
+    print((span["left"] + span["right"]) / 2, span["line"] * pitch + pitch / 2)
+    sys.exit(0)
+print("absent")' "$3" "$4")" || return 1
+    [[ $offset != absent ]] && break
+    sleep 0.1
+  done
+  [[ -n $offset && $offset != absent ]] || { printf 'click_link: no link words=%s text=%s\n' "$4" "$3" >&2; return 1; }
+  read -r dx dy <<<"$offset" || return 1
+  click_item "window:$1" window "$2" LinkText "$3" "$dx" "$dy"
+}
 
 # expect_cursor_at LABEL SHAPE X Y: the pointer moved to the layout
 # position (X, Y), the nested compositor's cursor is SHAPE: `pointer` for
