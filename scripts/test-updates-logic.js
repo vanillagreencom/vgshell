@@ -322,6 +322,8 @@ function verifySelf(logic) {
   assert.notEqual(setup.actionText, update.actionText, "helper setup names its own action");
   same(logic.tuiRequest("source", setup.source), { name: "update-source", args: ["vgs"] }, "helper setup uses the existing floating TUI");
   same([setup.values.pending, logic.widgetView(setup.values, true).hidden], [1, false], "helper setup counts as an available update");
+  assert.equal(setup.detail, "VGS needs an AUR helper to update. System packages update first so package versions stay compatible. The update window asks for your password if needed.",
+    "helper setup says the system updates first and that the window may ask for a password");
   const unreached = seen["a compare GitHub cannot answer"];
   assert.equal(seen["paru's tracked vgshell-git offers Update"].detail, "System packages update first so package versions stay compatible.", "the VGS row discloses the joined system step before starting");
   // The `aurCommand` setting is read when the service publishes, not in the

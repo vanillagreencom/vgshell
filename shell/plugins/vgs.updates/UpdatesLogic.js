@@ -917,7 +917,7 @@ function rowReading(row) {
     var badge = { badge: badgeText(count), badgeTone: count > 0 ? "accent" : "neutral" };
     if (note !== null) {
         switch (note.kind) {
-        case "installHelper": return Object.assign(badge, { updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. " + SYSTEM_FIRST_TEXT });
+        case "installHelper": return Object.assign(badge, { updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. " + SYSTEM_FIRST_TEXT + " The update window asks for your password if needed." });
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
             return Object.assign(badge, { updatable: false, detail: SELF_REASON_TEXT[note.reason] });
