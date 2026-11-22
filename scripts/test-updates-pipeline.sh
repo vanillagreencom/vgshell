@@ -109,13 +109,15 @@ stub() { # DIR NAME BODY
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
 # `pkg review-custom-mode` fails with 4 while $FIX/fail-custom-mode exists.
-# `pkg run` for a manager ID SIGKILLs its caller, the pipeline's run, for
-# $FIX/kill-run-<id>, as the OOM killer or a stop timeout ends a run.
+# `pkg run` for a manager ID ends its caller, the pipeline's run, with
+# SIGUSR1 for $FIX/kill-run-<id>: a signal the pipeline traps none of, as
+# the OOM killer's KILL is. pipeline() reads 137 as its own deadline kill,
+# so the case uses a signal whose status means nothing else there.
 # `pkg check --json --source <id>` answers $FIX/check-<id>.json, else one
 # pending update; a file source answers no row, as one with none of its
 # packages installed does, while $FIX/unused-file-source exists.
 stub "$tree/bin" vgshell 'pkg_run() {
-  [ ! -e "$FIX/kill-run-$5" ] || { kill -KILL "$PPID"; exit 9; }
+  [ ! -e "$FIX/kill-run-$5" ] || { kill -USR1 "$PPID"; exit 9; }
   if [ -e "$FIX/devel-status" ] && [ "$5" = aur ]; then
     ( shift 5; paru -Sua "$@" ) || exit "$?"
   fi
@@ -2130,7 +2132,7 @@ row_uncaused_outcomes() {
   reset_fix
   touch "$fix/kill-run-flatpak"
   pipeline update-source.sh flatpak
-  assert "a killed run ends with the signal's status" test "$status" == 137
+  assert "a killed run ends with the signal's status" test "$status" == 138
   assert "a killed run stores the part it died in and the generic next step" outcome_is failed "Flatpak failed" "VGS could not find the cause. Update again." ""
 }
 row_uncaused_outcomes
