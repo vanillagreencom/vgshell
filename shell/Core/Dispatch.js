@@ -524,13 +524,15 @@ function shellWindowTarget(windowClass) {
     return HyprlandLayer.tuiClass(windowClass) ? { kind: "vgs", id: windowClass, terminal: true } : { kind: "vgs", id: windowClass };
 }
 
+// A box { x, y, w, h } of finite numbers with a positive width and height.
+function rect(r) { return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; }
+
 function inputTarget(text, point, keyboardProtected, entries, lookup, executables) {
     var read = jsonReplies(text, [["clients", "array"], ["active", "object"], ["monitors", "array"],
         ["layers", "object"], ["cursor", "object"]], "input state");
     if (!read.ok) return read;
     var clients = read.values[0], active = read.values[1], monitors = read.values[2], layers = read.values[3], cursor = read.values[4];
     var refusal = function (error) { return { ok: false, error: "refused: input=" + error }; };
-    var rect = function (r) { return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; };
     var contains = function (r, p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; };
     if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || typeof keyboardProtected !== "boolean" || !Array.isArray(entries) || typeof lookup !== "function")
         return refusal("observation");
@@ -670,7 +672,6 @@ function revealTarget(state, addresses, named) {
 function windowCovered(clients, address) {
     var want = String(address).toLowerCase();
     var box = function (c) { return { x: c.at && c.at[0], y: c.at && c.at[1], w: c.size && c.size[0], h: c.size && c.size[1] }; };
-    var rect = function (r) { return [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; };
     var index = -1;
     for (var i = 0; i < clients.length; i++) {
         if (!clients[i] || !clients[i].mapped || String(clients[i].address).toLowerCase() !== want) continue;
