@@ -371,15 +371,9 @@ const DEFAULTS = [
     ["carousel.hintDanger", "#f43f5eff"],
     // The accent #ff5a36, luminance 0.288, reads 6.76:1 on black.
     ["carousel.tabIndicator", "#ff5a36ff"],
-    // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
-    // white over black at full opacity blurred 4 pixels, dropped 2 pixels.
-    ["carousel.sliceName.role", "h2"],
-    ["carousel.sliceName.inset", 24],
-    ["carousel.sliceName.foreground", "#ffffffff"],
-    ["carousel.sliceName.shadow", "#000000ff"],
-    ["carousel.sliceName.shadowOpacity", 1],
-    ["carousel.sliceName.blur", 4],
-    ["carousel.sliceName.shadowOffset", 2]
+    // An offer slice's name starts space.xxl, 24, up the slice from its
+    // bottom edge.
+    ["carousel.sliceName.inset", 24]
 ];
 
 // A document that is accepted, and the values it must resolve to.
@@ -2427,10 +2421,9 @@ const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline$|^tabs\.(indicator|hoverIndicator)$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|menu\.item\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
-    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
+    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX)$/, "6 px padding inside a chip or a key cap"],
-    [/^carousel\.namePadding$/, "the owner's 5 px wallpaper name padding"],
     [/^pathChip\.padding$/, "the owner's 3 px path chip padding (Slack 1793993418)"],
     [/^bar\.spacer\.(gap|inset)$/, "the owner's bar gap and separator room"],
     [/^motion\./, "motion distances"],

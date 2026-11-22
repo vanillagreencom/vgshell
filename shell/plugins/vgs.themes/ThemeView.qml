@@ -380,15 +380,7 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                Label {
-                    role: "display"
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideRight
-                    color: Theme.carousel.hintActive
-                    // With no card selected the name is empty and keeps its
-                    // line: QQuickText lays an empty text out one line high,
-                    // so a filter no card matches moves nothing.
+                CardName {
                     text: root.selected === null ? "" : root.selected.label
                 }
 

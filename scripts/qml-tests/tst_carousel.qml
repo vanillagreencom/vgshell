@@ -12,8 +12,9 @@ import qs.Unit
 // click and hover lands in; the card's foreground handed to a delegate
 // that declares it; the height the width asks for; the keys and the wheel; the rail held hidden until it
 // settles; the motion, over the duration and stilled at motion.scale 0; a
-// glide that keeps the cards it leaves and builds the ones it reaches, a
-// wrap that lands at once, and the clip at the carousel's edge; and a
+// glide that keeps the cards it leaves and builds the ones it reaches, the
+// cards that fade in and out at the edges as it moves, a wrap that lands at
+// once, and the clip at the carousel's edge; and a
 // delegate that cannot build, named and left empty. Expected values are worked by hand from the defaults in Tokens.js:
 // a 768 by 476 expanded card, 108 by 432 slices overlapping by the 28
 // pixel lean, so a slice step of 80, and a reference rail of 768 + 13 * 80
@@ -464,6 +465,23 @@ Item {
             const names = builtNames();
             for (const name of ["e12", "e20", "e21", "e29"])
                 verify(names.indexOf(name) !== -1, name + " is built mid-glide");
+        }
+
+        // Stepping right, card 27 comes in at the right edge and card 14
+        // leaves at the left. Each fades by the part of the slice step the
+        // glide has moved, read off card 22, which moves from 1360 to 1280,
+        // so neither appears or vanishes whole while part of it is on the
+        // rail. At rest card 14 is whole and card 27 is not drawn.
+        function test_an_edge_card_fades_with_the_glide() {
+            compare(slot(14).opacity, 1);
+            verify(!slot(27).visible, "card 27 is not drawn at rest");
+            compare(UnitTheme.override({ carousel: { duration: 10000 } }), "ok");
+            keyClick(Qt.Key_Right);
+            tryVerify(() => slot(22).x < 1340 && slot(22).x > 1300, 5000, "the glide is part way");
+            const moved = (1360 - slot(22).x) / 80;
+            fuzzyCompare(slot(27).opacity, moved, 1e-6);
+            fuzzyCompare(slot(14).opacity, 1 - moved, 1e-6);
+            verify(slot(27).visible && slot(14).visible, "both edge cards are drawn mid-glide");
         }
 
         // Card 27 comes in from 1280 + 6 * 80 = 1760, past the carousel's

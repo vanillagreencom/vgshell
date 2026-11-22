@@ -323,14 +323,14 @@
 # dialog, lock, launcher, notifications and the first gallery pages again, each
 # shot named <scene>-<mode>-narrow-*; theme-browser and wallpaper-browser
 # are the vgs.themes browsers, taken only when named: the theme view
-# loaded, with the pointer on a card, with a filter no card matches, with
-# the pointer on its Clear filter, with
-# a refused card's failure line, on the chosen catalog card, on it
-# installed and with its wallpaper offer; the wallpaper view on its Theme
-# source, with the pointer on a card, on its This monitor scope word and
-# on its Show all source line, with a typed filter, on its download
-# card, on All and with a missing image's failure line, rounded with a
-# user control radius of 6.
+# loaded, with the pointer on a card, its rail's edges frame by frame as
+# it steps one card each way (theme_edge_frames), with a filter no card
+# matches, with the pointer on its Clear filter, with a refused card's
+# failure line, on the chosen catalog card, on it installed and with its
+# wallpaper offer; the wallpaper view on its Theme source, with the
+# pointer on a card, on its This monitor scope word and on its Show all
+# source line, with a typed filter, on its download card, on All and with
+# a missing image's failure line.
 # Each leaves vgs and the mode's theme applied. The default is every
 # other scene the tree ships, or gallery and the manager's scene with
 # --rev; the manager's scene is `settings` for a tree that ships
@@ -3093,6 +3093,52 @@ GHOSTTY
   expect "Hyprland reloads the harness's configuration" ok hypr reload
 }
 
+# theme_edge_frames MODE: frames of the theme browser's rail as it steps
+# one card right and then one card left from its eighth card, so a slice
+# enters and one leaves at each edge in each direction. The applied
+# theme's motion.scale goes to 4, its ceiling, so the rail's glide lasts
+# four times its duration, and grim takes the output every 50 ms for 18
+# frames from each key: theme-browser-MODE-edge-right-NN.png and
+# theme-browser-MODE-edge-left-NN.png. A sequence whose first and last
+# frames match caught no step and fails.
+theme_edge_frames() { # MODE
+  local motion direction i frame frames="$sandbox/edge-frames"
+  type_keys -k Home || { fail "Home before the theme browser's edge frames failed"; return 1; }
+  for _ in 1 2 3 4 5 6 7; do
+    type_keys -k Right || { fail "stepping to the theme browser's edge frame card failed"; return 1; }
+  done
+  expect_poll "the theme browser rests on its eighth card for the edge frames" 7 ipc smoke readDescendant overlay vgs.themes CardCarousel currentIndex
+  motion="$(ipc smoke themeValue motion.scale)" || { fail "the motion scale before the edge frames is unreadable"; return 1; }
+  cp -- "$theme_file" "$sandbox/edge-theme.json"
+  python3 - "$theme_file" <<'PYEDGE' || { fail "the theme file took no motion scale for the edge frames"; return 1; }
+import json, os, sys
+path = sys.argv[1]
+theme = json.load(open(path))
+theme.setdefault("tokens", {}).setdefault("motion", {})["scale"] = 4
+with open(path + ".tmp", "w") as out:
+    json.dump(theme, out)
+os.replace(path + ".tmp", path)
+PYEDGE
+  expect_poll "the edge frames' rail glides at motion scale 4" 4 ipc smoke themeValue motion.scale
+  for direction in right left; do
+    rm -rf -- "${frames:?}"
+    mkdir -p -- "$frames"
+    type_keys -k "${direction^}" || { fail "${direction^} for the theme browser's edge frames failed"; continue; }
+    for i in $(seq -w 0 17); do
+      shot_grim "$SHOT_SOCKET" "$SHOT_RUNTIME_DIR" -o "$SHOT_OUTPUT" -t ppm "$frames/$i.ppm" 2>>"$sandbox/grim.log" || { fail "edge frame $direction-$i failed"; break; }
+      sleep 0.05
+    done
+    for frame in "$frames"/*.ppm; do
+      i="${frame##*/}"
+      "$imagemagick" "$frame" "$SHOT_DIR/theme-browser-$1-edge-$direction-${i%.ppm}.png" || fail "edge frame $direction-${i%.ppm} was not converted"
+    done
+    if cmp -s -- "$frames/00.ppm" "$frames/17.ppm"; then fail "the $direction edge frames caught no step"; else ok "the $direction edge frames show the step"; fi
+  done
+  cp -- "$sandbox/edge-theme.json" "$theme_file.tmp"
+  mv -T -- "$theme_file.tmp" "$theme_file"
+  expect_poll "the theme browser's motion scale returns after the edge frames" "$motion" ipc smoke themeValue motion.scale
+}
+
 scene_theme-browser() { # MODE
   local selected
   selected_path() { ipc smoke readDescendant overlay vgs.themes ThemeView selected | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("previewImage") or d.get("image") or "")'; }
@@ -3109,6 +3155,7 @@ scene_theme-browser() { # MODE
   take "theme-browser-$1-loaded"
   hover_card "the pointer rests on the theme browser's next card" && take_posed "theme-browser-$1-hover"
   park_pointer
+  theme_edge_frames "$1"
   type_keys zzqx || fail "typing the theme browser's empty filter failed"
   expect_poll "the theme browser's filter matches no card" 0 theme_view_count
   take "theme-browser-$1-empty"
@@ -3182,7 +3229,7 @@ scene_wallpaper-browser() { # MODE
   # the Theme source ends on the download card.
   rm -rf -- "${theme_dir:?}"
   sandbox_vgshell theme install "$name" >/dev/null || fail "$name installs for the wallpaper browser shot"
-  # The name makes the centre card draw its name box for the sheets.
+  # The name shows under the rail while a.jpg is selected, for the sheets.
   python3 -c 'import json,sys; p=sys.argv[1]; t=json.load(open(p)); t["backgrounds"]={"a.jpg": "Ember Forest"}; json.dump(t, open(p, "w"), indent=2)' "$theme_dir/theme.json" \
     || fail "$name's theme.json takes a.jpg's name for the wallpaper browser shot"
   mkdir -p -- "$theme_dir/backgrounds"
@@ -3190,23 +3237,6 @@ scene_wallpaper-browser() { # MODE
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/b.jpg"
   sandbox_vgshell theme apply "$name" >/dev/null || fail "$name applies for the wallpaper browser shot"
   expect_poll "$name is published for the wallpaper browser shot" "$name" ipc smoke themeName
-  # The apply replaces the mode's radius tokens, so the rounded shots take
-  # the user's control radius, which the name box reads as button.radius.
-  local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-wallpaper-radius.json"
-  if [[ $1 == rounded ]]; then
-    cp -- "$user" "$saved"
-    python3 - "$user" <<'PYRADIUS' || fail "the user file took no control radius for the wallpaper browser shot"
-import json, os, sys
-path = sys.argv[1]
-config = json.load(open(path))
-config.setdefault("appearance", {})["controlRadius"] = 6
-with open(path + ".tmp", "w") as out:
-    json.dump(config, out)
-os.replace(path + ".tmp", path)
-PYRADIUS
-    expect "the configuration reloads with a control radius for the wallpaper browser shot" ok ipc shell reloadConfig
-    expect_poll "the wallpaper name box takes the control radius" 6 ipc smoke themeValue button.radius
-  fi
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
   expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
   expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
@@ -3258,10 +3288,6 @@ PYRADIUS
     take "wallpaper-browser-$1-failure"
   fi
   mv -- "$theme_dir/backgrounds-missing" "$theme_dir/backgrounds" || { fail "wallpaper-browser-$1-failure: backgrounds restore failed"; return; }
-  if [[ $1 == rounded ]]; then
-    cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the wallpaper browser shots"
-    expect "the configuration reloads as the wallpaper browser shots found it" ok ipc shell reloadConfig
-  fi
   expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"

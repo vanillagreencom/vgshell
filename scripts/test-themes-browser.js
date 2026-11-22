@@ -4,7 +4,7 @@
 // the theme view's cards merged from the list, the catalog and the images,
 // the filter, the selection, the download offer, whether an apply ends
 // in it and whether an apply closes on the publish; the wallpaper view's sources, scopes, cards,
-// download or update card, keys and selection; the lines the browsers show
+// download or update card, keys, selection and the name under its rail; the lines the browsers show
 // and the service's apply notice. Every expected value is written out by
 // hand, Qt's key codes from qnamespace.h.
 //
@@ -411,6 +411,14 @@ function verifyWallpapers(logic) {
     assert.equal(logic.wallpaperSelection(list, "/u/u.jpg"), 0, "an image the source lacks selects the first");
     assert.equal(logic.wallpaperSelection([], ""), 0);
 
+    // The name under the rail: [label, selected card, wanted name].
+    for (const [label, card, want] of [
+        ["a named image shows its name", list[0], "Blue Ridge"],
+        ["an image without a name shows none", list[1], ""],
+        ["an offer card shows none", list[2], ""],
+        ["no selection shows none", null, ""]
+    ]) assert.equal(logic.wallpaperName(card), want, label);
+
     assert.equal(logic.wallpaperEmpty(false, "theme", "nord", [], "", []).text, "Loading wallpapers");
     assert.equal(logic.wallpaperEmpty(true, "theme", "tokyo-night", [], "", []).text, "Tokyo Night has no wallpapers");
     assert.equal(logic.wallpaperEmpty(true, "all", "nord", [], "", []).text, "No wallpaper is installed");
@@ -502,7 +510,8 @@ const CONTROLS = [
     ["user folder last", "return packaged.concat(user).map(card);", "return images.map(card);"],
     ["wallpaper cards carry names", "name: image.name === undefined ? null : image.name", "name: null"],
     ["wallpaper name matches", "return name.toLowerCase().indexOf(needle) !== -1 || card.background.toLowerCase().indexOf(needle) !== -1;", "return card.background.toLowerCase().indexOf(needle) !== -1;"],
-    ["wallpaper offer matches only empty filters", "if (card.kind !== \"image\") return false;", ""]
+    ["wallpaper offer matches only empty filters", "if (card.kind !== \"image\") return false;", ""],
+    ["an offer card shows no name under the rail", 'card !== null && card.kind === "image" && card.name !== null', "card !== null && card.name !== null"]
 ];
 
 try {

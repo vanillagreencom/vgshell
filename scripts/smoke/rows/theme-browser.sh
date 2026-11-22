@@ -206,95 +206,6 @@ print(json.dumps([len(sides), len([i for i in sides if i not in named])]))'
 }
 slices_named() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("named" if shown > 0 and unnamed == 0 else "shown=%d unnamed=%d" % (shown, unnamed))'; }
 slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = json.load(sys.stdin); print("unnamed" if shown > 0 and unnamed == shown else "shown=%d unnamed=%d" % (shown, unnamed))'; }
-# slice_look: the side cards' names as drawn, one finding per broken
-# rule, `[]` the pass. Each shown name starts carousel.sliceName.inset up
-# its slice's slanted axis from the slice's bottom edge, on that axis
-# within a pixel (`inset`), and reads up it (`upward`); it draws in h2
-# (`role`), white (`colour`), over a shadow, one per shown name, of black
-# at full opacity blurred 4 pixels, its offsets turned through the name's
-# rotation landing carousel.sliceName.shadowOffset down and right on
-# screen (`shadow`); on a card whose dim wash shows, it
-# is drawn after the wash, so the wash does not reach it (`wash`). The
-# wash is the Rectangle AngledCard keeps beside its content inside the
-# masked item, a grandchild of the card; the name is over it when one of
-# its ancestors is a later sibling of the wash, as items of one z draw in
-# their parent's order, which a breadth-first list keeps. The axis runs
-# from the bottom edge's centre to the top edge's, the drawn lean apart,
-# the card's height times
-# angledCard.skew over carousel.sliceHeight; a name's start is the middle
-# of its leading edge, half its line box from its rotated origin. A
-# layer's effect is a sibling of the item it draws and reads as its C++
-# type, QQuickMultiEffect. `none` while no side card draws a name.
-slice_look() {
-  local rows rotation colour enabled shadow opacity blur radius sideways downward offset inset skew height
-  rows="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
-  rotation="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName rotation)" || return
-  colour="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName color)" || return
-  enabled="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowEnabled)" || return
-  shadow="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowColor)" || return
-  opacity="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowOpacity)" || return
-  blur="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow blurMax)" || return
-  radius="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowBlur)" || return
-  sideways="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowHorizontalOffset)" || return
-  downward="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowVerticalOffset)" || return
-  offset="$(ipc smoke themeValue carousel.sliceName.shadowOffset)" || return
-  inset="$(ipc smoke themeValue carousel.sliceName.inset)" || return
-  skew="$(ipc smoke themeValue angledCard.skew)" || return
-  height="$(ipc smoke themeValue carousel.sliceHeight)" || return
-  printf '%s\n' "$rows" | py_reply '
-import json, math, sys
-rows = json.load(sys.stdin)
-rotation, colour, enabled, shadow, opacity, blur, radius, sideways, downward, offset, inset, skew, height = sys.argv[1:]
-def card_of(j):
-    while j != -1:
-        if rows[j]["type"] == "AngledCard": return j
-        j = rows[j]["parent"]
-    return -1
-def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
-def rgba(text):
-    try: c = json.loads(text)
-    except ValueError: return None
-    return [round(c[k], 2) for k in "rgba"] if isinstance(c, dict) and all(k in c for k in "rgba") else None
-names = [r for r in rows if r["type"] == "Label" and r["name"] == "sliceName" and shown(r) and r["text"]]
-if not names or rotation == "absent":
-    print("none"); sys.exit()
-turn = math.radians(float(rotation))
-inset, lean = float(inset), float(skew) / float(height)
-found = set()
-def lineage(j):
-    out = []
-    while j != -1:
-        out.append(j)
-        j = rows[j]["parent"]
-    return out
-for r in names:
-    card = card_of(r["parent"])
-    washes = [k for k, w in enumerate(rows) if w["type"] == "QQuickRectangle" and w["parent"] != -1 and rows[w["parent"]]["type"] == "QQuickItem" and rows[w["parent"]]["parent"] == card]
-    own = next(k for k, row in enumerate(rows) if row is r)
-    if card == -1 or len(washes) != 1: found.add("wash")
-    elif rows[washes[0]]["visible"] and not any(rows[a]["parent"] == rows[washes[0]]["parent"] and a > washes[0] for a in lineage(own)): found.add("wash")
-    x, y, cw, ch = rows[card]["box"] if card != -1 else (0, 0, 0, 0)
-    s = ch * lean
-    bottom = (x + (cw - s) / 2, y + ch)
-    length = math.hypot(s, ch) or 1
-    axis = (s / length, -ch / length)
-    half = r["box"][3] / 2
-    start = (r["box"][0] - half * math.sin(turn), r["box"][1] + half * math.cos(turn))
-    rel = (start[0] - bottom[0], start[1] - bottom[1])
-    along = rel[0] * axis[0] + rel[1] * axis[1]
-    across = rel[0] * axis[1] - rel[1] * axis[0]
-    if ch == 0 or abs(along - inset) > 1 or abs(across) > 1: found.add("inset")
-    if math.cos(turn) * axis[0] + math.sin(turn) * axis[1] < 0.9999: found.add("upward")
-    if r["role"] != "h2": found.add("role")
-if rgba(colour) != [1, 1, 1, 1]: found.add("colour")
-effects = [r for r in rows if r["type"] == "QQuickMultiEffect" and r["name"] == "sliceNameShadow" and r["visible"]]
-def dropped():
-    if "absent" in (sideways, downward): return False
-    h, v, o = float(sideways), float(downward), float(offset)
-    return abs(h * math.cos(turn) - v * math.sin(turn) - o) <= 0.01 and abs(h * math.sin(turn) + v * math.cos(turn) - o) <= 0.01
-if len(effects) < len(names) or enabled != "true" or rgba(shadow) != [0, 0, 0, 1] or opacity == "absent" or abs(float(opacity) - 1) > 0.005 or blur != "4" or radius != "1" or not dropped(): found.add("shadow")
-print(json.dumps(sorted(found)))' "$rotation" "$colour" "$enabled" "$shadow" "$opacity" "$blur" "$radius" "$sideways" "$downward" "$offset" "$inset" "$skew" "$height"
-}
 dialog_has() { ipc smoke itemTexts overlay vgs.themes Dialog | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 # The status of the card image drawing PATH, `none` when no card draws it.
 card_image() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; r=[i[1] for i in json.load(sys.stdin) if i[0]==sys.argv[1]]; print(r[0] if r else "none")' "$1"; }
@@ -373,54 +284,33 @@ def sixteen(card):
     v = [t.get("color%d" % i) for i in range(16)]
     return [x[:7] + "ff" for x in v] if all(isinstance(x, str) for x in v) else None
 '
-# collapsed_stacks: one finding per broken rule, `[]` the pass. Every
-# shown slice, a visible paletteStack, is 16 blocks in 2 columns and 8
-# rows filling it with no gap, each half its width and an eighth of its
-# height, filled row by row (`grid`), in the sixteen colours of a shown
-# theme (`colours`), drawn after its card's dim wash, so the wash does not
-# reach it (`wash`, the rule slice_look reads for the name); and at least 3
-# slices show (`stacks`). The strips and their drawn colours are read in
-# the probe's one tree order.
-collapsed_stacks() {
-  local shown colours
-  shown="$(view_value shownCards)" || return
-  colours="$(ipc smoke itemColours overlay vgs.themes ThemePaletteStrip QQuickRectangle)" || return
-  ipc smoke descendantGeometry overlay vgs.themes | py_reply "$theme_sixteen_py"'
+# side_cards: one finding per broken rule, `[]` the pass. A side card is
+# a shown AngledCard other than the selected one, the largest. At least 3
+# side cards draw their theme's picture, a visible image inside the card
+# (`picture`), and no side card lays out a palette, a visible
+# ThemePaletteStrip inside it (`palette`).
+side_cards() {
+  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
-rows, shown, colours = json.load(sys.stdin), json.loads(sys.argv[1]), json.loads(sys.argv[2])
-want = [w for w in (sixteen(c) for c in shown if c.get("state") == "ok") if w is not None]
+rows = json.load(sys.stdin)
 def card_of(j):
     while j != -1:
         if rows[j]["type"] == "AngledCard": return j
         j = rows[j]["parent"]
     return -1
-def lineage(j):
-    out = []
-    while j != -1:
-        out.append(j)
-        j = rows[j]["parent"]
-    return out
-strips = [i for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip"]
-if len(strips) != len(colours):
-    print(json.dumps(["readers strips=%d colours=%d" % (len(strips), len(colours))])); sys.exit()
-out, stacks = [], 0
-for k, i in enumerate(strips):
-    x, y, w, h = rows[i]["box"]
-    if rows[i]["name"] != "paletteStack" or not rows[i]["visible"] or w <= 0 or h <= 0: continue
-    stacks += 1
-    blocks = [r["box"] for r in rows if r["parent"] == i and r["type"] == "QQuickRectangle" and r["visible"]]
-    for n, b in enumerate(blocks):
-        if len(blocks) != 16 or abs(b[0] - (x + n % 2 * w / 2)) > 1 or abs(b[2] - w / 2) > 1 or abs(b[1] - (y + n // 2 * h / 8)) > 1 or abs(b[3] - h / 8) > 1:
-            out.append("grid stack=%d blocks=%d block=%d box=%s stack=%s" % (k, len(blocks), n, [round(v, 2) for v in b], [round(v, 2) for v in rows[i]["box"]])); break
-    if colours[k] not in want: out.append("colours stack=%d got=%s" % (k, colours[k]))
-    card = card_of(i)
-    washes = [j for j, r in enumerate(rows) if r["type"] == "QQuickRectangle" and r["parent"] != -1 and rows[r["parent"]]["type"] == "QQuickItem" and rows[r["parent"]]["parent"] == card]
-    if card == -1 or len(washes) != 1: out.append("wash stack=%d washes=%d" % (k, len(washes)))
-    elif rows[washes[0]]["visible"] and not any(rows[a]["parent"] == rows[washes[0]]["parent"] and a > washes[0] for a in lineage(i)): out.append("wash stack=%d" % k)
-if stacks < 3: out.append("stacks shown=%d" % stacks)
-print(json.dumps(out))' "$shown" "$colours"
+def shown(r): return r["visible"] and r["box"][2] > 0 and r["box"][3] > 0
+cards = [i for i, r in enumerate(rows) if r["type"] == "AngledCard" and shown(r)]
+selected = max(cards, key=lambda i: rows[i]["box"][2] * rows[i]["box"][3]) if cards else -1
+sides = {i for i in cards if i != selected}
+pictured = sides & {card_of(i) for i, r in enumerate(rows) if r["type"] == "QQuickImage" and shown(r)}
+palettes = sides & {card_of(i) for i, r in enumerate(rows) if r["type"] == "ThemePaletteStrip" and shown(r)}
+out = []
+if len(pictured) < 3: out.append("picture sides=%d pictured=%d" % (len(sides), len(pictured)))
+if palettes: out.append("palette sides=%d palettes=%d" % (len(sides), len(palettes)))
+print(json.dumps(out))'
 }
-# expanded_foot: the same for the selected card. One visible paletteStrip
+# expanded_foot: one finding per broken rule, `[]` the pass, for the
+# selected card. One visible paletteStrip
 # lies along the card's foot as 16 blocks in 8 columns and 2 rows with no
 # gap, each an eighth of its width and half its height, filled row by row
 # (`strip`), in the selected theme's sixteen colours (`strip-colours`).
@@ -534,8 +424,7 @@ expect_poll "the retained catalog reaches the installed list with nord" True has
 expect "the applied theme is selected" '"vgs"' view_value selectedName
 expect_poll "the resting theme view draws the selected theme's name and its search hint beside its cards and tabs" '["Type a theme name to search", "VGS"]' rest_texts
 expect "the theme view draws no search field" absent search_field
-expect_poll "every side card names its theme" named slices_named
-expect_poll "every side card's name starts the inset up its slice, in h2, white over its shadow, above its card's wash" '[]' slice_look
+expect_poll "no side card names its theme" unnamed slices_unnamed
 # The browser's layout, one finding per broken rule, `[]` the pass: its
 # tabs lie inside the output less inset.overlay each side (`inset`); the
 # tabs end above the rail and the rail holds the selected card (`order`);
@@ -595,7 +484,7 @@ geometry expect_poll "the browser's tabs and rail keep their places" '[]' browse
 for rule in inset order centre; do
   expect "control: the browser's $rule rule refuses its planted box" True browser_planted "$rule"
 done
-expect_poll "every shown slice draws its theme's sixteen colours, opaque, two by eight over its wash" '[]' collapsed_stacks
+expect_poll "the side cards draw their themes' pictures and no palette" '[]' side_cards
 type_keys -k Home || fail "sending Home before focus bind failed"
 focus_first="$(card_at 0)"
 focus_second="$(card_at 1)"
@@ -993,7 +882,7 @@ plugin_restore manifest.json "old theme key"
 expect_poll "the restored manifest binds SUPER+SHIFT+T to the theme browser" '[[65, "T"]]' themes_bind
 
 # Controls for the preview guarantees above.
-plugin_control ThemeCard.qml "preview sourceSize" "sourceSize: root.decodeSize" "sourceSize: Qt.size(1, 1)"
+plugin_control BrowserCard.qml "preview sourceSize" "sourceSize: root.decodeSize" "sourceSize: Qt.size(1, 1)"
 press_themes || fail "typing SUPER+SHIFT+T for the preview sourceSize control failed"
 expect_poll "the sourceSize control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the sourceSize control read its cards" true view_value loaded
@@ -1001,38 +890,29 @@ type_keys -k Home || fail "sending Home for the sourceSize control failed"
 expect_poll "control: the card no longer decodes at card size times scale" False card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
 type_keys -k Escape || fail "closing the sourceSize control browser failed"
 expect_poll "the sourceSize control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml "preview sourceSize"
+plugin_restore BrowserCard.qml "preview sourceSize"
 
-# Control for the slice names: a card copy whose slice name is empty.
-plugin_control ThemeCard.qml "slice name" $'        text: root.modelData.label\n        color: Theme.carousel.sliceName.foreground' $'        text: ""\n        color: Theme.carousel.sliceName.foreground'
-press_themes || fail "typing SUPER+SHIFT+T for the slice name control failed"
-expect_poll "the slice name control opens the theme browser" 1 layer_count vgs:overlay
-expect_poll "the slice name control read its cards" true view_value loaded
-expect_poll "control: side cards without their names read as unnamed" unnamed slices_unnamed
-type_keys -k Escape || fail "closing the slice name control browser failed"
-expect_poll "the slice name control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml "slice name"
-# Control for the slice names' look: a card copy whose name is centred on
-# its slice, reads down it, draws in h3 and the text colour, and has no
-# shadow, each a finding of its own.
-plugin_control ThemeCard.qml "slice look" $'        role: Theme.carousel.sliceName.role\n        x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)\n        y: parent.height - inset * Math.cos(root.lean) - height / 2\n        width: Math.min(implicitWidth, parent.height / Math.cos(root.lean) - 2 * inset)\n        transformOrigin: Item.Left\n        rotation: root.lean * 180 / Math.PI - 90\n        visible: !root.expanded && root.swatches !== null\n        elide: Text.ElideRight\n        text: root.modelData.label\n        color: Theme.carousel.sliceName.foreground\n        layer.enabled: visible' $'        role: "h3"\n        x: (parent.width - parent.height * Math.tan(root.lean)) / 2 + inset * Math.sin(root.lean)\n        y: (parent.height - height) / 2\n        width: Math.min(implicitWidth, parent.height / Math.cos(root.lean) - 2 * inset)\n        transformOrigin: Item.Left\n        rotation: root.lean * 180 / Math.PI + 90\n        visible: !root.expanded && root.swatches !== null\n        elide: Text.ElideRight\n        text: root.modelData.label\n        color: Theme.color.text\n        layer.enabled: false'
-press_themes || fail "typing SUPER+SHIFT+T for the slice look control failed"
-expect_poll "the slice look control opens the theme browser" 1 layer_count vgs:overlay
-expect_poll "the slice look control read its cards" true view_value loaded
-expect_poll "control: a centred, downward, h3, text-coloured name without a shadow reads as each broken rule" '["colour", "inset", "role", "shadow", "upward"]' slice_look
-type_keys -k Escape || fail "closing the slice look control browser failed"
-expect_poll "the slice look control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml "slice look"
-# Control for the name over the wash: a card copy that keeps its name with
-# the rest of the card, under the side card's dim wash.
-plugin_control ThemeCard.qml "slice name wash" $'        readonly property real inset: Theme.carousel.sliceName.inset\n        parent: root.foreground ?? root' $'        readonly property real inset: Theme.carousel.sliceName.inset\n        parent: root'
-press_themes || fail "typing SUPER+SHIFT+T for the slice name wash control failed"
-expect_poll "the slice name wash control opens the theme browser" 1 layer_count vgs:overlay
-expect_poll "the slice name wash control read its cards" true view_value loaded
-expect_poll "control: a name drawn with the card's content reads as under the wash" '["wash"]' slice_look
-type_keys -k Escape || fail "closing the slice name wash control browser failed"
-expect_poll "the slice name wash control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeCard.qml "slice name wash"
+# Controls for the side cards: a theme card copy whose side cards name
+# their theme, one whose side cards lay out the palette, and a shared card
+# copy that draws only the selected card's picture.
+for control in name palette picture; do
+  case $control in
+    name) plugin_control ThemeCard.qml "side $control" 'visible: root.current && root.pictureMissing' 'visible: true' ;;
+    palette) plugin_control ThemeCard.qml "side $control" 'visible: root.current && (root.packagePreview' 'visible: (root.packagePreview' ;;
+    picture) plugin_control BrowserCard.qml "side $control" 'visible: status === Image.Ready' 'visible: status === Image.Ready && root.current' ;;
+  esac
+  press_themes || fail "typing SUPER+SHIFT+T for the side $control control failed"
+  expect_poll "SUPER+SHIFT+T opens the side $control control browser" 1 layer_count vgs:overlay
+  expect_poll "the side $control control read its cards" true view_value loaded
+  if [[ $control == name ]]; then
+    expect_poll "control: side cards that draw their names read as named" named slices_named
+  else
+    expect_poll "control: the side $control copy breaks the $control rule" True judged_rule side_cards "$control"
+  fi
+  type_keys -k Escape || fail "sending Escape to the side $control control failed"
+  expect_poll "Escape closes the side $control control browser" 0 layer_count vgs:overlay
+  if [[ $control == picture ]]; then plugin_restore BrowserCard.qml "side $control"; else plugin_restore ThemeCard.qml "side $control"; fi
+done
 
 plugin_control ThemeCard.qml "preview precedence" "readonly property bool packagePreview: typeof modelData.previewImage === \"string\" && modelData.previewImage !== \"\"" "readonly property bool packagePreview: false"
 press_themes || fail "typing SUPER+SHIFT+T for the preview precedence control failed"
@@ -1182,14 +1062,14 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the resting wallpaper view draws its hint line and scope line alone" '["/", "All monitors", "Apply to:", "Show all", "This monitor", "Type a wallpaper or image file name to search", "|"]' rest_texts
+expect_poll "the resting wallpaper view draws its hint line and scope line alone" '["/", "All monitors", "Apply to:", "Show all", "This monitor", "Type a wallpaper name to search", "|"]' rest_texts
 expect "the wallpaper view draws no search field" absent search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
 # Escape clears before it closes.
 wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is unreadable"
-wall_line="$(text_line "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's line is unreadable"
+wall_line="$(text_line "Type a wallpaper name to search")" || fail "the wallpaper hint's line is unreadable"
 wall_show_all="$(text_top "Show all")" || fail "the resting Show all's top is unreadable"
 wall_divider="$(text_top "|")" || fail "the resting divider's top is unreadable"
 pointer_off_line || fail "moving the pointer off the wallpaper search line failed"
@@ -1220,7 +1100,7 @@ expect "the wallpaper footer shows the filter no card matches" True rest_has zzq
 expect "a wallpaper filter no card matches leaves the rail where it was" held rail_held "$wall_rail"
 click_in vgs:overlay overlay vgs.themes DisplayedText "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
-expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search"
+expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper name to search"
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
 expect_poll "the wallpaper filter is set before Escape" '"b."' wall_value filterText
 type_keys -k Escape || fail "sending Escape with a wallpaper filter failed"
@@ -1396,23 +1276,6 @@ expect "control: words that draw one weight show no bolder word" '[400, 400]' sc
 expect "the scope weight control browser hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the scope weight control browser closes" 0 layer_count vgs:overlay
 plugin_restore WallpaperView.qml "scope weight"
-# Controls for the slices: a copy of the theme card whose stack is one
-# column, one whose stack reverses its colours, and one whose stack sits
-# under the wash.
-for control in grid colours wash; do
-  case $control in
-    grid) plugin_control ThemeCard.qml "stack $control" $'        columns: 2\n' $'        columns: 1\n' ;;
-    colours) plugin_control ThemeCard.qml "stack $control" $'columns: 2\n        colours: root.swatches === null ? [] : root.swatches' $'columns: 2\n        colours: root.swatches === null ? [] : root.swatches.slice().reverse()' ;;
-    wash) plugin_control ThemeCard.qml "stack $control" $'        parent: root.foreground ?? root\n        anchors.fill: parent\n' $'        anchors.fill: parent\n' ;;
-  esac
-  press_themes || fail "typing SUPER+SHIFT+T for the stack $control control failed"
-  expect_poll "SUPER+SHIFT+T opens the stack $control control browser" 1 layer_count vgs:overlay
-  expect_poll "the stack $control control read its cards" true view_value loaded
-  expect_poll "control: the stack $control copy breaks the $control rule" True judged_rule collapsed_stacks "$control"
-  type_keys -k Escape || fail "sending Escape to the stack $control control failed"
-  expect_poll "Escape closes the stack $control control browser" 0 layer_count vgs:overlay
-  plugin_restore ThemeCard.qml "stack $control"
-done
 
 # The update card: the catalog pins a newer archive, which replaces b.jpg
 # under its name with an image of another shape and adds c.jpg. Enter on
@@ -1424,7 +1287,7 @@ done
 # Qt reloads an Image when sourceSize changes (Qt 6 Image documentation).
 # Keep this control's decode at the native size so carousel movement cannot
 # replace the cached decode independently of the URL generation.
-plugin_control WallpaperCard.qml identity $'Files.stampedUrl(root.modelData.path, root.modelData.generation)\n        sourceSize: root.decodeSize' 'Files.fileUrl(root.modelData.path)'
+plugin_control BrowserCard.qml identity $'Files.stampedUrl(root.picture, root.modelData.generation)\n        sourceSize: root.decodeSize' 'Files.fileUrl(root.picture)'
 pin_nord vgs-theme-nord-smoke2.tar.gz "$fixture_tall"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the identity control failed"
 expect_poll "SUPER+SHIFT+W opens the identity control's browser" 1 layer_count vgs:overlay
@@ -1440,7 +1303,7 @@ expect "the update replaced b.jpg on disk" True bash -c 'cmp -s -- "$1" "$2" && 
 expect "control: an unstamped image URL keeps drawing the replaced b.jpg's old picture" "$(file_ratio "$fixture_image")" card_ratio "$nord_b"
 type_keys -k Escape || fail "sending Escape to the identity control failed"
 expect_poll "Escape closes the identity control's browser" 0 layer_count vgs:overlay
-plugin_restore WallpaperCard.qml identity
+plugin_restore BrowserCard.qml identity
 pin_nord vgs-theme-nord-smoke3.tar.gz "$fixture_image"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the update failed"
 expect_poll "SUPER+SHIFT+W opens the browser for the update" 1 layer_count vgs:overlay

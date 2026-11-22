@@ -423,6 +423,10 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
+                CardName {
+                    text: BrowserLogic.wallpaperName(root.selected)
+                }
+
                 // Keep the search line as tall as either text so typing moves nothing
                 // above it. Snap positions and widths to whole pixels: fractional x
                 // spreads text stems across columns and makes the source hint fainter.
@@ -456,7 +460,7 @@ FocusScope {
                             width: Math.ceil(implicitWidth)
                             visible: root.filterText === ""
                             role: "itemHint"
-                            text: "Type a wallpaper or image file name to search"
+                            text: "Type a wallpaper name to search"
                             color: Theme.carousel.hint
                         }
                         Label {

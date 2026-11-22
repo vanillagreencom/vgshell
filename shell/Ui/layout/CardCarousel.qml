@@ -50,10 +50,14 @@ import "TouchpadScrollLogic.js" as Logic
 // glides there over `carousel.duration`; a farther one, a wrap or Home and
 // End across the model included, lands at once, as every move does before
 // the rail settles and while the duration is 0, as under `motion.scale` 0.
-// A card is shown while within the shown slices of the drawn index or of
-// `currentIndex`, and built while within the band of either, so a glide
-// keeps the cards it leaves and builds the ones it reaches; the rail clips
-// to the carousel, so a card on its way in or out draws inside it.
+// A card is built while within the band of the drawn index or of
+// `currentIndex`, so a glide keeps the cards it leaves and builds the ones
+// it reaches. A card within the shown slices of the drawn index is drawn
+// whole, and one past the last of them fades out across the next slice
+// step, so a card that enters or leaves at either edge fades in or out as
+// the rail glides, never appearing or vanishing part way on the rail; the
+// rail clips to the carousel, so a card on its way in or out draws inside
+// it.
 Item {
     id: root
 
@@ -259,10 +263,11 @@ Item {
                 // far from the drawn index too, and reads the target alone:
                 // only the cards near the rail follow a glide frame by frame.
                 readonly property real distance: Math.abs(offset) > internal.reach + internal.slicesPerSide ? Math.abs(offset) : Math.min(Math.abs(offset), Math.abs(index - internal.position))
-                // Within n cards means short of card n + 1, so a card between
-                // two whole places stays while any of it can be in the rail.
-                readonly property bool shown: distance < internal.slicesPerSide + 1
                 readonly property bool retained: wrappedNeighbour || distance < internal.reach + 1
+                // Whole within the shown slices of the drawn index, none
+                // past one slice step more, and in between by how far the
+                // glide has moved. Only a built card reads the drawn index.
+                readonly property real fade: retained ? Math.max(0, Math.min(1, internal.slicesPerSide + 1 - Math.abs(index - internal.position))) : 0
                 readonly property size decodeSize: root.preloadFullImages || neighbour ? internal.fullDecode : internal.sliceDecode
                 // Only a built card follows the rail, so a step places the
                 // band and not the whole model.
@@ -273,7 +278,10 @@ Item {
                 width: place.width
                 height: place.height
                 z: -Math.abs(offset)
-                visible: shown
+                opacity: fade
+                // An item at opacity 0 still takes pointer input; a hidden
+                // one does not (doc.qt.io/qt-6/qml-qtquick-item.html#opacity-prop).
+                visible: fade > 0
 
                 Loader {
                     anchors.fill: parent

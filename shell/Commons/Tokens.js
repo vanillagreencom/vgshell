@@ -1142,13 +1142,10 @@ var TOKENS = {
     // device pixels, the longer side no more than `decodeCap`, and the
     // rail moves over `duration`. The card is 768 by 476, on the 4 px grid
     // at a 1.61 ratio; the slices overlap by the card's lean, so neighbours
-    // meet on one edge. A slice of the theme browser names its theme up
-    // the slice's slanted axis in `sliceName.role`, starting
-    // `sliceName.inset` along that axis from its bottom edge, in
-    // `sliceName.foreground` over a `sliceName.shadow` shadow at
-    // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels and
-    // dropped `sliceName.shadowOffset` pixels down and right on screen,
-    // the same in every mode. Text beside the rail, the browser's tabs
+    // meet on one edge. A wallpaper slice that offers a download or an
+    // update names it up the slice's slanted axis, starting
+    // `sliceName.inset` along that axis from its bottom edge. Text beside
+    // the rail, the browser's tabs
     // included, sits on the scrim over any wallpaper, not on a resting
     // surface, and a black wallpaper leaves the darkest backdrop,
     // `backdrop`: the scrim's colour moved toward black by one minus its
@@ -1167,9 +1164,7 @@ var TOKENS = {
     // line's Apply to: label and its slash draw `hint` at
     // `scopeLabelOpacity`, and its words at `scopeOpacity`. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
-    // 3:1 on that backdrop, and `hintActive` where it does not. A
-    // wallpaper card's name sits `namePadding` from its box's edges, the
-    // owner's 5 px, on `card.background` at `nameFillOpacity`.
+    // 3:1 on that backdrop, and `hintActive` where it does not.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -1191,16 +1186,8 @@ var TOKENS = {
         tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
         scopeLabelOpacity: share(0.5),
         scopeOpacity: share(0.75),
-        namePadding: length(5),
-        nameFillOpacity: share(0.5),
         sliceName: {
-            role: textRole("h2"),
-            inset: length("{space.xxl}"),
-            foreground: color("#ffffff"),
-            shadow: color("#000000"),
-            shadowOpacity: share(1),
-            blur: length(4),
-            shadowOffset: length(2)
+            inset: length("{space.xxl}")
         }
     },
 

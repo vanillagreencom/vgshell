@@ -157,10 +157,9 @@ function cardKey(card) {
     return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);
 }
 
-// The sixteen colours a theme card shows: its terminal slots color0 to
-// color15, in slot order, each fully opaque, so a card draws the theme's
-// exact values. A slice stacks them two side by side down eight rows, and
-// the selected card's foot lays them in two rows of eight.
+// The sixteen colours the selected theme card lays across its foot in two
+// rows of eight: its terminal slots color0 to color15, in slot order, each
+// fully opaque, so the card draws the theme's exact values.
 var SWATCH_COUNT = 16;
 
 // The `#rrggbbff` colours of a card's TERMINAL slots, or null when it has
@@ -482,6 +481,13 @@ function wallpaperMatches(card, text) {
     if (card.kind !== "image") return false;
     var name = card.name === null ? "" : String(card.name);
     return name.toLowerCase().indexOf(needle) !== -1 || card.background.toLowerCase().indexOf(needle) !== -1;
+}
+
+// The name the wallpaper view shows under its rail for the selected CARD,
+// null for none: an image's wallpaper name, and "" for an image its
+// package names not and for an offer card, which names itself inside it.
+function wallpaperName(card) {
+    return card !== null && card.kind === "image" && card.name !== null ? String(card.name) : "";
 }
 
 function wallpaperShown(list, text) {
