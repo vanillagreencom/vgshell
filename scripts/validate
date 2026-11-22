@@ -46,6 +46,9 @@
 #   A row's input `device:GLOB` requires a character device matching GLOB.
 #   --skip-unprepared leaves it unselected when none exists and prints
 #   `validate: unselected missing=device:GLOB row=<label>` on stderr.
+#   A row's input `bus:user` requires a socket at $XDG_RUNTIME_DIR/bus, a
+#   user bus. --skip-unprepared leaves it unselected when none exists and
+#   prints `validate: unselected missing=bus:user row=<label>` on stderr.
 #   A row's input `%scope` says it reads VGS_VALIDATE_BASE and
 #   VGS_VALIDATE_CHANGED to narrow its own work; it matches no path, and
 #   only such a row's record binds the base and the scope.
@@ -547,7 +550,7 @@ rows=(
   "cli|VPN file import|scripts/test-vpn-import.sh|shell/plugins/vgs.vpn/tui/import.sh bin/lib/tui.sh"
   "cli|VPN kill switch namespace proof|scripts/test-vpn-kill-switch.sh|config/system/kill-switch/vgs-kill-switch config/system/kill-switch/vgs-kill-switch.service scripts/fixtures/kill-switch/hotel.py shell/plugins/vgs.vpn/VpnLogic.js shell/Commons/Nmcli.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "cli|VPN kill switch unit sandbox|scripts/test-vpn-kill-switch-unit.sh|config/system/kill-switch/vgs-kill-switch.service"
-  "cli|VPN kill switch fresh systemd start|scripts/test-vpn-kill-switch-unit.sh --start|config/system/kill-switch/vgs-kill-switch.service config/system/kill-switch/vgs-kill-switch|control"
+  "cli|VPN kill switch fresh systemd start|scripts/test-vpn-kill-switch-unit.sh --start|config/system/kill-switch/vgs-kill-switch.service config/system/kill-switch/vgs-kill-switch bus:user|control"
   "cli|automations linger TUI|scripts/test-automations-linger.sh|shell/plugins/vgs.automations/tui/linger.sh bin/lib/tui.sh"
   "cli|themes browser-policy TUI|scripts/test-themes-browser-policy-tui.sh|shell/plugins/vgs.themes/tui/browser-policy.sh bin/lib/tui.sh"
   "cli|notifications open TUI|scripts/test-notifications-open.sh|shell/plugins/vgs.notifications/tui/open.sh bin/lib/tui.sh"
@@ -2258,13 +2261,14 @@ rebased_scope() { # FILE
 # The path patterns of each row that is not a repo row, its input globs,
 # every word of its command that holds a slash, and the world script for a
 # row run wraps in the world, filed by row index in the pattern index
-# row_index. A `$NAME`, `@NAME`, `%scope`, `%weight=` or `device:` input
-# matches no path; row_weight[i] is the row's weight, at most the core
-# count; row_traced[i] is false for a row that holds a `$NAME` or `device:`
-# one, since prepared state and devices have no content a record can bind,
-# and for a repo row. row_scoped[i] is true for a row whose `%scope` input
-# says it reads VGS_VALIDATE_BASE and VGS_VALIDATE_CHANGED. A qml row starts
-# the shell, so its patterns are filed with `loads` (index_add).
+# row_index. A `$NAME`, `@NAME`, `%scope`, `%weight=`, `device:` or
+# `bus:user` input matches no path; row_weight[i] is the row's weight, at
+# most the core count; row_traced[i] is false for a row that holds a
+# `$NAME`, `device:` or `bus:user` one, since prepared state, devices and a
+# bus have no content a record can bind, and for a repo row. row_scoped[i]
+# is true for a row whose `%scope` input says it reads VGS_VALIDATE_BASE and
+# VGS_VALIDATE_CHANGED. A qml row starts the shell, so its patterns are
+# filed with `loads` (index_add).
 declare -A row_index_literal=() row_index_glob_members=() row_index_load_members=()
 row_index_globs=()
 row_traced=()
@@ -2301,7 +2305,7 @@ for i in "${!rows[@]}"; do
   fi
   for pattern in "${patterns[@]}"; do
     case "$pattern" in
-      \$*|device:*) row_traced[i]=false ;;
+      \$*|device:*|bus:user) row_traced[i]=false ;;
       %scope) row_scoped[i]=true ;;
       %weight=all) row_weight[i]=$cores ;;
       %weight=*)
@@ -2959,6 +2963,9 @@ for i in "${!rows[@]}"; do
           if [[ -c $candidate ]]; then device_found=true; break; fi
         done
         if [[ $device_found == false ]]; then unprepared="$pattern"; unprepared_kind=missing; break; fi
+      fi
+      if [[ $pattern == bus:user ]] && ! [[ -n ${XDG_RUNTIME_DIR-} && -S $XDG_RUNTIME_DIR/bus ]]; then
+        unprepared="$pattern"; unprepared_kind=missing; break
       fi
     done
     if [[ -n $unprepared ]]; then

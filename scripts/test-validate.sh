@@ -3676,13 +3676,13 @@ test_area=qml test_args=()
 # one binding removed, keyed in the record_mutant_* tables.
 declare -A record_mutant_old=(
   [repo]='  [[ $row_area != repo ]] || continue'
-  [device]='      \$*|device:*) row_traced[i]=false ;;'
+  [device]='      \$*|device:*|bus:user) row_traced[i]=false ;;'
   [every-base]='  if [[ ${row_scoped[$1]} == true ]]; then'
   [scope]='      %scope) row_scoped[i]=true ;;'
 )
 declare -A record_mutant_new=(
   [repo]='  :'
-  [device]='      \$*|device:*) ;;'
+  [device]='      \$*|device:*|bus:user) ;;'
   [every-base]='  if true; then'
   [scope]='      %scope) ;;'
 )
@@ -4953,6 +4953,26 @@ row "control: without its declaration the absent device row runs and exits 77" "
 plant "$d/scripts/validate" "device:$d/absent-device*" "device:/dev/nul*"
 row "--skip-unprepared runs a row with a present declared character device" "$d" 77 "" \
   "validate: status=not-measured skipped=device row" '!validate: unselected'
+
+# The real kill switch fresh-start row declares the user bus it needs, so a
+# host without one, as the nightly's container, leaves it unselected. The
+# stand-in reads not measured for --start, as the real test does without a
+# bus, and passes for the sibling sandbox row that shares its script.
+d="$tmp/bus-unprepared"; fresh "$d"
+printf '#!/bin/sh\n[ "$1" = --start ] && exit 77\nexit 0\n' >"$d/scripts/test-vpn-kill-switch-unit.sh"
+chmod +x "$d/scripts/test-vpn-kill-switch-unit.sh"
+mkdir -m 700 -- "$d-run" "$d-bus"
+(cd -- "$d-bus" && python3 -c 'import socket; socket.socket(socket.AF_UNIX).bind("bus")')
+test_area=cli
+test_args=(--changed HEAD --skip-unprepared)
+row "--skip-unprepared leaves the kill switch start row out without a user bus" "$d" 0 "XDG_RUNTIME_DIR=$d-run" \
+  "validate: unselected missing=bus:user row=VPN kill switch fresh systemd start" "validate: ok" '!exit=77 row=VPN kill switch fresh systemd start'
+row "--skip-unprepared runs the kill switch start row with a user bus" "$d" 77 "XDG_RUNTIME_DIR=$d-bus" \
+  "validate: status=not-measured skipped=VPN kill switch fresh systemd start" '!validate: unselected'
+plant "$d/scripts/validate" ' bus:user|control"' '|control"'
+"${base_env[@]}" git -C "$d" commit -q -am control
+row "control: without its declaration the kill switch start row runs and exits 77" "$d" 77 "XDG_RUNTIME_DIR=$d-run" \
+  "validate: status=not-measured skipped=VPN kill switch fresh systemd start" '!validate: unselected'
 test_area=offline
 test_args=()
 
