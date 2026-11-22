@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Pipewire
+import qs.Commons
 import "DictationModel.js" as Model
 
 // Owns the `dictation` capability (D106): voxtype's one recording, lent to
@@ -183,6 +184,20 @@ Scope {
         id: check
         interval: Model.CHECK_MS
         onTriggered: root.apply(Model.checked(root.model))
+    }
+
+    // voxtype's config file, the one voxtype reads at each daemon start,
+    // watched and never read. FileView watches the file and its directory
+    // from when its path is set, re-adding the file after a replace, and
+    // one edit can raise several fileChanged; a directory missing then is
+    // not watched (Quickshell 2b4501a, src/io/fileview.cpp
+    // updateWatchedFiles, onWatchedFileChanged, onWatchedDirectoryChanged).
+    FileView {
+        path: Paths.configHome + "/voxtype/config.toml"
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: root.apply(Model.changed(root.model))
     }
 
     // A child that fails to start emits only runningChanged, so each end

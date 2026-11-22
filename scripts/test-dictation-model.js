@@ -36,8 +36,12 @@ const MODEL = ["ran", "model", 0, "parakeet-tdt-0.6b-v3\n"];
 const MODELS = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true}]}}}';
 const ENGINES = '[{"name":"parakeet","compiled":true}]';
 const SETUP = [["ran", "version", 0, "voxtype 1.1.0\n"], MODEL, ["ran", "models", 0, MODELS], ["ran", "engines", 0, ENGINES]];
-// Holder `a` leases, the start steps pass, and the follower prints idle.
-const READY = [["lease", "a"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")]];
+// The start steps pass and the follower prints idle; holder `a` leases
+// first for READY.
+const STARTED = [PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")]];
+const READY = [["lease", "a"], ...STARTED];
+// A ready daemon that ends on its own, waits out its retry and reads ready.
+const CRASH = [["exited", 1], ["deadline"], ...STARTED];
 const BOTH = [...READY, ["lease", "b"]];
 const TEXT_START = "run:voxtype record start --file=" + DIR + "/1.txt --no-auto-submit --no-smart-auto-submit --no-osd";
 const TYPE_START = "run:voxtype record start --auto-submit --no-smart-auto-submit --paste";
@@ -196,12 +200,12 @@ const CASES = [
     ["a smart auto-submit value outside true and false fails the start",
         [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], ["ran", "text.smart_auto_submit", 0, "maybe\n"], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
-    ["a daemon that ends on its own reads failed",
+    ["a daemon that ends on its own while ready reads failed and arms the first retry",
         [...READY, "|", ["exited", 1]],
-        { daemon: "failed", child: "none" }, ["unfollow", "log", "abort"]],
-    ["a failed child retries through restart only on a user start",
+        { daemon: "failed", child: "none", timer: "retry" }, ["unfollow", "log", "abort", "timer=2000"]],
+    ["a user start while the retry waits restarts at once and disarms it",
         [...READY, ["exited", 1], "|", ["start", "a", "type", "refused: dictation=daemon-starting"]],
-        { daemon: "starting", child: "none", holder: "" }, ["abort", PROBE_RUN]],
+        { daemon: "starting", child: "none", holder: "", timer: "none" }, ["abort", "timer=0", PROBE_RUN]],
     ["a repaired tool reaches ready without accepting the refused recording",
         [...READY, ["exited", 1], ["start", "a", "text", "refused: dictation=daemon-starting"], PROBE, ...CONFIG, ...SETUP,
             ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], "|", ["status", line("idle")]],
@@ -422,6 +426,58 @@ const CASES = [
     ["a config value that cannot be read fails the start",
         [["lease", "a"], PROBE, CONFIG[0], "|", ["ran", "engine", 1, ""]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
+    ["an outside config change restarts a ready idle daemon once",
+        [...READY, "|", ["changed"], ["changed"]],
+        { daemon: "starting", child: "stopping" }, END],
+    ["the daemon a config change restarted reads ready with no second restart",
+        [...READY, ["changed"], ["changed"], ["exited", 0], ...STARTED.slice(0, -1), "|", ["status", line("idle")]],
+        { daemon: "ready", child: "running" }, []],
+    ["with no config change a recording's end restarts nothing",
+        [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0, ""], ["stop", "a", "ok"], "|", ["ran", "stop", 0, ""], read("idle")],
+        { daemon: "ready", child: "running" }, ["done:" + JSON.stringify({ kind: "typed" }), READ]],
+    ["a config change during a recording restarts once the daemon is read idle after it",
+        [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0, ""], "|", ["changed"], ["stop", "a", "ok"], ["ran", "stop", 0, ""],
+            ["status", line("transcribing")], ["status", line("idle")], read("idle")],
+        { daemon: "starting", child: "stopping", holder: "" }, ["run:voxtype record stop", "done:" + JSON.stringify({ kind: "typed" }), READ, ...END]],
+    ["a config change during a text recording the daemon ended leaves its file removed before the restart",
+        [...TAKEN, ["status", line("recording")], "|", ["changed"], ["status", line("idle")], ["ran", "remove", 0, ""]],
+        { daemon: "starting", child: "stopping", holder: "" }, ["timer=0", REMOVE, ...END]],
+    ["a config change during a text recording the start check dropped leaves its file removed before the restart",
+        [...TAKEN, "|", ["changed"], ["checked"], read("idle"), ["ran", "remove", 0, ""]],
+        { daemon: "starting", child: "stopping", holder: "" }, [READ, "timer=0", REMOVE, ...END]],
+    ["a config change while a file removal is queued restarts once the removal ended",
+        [...TAKEN, ["status", line("recording")], ["status", line("idle")], "|", ["changed"], ["ran", "remove", 0, ""]],
+        { daemon: "starting", child: "stopping" }, END],
+    ["a file removal an abort dropped holds no later config restart",
+        [...TAKEN, ["status", line("recording")], ["status", line("idle")], ["restart", "ok"], ["exited", 0], ...STARTED, "|", ["changed"]],
+        { daemon: "starting", child: "stopping" }, END],
+    ["a config change while the start reads the config restarts once the daemon is ready",
+        [["lease", "a"], PROBE, CONFIG[0], ["changed"], ...STARTED.slice(2, -1), "|", ["status", line("idle")]],
+        { daemon: "starting", child: "stopping" }, END],
+    ["a config change before the start's probe ended is read by that start",
+        [["lease", "a"], ["changed"], ...STARTED.slice(0, -1), "|", ["status", line("idle")]],
+        { daemon: "ready", child: "running" }, []],
+    ["the retry restarts the failed daemon from its probe",
+        [...READY, ["exited", 1], "|", ["deadline"]],
+        { daemon: "starting", child: "none", timer: "none" }, ["abort", PROBE_RUN]],
+    ["a second end after a retry reached ready backs off longer",
+        [...READY, ...CRASH, "|", ["exited", 1]],
+        { daemon: "failed", child: "none", timer: "retry" }, ["unfollow", "log", "abort", "timer=4000"]],
+    ["repeated ends stop at the bound and leave the daemon failed",
+        [...READY, ...CRASH, ...CRASH, ...CRASH, "|", ["exited", 1]],
+        { daemon: "failed", child: "none", timer: "none" }, ["unfollow", "log", "abort"]],
+    ["after the bound a user start still restarts the failed daemon",
+        [...READY, ...CRASH, ...CRASH, ...CRASH, ["exited", 1], "|", ["start", "a", "type", "refused: dictation=daemon-starting"]],
+        { daemon: "starting", child: "none", holder: "" }, ["abort", PROBE_RUN]],
+    ["a taken recording resets the backoff",
+        [...READY, ...CRASH, ["start", "a", "type", "ok"], "|", ["exited", 1]],
+        { daemon: "failed", child: "none", timer: "retry" }, ["unfollow", "log", "abort", "timer=2000"]],
+    ["a daemon that ends before it reads ready fails without a retry",
+        [["lease", "a"], ...STARTED.slice(0, -1), "|", ["exited", 1]],
+        { daemon: "failed", child: "none", timer: "none" }, ["unfollow", "log", "abort"]],
+    ["the last release disarms the retry",
+        [...READY, ["exited", 1], "|", ["release", "a"]],
+        { daemon: "absent", child: "none", timer: "none" }, ["abort", "timer=0"]],
     ["restart is refused while a recording runs",
         [...READY, ["start", "a", "type", "ok"], "|", ["restart", "refused: dictation=busy holder=a"]],
         { daemon: "ready", child: "running" }, []],
@@ -433,7 +489,7 @@ const CASES = [
         { daemon: "starting", child: "none" }, ["abort", PROBE_RUN, "run:voxtype config get audio.max_duration_secs"]],
     ["a daemon that ends under a waiting stop hands over failed",
         [...READY, ["start", "a", "text", "ok"], ["ran", "start", 0, ""], ["stop", "a", "ok"], "|", ["exited", 1]],
-        { daemon: "failed", holder: "" }, ["unfollow", "log", "abort", "done:" + JSON.stringify({ kind: "failed", reason: "daemon-ended code=1" }), REMOVE]],
+        { daemon: "failed", holder: "" }, ["unfollow", "log", "abort", "done:" + JSON.stringify({ kind: "failed", reason: "daemon-ended code=1" }), REMOVE, "timer=2000"]],
     ["a follower that ends on its own fails the daemon",
         [...READY, "|", ["unfollowed"]],
         { daemon: "failed", child: "stopping" }, ["log", "abort", "unfollow", "term", "timer=2000"]],
@@ -450,23 +506,30 @@ const CASES = [
 
 const word = e => e.kind === "run" ? "run:" + e.argv.join(" ") : e.kind === "timer" ? "timer=" + e.ms : e.kind === "done" ? "done:" + JSON.stringify(e.result) : e.kind;
 
+// Runs EVENTS from the initial model: the last model, and the effects
+// after the `|` mark.
+function play(M, label, events) {
+    let model = M.initial(DIR, STATE_PATH, true, true), seen = null;
+    for (const event of events) {
+        if (event === "|") {
+            seen = [];
+            continue;
+        }
+        const [name, ...args] = event;
+        const answered = ["start", "stop", "cancel", "restart"].indexOf(name) !== -1;
+        const step = M[name](model, ...(answered ? args.slice(0, -1) : args));
+        if (answered) assert.equal(step.answer, args[args.length - 1], `${label}: ${name} answers`);
+        model = step.model;
+        if (seen !== null) seen.push(...step.effects);
+    }
+    return { model, seen };
+}
+
 function verify(M) {
     for (const [value, expected] of [[null, "absent"], [2, "elsewhere"], [2147483647, "elsewhere"]])
         assert.equal(M.ownershipOf(inventory(value)), expected, "public liveness PID domain: " + value);
     for (const [label, events, want, effects] of CASES) {
-        let model = M.initial(DIR, STATE_PATH, true, true), seen = null;
-        for (const event of events) {
-            if (event === "|") {
-                seen = [];
-                continue;
-            }
-            const [name, ...args] = event;
-            const answered = ["start", "stop", "cancel", "restart"].indexOf(name) !== -1;
-            const step = M[name](model, ...(answered ? args.slice(0, -1) : args));
-            if (answered) assert.equal(step.answer, args[args.length - 1], `${label}: ${name} answers`);
-            model = step.model;
-            if (seen !== null) seen.push(...step.effects.map(word));
-        }
+        const played = play(M, label, events), model = played.model, seen = played.seen === null ? null : played.seen.map(word);
         const got = Object.assign({ timer: model.timer }, M.record(model), M.state(model));
         for (const key of Object.keys(want)) assert.deepEqual(JSON.parse(JSON.stringify(got[key])), want[key], `${label}: ${key}`);
         if (effects !== null) assert.deepEqual(seen, effects, `${label}: effects`);
@@ -495,6 +558,9 @@ function verify(M) {
         assert.equal(Object.isFrozen(held), true, label + ": setup is immutable");
         assert.equal(M.start(model, "a", "type").answer, "refused: dictation=daemon-absent", label + ": recording refused");
     }
+    // The smoke rows read this keyed line from the shell's log.
+    const bound = play(M, "the bound's reason", [...READY, ...CRASH, ...CRASH, ...CRASH, "|", ["exited", 1]]).seen.filter(e => e.kind === "log");
+    assert.deepEqual(bound.map(e => e.line), ["dictation: daemon=failed reason=ended code=1"], "the daemon left failed at the bound logs its reason");
     assert.throws(() => M.release(M.initial(DIR, STATE_PATH, true, true), "a"), /release by a which holds none/, "a release with no lease is an error");
     assert.throws(() => M.start(M.initial(DIR, STATE_PATH, true, true), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
     assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR, STATE_PATH, true, true))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
@@ -531,7 +597,9 @@ const CONTROLS = [
     ["a bad smart auto-submit config fails the start", '    if (smartAutoSubmit !== "true" && smartAutoSubmit !== "false") return', '    if (false) return'],
     ["a bad output mode config fails the start", '    if (OUTPUT_MODES.indexOf(mode) === -1) return "config output.mode=" + JSON.stringify(mode);\n', '    if (false) return "config output.mode=" + JSON.stringify(mode);\n'],
     ["a stop by another holder is refused", '    if (s.recording.holder !== id) return "refused: dictation=not-holder holder=" + s.recording.holder;\n', ""],
-    ["the transcript's file is removed", '            if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);\n', ""],
+    ["the transcript's file is removed", '            if (r.mode === "text") removeFile(t, effects, r.path);\n', ""],
+    ["the config restart waits for a queued file removal", ' || phase(s) !== "idle" || s.removing > 0) return', ' || phase(s) !== "idle") return'],
+    ["an abort leaves no file removal outstanding", "    s.pending = 0;\n    s.removing = 0;\n", "    s.pending = 0;\n"],
     ["an ok answer with no words is empty", ' || (data.status === "ok" && data.text.trim() === "")', ""],
     ["no start is taken while a record command pends", 'function phase(s) { return s.pending > 0 && s.recording === null ? "unread" : s.status; }', "function phase(s) { return s.status; }"],
     ["no start is taken while the daemon transcribes", '    else if (phase(t) !== "idle") {', '    else if (false) {'],
@@ -566,6 +634,21 @@ const CONTROLS = [
     ["source readiness gates capture", '    else if (!t.inputReady) answer = "refused: dictation=audio-unavailable";\n', ''],
     ["the follower's stopped is not ready", '    if (word === "stopped") return { model: t, effects: effects };\n', ""],
     ["an unreadable cap fails the start", '    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]);\n', ""],
+    ["an outside config change is stale for a ready daemon", 'if (t.daemon === "ready" || (t.daemon === "starting" && t.step !== "exit" && t.step !== PROBE)) t.stale = true;', 'if (t.daemon === "starting" && t.step !== "exit" && t.step !== PROBE) t.stale = true;'],
+    ["a change during the start's reads is stale", 'if (t.daemon === "ready" || (t.daemon === "starting" && t.step !== "exit" && t.step !== PROBE)) t.stale = true;', 'if (t.daemon === "ready") t.stale = true;'],
+    ["a start that has read nothing yet takes the change itself", ' && t.step !== "exit" && t.step !== PROBE)) t.stale = true;', ')) t.stale = true;'],
+    ["each start reads the config afresh", '    s.daemon = "starting";\n    s.stale = false;\n', '    s.daemon = "starting";\n'],
+    ["the config restart waits for an idle daemon", ' || phase(s) !== "idle" || s.removing > 0) return', ' || s.removing > 0) return'],
+    ["a daemon read idle after its recording takes the config restart", '        stepped(t, effects, tag, code, out);\n    }\n    return refresh(t, effects);', '        stepped(t, effects, tag, code, out);\n    }\n    return { model: t, effects: effects };'],
+    ["a daemon that reads ready takes the config restart", '    drained(t, effects);\n    return refresh(t, effects);', '    drained(t, effects);\n    return { model: t, effects: effects };'],
+    ["a ready daemon's end arms the retry", '            setTimer(t, effects, "retry", RETRY_MS[t.retries]);\n', ""],
+    ["only a ready daemon's end retries", 'var retry = t.daemon === "ready" && code', "var retry = code"],
+    ["a flood is not retried", ' && code !== 74 && t.retries', " && t.retries"],
+    ["the retries stop at the bound", " && t.retries < RETRY_MS.length;", ";"],
+    ["the backoff grows", "var RETRY_MS = [2000, 4000, 8000];", "var RETRY_MS = [2000, 2000, 2000];"],
+    ["a taken recording resets the backoff", "    t.retries = 0;\n", ""],
+    ["the retry restarts the failed daemon", '    } else if (timer === "retry" && t.daemon === "failed") {', "    } else if (false) {"],
+    ["a release or a start disarms the retry", 'if (s.timer === "audio" || s.timer === "retry")', 'if (s.timer === "audio")'],
     ["the lending record names no path", "function record(s) {\n    return {\n", "function record(s) {\n    return {\n        path: s.recording === null ? \"\" : s.recording.path,\n"]
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-dictation-model-")));

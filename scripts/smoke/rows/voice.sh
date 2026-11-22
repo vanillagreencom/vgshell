@@ -102,7 +102,10 @@
 # link, which stays a link, no config file, a refused write, which restarts
 # nothing, a restart the core refuses during a recording, a value voxtype
 # did not keep, and a value that cannot be read. A value that is neither
-# choice and a choice made without voxtype start nothing.
+# choice and a choice made without voxtype start nothing. The row's own
+# writes of the config file are outside changes, which restart the ready
+# daemon once while the core watches the file; each count of restarts
+# starts once the daemon reads idle after such a write.
 # Control run on 2026-10-09, host cachy, through this row on a source_tree
 # copy of the service whose holder answers the page's choice without
 # running it and whose choice does not ask for voxtype: "Off from the
@@ -641,12 +644,19 @@ voice_feedback_choose() { ipc smoke invokeInstance service vgs.voice chooseFeedb
 voice_feedback_sets_read() { printf '%s %s\n' "$(wc -l <"$voice_feedback_sets")" "$(tail -n 1 -- "$voice_feedback_sets" | awk '{ print $NF }')"; }
 voice_feedback_calls() { printf '%s %s\n' "$(voice_feedback_sets_read)" "$(( $(voice_daemon_starts) - voice_starts_before ))"; }
 voice_starts_before="$(voice_daemon_starts)" || fail "the stand-in daemon's notes are unreadable"
+# The row wrote voxtype's config: the restarts are counted again from the
+# daemon's idle after any restart the write caused.
+voice_config_written() { # LABEL
+  expect_poll "$1: the daemon reads idle" "ready idle -" voice_state
+  voice_starts_before="$(voice_daemon_starts)" || fail "the stand-in daemon's notes are unreadable"
+}
 # The Dictation sounds row of the Sounds section: PROPERTY as JSON.
 voice_sound_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "Dictation sounds" "$1"; }
 voice_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 voice_page_was="$(plugin_enabled vgs.sounds)" || fail "vgs.sounds's enabled state is unreadable"
 mkdir -p -- "$voice_config_dir"
 printf '%s\n' '[audio.feedback]' 'enabled = true' >"$voice_config"
+voice_config_written "the row's first config"
 expect_poll "Voice states voxtype's dictation sounds value, with no problem" '["own",""]' voice_feedback_state
 expect "the first read writes nothing and restarts nothing" "0  0" voice_feedback_calls
 expect "a choice of the value voxtype holds is taken" ok voice_feedback_choose own
@@ -678,35 +688,38 @@ expect "the Dictation sounds row shows its description, muted" '"muted"' voice_s
 printf '%s\n' 'kept=1' >"$voice_dotfile"
 rm -f -- "${voice_config:?}"
 ln -s -- "$voice_dotfile" "$voice_config"
+voice_config_written "the row's linked config"
 expect "a choice over a linked config is taken" ok voice_feedback_choose own
 expect_poll "a linked config keeps voxtype's value and names the link" '["","link"]' voice_feedback_state
-expect "a linked config is not written and nothing restarts" "1 false 1" voice_feedback_calls
+expect "a linked config is not written and nothing restarts" "1 false 0" voice_feedback_calls
 expect "the link is still a link to the same text" "link kept=1" bash -c '[[ -L $1 ]] && printf "link %s\n" "$(cat -- "$2")"' _ "$voice_config" "$voice_dotfile"
 expect_poll "the Dictation sounds row shows the problem in the warning tone" '"warning"' voice_sound_row warningTone
 # No config file.
 rm -f -- "${voice_config:?}"
+voice_config_written "the row's removed config"
 expect "a choice with no config file is taken" ok voice_feedback_choose own
 expect_poll "no config file keeps voxtype's value and names the missing file" '["","no-config"]' voice_feedback_state
-expect "no config file is written and nothing restarts" "1 false 1" voice_feedback_calls
+expect "no config file is written and nothing restarts" "1 false 0" voice_feedback_calls
 # A write voxtype refuses restarts nothing.
 printf '%s\n' '[audio.feedback]' 'enabled = false' >"$voice_config"
+voice_config_written "the row's rewritten config"
 touch -- "$voice_feedback_refused"
 expect "a choice voxtype refuses to write is taken" ok voice_feedback_choose own
 expect_poll "a refused write keeps voxtype's value and names the write" '["","write"]' voice_feedback_state
-expect "a refused write was asked once and restarts nothing" "2 true 1" voice_feedback_calls
+expect "a refused write was asked once and restarts nothing" "2 true 0" voice_feedback_calls
 rm -f -- "${voice_feedback_refused:?}"
 # A restart the core refuses, as during a recording: the value is written,
 # read back and the row says the change waits.
 voice_to recording "a refused restart"
 expect "a choice whose restart is refused is taken" ok voice_feedback_choose own
 expect_poll "a refused restart shows the written value and names the restart" '["own","restart"]' voice_feedback_state
-expect "a refused restart follows one more config set and starts no daemon" "3 true 1" voice_feedback_calls
+expect "a refused restart follows one more config set and starts no daemon" "3 true 0" voice_feedback_calls
 voice_to idle "a refused restart"
 # A value voxtype did not keep.
 touch -- "$voice_feedback_dropped"
 expect "a choice voxtype does not keep is taken" ok voice_feedback_choose ""
 expect_poll "a value voxtype did not keep shows the value read back and names the mismatch" '["own","mismatch"]' voice_feedback_state
-expect_poll "a value voxtype did not keep was asked once and restarted the daemon once more" "4 false 2" voice_feedback_calls
+expect_poll "a value voxtype did not keep was asked once and restarted the daemon once more" "4 false 1" voice_feedback_calls
 rm -f -- "${voice_feedback_dropped:?}"
 # A value that cannot be read, as with a config voxtype cannot parse: the
 # Sounds section's refresh has Voice read it.

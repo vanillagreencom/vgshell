@@ -50,6 +50,10 @@ var STOP_TIMEOUT_S = 60;
 // the cap voxtype drops the file override and sends the text to its
 // configured output, so it is typed (src/daemon.rs:3995-4027).
 var CAP_MARGIN_S = 1;
+// How long a daemon that ended while ready waits before each automatic
+// restart. Chosen, not measured: three attempts that double, after which
+// the daemon stays failed until a start or restart asks again.
+var RETRY_MS = [2000, 4000, 8000];
 // The live readiness words in `status`. A live daemon with no readable
 // state file also prints `stopped` (src/app/status.rs:47-58).
 var LIVE = ["idle", "recording", "streaming", "transcribing"];
@@ -74,7 +78,7 @@ var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 function initial(dir, statePath, outputReady, inputReady) {
     return {
         dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, late: false, delivery: 0, reconciling: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: [], outputReady: outputReady, inputReady: inputReady
+        recording: null, late: false, stale: false, retries: 0, delivery: 0, reconciling: false, files: 0, pending: 0, removing: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: [], outputReady: outputReady, inputReady: inputReady
     };
 }
 
@@ -128,8 +132,16 @@ function command(s, effects, tag, argv) {
     run(effects, tag, argv);
 }
 
+// Queues the removal of a `text` recording's file and voxtype's completion
+// sidecar beside it: `removing` counts those whose end has not come back.
+function removeFile(s, effects, path) {
+    s.removing += 1;
+    run(effects, "remove", ["rm", "-f", "--", path, path + ".done"]);
+}
+
 function abort(s, effects) {
     s.pending = 0;
+    s.removing = 0;
     s.reconciling = false;
     s.delivery += 1;
     effects.push({ kind: "abort" });
@@ -155,6 +167,7 @@ function step(s, effects, tag) {
 // that is still ending.
 function begin(s, effects) {
     s.daemon = "starting";
+    s.stale = false;
     s.config = {};
     s.setup = null;
     s.elsewhere = false;
@@ -167,7 +180,7 @@ function begin(s, effects) {
 // go first, so a `record stop --wait` does not wait out a dead daemon.
 function endChild(s, effects) {
     abort(s, effects);
-    if (s.timer === "audio") setTimer(s, effects, "none", 0);
+    if (s.timer === "audio" || s.timer === "retry") setTimer(s, effects, "none", 0);
     if (s.child !== "running" && s.child !== "draining") return;
     s.child = "stopping";
     effects.push({ kind: "unfollow" }, { kind: "term" });
@@ -184,7 +197,7 @@ function drop(s, effects, reason) {
     s.delivery += 1;
     if (s.timer === "cap") setTimer(s, effects, "none", 0);
     if (r.phase === "stopping") effects.push(reason === "" ? { kind: "forget" } : { kind: "done", result: { kind: "failed", reason: reason } });
-    if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);
+    if (r.mode === "text") removeFile(s, effects, r.path);
 }
 
 // `record cancel` discards the audio and the file override with it
@@ -283,6 +296,8 @@ function start(s, id, mode) {
     var argv = ["voxtype", "record", "start"];
     t.recording = { holder: id, mode: mode, phase: "starting", path: "" };
     t.late = false;
+    // A daemon that took a recording has served since its last end.
+    t.retries = 0;
     if (mode === "text") {
         t.files += 1;
         t.recording.path = t.dir + "/" + t.files + ".txt";
@@ -324,6 +339,25 @@ function restart(s) {
     if (t.child !== "draining") endChild(t, effects);
     begin(t, effects);
     return { model: t, effects: effects, answer: "ok" };
+}
+
+// voxtype reads its config only when the daemon starts, so a change seen
+// since this start began reading restarts the ready daemon once nothing
+// runs on it: no recording, no command and no transcription. A file removal
+// still queued waits too, since the restart's abort would drop it; its end
+// comes back as ran, which refreshes again.
+function refresh(s, effects) {
+    if (!s.stale || s.daemon !== "ready" || phase(s) !== "idle" || s.removing > 0) return { model: s, effects: effects };
+    var again = restart(s);
+    return { model: again.model, effects: effects.concat(again.effects) };
+}
+
+// The config file changed on disk. A start that has read nothing of it yet,
+// waiting for the old child's exit or on its probe, reads the new file.
+function changed(s) {
+    var t = clone(s);
+    if (t.daemon === "ready" || (t.daemon === "starting" && t.step !== "exit" && t.step !== PROBE)) t.stale = true;
+    return refresh(t, []);
 }
 
 // What `record stop --wait --json` answered: one JSON object with `status`
@@ -546,7 +580,7 @@ function ran(s, tag, code, out) {
             // removal; a cancel ends that task and the override
             // (src/daemon.rs:4349-4367).
             if (r.mode === "text" && result.kind === "failed") command(t, effects, "cancel", ["voxtype", "record", "cancel"]);
-            if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);
+            if (r.mode === "text") removeFile(t, effects, r.path);
         }
         settle(t, effects);
         break;
@@ -555,6 +589,8 @@ function ran(s, tag, code, out) {
         settle(t, effects);
         break;
     case "remove":
+        if (t.removing === 0) throw new Error("dictation: command \"remove\" ended with none removing");
+        t.removing -= 1;
         if (code !== 0) effects.push({ kind: "log", line: "dictation: remove=failed code=" + (code === null ? "none" : code) });
         break;
     case STATE:
@@ -584,7 +620,7 @@ function ran(s, tag, code, out) {
         if (t.daemon !== "starting" || t.step !== tag) throw new Error("dictation: command " + JSON.stringify(tag) + " ended at step " + JSON.stringify(t.step));
         stepped(t, effects, tag, code, out);
     }
-    return { model: t, effects: effects };
+    return refresh(t, effects);
 }
 
 // One line of `status --format json`: { word, model }, or null for a line
@@ -642,7 +678,7 @@ function status(s, line) {
         command(t, effects, "cancel", ["voxtype", "record", "cancel"]);
     }
     drained(t, effects);
-    return { model: t, effects: effects };
+    return refresh(t, effects);
 }
 
 // The daemon child ended; CODE is null for one that did not start.
@@ -657,7 +693,14 @@ function exited(s, code, complaint) {
     if (was === "running") {
         var daemonReason = code === 74 ? "stream-overflow role=daemon" : "ended code=" + (code === null ? "none" : code);
         if (complaint) daemonReason += " stderr=" + JSON.stringify(complaint);
+        // A daemon that never read ready, or one that flooded its stream,
+        // would end the same way again.
+        var retry = t.daemon === "ready" && code !== 74 && t.retries < RETRY_MS.length;
         fail(t, effects, daemonReason);
+        if (retry && t.daemon === "failed") {
+            setTimer(t, effects, "retry", RETRY_MS[t.retries]);
+            t.retries += 1;
+        }
         return { model: t, effects: effects };
     }
     if (was === "draining") abort(t, effects);
@@ -696,6 +739,9 @@ function deadline(s) {
     } else if (timer === "drain" && t.child === "draining") {
         effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });
         endChild(t, effects);
+    } else if (timer === "retry" && t.daemon === "failed") {
+        var again = restart(t);
+        return { model: again.model, effects: effects.concat(again.effects) };
     } else {
         throw new Error("dictation: timer " + timer + " fired with nothing to end");
     }
