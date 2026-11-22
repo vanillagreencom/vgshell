@@ -651,16 +651,17 @@ function revealTarget(state, addresses, named) {
     return { state: focused && onScreen(target, state.monitors) ? "shown" : "reveal", address: address };
 }
 
-// Whether another window covers the window at ADDRESS, from windowState's
-// clients: a mapped floating client, not hidden, on its workspace or
-// pinned, whose box overlaps it and that draws above it or holds the
-// keyboard (focusHistoryID 0, the window focused last). Hyprland v0.57.0
-// draws tiled windows, then floating ones in its window list's order, then
-// pinned ones (src/render/Renderer.cpp renderWorkspaceWindows); j/clients
-// prints that list in order (src/ipc/s1/Commands.cpp clientsRequest), and
-// a raise moves a window to its end (src/desktop/state/WindowState.cpp
-// moveToTop). Focus alone restacks nothing (src/desktop/state/FocusState.cpp
-// rawWindowFocus), so a tiled window follow_mouse focuses covers nothing.
+// Whether a raise would bring the floating window at ADDRESS in front, from
+// windowState's clients: another mapped floating client, not hidden, on its
+// workspace or pinned, overlaps it and draws above it. This judges stacking
+// among windows that are not fullscreen. Hyprland v0.57.0 draws tiled
+// windows, then floating ones in its window list's order, then pinned ones
+// (src/render/Renderer.cpp renderWorkspaceWindows); j/clients prints that
+// list in order (src/ipc/s1/Commands.cpp clientsRequest), and a raise moves
+// a window to its end (src/desktop/state/WindowState.cpp moveToTop). Focus
+// alone restacks nothing (src/desktop/state/FocusState.cpp rawWindowFocus),
+// so the window holding the keyboard is judged by its place in the list.
+// A tiled window is never covered: no raise draws it above a floating one.
 // No documented field names a stacking position: neither hyprctl's nor
 // Quickshell 0.3.1's HyprlandToplevel
 // (https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandToplevel/),
@@ -679,6 +680,7 @@ function windowCovered(clients, address) {
     if (index === -1) return { ok: false, error: "refused: cover=unmapped address=" + want };
     var self = clients[index], own = box(self), key = workspaceKey(self.workspace || {});
     if (!rect(own)) return { ok: false, error: "refused: cover=window-shape address=" + want };
+    if (self.floating !== true) return { ok: true, covered: false };
     for (var j = 0; j < clients.length; j++) {
         var c = clients[j];
         if (j === index || !c || !c.mapped || c.hidden === true || c.floating !== true) continue;
@@ -686,9 +688,9 @@ function windowCovered(clients, address) {
         var other = box(c);
         if (!rect(other)) return { ok: false, error: "refused: cover=window-shape address=" + String(c.address) };
         if (other.x >= own.x + own.w || own.x >= other.x + other.w || other.y >= own.y + own.h || own.y >= other.y + other.h) continue;
-        var above = self.floating !== true || (c.pinned === true && self.pinned !== true)
+        var above = (c.pinned === true && self.pinned !== true)
             || (c.pinned === true) === (self.pinned === true) && j > index;
-        if (above || c.focusHistoryID === 0) return { ok: true, covered: true };
+        if (above) return { ok: true, covered: true };
     }
     return { ok: true, covered: false };
 }

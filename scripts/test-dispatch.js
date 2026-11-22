@@ -316,7 +316,8 @@ function verifyCover(lib, report) {
         ["a tiled window holding the keyboard", [win("0xc3", { floating: false, at: [0, 40], size: [1920, 1040], focusHistoryID: 0 }), self], { ok: true, covered: false }],
         ["the window itself holding the keyboard, on top", [win("0xb2", { focusHistoryID: 1 }), win("0xa1", { focusHistoryID: 0 })], { ok: true, covered: false }],
         ["a floating window below it, unfocused", [win("0xb2", { focusHistoryID: 2 }), self], { ok: true, covered: false }],
-        ["a floating window below it holding the keyboard", [win("0xb2", { focusHistoryID: 0 }), self], { ok: true, covered: true }],
+        ["a floating window below it holding the keyboard", [win("0xb2", { focusHistoryID: 0 }), self], { ok: true, covered: false }],
+        ["a tiled window listed after it", [self, win("0xc3", { floating: false, at: [0, 40], size: [1920, 1040], focusHistoryID: 0 })], { ok: true, covered: false }],
         ["a floating window above it that does not overlap", [self, win("0xb2", { at: [1300, 200], size: [200, 200], focusHistoryID: 0 })], { ok: true, covered: false }],
         ["a floating window touching its edge", [self, win("0xb2", { at: [1200, 200], size: [200, 200] })], { ok: true, covered: false }],
         ["a floating window above it on another workspace", [self, win("0xb2", { workspace: { id: 2, name: "2" } })], { ok: true, covered: false }],
@@ -325,7 +326,8 @@ function verifyCover(lib, report) {
         ["a window listed above a pinned one", [win("0xa1", { pinned: true }), win("0xb2")], { ok: true, covered: false }],
         ["a hidden group member above it", [self, win("0xb2", { hidden: true })], { ok: true, covered: false }],
         ["an unmapped window above it", [self, win("0xb2", { mapped: false })], { ok: true, covered: false }],
-        ["a tiled window under any floating overlapping one", [win("0xa1", { floating: false }), win("0xb2")].reverse(), { ok: true, covered: true }],
+        ["a tiled window under a floating one listed after it", [win("0xa1", { floating: false }), win("0xb2")], { ok: true, covered: false }],
+        ["a tiled window under a floating one listed before it", [win("0xb2"), win("0xa1", { floating: false })], { ok: true, covered: false }],
         ["the window at an address in capitals", [win("0xA1"), win("0xb2")], { ok: true, covered: true }],
         ["the window unmapped", [win("0xa1", { mapped: false })], { ok: false, error: "refused: cover=unmapped address=0xa1" }],
         ["the window listed twice", [self, self], { ok: false, error: "refused: cover=windows address=0xa1" }],
@@ -776,11 +778,12 @@ try {
         check("control " + name + " fails the reveal rows", bad > 0, true);
     }
     const coverControls = [
-        ["the old rule: an inactive window is covered", "if (above || c.focusHistoryID === 0) return { ok: true, covered: true };", "if (self.focusHistoryID !== 0) return { ok: true, covered: true };"],
+        ["the old rule: an inactive window is covered", "if (above) return { ok: true, covered: true };", "if (self.focusHistoryID !== 0) return { ok: true, covered: true };"],
         ["only floating windows cover", "c.hidden === true || c.floating !== true) continue;", "c.hidden === true) continue;"],
         ["the list's order is the stacking", "|| (c.pinned === true) === (self.pinned === true) && j > index;", "|| (c.pinned === true) === (self.pinned === true);"],
-        ["the keyboard's window covers", "if (above || c.focusHistoryID === 0)", "if (above)"],
-        ["pinned windows draw last", "|| (c.pinned === true && self.pinned !== true)", ""],
+        ["the keyboard's window counts as above", "if (above) return { ok: true, covered: true };", "if (above || c.focusHistoryID === 0) return { ok: true, covered: true };"],
+        ["a raise cannot lift a tiled window", "    if (self.floating !== true) return { ok: true, covered: false };\n", ""],
+        ["pinned windows draw last", "(c.pinned === true && self.pinned !== true)", "false"],
         ["only an overlap covers", "if (other.x >= own.x + own.w || own.x >= other.x + other.w || other.y >= own.y + own.h || own.y >= other.y + other.h) continue;", ""],
         ["only its workspace covers", "if (c.pinned !== true && (key === \"\" || workspaceKey(c.workspace || {}) !== key)) continue;", ""],
         ["a hidden window covers nothing", "c.hidden === true || c.floating !== true) continue;", "c.floating !== true) continue;"]
