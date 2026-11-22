@@ -266,6 +266,9 @@ f share/vgshell/shell/Ui/layout/ContentRow.qml
 f share/vgshell/shell/Ui/layout/DeviceList.qml
 f share/vgshell/shell/Ui/layout/DeviceRow.qml
 f share/vgshell/shell/Ui/layout/Disclosure.qml
+f share/vgshell/shell/Ui/layout/FirstView.qml
+f share/vgshell/shell/Ui/layout/FirstViewLogic.js
+f share/vgshell/shell/Ui/layout/FrameLatch.qml
 f share/vgshell/shell/Ui/layout/GroupList.qml
 f share/vgshell/shell/Ui/layout/ListAnimation.qml
 f share/vgshell/shell/Ui/layout/ListCursor.qml

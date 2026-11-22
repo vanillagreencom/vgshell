@@ -15,7 +15,9 @@ import "../../shell/plugins/vgs.vpn/VpnLogic.js" as Logic
 // it, else Import a VPN file; an open password prompt keeps its
 // profile when another connect ends at Needs password; the kill
 // switch's row in each state, in the section and the flyout; and the
-// blocked-traffic notice while the kill switch holds the block.
+// blocked-traffic notice while the kill switch holds the block, whose
+// Turn VPN off, pressed by key before the flyout's rows past its first
+// view build, still hands the focus to the held profile's switch.
 Item {
     id: root
     width: 900
@@ -503,6 +505,37 @@ Item {
             verify(unlisted.firstStop === null, "with no button to press");
             if (data.tag === "flyout")
                 verify(named("vpn-subtitle").text !== Logic.summary(root.values.profiles, null), "the header reads the drop for an unlisted profile");
+        }
+
+        // The keys arrive before any frame, so the rows past the first view
+        // have not built: the focus move must build the held profile's row.
+        // In the flyout: the System section's Connect automatically block
+        // shows once profiles arrive, and a block that shows builds every
+        // part before it (FirstView), so the section builds every row.
+        function test_turn_vpn_off_before_the_rows_build_focuses_the_switch() {
+            const ready = { state: "ready", reason: "granted" };
+            const uuids = [];
+            for (let i = 0; i < 30; i++) uuids.push("00000000-0000-4000-8000-" + String(i).padStart(12, "0"));
+            const held = uuids[uuids.length - 1];
+            const listing = { state: "available", rows: uuids.map((uuid, i) => ({ uuid: uuid, name: "Tunnel " + i, type: "wireguard", state: "" })),
+                count: uuids.length, activeCount: 0 };
+            const details = {};
+            for (const uuid of uuids) details[uuid] = { service: "", server: "203.0.113.1:51820" };
+            const profiles = Logic.compose(listing, details, {}, {}, null, "");
+            root.calls = [];
+            root.missing = [];
+            root.values = { profiles: profiles, connection: Logic.connection(profiles), killSwitchState: killState(ready,
+                { kind: "valid", meantOn: held, mode: "block", portalUntil: "0" }, "state=holding reason=tunnel-down blocked=3 tunnel= profile=" + held) };
+            view = createTemporaryObject(panelComponent, root);
+            verify(view !== null);
+            view.panel.shell = root.shell();
+            verify(named("vpn-profile:" + held) === null, "the held profile's row is past the first view and not built");
+            const notice = named("vpn-blocked");
+            verify(notice !== null && notice.firstStop !== null, "the notice offers Turn VPN off");
+            notice.firstStop.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(lastIpc(), { kind: "profile-down", id: held });
+            verify(named("vpn-profile-toggle:" + held).activeFocus, "the focus waits on the held profile's switch");
         }
 
         // The flyout: no Remove, no Updates, no empty state.

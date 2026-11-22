@@ -252,7 +252,9 @@ FocusScope {
         onRejected: root.revertTrial()
     }
 
-    Column {
+    // The display rows and the sections that fill the window build before
+    // the pane's first frame; the rest build behind it.
+    FirstView {
         id: content
         width: root.width
         spacing: Theme.stack.section
@@ -574,11 +576,9 @@ FocusScope {
                 width: parent.width
                 spacing: Theme.stack.row
 
-                Repeater {
-                    model: ScriptModel {
-                        values: root.list.items
-                        objectProp: "id"
-                    }
+                FirstView.Rows {
+                    values: root.list.items
+                    objectProp: "id"
 
                     Column {
                         id: entry
@@ -588,17 +588,23 @@ FocusScope {
                         width: displaysColumn.width
                         spacing: Theme.stack.row
 
+                        // A display's level row and its screen choice each
+                        // build as one part, so a row built behind the
+                        // first frame takes a step of its own for each.
+                        FirstView.Block {
                         DisplayRow {
                             id: row
                             width: entry.width
                             shell: root.shell
                             display: entry.modelData
                         }
+                        }
 
+                        FirstView.Block {
+                            visible: entry.placeable
                         FormRow {
                             id: screenField
                             width: entry.width
-                            visible: entry.placeable
                             label: "Screen"
                             warning: entry.modelData.outputs.length === 0 ? "Not placed" : ""
 
@@ -634,6 +640,7 @@ FocusScope {
                                 }
                             }
                         }
+                        }
                     }
                 }
             }
@@ -667,6 +674,7 @@ FocusScope {
         // level they dim to, each a Select over its schema entry's presets,
         // written through `configure`; a custom value, set on the plugin's
         // settings page, shows as one more choice.
+        FirstView.Block {
         Column {
             id: dimColumn
             readonly property var schema: root.shell === null ? ({}) : root.shell.manifest.schema
@@ -734,12 +742,14 @@ FocusScope {
                 wrapMode: Text.Wrap
             }
         }
+        }
 
+        FirstView.Block {
+            visible: root.stale.length > 0 || root.assignments.error !== null
         Column {
             id: staleColumn
             width: parent.width
             spacing: Theme.stack.group
-            visible: root.stale.length > 0 || root.assignments.error !== null
 
             SectionHeader {
                 width: parent.width
@@ -779,12 +789,14 @@ FocusScope {
                 }
             }
         }
+        }
 
+        FirstView.Block {
+            visible: root.accessRows.length > 0
         Column {
             id: accessColumn
             width: parent.width
             spacing: Theme.stack.group
-            visible: root.accessRows.length > 0
 
             SectionHeader {
                 width: parent.width
@@ -813,6 +825,7 @@ FocusScope {
                     }
                 }
             }
+        }
         }
     }
 }

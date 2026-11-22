@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
@@ -160,8 +159,8 @@ Item {
 
     function rowItemAt(index) {
         if (index < 0 || index >= rowKeys.length) return null;
-        if (index < packages.length) return installedRows.itemAt(index);
-        return catalogRows.itemAt(index - packages.length);
+        if (index < packages.length) return themeBody.ensure(installedRows, index);
+        return themeBody.ensure(catalogRows, index - packages.length);
     }
 
     function activateRow(index) {
@@ -312,10 +311,14 @@ Item {
                 onActivated: index => root.activateRow(index)
             }
 
-            Column {
+            // The rows that fill the panel's cap, and the current theme's
+            // row with a cap after it, build before the first frame; the
+            // rest build behind it.
+            FirstView {
                 id: themeBody
                 width: parent.width
                 spacing: layout.bodySpacing
+                cap: layout.maximumHeight
 
                 Section {
             id: wallpaperSection
@@ -396,12 +399,11 @@ Item {
                 }
             }
 
-            Repeater {
+            FirstView.Rows {
                 id: installedRows
-                model: ScriptModel {
-                    values: root.packages.map(p => Object.assign({ key: p.source + "/" + p.name }, p))
-                    objectProp: "key"
-                }
+                values: root.packages.map(p => Object.assign({ key: p.source + "/" + p.name }, p))
+                objectProp: "key"
+                target: root.keyIndex(root.currentKey) < root.packages.length ? root.keyIndex(root.currentKey) : -1
 
                 ThemeRow {
                     required property var modelData
@@ -441,12 +443,11 @@ Item {
                 wrapMode: Text.Wrap
             }
 
-            Repeater {
+            FirstView.Rows {
                 id: catalogRows
-                model: ScriptModel {
-                    values: root.catalogEntries.map(e => Object.assign({ key: e.name }, e))
-                    objectProp: "key"
-                }
+                values: root.catalogEntries.map(e => Object.assign({ key: e.name }, e))
+                objectProp: "key"
+                target: root.keyIndex(root.currentKey) - root.packages.length
 
                 ThemeRow {
                     required property var modelData

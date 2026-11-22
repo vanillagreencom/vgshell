@@ -312,11 +312,13 @@ else
 fi
 
 # A table edit runs the rows it adds or edits. A git copy of the script
-# holds the shipped table as its base; each case edits the copy as a lane
-# would, and the plan must run exactly the rows the case names.
+# holds the shipped table as its base, beside the shipped test files its
+# rows name; each case edits the copy as a lane would, and the plan must
+# run exactly the rows the case names.
 q="$tmp/qml-table"
 mkdir -p "$q/scripts"
 cp -- "$repo/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit.sh"
+ln -s -- "$repo/scripts/qml-tests" "$q/scripts/qml-tests"
 "${base_env[@]}" git -C "$q" init -q
 "${base_env[@]}" git -C "$q" add -A
 "${base_env[@]}" git -C "$q" commit -q -m base
@@ -379,6 +381,30 @@ if [[ $qml_total != unread ]]; then
   table_case "qml mutation planning runs every row for a table line that is no row" row-shape "$q_base" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=row-shape"
   table_case "qml mutation planning runs every row for an unreadable base" edit-row "0000000000000000000000000000000000000000" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unreadable"
   table_case "qml mutation planning runs every row with no base" edit-row - "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unset"
+fi
+# A `|` inside a needle shifts the test field onto the needle's text, which
+# names no test file: the plan refuses the table before any case runs, so
+# no baseline runs it.
+"${base_env[@]}" git -C "$q" checkout -q -- scripts/test-qml-unit.sh
+status=0
+if python3 - "$q/scripts/test-qml-unit.sh" <<'PY'
+import sys
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+lines.insert(lines.index("mutations=(") + 1, '  "a shifted row|foundation/QrMatrix.qml|a || b|a|tst_qrmatrix.qml"')
+open(path, "w", encoding="utf-8").write("\n".join(lines))
+PY
+then
+  out="$("${base_env[@]}" VGS_VALIDATE_CHANGED="$tmp/qml-table.paths" VGS_VALIDATE_BASE="$q_base" "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
+  if [[ $status == 1 ]] && grep -qxF 'test-qml-unit: refused: row-test=not-a-file test=[ b] row=a shifted row' <<<"$out" &&
+     ! grep -q '^test-qml-unit: scope=' <<<"$out"; then
+    ok "qml mutation planning refuses a row whose test field names no file"
+  else
+    fail "qml mutation planning shifted row: status=$status"
+    printf '%s\n' "$out" | grep -v '^skip ' | sed 's/^/        /'
+  fi
+else
+  fail "qml mutation planning shifted row: the edit did not apply"
 fi
 
 d="$tmp/clean"; fresh "$d"

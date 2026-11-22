@@ -190,8 +190,9 @@ FocusScope {
     // and a parent read there is a TypeError the log keeps (the
     // system-window row's log check). Each Section measures its own
     // `stack.heading` above it, less this column's spacing, which is the
-    // problem line's space.
-    Column {
+    // problem line's space. The stages, groups and fields that fill the
+    // window build before the pane's first frame; the rest build behind it.
+    FirstView {
         id: content
         width: root.width
         spacing: Theme.stack.group
@@ -235,10 +236,10 @@ FocusScope {
             title: "Idle timeline"
             description: stayAwake.awake.active ? "The computer stays awake. Displays and locking follow your Stay awake settings." : "Each time counts from your last input."
 
-            // A ScriptModel of stage names keeps each row while the record
+            // Rows keyed by stage name (a ScriptModel) keep each row while the record
             // and the editors are replaced whole on every change.
-            Repeater {
-                model: ScriptModel { values: root.timelineStages }
+            FirstView.Rows {
+                values: root.timelineStages
 
                 Loader {
                     id: stageRow
@@ -290,8 +291,9 @@ FocusScope {
             }
         }
 
-        Repeater {
-            model: root.groups.filter(group => group.name !== "Stay awake")
+        FirstView.Rows {
+            values: root.groups.filter(group => group.name !== "Stay awake")
+            objectProp: "name"
 
             Section {
                 id: group
@@ -301,8 +303,8 @@ FocusScope {
                 width: content.width
                 title: modelData.name
 
-                Repeater {
-                    model: group.keys
+                FirstView.Rows {
+                    values: group.keys
 
                     Field {
                         id: field

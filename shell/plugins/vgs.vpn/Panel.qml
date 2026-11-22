@@ -55,6 +55,8 @@ Item {
             width: layout.contentWidth
             shell: root.shell
             promptPane: layout
+            // The fitted panel opens at its content's height, up to its cap.
+            cap: layout.maximumHeight
         }
     }
 }

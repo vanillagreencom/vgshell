@@ -68,7 +68,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.displays/helper/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Lifetime.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.displays/helper/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Lifetime.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
 set -euo pipefail
 # The missing-restore control removes the service while its pane closes the
 # trial dialog.
@@ -309,7 +309,7 @@ start = pane.index('            FormRow {\n                id: vrrRow')
 end = pane.index('\n            FormRow {', start + 1)
 row = pane[start:end]
 changed = pane[:start] + pane[end:]
-at = changed.index('    Column {\n        id: content')
+at = changed.index('    FirstView {\n        id: content')
 changed = changed[:at] + row + '\n' + changed[at:]
 assert changed != pane
 (folder / 'PaneVrrOutside.qml').write_text(changed)

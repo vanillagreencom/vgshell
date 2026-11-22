@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -83,7 +82,7 @@ FocusScope {
     }
 
     function focusRow(index) {
-        const row = rows.itemAt(index);
+        const row = view.ensure(rows, index);
         if (row !== null) row.control.forceActiveFocus(Qt.TabFocusReason);
     }
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
@@ -95,7 +94,7 @@ FocusScope {
         flickable: layout.scrollArea
         viewHeight: layout.scrollArea.height
         rowHeight: Theme.listItem.twoLineHeight
-        itemAt: index => rows.itemAt(index)
+        itemAt: index => view.ensure(rows, index)
         labelAt: index => root.widgets[index].name
         onMoved: index => root.focusRow(index)
         onActivated: index => root.act(root.widgets[index])
@@ -126,12 +125,17 @@ FocusScope {
             iconName: "puzzle"
             text: "No widgets available"
         }
-        Repeater {
+        // The rows that fill the window's cap build before its first frame,
+        // so it opens at its height; the rest build behind it.
+        FirstView {
+            id: view
+            width: layout.contentWidth
+            cap: layout.maximumHeight
+
+        FirstView.Rows {
             id: rows
-            model: ScriptModel {
-                values: root.widgets
-                objectProp: "id"
-            }
+            values: root.widgets
+            objectProp: "id"
             ContentRow {
                 id: entry
                 required property var modelData
@@ -210,5 +214,6 @@ FocusScope {
                 ]
             }
         }
+    }
     }
 }

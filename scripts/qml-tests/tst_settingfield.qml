@@ -176,6 +176,31 @@ Item {
         }
     }
 
+    // The same page built with a value no choice holds: its custom editor
+    // shows from the start, below the view. It takes its
+    // width after it is built, as a FirstView block's Loader hands its item
+    // the block's width, so the field lays out again after completion.
+    Component {
+        id: builtCustomPage
+        ScrollArea {
+            id: builtArea
+            x: 480
+            width: 0
+            height: 200
+            Column {
+                width: builtArea.contentWidth
+                Item { width: parent.width; height: 400 }
+                SettingField {
+                    key: "device"
+                    spec: ({ type: "string", label: "Device", optionsFrom: "devices", allowCustom: true })
+                    choices: [{ label: "Alpha", value: "" }, { label: "Beta", value: "b" }]
+                    value: "gone"
+                }
+                Item { width: parent.width; height: 400 }
+            }
+        }
+    }
+
     // Schema tooltip metadata joins the label's click-open help. A label
     // wraps and never elides; `probe` takes the labels whose drawn lines the
     // manifest judge's line count must match.
@@ -906,6 +931,18 @@ Item {
             verify(!pageFed.customVisible);
             selectOf(pageFed).choose(pageFed.choices.length);
             tryVerify(() => customBottomInView() <= page.height && page.contentY > 0, 1000, "choosing Custom… brings its editor into view");
+        }
+
+        function test_a_custom_editor_built_with_its_field_moves_no_page() {
+            const built = createTemporaryObject(builtCustomPage, root);
+            verify(built !== null);
+            const field = descendants(built).find(child => child instanceof SettingField);
+            verify(field.customVisible, "the stored value shows its custom editor");
+            built.width = 420;
+            verify(waitForPolish(built));
+            verify(renderedFrame(built));
+            wait(0);
+            compare(built.contentY, 0, "a page that builds the field keeps where it opened");
         }
 
         function test_a_custom_editor_in_view_moves_no_page() {

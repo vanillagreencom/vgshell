@@ -15,7 +15,10 @@ import qs.Ui
 // first in its Column, or in a Column first in its own, as a `Section`
 // holds it, looks to the item before that Column in the Column above, and
 // the spacing and top padding of each Column it climbs already stand in
-// that space. It climbs no further than a parent that is not a Column,
+// that space. A Loader that holds the Column, as a FirstView block holds
+// a section, stands in its place: its column places the Loader, which takes
+// the item's size (https://doc.qt.io/qt-6/qml-qtquick-loader.html). It
+// climbs no further than another parent that is not a Column,
 // such as a Card's box or a tab page's holder, and a heading with nothing
 // shown before it there, the first of a page or a card, takes none. Ink is
 // drawn in whole pixel rows on whole-pixel item edges: the lowest inked
@@ -44,13 +47,26 @@ Column {
     // The item laid out last before the heading, and the space the
     // Columns climbed to reach it already leave above the heading, or
     // null when nothing shown stands before it. Only `spacing`,
-    // `topPadding`, `visible` and sizes are read, never a laid-out `y`
-    // or a mapping: Qt 6.11.2 keeps a binding's trigger on geometry it
+    // `topPadding`, `visible`, sizes and `Positioner.index` are read, never
+    // a laid-out `y` or a mapping: Qt 6.11.2 keeps a binding's trigger on geometry it
     // read before, and a moved row would loop (design-system.md § Layout).
+    // A Repeater places a row it builds by appending it to its parent and
+    // then stacking it into place, and the move emits no change of
+    // `children` (QQuickRepeater initItem, QQuickItem::stackBefore, Qt
+    // 6.12.0), so a row built after this reads, as FirstView builds rows
+    // behind the first frame, would leave it on the item before that row.
+    // The search reads the place in its column of each item it climbs
+    // from (`Positioner.index`), which the Column sets as it lays a row
+    // stacked before that item out, as FormRow's `rowAbove` does.
     readonly property var placement: {
         let item = root;
         let room = 0;
-        while (item.parent instanceof Column) {
+        while (item.parent instanceof Column || item.parent instanceof Loader) {
+            if (item.parent instanceof Loader) {
+                item = item.parent;
+                continue;
+            }
+            void item.Positioner.index;
             const column = item.parent;
             const siblings = column.children;
             for (let i = siblings.indexOf(item) - 1; i >= 0; i--) {

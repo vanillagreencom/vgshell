@@ -17,7 +17,9 @@ import "../../shell/plugins/vgs.bar" as BarPlugin
 // window swaps does. A mouse click on a control leaves no focus ring; the
 // arrows move the keyboard to a row's control with its ring, and Return
 // and Space press it once. Opening, also over a focused control, focuses
-// the list and presses nothing.
+// the list and presses nothing. A key move to a row the window's first
+// view has not built, before its later rows build, builds that row and
+// hands its control the keys.
 Item {
     id: root
     width: 700
@@ -40,6 +42,17 @@ Item {
         { id: "acme.off", name: "Turned off", icon: "clock", description: "A plugin that is off", kinds: ["bar-widget", "panel"], enablement: "first-party", enabled: false, placed: false },
         { id: "acme.service", name: "Service", icon: "clock", description: "No widget", kinds: ["service"], enablement: "first-party", enabled: true, placed: false }
     ]
+
+    // More widgets than the window's cap holds (Theme.size.panel.maxHeight
+    // over Theme.listItem.twoLineHeight is about ten rows), the last the
+    // only name that starts with Z.
+    readonly property var manyRows: {
+        const out = [];
+        for (let i = 0; i < 29; i++)
+            out.push({ id: "acme.row" + i, name: "Row " + i, icon: "clock", description: "A widget", kinds: ["bar-widget", "service"], enablement: "first-party", enabled: true, placed: false });
+        out.push({ id: "acme.zulu", name: "Zulu", icon: "clock", description: "The last widget", kinds: ["bar-widget", "service"], enablement: "first-party", enabled: true, placed: false });
+        return out;
+    }
 
     Component {
         id: chooserComponent
@@ -304,6 +317,31 @@ Item {
             keyClick(Qt.Key_Return);
             keyClick(Qt.Key_Space);
             compare(root.calls, [], "Return and Space with no row selected press nothing");
+        }
+
+        function test_a_key_move_past_the_first_view_focuses_its_row_data() {
+            return [
+                { tag: "End", key: Qt.Key_End },
+                { tag: "type-ahead", key: "z" }
+            ];
+        }
+
+        // The keys arrive in the summon's turn, before any frame, so the
+        // later rows have not built: the move itself must build its row.
+        function test_a_key_move_past_the_first_view_focuses_its_row(data) {
+            const many = createTemporaryObject(chooserComponent, root);
+            verify(many !== null);
+            const next = shell();
+            next.manager.plugins = root.manyRows;
+            many.shell = next;
+            many.open(JSON.stringify({ screen: "DP-1", x: 40 }));
+            many.forceActiveFocus(Qt.OtherFocusReason);
+            chooser = many;
+            const last = root.manyRows[root.manyRows.length - 1].id;
+            verify(!descendants(many).some(item => item.modelData !== undefined && item.modelData.id === last), "the last row is past the first view and not built");
+            keyClick(data.key);
+            verify(rowOf(last).control.activeFocus, "the move hands the row's control the keys");
+            compare(many.current, root.manyRows.length - 1);
         }
 
         function test_rows_list_widgets_alone_with_no_chip() {

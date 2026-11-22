@@ -78,6 +78,9 @@ FocusScope {
     // The corner the scrim rounds to: the hosting Pane's container corner,
     // or none over the body, a square part of its page.
     readonly property real promptCorner: promptPane === null ? 0 : promptPane.cornerRadius
+    // The room the host gives the body's first view: its window's height
+    // unless the host names its cap (FirstView `cap`).
+    property alias cap: content.cap
 
     implicitHeight: Math.max(content.implicitHeight, nordSection.opened ? nordSection.dialogHeight + 2 * Theme.dialog.margin : 0, confirming ? confirm.implicitHeight + 2 * Theme.dialog.margin : 0,
         prompting ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0)
@@ -282,7 +285,13 @@ FocusScope {
         width: parent.width
         implicitHeight: rows.implicitHeight
         function rowAt(index) { return index < 0 ? null : repeater.itemAt(index); }
+        // A focus move to a row not built yet builds it (FirstView ensure);
+        // a binding reads only a built row (`builtRow`).
         function rowFor(uuid) {
+            const index = root.profileRows.findIndex(row => row.uuid === uuid);
+            return index === -1 ? null : content.ensure(repeater, index);
+        }
+        function builtRow(uuid) {
             for (let i = 0; i < repeater.count; i++) if (repeater.itemAt(i).modelData.uuid === uuid) return repeater.itemAt(i);
             return null;
         }
@@ -296,9 +305,10 @@ FocusScope {
         Column {
             id: rows
             width: listRoot.width
-            Repeater {
+            FirstView.Rows {
                 id: repeater
-                model: ScriptModel { values: root.profileRows; objectProp: "uuid" }
+                values: root.profileRows
+                objectProp: "uuid"
                 ProfileRow {
                     id: profileRow
                     width: rows.width
@@ -321,7 +331,9 @@ FocusScope {
         }
     }
 
-    Column {
+    // The profiles and sections that fill the first view build before the
+    // first frame; the rest build behind it.
+    FirstView {
         id: content
         width: root.width
         enabled: !root.confirming && !root.prompting && !nordSection.opened
@@ -442,15 +454,18 @@ FocusScope {
             profiles: root.profiles
             onReplied: (reply, refusal) => root.answered(reply, refusal)
         }
-        AutoConnect {
+        FirstView.Block {
             visible: root.expanded && root.listed
-            shell: root.shell
-            onReplied: (reply, refusal) => root.answered(reply, refusal)
+            AutoConnect {
+                shell: root.shell
+                onReplied: (reply, refusal) => root.answered(reply, refusal)
+            }
         }
+        FirstView.Block {
+            visible: root.expanded && root.answering
         Section {
             objectName: "vpn-updates"
             width: parent.width
-            visible: root.expanded && root.answering
             title: "Updates"
             Field {
                 width: parent.width
@@ -467,6 +482,7 @@ FocusScope {
                     }
                 }
             }
+        }
         }
     }
 
@@ -485,7 +501,7 @@ FocusScope {
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(implicitWidth, root.width)
         readonly property real anchorY: {
-            const row = root.confirming && root.list !== null ? root.list.rowFor(root.confirmTarget.uuid) : null;
+            const row = root.confirming && root.list !== null ? root.list.builtRow(root.confirmTarget.uuid) : null;
             return row === null ? root.height / 2 : row.mapToItem(root, 0, row.height / 2).y;
         }
         y: Math.max(0, Math.min(root.height - height, anchorY - height / 2))
@@ -516,7 +532,7 @@ FocusScope {
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(implicitWidth, parent.width)
         readonly property real anchorY: {
-            const row = root.prompting && root.promptPane === null && root.list !== null ? root.list.rowFor(root.promptTarget.uuid) : null;
+            const row = root.prompting && root.promptPane === null && root.list !== null ? root.list.builtRow(root.promptTarget.uuid) : null;
             return row === null ? parent.height / 2 : row.mapToItem(root, 0, row.height / 2).y;
         }
         y: Math.max(0, Math.min(parent.height - height, anchorY - height / 2))

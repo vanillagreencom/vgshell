@@ -967,6 +967,27 @@ Item {
                     description: "A public sample matrix drawn with integer modules."
                     QrMatrix { matrixData: "11111\n10001\n10101\n10001\n11111\n" }
                 }
+                // A sample that fits in the window, so it builds whole
+                // before the first frame and the Gallery defers nothing.
+                Section {
+                    title: "First view"
+                    description: "Builds what the window shows before its first frame, the rest after it."
+                    FirstView {
+                        width: parent.width
+                        spacing: Theme.stack.row
+                        FirstView.Block {
+                            Label { role: "body"; text: "A block"; width: parent.width }
+                        }
+                        FirstView.Rows {
+                            values: ["First row", "Second row", "Third row"]
+                            Label {
+                                required property var modelData
+                                role: "body"
+                                text: modelData
+                            }
+                        }
+                    }
+                }
                 Section {
                     title: "Carousel"
                     rowSpacing: Theme.stack.group

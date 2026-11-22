@@ -50,6 +50,7 @@ An inherited lock can outlive the shell through its children. A resource without
 - Never sleep unconditionally on apply. Read first and skip unchanged writes. Review holds it.
 - Keep hot state out of unused or plugin-wide bindings. Notify only the plugin whose status changed; join manager status on read. `scripts/qml-tests/tst_plugin_status.qml` checks this boundary; review holds other hot bindings.
 - Build services only after the first bar frame ([D047](../decisions/D047-services-build-after-the-first-bar-frame.md)). `scripts/smoke/rows/start-order.sh` checks it.
+- Build only a surface's first view before its first frame, and the rest in steps after it, one per frame, through `FirstView` in `qs.Ui`. A page defers through no private copy of that decision. Two builds stay whole before the first frame: the Gallery keeps its eager build, and a Settings open that carries a reveal target builds every group first, so the target and everything above it are laid out before the reveal scrolls. `scripts/smoke/rows/open-split.sh` checks the open ceilings and the first frame's content on the places its header names, prints each open's longest step, and reads every other surface its sweep discovers; review holds the rest.
 - Name the tool and run behind every measured figure. A budget needs its measurement. Review holds the evidence boundary.
 
 ## The canonical example

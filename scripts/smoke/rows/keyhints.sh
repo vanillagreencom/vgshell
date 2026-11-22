@@ -51,10 +51,10 @@
 # 145 later opens at or below the limit, median 124 ms, three over 200 ms
 # (215, 219, 222), each in a run whose fastest later open read 165 ms or less.
 # Restoring eager Tooltip window construction must exceed the same budget.
-# The first frame holds the rows that fill the window, counted by the
-# heights its components guarantee (the window's `firstRows`), and each
-# open polls for the rows built behind it; a copy that never builds them is
-# the control. This row's timing marks, with per-thread /proc schedstat
+# The first frame holds the rows that fill the window, laid out and
+# counted by FirstView (shell/Ui/layout/FirstView.qml), and each open polls
+# for the rows built behind it; a copy whose FirstView never steps is the
+# control. This row's timing marks, with per-thread /proc schedstat
 # samples added, on 2026-11-15 on cachy at e84fe98f7 with 47 rows in 21
 # groups and world CPU pressure under 2%: the first frame built 14 rows in
 # 5 groups, a 1059 px pane for the 559 px window room, each row about
@@ -65,7 +65,7 @@
 # groups; the VGS-2570 branch validation run on 2026-11-15 on cachy reads
 # its five opens, and VGS-2570 holds them.
 # Hyprland consent wires the shortcuts before this row types its open key.
-# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/foundation/HintGround.js shell/Commons/Theme.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml bin/lib/qml-library.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml
+# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/foundation/HintGround.js shell/Commons/Theme.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml bin/lib/qml-library.js shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
 set -euo pipefail
 
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-initial-config.json"
@@ -499,7 +499,10 @@ printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/
 expect 'the timed shortcut reloads without configuration errors' '[]' hypr_reload_errors
 if kh_timing_tree keyhints-timing; then
   stop_shell
-  if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" && smoke_hold keyhints opens kh_timing_opens 5; then
+  # The timed opens and the control count the rows built behind the first
+  # frame, so the probe reads the window as built (Probe readAsBuilt).
+  if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" \
+    && [[ $(ipc smoke setReadAsBuilt true) == ok ]] && smoke_hold keyhints opens kh_timing_opens 5; then
     kh_timing_result="$(kh_timing_budget "$(kh_timing_readings_json)")" || kh_timing_result=unread
     printf '  keyhints-open-result=%s\n' "$kh_timing_result"
     if [[ $kh_timing_result == unmeasured ]]; then
@@ -516,8 +519,9 @@ if kh_timing_tree keyhints-timing; then
   stop_shell
 fi
 # The control never builds the rows behind the first frame.
-if copy_tree keyhints-unbuilt && edit_tree keyhints-unbuilt shell/plugins/vgs.keyhints/Window.qml 'root.presented = true' 'root.presented = false'; then
+if copy_tree keyhints-unbuilt && edit_tree keyhints-unbuilt shell/Ui/layout/FirstView.qml 'onFired: Qt.callLater(root.step)' 'onFired: {}'; then
   start_shell "$sandbox/tree-keyhints-unbuilt" "$sandbox/keyhints-unbuilt.log" || fail 'the unbuilt-rows control shell starts'
+  expect 'control: the probe reads the window as built' ok ipc smoke setReadAsBuilt true
   expect 'control: Key Hints is summoned with no rows behind its frame' ok ipc shell summon window vgs.keyhints '{}'
   expect_poll 'control: the window with no rows behind its frame maps' 1 window_count "$kh_title"
   expect 'control: a window that builds no row behind its first frame fails the workload check' False kh_timing_held_within
@@ -529,8 +533,18 @@ fi
 # itself there, ahead of the build each frame's handler queues.
 kh_hidden() { grep -q 'keyhints-timing: hidden=ok' "$instance_log" && echo True || echo False; }
 kh_hidden_faults() { grep -cE 'TypeError|ReferenceError|is not defined|Cannot read|Cannot assign' "$instance_log"; [[ $? -le 1 ]]; }
-if copy_tree keyhints-hidden && edit_tree keyhints-hidden shell/plugins/vgs.keyhints/Window.qml '        function onFrameSwapped() {' '        function onFrameSwapped() {
-            Qt.callLater(() => console.info("keyhints-timing: hidden=" + root.shell.surfaces.hide("window")));'; then
+if copy_tree keyhints-hidden && edit_tree keyhints-hidden shell/plugins/vgs.keyhints/Window.qml '    property Item initialFocus: search
+' '    property Item initialFocus: search
+    property bool hideAsked: false
+    Connections {
+        target: root.Window.window
+        enabled: !root.hideAsked
+        function onFrameSwapped() {
+            root.hideAsked = true;
+            Qt.callLater(() => console.info("keyhints-timing: hidden=" + root.shell.surfaces.hide("window")));
+        }
+    }
+'; then
   start_shell "$sandbox/tree-keyhints-hidden" "$sandbox/keyhints-hidden.log" || fail 'the hidden-window shell starts'
   expect 'Key Hints is summoned to hide after its first frame' ok ipc shell summon window vgs.keyhints '{}'
   expect_poll 'the window hides itself between its first frame and its later rows' True kh_hidden

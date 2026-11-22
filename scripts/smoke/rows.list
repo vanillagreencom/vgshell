@@ -117,6 +117,9 @@ jarvis-console
 # After jarvis-console, on its own fixture tree; it leaves Jarvis disabled
 # and the stock shell started.
 jarvis-reply
+# After the Jarvis rows, with the device fakes up: it reads jarvis.sh's
+# fixture helpers and starts its own shells, and leaves the stock shell.
+open-split
 instance-guard
 diagnostics
 supervise

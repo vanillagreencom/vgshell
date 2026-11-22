@@ -669,6 +669,11 @@ Singleton {
     function destroyBuilt(hostKey, instance) {
         const row = Logic.hasOwn(built, hostKey) ? rowFor(hostKey, instance) : undefined;
         if (row === undefined) throw new Error("plugins: destroying an instance with no build record under " + hostKey);
+        // destroy() deletes later, and a FirstView in the instance could
+        // take a deferred step in that gap and register on the drained
+        // lifetime. A hidden ancestor reads every descendant hidden, and a
+        // FirstView steps only while shown.
+        if (instance instanceof Item) instance.visible = false;
         row.lifetime.drain();
         forget(hostKey, instance);
         instance.destroy();

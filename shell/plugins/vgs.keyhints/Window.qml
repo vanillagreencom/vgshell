@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -51,35 +50,6 @@ FocusScope {
             binds: p.binds.filter(b => holds([p.name, b.description, b.shortcut].concat(Array.from(b.keys))))
         })).filter(g => g.binds.length > 0);
     }
-    // Whether the window's first frame is queued for presenting. A row's
-    // items are most of an open, and the count grows with every plugin bind,
-    // so the first frame builds only the rows that fill the window and the
-    // rest are built behind it.
-    property bool presented: false
-    // The rows of each group the first frame builds, by plugin id: enough
-    // that the pane is no shorter than the cap the window host maps every
-    // window at (OverlayState.windowRoom), so the window's first size
-    // request is unchanged. It counts only what the components guarantee:
-    // the header holds the title space and the search field above the
-    // pane's section gap; a section's heading stands `stack.heading` under
-    // the drawn ink above it and `sectionHeader.paddingBottom` over its
-    // first row; each row draws a field at least `textField.height` tall,
-    // and a key/value row stands `stack.page` under the row above's ink
-    // (Pane, SectionHeader, FormRow, ShortcutField). A group the room ends
-    // in builds only the rows that reach it.
-    readonly property var firstRows: {
-        if (presented) return ({});
-        let left = OverlayState.windowRoom(screen).height - Theme.stack.titleSpace - Theme.textField.height - Theme.stack.section;
-        const rows = {};
-        for (let i = 0; i < groups.length && left > 0; i++) {
-            left -= (i > 0 ? Theme.stack.heading : 0) + Theme.sectionHeader.paddingBottom;
-            let n = 0;
-            for (; n < groups[i].binds.length && (n === 0 || left > 0); n++) left -= (n > 0 ? Theme.stack.page : 0) + Theme.textField.height;
-            rows[groups[i].id] = n;
-        }
-        return rows;
-    }
-    readonly property var built: presented ? groups : groups.filter(g => firstRows[g.id] !== undefined)
     property Item initialFocus: search
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
@@ -110,21 +80,6 @@ FocusScope {
         search.forceActiveFocus(Qt.ShortcutFocusReason);
         search.insert(search.cursorPosition, typed);
         event.accepted = true;
-    }
-
-    // QQuickWindow emits frameSwapped once a frame is queued for presenting.
-    // callLater runs after the handlers already queued for that frame, by
-    // when a hide may have destroyed this window.
-    // https://doc.qt.io/qt-6/qquickwindow.html#frameSwapped
-    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
-    Connections {
-        target: root.Window.window
-        enabled: !root.presented
-        function onFrameSwapped() {
-            Qt.callLater(() => {
-                if (root !== null) root.presented = true;
-            });
-        }
     }
 
     Pane {
@@ -171,11 +126,16 @@ FocusScope {
             }
         }
 
-        Repeater {
-            model: ScriptModel {
-                values: root.built
+        // A row's items are most of an open, and the count grows with every
+        // plugin bind: the first frame builds the groups and binds that fill
+        // the window, and the rest build behind it.
+        FirstView {
+            width: layout.contentWidth
+            spacing: layout.bodySpacing
+
+            FirstView.Rows {
+                values: root.groups
                 objectProp: "id"
-            }
 
             Section {
                 id: group
@@ -184,20 +144,9 @@ FocusScope {
                 title: modelData.name
                 rowSpacing: Theme.stack.group
 
-                // The first frame takes the group's first `firstRows` binds.
-                // Once presented, the values become every bind. The built
-                // rows' entries are the same bind objects, so objectProp
-                // keeps their delegates and the rest are inserted after
-                // them (src/core/scriptmodel.cpp lines 73-206,
-                // ScriptModel::updateValuesUnique, at Quickshell 2b4501a,
-                // the pinned engine). A matched entry that is not strictly
-                // equal has its modelData replaced there (lines 208-228).
-                // https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel/
-                Repeater {
-                    model: ScriptModel {
-                        values: root.presented ? group.modelData.binds : group.modelData.binds.slice(0, root.firstRows[group.modelData.id])
-                        objectProp: "shortcut"
-                    }
+                FirstView.Rows {
+                    values: group.modelData.binds
+                    objectProp: "shortcut"
 
                     BindField {
                         required property var modelData
@@ -208,6 +157,7 @@ FocusScope {
                         onApplyKey: key => root.writeKey(pluginId, modelData.shortcut, key)
                     }
                 }
+            }
             }
         }
     }

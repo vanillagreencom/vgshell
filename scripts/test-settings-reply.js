@@ -427,7 +427,7 @@ function verifyKeys(shots, key) {
         Ui: { LinkText, InfoButton }, Text: class {} };
     ctx.root = ctx;
     vm.createContext(ctx);
-    for (const name of ["json", "instance", "descendants", "displayedText", "isSemanticLabel", "isDisplayedOwner",
+    for (const name of ["json", "instance", "buildViews", "descendants", "displayedText", "isSemanticLabel", "isDisplayedOwner",
         "reads", "labelledBox", "pointerBox", "typeName", "matchesType"]) {
         const functions = [...probeSource.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(functions.length, 1, `extractor: one actual Probe.${name}`);

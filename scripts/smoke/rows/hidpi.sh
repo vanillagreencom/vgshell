@@ -38,7 +38,7 @@
 # This row adds no latency budget. It starts the shell through
 # harness.sh's start_shell, so it reuses the smoke startup poll intervals:
 # 10 ms for the first bar and one `vgshell ipc` round trip for readiness.
-# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.gallery/* shell/plugins/vgs.notifications/* shell/Ui/foundation/ImageText* shell/Ui/foundation/ImagePool.qml scripts/smoke/rows/notifications-keys.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.gallery/* shell/plugins/vgs.notifications/* shell/Ui/foundation/ImageText* shell/Ui/foundation/ImagePool.qml scripts/smoke/rows/notifications-keys.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/device-fakes.sh shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
 set -euo pipefail
 # stop_shell fails the row itself when the instance lock stays held; the
 # start below then fails on the held lock too, and the row goes on.

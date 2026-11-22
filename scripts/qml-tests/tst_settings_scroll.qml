@@ -81,12 +81,21 @@ Item {
             return descendants(field).find(item => item instanceof Switch);
         }
 
+        function cleanup() {
+            manager.plugins = [];
+        }
+
         function init() {
             manager.current = root.row(true);
             manager.listCase = false;
             root.page = createTemporaryObject(pageComponent, root);
             verify(root.page !== null);
             verify(renderedFrame(root.page));
+            // The page builds its groups past the first view behind the
+            // first frame (FirstView); these cases read the whole page.
+            const views = descendants(root.page).filter(item => item.firstViewRoot === true);
+            verify(views.length > 0, "the page builds through a FirstView");
+            tryVerify(() => views.every(view => view.settled), 5000, "the page's groups are built");
             root.page.scrollArea.contentY = 0;
         }
 
@@ -111,6 +120,52 @@ Item {
             wait(0);
             verify(renderedFrame(page));
             compare(page.scrollArea.contentY, before);
+        }
+
+        // An open that carries a reveal target builds every Settings group
+        // before its first frame, each laid out below the one before it in
+        // the same turn; a plain open leaves the groups past its first view
+        // to the steps after it. Each of the page's four groups fills the
+        // window's room, so a link to the first group's field leaves the
+        // last groups past the room a target builds after it. The panel
+        // lists plugins, and the page's picker builds their entries only
+        // when its menu opens or in the steps, never before the first frame.
+        function test_a_linked_open_builds_the_whole_page_before_its_first_frame_data() {
+            return [
+                { tag: "plain open", tab: "Settings", whole: false },
+                { tag: "linked open", tab: "Settings/g0t0", whole: true }
+            ];
+        }
+
+        function test_a_linked_open_builds_the_whole_page_before_its_first_frame(data) {
+            const schema = {};
+            const settings = {};
+            for (let group = 0; group < 4; group++)
+                for (let i = 0; i < 15; i++) {
+                    schema["g" + group + "t" + i] = { type: "boolean", label: "Option " + i, group: "Group " + group };
+                    settings["g" + group + "t" + i] = true;
+                }
+            manager.current = Object.assign({}, root.row(true), { schema: schema, settings: settings, fieldRows: PluginLogic.fieldRows(schema, {}) });
+            manager.plugins = [{ id: "acme.one", name: "One", icon: "package" }, { id: "acme.two", name: "Two", icon: "package" }];
+            const opened = createTemporaryObject(pageComponent, root);
+            verify(opened !== null);
+            const view = descendants(opened).find(item => item.firstViewRoot === true);
+            verify(view !== undefined, "the page builds through a FirstView");
+            verify(!view.settled, "the later groups stand past the first view");
+            opened.open(Qt.OtherFocusReason, data.tab);
+            const groups = descendants(opened).filter(item => item instanceof Section && /^Group [0-3]$/.test(item.title));
+            groups.sort((a, b) => a.title < b.title ? -1 : 1);
+            if (data.whole) {
+                compare(groups.map(group => group.title), ["Group 0", "Group 1", "Group 2", "Group 3"], "every group is built before any frame draws it");
+                for (let i = 1; i < groups.length; i++)
+                    verify(groups[i].mapToItem(view, 0, 0).y >= groups[i - 1].mapToItem(view, 0, groups[i - 1].height).y,
+                           groups[i].title + " is laid out below " + groups[i - 1].title + " in the same turn");
+            } else {
+                verify(groups.length < 4, "a plain open leaves the later groups to the steps");
+            }
+            const picker = view.parts.find(part => part.values !== undefined && part.values.some(value => value !== null && value.id === "acme.one"));
+            verify(picker !== undefined, "the picker's entries belong to the page's view");
+            compare(picker.count, 0, "the picker's entries wait for its menu or the steps");
         }
 
         function test_choosing_custom_still_reveals_the_editor() {

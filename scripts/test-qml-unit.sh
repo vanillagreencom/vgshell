@@ -78,7 +78,10 @@ fi
 # of that module handed to the runner; one under ../plugins is a copy of
 # that plugin beside a copy of the tests, which import it and read the
 # shipped themes by a relative path. The replacement keeps the text around the
-# behaviour and removes the behaviour. A field holds no `|`, the separator.
+# behaviour and removes the behaviour. A field holds no `|`, the separator:
+# one there shifts the fields after it, so a row whose test field names no
+# file under scripts/qml-tests is refused before any case runs, with
+# `test-qml-unit: refused: row-test=not-a-file test=[<field>] row=<label>`.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
   "a notice message loses its main-line weight|feedback/Callout.qml|role: \"bodyStrong\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|role: \"body\""$'\n'"                color: Theme.callout.text"$'\n'"                linkColor:|tst_callout.qml|test_the_message_is_the_main_line"
@@ -280,6 +283,9 @@ mutations=(
   "VPN remove confirmation focuses Cancel|../plugins/vgs.vpn/VpnBody.qml|role: \"cancel\", focused: true|role: \"cancel\", focused: false|tst_vpn_views.qml"
   "an open VPN prompt keeps its profile|../plugins/vgs.vpn/VpnBody.qml|dialogTarget !== null && (|false && (|tst_vpn_views.qml"
   "the VPN flyout draws no empty state|../plugins/vgs.vpn/VpnBody.qml|visible: root.expanded && root.profiles.state !== \"reading\" && !root.listed|visible: root.profiles.state !== \"reading\" && !root.listed|tst_vpn_views.qml"
+  "a theme row a key move reaches before it builds stays out of view|../plugins/vgs.themes/ThemesPanel.qml|        if (index < packages.length) return themeBody.ensure(installedRows, index);|        if (index < packages.length) return installedRows.itemAt(index);|tst_themes_panel.qml|test_a_key_move_before_the_rows_build_reveals_and_applies_its_row"
+  "a row ensure builds leaves the scroll area above its view unmeasured|layout/FirstView.qml|        positionAbove();"$'\n'"        const item = part.itemOf(index);|        const item = part.itemOf(index);|tst_themes_panel.qml|test_a_key_move_before_the_rows_build_reveals_and_applies_its_row"
+  "a key move to a VPN profile past the first view focuses nothing|../plugins/vgs.vpn/VpnBody.qml|            return index === -1 ? null : content.ensure(repeater, index);|            return index === -1 ? null : repeater.itemAt(index);|tst_vpn_views.qml|test_turn_vpn_off_before_the_rows_build_focuses_the_switch"
   "accepted navigation keeps the initial reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|if (false) Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a programmatic movement gains a keyboard reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a forwarded navigator marks another focus owner|foundation/KeyNavLogic.js|target.activeFocus && \"focusReason\" in target|\"focusReason\" in target|tst_navigation_focus.qml"
@@ -1671,6 +1677,7 @@ mutations=(
   "choosing Custom… on a status-fed select writes|controls/SettingField.qml|if (dynamic && row.custom === true) {|if (false) {|tst_settingfield.qml"
   "a write of an offered value keeps the custom editor open|controls/SettingField.qml|if (multiple ? knownSelection : offerIndex(value) >= 0) customChosen = false;|if (multiple ? knownSelection : false) customChosen = false;|tst_settingfield.qml"
   "an appearing custom editor stays under the view's edge|controls/SettingField.qml|at.reveal(customField);|at.reveal(null);|tst_settingfield.qml"
+  "a custom editor built with its field reveals|controls/SettingField.qml|            if (built) revealPending = true;|            revealPending = true;|tst_settingfield.qml|test_a_custom_editor_built_with_its_field_moves_no_page"
   "a field stands by its box|controls/Field.qml|    topPadding: controlRow.inkTop|    topPadding: 0|tst_settingfield.qml"
   "a requirement row stands in a column of its own|../plugins/vgs.settings/RequirementRow.qml|Field {|Column { property alias label: inner.label; property alias inline: inner.inline; property alias hint: inner.hint; default property alias content: inner.control; Field { id: inner; width: parent.width }|tst_settingfield.qml"
   "a bare row stands by its box|controls/FormRow.qml|    readonly property real shift: placed === root ? inkTop : 0|    readonly property real shift: 0|tst_settingfield.qml"
@@ -1983,6 +1990,7 @@ mutations=(
   "turning a plugin on from its link leaves the keys on the hidden link|../plugins/vgs.bar/AddWidget.qml|                    if (!hidden.focus) return;|                    return;|tst_addwidget.qml|test_turning_a_plugin_on_shows_its_switch_with_the_focus"
   "an outside change leaves the keys on a row's hidden control|../plugins/vgs.bar/AddWidget.qml|                    if (!hidden.focus) return;|                    return;|tst_addwidget.qml|test_an_outside_change_moves_the_keys_to_the_shown_control"
   "the focus a link click hands the switch draws the ring|../plugins/vgs.bar/AddWidget.qml|control.forceActiveFocus(hidden.focusReason);|control.forceActiveFocus(Qt.TabFocusReason);|tst_addwidget.qml|test_turning_a_plugin_on_shows_its_switch_with_the_focus"
+  "a key move to a chooser row past the first view focuses nothing|../plugins/vgs.bar/AddWidget.qml|        const row = view.ensure(rows, index);|        const row = rows.itemAt(index);|tst_addwidget.qml|test_a_key_move_past_the_first_view_focuses_its_row"
   "System Monitor reads the automatic CPU sensor after selection|../plugins/vgs.sysmon/Service.qml|Logic.selectedCpuTemperature(cpuSensors, shell === null ? \"\" : shell.settings.cpuSensor)|Logic.selectedCpuTemperature(cpuSensors, \"automatic\")|tst_sysmon_service.qml"
   "System Monitor maps real zero to unknown|../plugins/vgs.sysmon/Widget.qml|text: root.percent(root.cpu.use)|text: \"--\"|tst_sysmon_widget.qml"
   "System Monitor keeps the NVIDIA child after the last lease|../plugins/vgs.sysmon/Service.qml|            query = null;|            query = null; nvidia.running = true; return;|tst_sysmon_service.qml"
@@ -2031,9 +2039,30 @@ mutations=(
   "the card clips at rest|layout/SurfaceHeight.qml|clip: surfaceGrowing|clip: true|tst_surfaceheight.qml"
   "a growing card shows a pane's scroll bar|layout/Pane.qml|barHeld: root.cardGrowing|barHeld: false|tst_surfaceheight.qml"
   "a growing card shows a pane's footer divider|layout/Pane.qml|root.footerHeight > 0 && !root.cardGrowing && scroll.contentY|root.footerHeight > 0 && scroll.contentY|tst_surfaceheight.qml"
-  "a hidden window keeps animating|layout/SurfaceHeight.qml|onShownWindowChanged: live = false|onShownWindowChanged: {}|tst_surfaceheight.qml"
+  "a hidden window keeps animating|layout/SurfaceHeight.qml|        live = false;"$'\n'"        if (shownWindow) shown.arm();|        if (shownWindow) shown.arm();|tst_surfaceheight.qml"
   "the card height ignores the motion scale|layout/SurfaceHeight.qml|duration: Theme.motion.surface.resize.duration|duration: 400|tst_surfaceheight.qml"
   "a newer target restarts the card from its first height|layout/SurfaceHeight.qml|NumberAnimation {|NumberAnimation { from: 1;|tst_surfaceheight.qml"
+  "the first view builds past its cap|layout/FirstView.qml|height < Math.max(cap, targetBottom() + cap)|true|tst_first_view.qml|test_the_first_view_builds_to_its_cap_and_the_rest_after_it"
+  "the rest never builds after the first frame|layout/FirstView.qml|onFired: Qt.callLater(root.step)|onFired: {}|tst_first_view.qml|test_the_first_view_builds_to_its_cap_and_the_rest_after_it"
+  "an unknown room builds the whole page|layout/FirstView.qml|(isFinite(cap) && height <|(height <|tst_first_view.qml|test_an_unknown_room_builds_once_it_is_known"
+  "built rows start where their Repeater stands|layout/FirstView.qml|        function lastBuilt() { return count === 0 ? null : itemAt(count - 1); }|        function lastBuilt() { return rows; }|tst_first_view.qml|test_a_group_fills_its_rows_before_the_next_group"
+  "a target builds no room after it|layout/FirstView.qml|Math.max(cap, targetBottom() + cap)|Math.max(cap, targetBottom())|tst_first_view.qml|test_a_target_builds_with_one_cap_after_it"
+  "a row target joins no first view|layout/FirstView.qml|return target >= 0 && target < values.length && limit <= target;|return false;|tst_first_view.qml|test_a_row_target_builds_with_one_cap_after_it"
+  "ensure leaves the parts before it unbuilt|layout/FirstView.qml|                if (before === stop) break;|                if (true) break;|tst_first_view.qml|test_ensure_builds_a_deferred_part_with_every_part_before_it"
+  "ensure leaves a block unplaced|layout/FirstView.qml|            wanted = true;"$'\n'"            view.position(item, block);|            wanted = true;|tst_first_view.qml|test_ensure_builds_a_deferred_part_with_every_part_before_it"
+  "ensure leaves its rows unplaced|layout/FirstView.qml|for (let i = from; i < rows.count; i++) view.position(itemAt(i), rows);|for (let i = from; i < 0; i++) view.position(itemAt(i), rows);|tst_first_view.qml|test_rows_build_to_the_cap_then_step"
+  "ensure leaves a load in flight above its part|layout/FirstView.qml|!pending(before)|!before.remaining()|tst_first_view.qml|test_ensure_finishes_a_load_in_flight_before_its_part"
+  "a hide aborts a load in flight|layout/FirstView.qml|                    if (part.loading()) part.complete();|                    if (part.loading()) part.wanted = false;|tst_first_view.qml|test_a_hide_finishes_a_load_in_flight"
+  "a block shown while it loads waits for its load|layout/FirstView.qml|if (part.showsWhole && pending(part)) ensure(part);|if (part.showsWhole && part.remaining()) ensure(part);|tst_first_view.qml|test_a_block_shown_while_it_loads_builds_at_once"
+  "a view out of its window builds at a hide|layout/FirstView.qml|            if (Window.window !== null)"$'\n'"                for|            if (true)"$'\n'"                for|tst_first_view.qml|test_a_view_out_of_its_window_builds_nothing_at_a_hide"
+  "a hidden view takes a queued step|layout/FirstView.qml|        first = false;"$'\n'"        if (!visible) return;|        first = false;|tst_first_view.qml|test_a_hidden_view_takes_no_step"
+  "an insertion pushes a built row out of the model|layout/FirstView.qml|if (built.indexOf(key(values[i])) !== -1) count = i + 1;|if (false) count = i + 1;|tst_first_view.qml|test_an_insertion_keeps_every_built_row"
+  "an insertion pushes an unkeyed built row out of the model|layout/FirstView.qml|            let count = Math.min(limit, values.length);|            let count = Math.min(limit, values.length);"$'\n'"            if (objectProp === \"\") return count;|tst_first_view.qml|test_an_insertion_keeps_every_built_row"
+  "a failed block load stops the steps|layout/FirstView.qml|status === Loader.Null) return;|status !== Loader.Ready) return;|tst_first_view.qml|test_a_block_that_fails_to_load_lets_the_rest_build"
+  "ensureAll leaves the shown parts unbuilt|layout/FirstView.qml|    function ensureAll() {"$'\n'"        completeBefore(null);|    function ensureAll() {|tst_first_view.qml|test_ensureAll_builds_every_shown_part_and_leaves_a_hidden_one"
+  "a heading keeps the item that stood before a row stacked later|layout/SectionHeader.qml|            void item.Positioner.index;"$'\n'"|"$'\n'"|tst_first_view.qml|test_a_heading_after_rows_built_later_keeps_its_heading_space"
+  "a frame in flight fires the latch|layout/FrameLatch.qml|if (drawn !== root.epoch|if (false|tst_first_view.qml|test_a_frame_in_flight_at_the_arm_does_not_fire_the_latch"
+  "a heading in a block climbs no Loader|layout/SectionHeader.qml|            if (item.parent instanceof Loader) {"$'\n'"                item = item.parent;"$'\n'"                continue;"$'\n'"            }|            if (item.parent instanceof Loader) break;|tst_first_view.qml|test_a_section_in_a_block_keeps_its_heading_space"
   "a control's padding clears by no step|../Commons/Theme.qml|return Inset.controlPadding(pad, radius, height, contentHeight, inset.cornerStep);|return Inset.controlPadding(pad, radius, height, contentHeight, 0);|tst_button.qml"
   "an indicator sits on a fractional pixel|controls/IndicatorLabel.qml|control.text !== \"\" ? lineTop + topForLeadingIcon(height)|control.text !== \"\" ? (lineTop + capCentre - height / 2 + 0.5)|tst_toggles.qml"
   "a slim bar shows on content that fits|layout/SlimScrollBar.qml|    visible: ratio < 1|    visible: true|tst_slimscrollbar.qml"
@@ -2220,6 +2249,9 @@ mutations=(
   "a reset leaves a capture running|../plugins/vgs.settings/KeyField.qml|root.shortcutField.cancel();|{}|tst_settings_edits.qml"
   "the add button shows while typing|../plugins/vgs.settings/KeyField.qml|visible: root.editable && root.capture !== null && !root.shortcutField.typing|visible: root.editable && root.capture !== null|tst_settings_edits.qml"
   "a plugin page draws a row per key|../plugins/vgs.settings/PluginPage.qml|values: page.row === null ? [] : page.row.binds|values: page.row === null ? [] : page.row.binds.concat(page.row.binds.map(b => Object.assign({}, b, { shortcut: b.shortcut + \"-2\" })))|tst_settings_edits.qml"
+  "a linked open builds only its first view|../plugins/vgs.settings/PluginPage.qml|    function buildWhole() {"$'\n'"        settingsPage.ensureAll();|    function buildWhole() {|tst_settings_scroll.qml|test_a_linked_open_builds_the_whole_page_before_its_first_frame"
+  "a linked open builds the picker's entries before its first frame|../plugins/vgs.settings/PluginPage.qml|        settingsPage.ensureAll();|        settingsPage.ensure(pickerRows);|tst_settings_scroll.qml|test_a_linked_open_builds_the_whole_page_before_its_first_frame"
+  "a linked open builds when it opens, not at its reveal|../plugins/vgs.settings/PluginPage.qml|        revealing = place.key;"$'\n'"        buildWhole();|        revealing = place.key;|tst_settings_scroll.qml|test_a_linked_open_builds_the_whole_page_before_its_first_frame"
   "a builtin shares its schema group heading|../plugins/vgs.settings/PluginPage.qml|let section = out.find(s => s.group === field.section);|let section = out.find(s => s.group === field.section && s.builtin === null);|tst_settings_edits.qml"
   "a hideEmpty field with a drawn line has no place|../plugins/vgs.settings/PluginPage.qml| && !drawsLines(field));|);|tst_settings_edits.qml"
   "a hideEmpty field keeps its place for lines it does not draw|../plugins/vgs.settings/PluginPage.qml|return Steps.featureRow(field, row).length > 0;|return field.keyLists.length > 0;|tst_settings_edits.qml"
@@ -2488,6 +2520,10 @@ baseline_pairs=()
 declare -A baseline_pair_seen=()
 for index in "${!mutations[@]}"; do
   IFS='|' read -r -d '' label file _needle _replacement test _intended_test < <(printf '%s\0' "${mutations[index]}")
+  if [[ ! -f $repo/scripts/qml-tests/$test ]]; then
+    printf 'test-qml-unit: refused: row-test=not-a-file test=[%s] row=%s\n' "$test" "$label"
+    exit 1
+  fi
   if mutation_selected "$index" "$file" "$test"; then
     mutation_plan+=("run $label")
     ran_mutations=$((ran_mutations + 1))
@@ -2617,9 +2653,6 @@ mutation_case() { # INDEX
   local index="$1" label file needle replacement test intended_test dir target layout pair_key count baseline_status mutant_status out tests_dir
   local -a commons_args=() core_args=()
   IFS='|' read -r -d '' label file needle replacement test intended_test < <(printf '%s\0' "${mutations[index]}")
-  # A `|` inside a field shifts the rest, and a runner handed a test that is
-  # not there fails, which would read as a red mutation.
-  if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; return 0; fi
   dir="$tmp/mutation-$index"
   mkdir -- "$dir"
   layout="$(mutation_layout "$file")"

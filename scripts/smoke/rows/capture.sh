@@ -1479,6 +1479,9 @@ PY
 capture_row_delay() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.capture"]; print(json.dumps(rows[0].get("delay", "absent")) if rows else "no-row")' "$home/.config/vgshell/shell.json"; }
 capture_delay_kept() { capture_setting_value delay; }
 capture_delay_choose() { # LABEL: Tab, Tab, Down from the primary action, and back
+  # A key reaches the window only once the compositor gives it the
+  # keyboard, which a freshly opened window can take after its focus reads.
+  expect_poll "$1the options window has the keyboard" "[\"$shell_class\", \"Capture\"]" active_window
   capture_key Tab
   expect_poll "$1Tab reaches the options" Select capture_focus_type
   capture_key Tab

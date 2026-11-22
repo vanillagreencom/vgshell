@@ -44,7 +44,7 @@
 # Import callback, drop Import's availability guard and put the password
 # on nmcli's argv, corrupt the detached editor argv, and drop the
 # autoconnect write, which leaves Lab tunnel down after its drop.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/Field.qml shell/Ui/layout/ContentRow.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py scripts/smoke/power-fakes.sh shell/plugins/vgs.power/*
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/Field.qml shell/Ui/layout/ContentRow.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py scripts/smoke/power-fakes.sh shell/plugins/vgs.power/* shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]vpn')
 devices_ready vpn || return 0
@@ -758,11 +758,18 @@ expect "nmcli's output and private values are not drawn" false vpn_drawn_private
 
 expect "System closes after the profile checks" ok ipc shell hide window vgs.system
 
-# The flyout lists the profiles and has no Updates section.
+# The flyout lists the profiles and has no Updates section. The pane's
+# own sections stand in FirstView blocks the flyout never shows, so it
+# builds none of them: a section it has not built is one it does not show.
+vpn_flyout_shows() { # TYPE NAME
+  local shown
+  shown="$(vpn_named panel "$1" "$2" visible)" || return 1
+  [[ $shown == absent ]] && echo false || echo "$shown"
+}
 expect "the flyout opens" ok ipc shell summon panel vgs.vpn '{}'
 expect_poll "the flyout lists the profiles" true vpn_named panel ProfileRow "vpn-profile:$vpn_lab" visible
-expect "the flyout has no Updates section" false vpn_named panel Section vpn-updates visible
-expect "the flyout has no Check every" false vpn_named panel Select vpn-poll visible
+expect "the flyout has no Updates section" false vpn_flyout_shows Section vpn-updates
+expect "the flyout has no Check every" false vpn_flyout_shows Select vpn-poll
 expect "the flyout has no Add or Edit action" '[]' vpn_editor_drawn
 
 expect "the flyout closes" ok ipc shell hide panel vgs.vpn

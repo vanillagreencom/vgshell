@@ -1364,14 +1364,11 @@ print(json.dumps(doc))
 PY
 }
 
-# default_set_prepare PLUGINS_JSON [DISABLED_JSON]: what a start over the
-# default set needs before the shell starts. The user file names no bar
-# and disables no first-party plugin, so the shipped bar and every
-# first-party plugin build; it enables the third-party plugins PLUGINS_JSON
-# lists, a JSON list of ids, and disables those DISABLED_JSON lists and
-# every other plugin installed under the user's plugins directory, which an
-# earlier row left there, so the first presence places none of their
-# widgets.
+# default_set_world WORLD: the stand-ins a shell that runs the default
+# set's services starts over. The files they replace are kept under WORLD
+# once, at the first call, and default_set_world_restore WORLD puts them
+# back, so a row that enables those services on a configuration of its
+# own, as open-split's sweep does, can take them back.
 # Every host command a default-set service runs at start reaches a
 # stand-in, does not run or only reads: vgs.devtools's queries reach
 # devtools_stand_ins; vgs.updates reads updates_cache_fresh's status cache;
@@ -1387,12 +1384,44 @@ PY
 # vgs.printers's lpstat and ipptool reach their stand-ins, which answer
 # from the sandbox's CUPS world, and its dbus-monitor listens on the
 # sandbox's system bus; vgs.local-sync reads no unit and follows an
-# empty manager journal through local_sync_stand_ins.
-default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
+# empty manager journal through local_sync_stand_ins over WORLD/local-sync.
+default_set_world_paths=("$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman" "$dev_state" "$home/.local/state/vgshell/updates/status.json")
+default_set_world() { # WORLD
+  local world="$1" i
   expected_errors+=("${dictation_absent_errors[@]}")
-  local_sync_stand_ins "$sandbox/local-sync-default" || return
+  if [[ ! -e $world/saved/taken ]]; then
+    mkdir -p -- "$world/saved"
+    for i in "${!default_set_world_paths[@]}"; do
+      if [[ -e ${default_set_world_paths[i]} ]]; then cp -a -- "${default_set_world_paths[i]}" "$world/saved/$i" || return; fi
+    done
+    touch -- "$world/saved/taken"
+  fi
+  local_sync_stand_ins "$world/local-sync" || return
   devtools_stand_ins
   updates_cache_fresh
+}
+default_set_world_restore() { # WORLD
+  local world="$1" i path
+  [[ -e $world/saved/taken ]] || return 0
+  local_sync_stand_ins_restore "$world/local-sync" || return
+  for i in "${!default_set_world_paths[@]}"; do
+    path="${default_set_world_paths[i]}"
+    rm -rf -- "${path:?}" || return
+    if [[ -e $world/saved/$i ]]; then cp -a -- "$world/saved/$i" "$path" || return; fi
+  done
+  rm -rf -- "${world:?}/saved"
+}
+
+# default_set_prepare PLUGINS_JSON [DISABLED_JSON]: what a start over the
+# default set needs before the shell starts: default_set_world's
+# stand-ins, then the user file. The user file names no bar and disables
+# no first-party plugin, so the shipped bar and every first-party plugin
+# build; it enables the third-party plugins PLUGINS_JSON lists, a JSON
+# list of ids, and disables those DISABLED_JSON lists and every other
+# plugin installed under the user's plugins directory, which an earlier
+# row left there, so the first presence places none of their widgets.
+default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
+  default_set_world "$sandbox/default-set-world" || return
   user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
 import json, os, sys
 user, plugins, disabled = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])

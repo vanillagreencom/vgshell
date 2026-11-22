@@ -94,9 +94,16 @@ Column {
     spacing: Theme.field.gap
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
 
+    // A custom editor the field is built with moves no page, as for
+    // NumberSettingField: a page builds its fields as it opens, some behind
+    // its first frame (FirstView), and a reveal then would scroll it from
+    // where it opened. `customVisible` can turn true while the field's
+    // properties are assigned, before completion, so only a change after
+    // it reveals.
+    property bool built: false
     Component.onCompleted: {
         rebuildPresetModel();
-        revealPending = customVisible && !numeric;
+        built = true;
     }
     Component.onDestruction: if (edits !== null) edits.forget(root)
     onEditedChanged: if (edits !== null) edits.track(root)
@@ -106,7 +113,7 @@ Column {
     onCustomVisibleChanged: {
         if (numeric) return;
         if (customVisible) {
-            revealPending = true;
+            if (built) revealPending = true;
         }
         else if (editing(customLoader.item)) customLoader.item.revert();
     }

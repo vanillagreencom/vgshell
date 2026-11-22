@@ -683,6 +683,12 @@ FocusScope {
         color: Theme.surface.level.sunken.background
     }
 
+    // The Needs you and History bodies, built once their tab shows or the
+    // steps behind Chat's first frame reach them (FirstView); null before.
+    readonly property Item asksBody: asksBlock.item
+    readonly property Item tasksBody: tasksBlock.item
+    readonly property Item auditBody: auditBlock.item
+
     Pane {
         id: layout
         anchors.fill: parent
@@ -825,6 +831,12 @@ FocusScope {
 
         // Chat: the person's turns on their fill, Jarvis's across the view,
         // and blank while no conversation has begun.
+        // Chat builds before the first frame; Needs you and History build
+        // behind it, or at once when their tab shows.
+        FirstView {
+            width: layout.contentWidth
+            spacing: layout.bodySpacing
+
         Column {
             visible: root.tab === 0
             width: layout.contentWidth
@@ -919,9 +931,11 @@ FocusScope {
         // Needs you: the waiting count with Show snoozed and Refresh at its
         // right, the notices an ask action leaves, then one list of cards,
         // the active asks and, when shown, the snoozed ones after them.
+        FirstView.Block {
+            id: asksBlock
+            visible: root.tab === 1
         T.Control {
             id: asksBody
-            visible: root.tab === 1
             width: layout.contentWidth
             implicitHeight: asksColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
@@ -1065,9 +1079,11 @@ FocusScope {
                 }
             }
         }
+        }
 
-        Section {
+        FirstView.Block {
             visible: root.showConversations
+        Section {
             width: layout.contentWidth
             title: "Messages"
             Repeater {
@@ -1082,10 +1098,13 @@ FocusScope {
             }
             EmptyState { visible: root.historyRows.length === 0; width: parent.width; placement: "top"; text: root.historyQuery === "" ? "No messages yet" : "No matching messages" }
         }
+        }
 
+        FirstView.Block {
+            id: tasksBlock
+            visible: root.showTasks
         T.Control {
             id: tasksBody
-            visible: root.showTasks
             width: layout.contentWidth
             implicitHeight: taskColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
@@ -1127,10 +1146,13 @@ FocusScope {
                 }
             }
         }
+        }
 
+        FirstView.Block {
+            id: auditBlock
+            visible: root.showProblems
         T.Control {
             id: auditBody
-            visible: root.showProblems
             width: layout.contentWidth
             implicitHeight: auditColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
@@ -1161,6 +1183,8 @@ FocusScope {
                     EmptyState { width: parent.width; visible: root.historyProblems.length === 0; placement: "top"; text: root.historyQuery === "" ? "No recent failures" : "No matching problems" }
                 }
             }
+        }
+        }
         }
 
         footer: [

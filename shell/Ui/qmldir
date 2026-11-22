@@ -62,6 +62,7 @@ TouchpadScroll 1.0 layout/TouchpadScroll.qml
 SlimScrollBar 1.0 layout/SlimScrollBar.qml
 Pane 1.0 layout/Pane.qml
 SurfaceHeight 1.0 layout/SurfaceHeight.qml
+FirstView 1.0 layout/FirstView.qml
 Tabs 1.0 layout/Tabs.qml
 TabPages 1.0 layout/TabPages.qml
 ContentRow 1.0 layout/ContentRow.qml
@@ -102,6 +103,7 @@ internal UnlockMark controls/UnlockMark.qml
 # Qt keeps internal types private to qs.Ui:
 # https://doc.qt.io/qt-6/qtqml-modules-qmldir.html#internal-object-type-declaration
 internal ListItem layout/ListItem.qml
+internal FrameLatch layout/FrameLatch.qml
 internal ListAnimation layout/ListAnimation.qml
 internal ListCursorRow layout/ListCursorRow.qml
 internal AvatarFace feedback/AvatarFace.qml

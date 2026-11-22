@@ -420,7 +420,18 @@ FocusScope {
         revealMoving = false;
         revealTab = tabs.model.indexOf(place.tab) === -1 ? "Settings" : place.tab;
         revealing = place.key;
+        buildWhole();
         Qt.callLater(page.revealField);
+    }
+
+    // A linked open builds every shown Settings group before its first
+    // frame, so the reveal's target and everything above it are laid out
+    // before the frame the reveal scrolls in, and the reveal keeps the page
+    // whole while it holds. A plain open builds its first view and the rest
+    // behind it (FirstView). The picker's entries, in a closed menu, build
+    // when the menu opens or in the steps.
+    function buildWhole() {
+        settingsPage.ensureAll();
     }
 
     // The key of the row an open asked to show, "" for none, on the tab
@@ -476,6 +487,7 @@ FocusScope {
             revealing = "";
             return;
         }
+        buildWhole();
         const found = [revealTab === "Settings" ? settingsPage : revealTab === "Setup" ? setupPage : detailsPage];
         for (let i = 0; i < found.length; i++) {
             const item = found[i];
@@ -563,13 +575,18 @@ FocusScope {
                     }
                 ]
 
+                // The plugin entries build behind the page's first frame
+                // (FirstView rows of the Settings page); an opening builds
+                // the rest first, so the keys and the checked entry see
+                // every entry.
                 Menu {
                     id: menu
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.panel.plugins
-                            objectProp: "id"
-                        }
+                    onOpenedChanged: if (opened) settingsPage.ensure(pickerRows)
+                    FirstView.Rows {
+                        id: pickerRows
+                        view: settingsPage
+                        values: page.panel.plugins
+                        objectProp: "id"
                         MenuItem {
                             required property var modelData
                             text: modelData.name
@@ -648,9 +665,15 @@ FocusScope {
                     page.panel.leave(() => { tabs.currentIndex = wanted; });
                 }
 
-                Column {
+                // The groups that fill the window's cap build before the
+                // first frame and the rest behind it; a linked open builds
+                // them all first (page.buildWhole).
+                FirstView {
                     id: settingsPage
                     spacing: Theme.stack.page
+                    // The window fits its height to the page, up to this;
+                    // a page with no maximum fits whole.
+                    cap: page.maximumHeight > 0 ? page.maximumHeight : Number.MAX_VALUE
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab === "Settings") Qt.callLater(page.revealField)
 
                     // The switches, then the fields of no group, rows of
@@ -733,11 +756,10 @@ FocusScope {
                     // Keyed models keep each section, field and key row
                     // while the manager's rows are replaced, so an edit in
                     // progress survives an unrelated change.
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.sections
-                            objectProp: "group"
-                        }
+                    FirstView.Rows {
+                        id: groupRows
+                        values: page.sections
+                        objectProp: "group"
                         Section {
                             id: section
                             required property var modelData

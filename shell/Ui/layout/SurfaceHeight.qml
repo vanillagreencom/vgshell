@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import qs.Commons
+import qs.Ui
 
 // A summoned surface's card, as the launcher draws its card: the card's
 // height follows `target`, the height its content asks for, over
@@ -13,8 +14,9 @@ import qs.Commons
 // its screen and reads no `surface`. While the card grows, `surfaceGrowing`
 // tells a Pane inside that its body is short only for the moment, so it
 // draws no scroll bar or footer divider for it. Until the window has drawn
-// its first frame since it showed, the card takes each height at once, so
-// it opens at its height rather than growing into it.
+// a frame it started after it showed, the card takes each height at once,
+// so it opens at its height rather than growing into it; a frame in flight
+// at the show does not count (FrameLatch).
 Item {
     id: root
 
@@ -38,11 +40,13 @@ Item {
 
     readonly property var window: Window.window
     readonly property bool shownWindow: window !== null && window.visible
-    onShownWindowChanged: live = false
-    // frameSwapped comes from the render thread, queued to this one.
-    Connections {
-        target: root.window
-        enabled: root.shownWindow && !root.live
-        function onFrameSwapped() { root.live = true; }
+    onShownWindowChanged: {
+        live = false;
+        if (shownWindow) shown.arm();
+        else shown.disarm();
+    }
+    readonly property FrameLatch shown: FrameLatch {
+        window: root.window
+        onFired: root.live = true
     }
 }

@@ -962,10 +962,31 @@ Scope {
         }
     }
 
+    // The instance a row reads, built whole: a FirstView in it
+    // (shell/Ui/layout/FirstView.qml) builds its later parts after the
+    // first frame, and a reader of the page reads every shown part, so
+    // each view the lookup reaches builds its shown parts now through
+    // its own ensureAll, a block whose load is in flight included, since
+    // its height would land after the read. A hidden part, such as a
+    // hidden tab's page, builds when it shows. open-split reads its
+    // figures from stamps and reads through here only once every view has
+    // settled. A row that checks the
+    // deferral itself reads the instance as built (`readAsBuilt`).
+    property bool readAsBuilt: false
     function instance(hostKey, id) {
         const rows = Plugins.built[hostKey] || [];
         const row = rows.find(r => r.id === id);
-        return row === undefined ? null : row.instance;
+        if (row === undefined) return null;
+        if (row.instance !== null && !root.readAsBuilt) buildViews(row.instance);
+        return row.instance;
+    }
+    function buildViews(item) {
+        const found = [item];
+        for (let i = 0; i < found.length; i++) {
+            const node = found[i];
+            if (node.firstViewRoot === true) node.ensureAll();
+            for (const child of node.children || []) found.push(child);
+        }
     }
 
     // Whether OBJECT or an object under it is still settling: an Image whose
@@ -2586,6 +2607,25 @@ Scope {
             return String(root.instancesUnder(hostKey, id));
         }
         function pluginInstances(hostKey: string, id: string): int { return root.instancesUnder(hostKey, id); }
+        // Each listed plugin's source, `bundled` or `installed`, as the
+        // plugin manager names it (Registry.sourceOf), for open-split's
+        // sweep: `shell listPlugins` carries each plugin's dir, not its
+        // source.
+        function pluginSources(): string {
+            const out = {};
+            for (const id of Object.keys(Registry.manifests)) out[id] = Registry.sourceOf(Registry.manifests[id]);
+            return JSON.stringify(out);
+        }
+        function setReadAsBuilt(on: bool): string { root.readAsBuilt = on; return "ok"; }
+        // The shown text and focus the open-split instrument records at a
+        // first frame (scripts/smoke/open-split.py, a harness copy's
+        // Plugins.openSplitContent), read once the instance's views settle.
+        function openSplitContent(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            if (typeof Plugins.openSplitContent !== "function") return "uninstrumented";
+            return JSON.stringify(Plugins.openSplitContent(item));
+        }
         function holdMarkerCount(): int { return root.holdMarkers; }
         function holdMarkerStart(): string {
             if (root.holdMarker !== null) return "held";
@@ -3634,6 +3674,15 @@ Scope {
         // (reads): its type, scroll position, content height, height, the
         // mouse buttons that drag it and its box in the window's
         // coordinates, or `absent` / `no-view`.
+        // Scrolls the view holding the first shown item that reads `text`
+        // under an instance to its top, for open-split's reading of a page
+        // at its top. Answers the new contentY, `absent` or `no-view`.
+        function scrollHoldingToTop(hostKey: string, id: string, text: string): string {
+            const view = root.viewOf(hostKey, id, text);
+            if (typeof view === "string") return view;
+            view.contentY = view.originY;
+            return String(view.contentY);
+        }
         function viewHolding(hostKey: string, id: string, text: string): string {
             const view = root.viewOf(hostKey, id, text);
             if (typeof view === "string") return view;
