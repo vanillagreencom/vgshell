@@ -220,7 +220,7 @@ jarvis_asks_ui_path() {
   expect_poll "the visible snoozed row uses the canonical state" '"Snoozed"' ipc smoke readMatchingDescendant window vgs.jarvis MessageRow title "Approve the update on px13" stateText
   jarvis_asks_control --seed 3
   expect "the UI path restores its three asks" ok jarvis_asks_refresh
-  jarvis_asks_ready
+  expect_poll "the refresh publishes the restored counts" '[3, 0]' jarvis_asks_read counts
   jarvis_asks_tab Chat || fail "returning to Chat after asks failed"
 }
 jarvis_asks_calls() { # VERB FIELD

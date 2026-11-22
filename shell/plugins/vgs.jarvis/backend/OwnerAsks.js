@@ -19,6 +19,10 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
     let activeRequest = null;
     let snapshot = { kind: "unavailable", cause: "Choose a Jarvis home folder to read your asks." };
     let cursors = { active: null, snoozed: null };
+    // A refresh the shell asked for republishes its result even when
+    // unchanged: the shell may have dropped its copy for room
+    // (StatusPublication.js) while this one stayed ready.
+    let republish = false;
     const pending = new Set();
 
     function show(value) {
@@ -28,7 +32,8 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
         const unchanged = snapshot.kind === "ready" && value.kind === "ready"
             && JSON.stringify({ ...snapshot, observedAt: "" }) === JSON.stringify({ ...value, observedAt: "" });
         snapshot = value;
-        if (!unchanged) publish(value);
+        if (!unchanged || republish) publish(value);
+        republish = false;
     }
 
     function begin() {
@@ -127,12 +132,18 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
     function refresh(first = true) {
         if (closed || activeRequest !== null) return;
         if (first) cursors = { active: null, snoozed: null };
+        republish = first;
         const token = begin();
         if (home === null) {
             show({ kind: "unavailable", cause: "Choose a Jarvis home folder to read your asks." });
             return;
         }
-        if (first) show({ kind: "reading" });
+        // Every Chat open asks for a first-page read. A ready first page
+        // stays published while it runs, so the open's first frame draws the
+        // counts it settles on; only a paged view or another home's page
+        // gives way to reading.
+        if (first && !(snapshot.kind === "ready" && snapshot.activeCursor === null && snapshot.snoozedCursor === null))
+            show({ kind: "reading" });
         return track(read(token, null), token);
     }
 
@@ -187,6 +198,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
 
     function setHome(value) {
         if (closed || value === home && generation > 0) return;
+        if (value !== home) snapshot = { kind: "reading" };
         home = value;
         activeRequest = null;
         return refresh();

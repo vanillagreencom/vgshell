@@ -99,6 +99,11 @@ function client(extra = {}) {
     const publications = c.snapshots.length;
     await c.owner.refresh(false);
     assert.equal(c.snapshots.length, publications, "an unchanged periodic read retains published controls and unread count");
+    // Each Chat open asks for this read; the open's first frame draws the
+    // published page, so no publication may drop the count it settles on.
+    await c.owner.refresh();
+    const reread = c.snapshots.slice(publications).map(s => [s.kind, s.activeCount]);
+    assert.deepEqual(reread, [["ready", 7]], "an open's reread keeps the ready first page and its count, and republishes it");
     await c.owner.page("active", c.current().activeNextCursor, c.current().revision);
     assert.equal(c.current().active[0].id, "ask-3");
     assert.equal(c.current().active.length, 3, "paging replaces rather than accumulates rows");
