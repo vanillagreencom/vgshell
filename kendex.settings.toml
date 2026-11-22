@@ -90,7 +90,7 @@ AGENT_RUNTIME_ACCOUNT_DIRS = ".claude:.1claude:.2claude:.3claude:.4claude:.5clau
 # Accounts the judge measures and never picks.
 AGENT_RUNTIME_ACCOUNT_EXCLUDE = "sclaude,claude-work,1codex,2codex,copilot,scodex"
 # The UTC day each account stops being picked.
-AGENT_RUNTIME_ACCOUNT_RETIRE = "claude=2026-11-19,1claude=2026-11-26,2claude=2026-11-20,3claude=2026-11-27,4claude=2026-11-30,5claude=2026-12-01,6claude=2026-12-05,7claude=2026-12-19,8claude=2026-10-19,9claude=2026-10-20,10claude=2026-10-21"
+AGENT_RUNTIME_ACCOUNT_RETIRE = "claude=2026-12-22,1claude=2026-11-26,2claude=2026-11-20,3claude=2026-11-27,4claude=2026-11-30,5claude=2026-12-01,6claude=2026-12-05,7claude=2026-12-19,8claude=2026-10-19,9claude=2026-10-20,10claude=2026-10-21"
 AGENT_RUNTIME_CODEX_CREDIT_FLOOR = "0"
 
 # Execute the audit's accepted creations and cancellations without a question.
