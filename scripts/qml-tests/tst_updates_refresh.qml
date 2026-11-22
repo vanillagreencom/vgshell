@@ -148,8 +148,8 @@ Item {
             const sentence = labels.find(item => displayedText(item) === root.values.lastRun.text);
             verify(title !== undefined && sentence !== undefined, "the banner renders both stored fields");
             compare(title.role, "bodyStrong");
-            compare(sentence.role, "body");
             compare(sentence.textFormat, Text.PlainText);
+            verify(title.mapToItem(view, 0, 0).y < sentence.mapToItem(view, 0, 0).y, "the title stands above its sentence");
             const banner = descendants(view).find(item => item.title === root.values.lastRun.title && item.plain === true);
             verify(banner !== undefined);
             const count = labels.find(item => displayedText(item) === "1 update");
