@@ -252,6 +252,10 @@ function verify(logic) {
 
   same([logic.publishValues(snapshot, true, now, 6, "").checking, logic.publishValues(snapshot, false, now, 6, "").checking], [true, false]);
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
+  // A withdrawn outcome clears the published one; other nulls write nothing.
+  same(logic.statusWrites({ lastRun: { ended: "failed" } }, { lastRun: null }), [{ key: "lastRun", value: null }], "a withdrawn outcome clears the banner");
+  same(logic.statusWrites({}, { lastRun: null }), [], "no outcome before one was published writes nothing");
+  same(logic.statusWrites({ pending: 1 }, { pending: null }), [], "an unknown count keeps the published one");
   // The last run's outcome.json: a valid file is the published value, a
   // malformed one none.
   const stopped = { version: 1, ended: "stopped", title: "Update stopped during Flatpak", text: "Nothing after it ran.", remedy: "", endedAt: 1000 };
@@ -727,6 +731,7 @@ const controls = [
   ["a newer shell clears restart-only results", 'if (typeof startedAt === "number" && startedAt > outcome.endedAt) return null;', ""],
   ["a newer boot clears restart-only results", 'if (typeof bootedAt === "number" && bootedAt > outcome.endedAt) return null;', ""],
   ["other failures survive a restart", 'if (outcome === null || outcome.remedy === "") return outcome;', 'if (outcome === null) return outcome;'],
+  ["a withdrawn outcome is written", 'if (next[key] === null && (key !== "lastRun" || !hasOwn(before, key) || before[key] === null)) continue;', "if (next[key] === null) continue;"],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 

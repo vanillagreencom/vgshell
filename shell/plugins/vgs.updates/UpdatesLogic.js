@@ -420,7 +420,10 @@ function statusWrites(previous, next) {
     else keys.push("checking");
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
-        if (next[key] === null || next[key] === undefined) continue;
+        if (next[key] === undefined) continue;
+        // A null is no reading yet, except lastRun's: no outcome to show,
+        // which withdraws one an expiry or an absent file no longer keeps.
+        if (next[key] === null && (key !== "lastRun" || !hasOwn(before, key) || before[key] === null)) continue;
         if (!hasOwn(before, key) || !sameJson(before[key], next[key])) out.push({ key: key, value: clone(next[key]) });
     }
     return out;
