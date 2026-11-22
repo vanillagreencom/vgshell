@@ -253,6 +253,8 @@
 # inbox from its top to its end and, where the tree can open a cut card,
 # the theme check card open, each shot's box in items.tsv: the cards on
 # screen, or the inbox panel.
+# notification-actions, taken only when named, is one toast with five
+# actions over a two-line message, with the pointer on it.
 # jarvis-speech-only, taken only when named, is the Jarvis console's Chat
 # under a voice that takes speech only, with the pointer on the locked
 # message box and its reason shown, then at rest.
@@ -705,7 +707,7 @@ while [[ $# -gt 0 ]]; do
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
     notification-limits) scenes+=("$1"); shift ;;
-    jarvis-speech-only) scenes+=("$1"); shift ;;
+    notification-actions|jarvis-speech-only) scenes+=("$1"); shift ;;
     notice-banners) scenes+=("$1"); shift ;;
     workspaces) scenes+=("$1"); shift ;;
 
@@ -884,6 +886,7 @@ scene_ships() {
     automations) ships_plugin vgs.automations ;;
     automation-failure) ships_plugin vgs.automations vgs.notifications ;;
     notification-limits) ships_plugin vgs.notifications ;;
+    notification-actions) ships_plugin vgs.notifications ;;
     jarvis-speech-only) ships_plugin vgs.jarvis ;;
     screensaver) ships_plugin vgs.screensaver ;;
     screensaver-lock) ships_plugin vgs.screensaver vgs.lock ;;
@@ -3866,6 +3869,21 @@ scene_notification-limits() { # MODE
   [[ $tool_made == false ]] || rm -f -- "${shim:?}/secret-tool"
   [[ $slack_made == false ]] || rm -rf -- "${home:?}/.config/Slack"
   rm -rf -- "${dir:?}"
+}
+
+# The notification-actions scene: one toast with five actions, four of the
+# sender's and the shell's Dismiss, over a title and a two-line message,
+# with the pointer on it, so its first two labels and the overflow show
+# over the faded text.
+scene_notification-actions() { # MODE
+  local summary="Recording saved"
+  notes_on "Notification actions"
+  nl_send Capture "$summary" $'/home/alex/Videos/Recordings/2026/Recording 2026-11-12 14-03-22.mp4\nProcessing failed, so the recording is kept as recorded.' \
+    '["sync", "Set up two-way sync", "open", "Open recording", "folder", "Show in folder", "copy", "Copy link"]' \
+    '{"x-vgs-icon": <"camera">, "x-vgs-tone": <"success">, "resident": <true>}'
+  expect_poll "the five-action toast is on screen" 1 on_screen
+  nl_hover_shot "notification-actions-$1-hover" "$summary"
+  notes_off "Notification actions"
 }
 
 # Scroll through the bar's own buttons before using a widget's geometry:

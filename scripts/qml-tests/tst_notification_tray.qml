@@ -230,8 +230,12 @@ Item {
                 const layer = part.body.parent;
                 const layerAt = layer.mapToItem(scene, 0, 0);
                 const y = Math.floor(rowAt.y + part.tray.height / 2);
-                const top = Math.floor(rowAt.y - 1);
-                const bottom = Math.ceil(rowAt.y + part.tray.height + 1);
+                // The text's own top and bottom edges, which no button
+                // covers, and halfway from its top edge to the row.
+                const top = Math.ceil(layerAt.y + 1);
+                const bottom = Math.floor(layerAt.y + layer.height - 2);
+                const soft = Math.round((layerAt.y + rowAt.y) / 2);
+                const rowEdge = Math.ceil(rowAt.y + 1);
                 const x = Math.floor(rowAt.x - card.look.tray.fadeWidth / 2);
                 const behindX = Math.ceil(rowAt.x + 2);
                 const beforeX = Math.floor(rowAt.x - card.look.tray.fadeWidth - 2);
@@ -251,7 +255,9 @@ Item {
                     blue: image.blue(x, y),
                     before: image.red(beforeX, y),
                     top: image.red(behindX, top),
-                    bottom: image.red(behindX, bottom)
+                    bottom: image.red(behindX, bottom),
+                    soft: image.red(behindX, soft),
+                    rowEdge: image.red(behindX, rowEdge)
                 };
                 // A planted defect can break more than one alpha reading.
                 // Judge the complete observation once, after all reads,
@@ -262,13 +268,89 @@ Item {
                     softHorizontalBand: Math.abs(observed.middle - expected.middle) <= 12,
                     alphaOnly: observed.green === 0 && observed.blue === observed.middle,
                     originalInk: observed.before === 255,
-                    verticalRecovery: Math.min(observed.top, observed.bottom) > observed.behind + (255 - observed.behind) / 2
+                    verticalRecovery: Math.min(observed.top, observed.bottom) > observed.behind + (255 - observed.behind) / 2,
+                    softEdges: observed.soft > observed.behind + 12 && observed.soft < observed.top - 12,
+                    faintRow: Math.abs(observed.rowEdge - observed.behind) <= 12
                 };
                 if (row.control !== "") expectFail("", row.control + " breaks the rendered text-alpha contract");
                 compare(contract, {
                     clearance: true, faintCentre: true, softHorizontalBand: true,
-                    alphaOnly: true, originalInk: true, verticalRecovery: true
+                    alphaOnly: true, originalInk: true, verticalRecovery: true,
+                    softEdges: true, faintRow: true
                 }, "text-alpha readings " + JSON.stringify({ observed: observed, expected: expected }));
+            } finally {
+                card.destroy();
+                ground.color = Qt.binding(() => scene.look.card.base);
+                UnitTheme.reset();
+            }
+        }
+
+        // Every label reads over the faded text on the hovered five-action
+        // card: under each label's words the text is barely visible, no
+        // stronger than the row's faint centre, and the label meets the
+        // shell's readability floor (ThemeLogic READABILITY_FLOOR, 4.5:1)
+        // on the ground its pill draws over that text. Control: the
+        // vertical fade 28d2bc183 shipped, which restored the ink from the
+        // row's centre to its edges, through the labels.
+        function test_each_label_reads_over_the_faded_text_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const control of ["", "row-edges"])
+                    rows.push({ tag: mode + "/" + (control === "" ? "shipped" : control), mode: mode, control: control });
+            return rows;
+        }
+
+        function test_each_label_reads_over_the_faded_text(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, motion: { scale: 0 } }), "ok");
+            const base = Qt.color(scene.look.card.base);
+            ground.color = "#000000";
+            const card = row.control === "row-edges"
+                ? alteredCard("                    GradientStop { position: actionMask.textTop; color: card.look.tray.fadeInk }\n"
+                    + "                    GradientStop { position: actionMask.fadeTop; color: card.maskColor(0) }\n"
+                    + "                    GradientStop { position: actionMask.fadeBottom; color: card.maskColor(0) }\n"
+                    + "                    GradientStop { position: actionMask.textBottom; color: card.look.tray.fadeInk }",
+                    "                    GradientStop { position: actionMask.fadeTop; color: card.look.tray.fadeInk }\n"
+                    + "                    GradientStop { position: (actionMask.fadeTop + actionMask.fadeBottom) / 2; color: card.maskColor(0) }\n"
+                    + "                    GradientStop { position: actionMask.fadeBottom; color: card.look.tray.fadeInk }")
+                : build(shippedCard);
+            try {
+                card.actions = actions(5);
+                card.showActions = true;
+                const part = parts(card);
+                tryCompare(part.tray, "opacity", 1);
+                card.settleHeight();
+                verify(markerInk.createObject(part.body) !== null);
+                // Each label's words, its ink and its pill's fill, read
+                // while the pills draw.
+                const labels = pills(card).map(pill => {
+                    const label = pill.contentItem;
+                    const at = label.mapToItem(scene, (label.width - label.contentWidth) / 2, (label.height - label.contentHeight) / 2);
+                    return { text: label.text, box: Qt.rect(at.x, at.y, label.contentWidth, label.contentHeight),
+                        ink: Qt.color(label.color), opacity: label.opacity, fill: Qt.color(pill.background.color) };
+                });
+                compare(labels.length, 3);
+                for (const pill of pills(card)) pill.opacity = 0;
+                verify(renderedFrame(card));
+                const image = grabImage(scene);
+                const over = (top, alpha, under) => Qt.rgba(top.r * alpha + under.r * (1 - alpha), top.g * alpha + under.g * (1 - alpha), top.b * alpha + under.b * (1 - alpha), 1);
+                const inks = [Qt.color(part.title.color), Qt.color(part.body.color)];
+                const readings = labels.map(each => {
+                    // The marker ink over black reads the text's alpha.
+                    let alpha = 0;
+                    for (let x = Math.ceil(each.box.x); x < Math.floor(each.box.x + each.box.width); x++)
+                        for (let y = Math.ceil(each.box.y); y < Math.floor(each.box.y + each.box.height); y++)
+                            alpha = Math.max(alpha, image.red(x, y) / 255);
+                    const ratio = Math.min(...inks.map(ink => {
+                        const behind = over(each.fill, each.fill.a, over(ink, ink.a * alpha, base));
+                        return Theme.contrastRatio(over(each.ink, each.ink.a * each.opacity, behind), behind);
+                    }));
+                    return { label: each.text, alpha: alpha, ratio: ratio };
+                });
+                const faint = maskedChannel(card.look.tray.fadeAlpha) / 255;
+                const contract = readings.map(r => ({ label: r.label, barelyVisible: r.alpha <= faint + 12 / 255, readable: r.ratio >= 4.5 }));
+                if (row.control !== "") expectFail("", row.control + " lets the text through the labels");
+                compare(contract, readings.map(r => ({ label: r.label, barelyVisible: true, readable: true })),
+                    "label readings " + JSON.stringify({ readings: readings, faint: faint }));
             } finally {
                 card.destroy();
                 ground.color = Qt.binding(() => scene.look.card.base);

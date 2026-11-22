@@ -233,8 +233,10 @@ Item {
             readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
             readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
             readonly property real fadeTop: Math.max(0, Math.min(1, rowTop / Math.max(1, height)))
-            readonly property real fadeMiddle: Math.max(0, Math.min(1, (rowTop + tray.height / 2) / Math.max(1, height)))
             readonly property real fadeBottom: Math.max(0, Math.min(1, (rowTop + tray.height) / Math.max(1, height)))
+            // The text's own top and bottom edges inside the mask's padding.
+            readonly property real textTop: Math.min(fadeTop, card.pad / Math.max(1, height))
+            readonly property real textBottom: Math.max(fadeBottom, 1 - card.pad / Math.max(1, height))
             visible: false
             layer.enabled: textBlock.layer.enabled
             layer.smooth: true
@@ -245,8 +247,11 @@ Item {
                 GradientStop { position: actionMask.fadeEnd; color: card.maskColor(actionMask.textAlpha) }
                 GradientStop { position: 1; color: card.maskColor(actionMask.textAlpha) }
             }
-            // Compose only texture alpha: the vertical gradient restores
-            // ink above and below the buttons within this same mask layer.
+            // Compose only texture alpha: the vertical gradient keeps the
+            // text faint across the whole button row, so every label
+            // reads over it, and restores the ink softly from the row's
+            // edges to the text's top and bottom, where no button covers
+            // it, within this same mask layer.
             // Qt layers capture the subtree, and child rectangles blend
             // above the parent's horizontal gradient, not above the card.
             // https://doc.qt.io/qt-6/qml-qtquick-item.html#item-layers
@@ -255,9 +260,10 @@ Item {
                 gradient: Gradient {
                     orientation: Gradient.Vertical
                     GradientStop { position: 0; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.fadeTop; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.fadeMiddle; color: card.maskColor(0) }
-                    GradientStop { position: actionMask.fadeBottom; color: card.look.tray.fadeInk }
+                    GradientStop { position: actionMask.textTop; color: card.look.tray.fadeInk }
+                    GradientStop { position: actionMask.fadeTop; color: card.maskColor(0) }
+                    GradientStop { position: actionMask.fadeBottom; color: card.maskColor(0) }
+                    GradientStop { position: actionMask.textBottom; color: card.look.tray.fadeInk }
                     GradientStop { position: 1; color: card.look.tray.fadeInk }
                 }
             }
