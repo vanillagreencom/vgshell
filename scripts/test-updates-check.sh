@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Controls for vgs.updates/bin/check: required argv, concurrent probes and
-# signal cleanup of probe process groups.
+# Controls for vgs.updates/bin/check: required argv, concurrent probes, the
+# lock's place beside the review root it never makes, and signal cleanup of
+# probe process groups.
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 check="$repo/shell/plugins/vgs.updates/bin/check"
@@ -72,6 +73,40 @@ start_ms=$(( $(date +%s%N) / 1000000 ))
 elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
 if [[ $elapsed -lt 3000 ]]; then ok "check runs independent probes concurrently"; else fail "check runs independent probes concurrently: elapsed=${elapsed}ms"; fi
 if [[ $(wc -l <"$root/state/vgshell/updates-test/calls") -eq 4 ]]; then ok "check runs four probes once"; else fail "check runs four probes once"; fi
+# <runtime>/vgshell/updates belongs to bin/lib/pkg-review.js alone, which
+# repairs it in place for review-run (scripts/fixtures/pkg-review/
+# runtime-test.js). The check keeps its lock beside it and makes none. The
+# control restores the lock's old place inside it.
+# review_root_reading CHECK RUNTIME: CHECK's exit, and whether it left
+# RUNTIME/vgshell/updates and RUNTIME/vgshell/updates-check.lock.
+review_root_reading() { # CHECK RUNTIME
+  local status=0 updates=no lock=no
+  rm -rf -- "${root:?}/$2"
+  mkdir -p -- "$root/$2"
+  # env applies its assignments in order, so this runtime replaces run_env's.
+  "${run_env[@]}" XDG_RUNTIME_DIR="$root/$2" "$1" --vgshell "$root/bin/vgshell" >/dev/null 2>"$root/$2.err" || status=$?
+  [[ ! -e $root/$2/vgshell/updates ]] || updates=yes
+  [[ ! -f $root/$2/vgshell/updates-check.lock ]] || lock=yes
+  printf 'exit=%s updates=%s lock=%s\n' "$status" "$updates" "$lock"
+}
+got="$(review_root_reading "$check" runtime-owner)"
+if [[ $got == 'exit=0 updates=no lock=yes' ]]; then ok "the check keeps its lock beside the review root and makes no review root"; else fail "the check keeps its lock beside the review root and makes no review root: $got"; fi
+# The mutant sits in a copy of the plugin's layout: bin/check finds
+# NormalizeCheck.js and UpdatesLogic.js beside its bin/ folder.
+old_lock_plugin="$root/plugin-old-lock"
+mkdir -p -- "$old_lock_plugin/bin"
+for file in NormalizeCheck.js UpdatesLogic.js; do ln -s -- "$repo/shell/plugins/vgs.updates/$file" "$old_lock_plugin/$file"; done
+python3 - "$check" "$old_lock_plugin/bin/check" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+for old, new in (('lock_dir="$runtime_dir/vgshell"\n', 'lock_dir="$runtime_dir/vgshell/updates"\n'), ('lock="$lock_dir/updates-check.lock"', 'lock="$lock_dir/check.lock"')):
+    assert source.count(old) == 1, old
+    source = source.replace(old, new)
+pathlib.Path(sys.argv[2]).write_text(source)
+PY
+chmod 755 "$old_lock_plugin/bin/check"
+got="$(review_root_reading "$old_lock_plugin/bin/check" runtime-old-lock)"
+if [[ $got == 'exit=0 updates=yes lock=no' ]]; then ok "control: a check that locks inside the review root fails the ownership case"; else fail "control: a check that locks inside the review root fails the ownership case: $got"; fi
 missing_tree="$root/missing-page-reference"
 mkdir -p -- "$missing_tree/bin/lib"
 ln -s -- "$repo/bin/lib/qml-library.js" "$missing_tree/bin/lib/qml-library.js"
