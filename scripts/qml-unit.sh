@@ -226,8 +226,10 @@ printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPop
 printf 'ElapsedTimer 1.0 ElapsedTimer.qml\n' >>"$imports/Quickshell/qmldir"
 # The variables the stand-in Quickshell answers as set: the bundled fonts
 # Theme.qml loads, the files themselves, since no runner makes the copies
-# `vgshell run` names.
-python3 -c 'import json, sys; print(".pragma library\nvar VALUES = " + json.dumps({"VGSHELL_FONT_SANS": sys.argv[1] + "/InterVariable.ttf", "VGSHELL_FONT_MONO": sys.argv[1] + "/JetBrainsMono-Variable.ttf"}) + ";")' "$repo/shell/assets/fonts" >"$imports/Quickshell/UnitEnv.js" \
+# `vgshell run` names; and VGSHELL_STARTED_AT, the instant `vgshell run`
+# starts the shell at, fixed at 5000 ms after the epoch so a case can place
+# an update outcome before or after it.
+python3 -c 'import json, sys; print(".pragma library\nvar VALUES = " + json.dumps({"VGSHELL_FONT_SANS": sys.argv[1] + "/InterVariable.ttf", "VGSHELL_FONT_MONO": sys.argv[1] + "/JetBrainsMono-Variable.ttf", "VGSHELL_STARTED_AT": "5000"}) + ";")' "$repo/shell/assets/fonts" >"$imports/Quickshell/UnitEnv.js" \
   || { printf 'qml-unit: refused: unit-env=unwritten\n' >&2; exit 2; }
 # The shipped notification panel imports this type for hidden media. The
 # image-free boundary fixture needs its Rectangle interface only; rounded

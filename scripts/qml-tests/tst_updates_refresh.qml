@@ -143,6 +143,44 @@ Item {
                 view.parent = root;
             }
         }
+        // Restart-only expiry through the production service: UnitEnv.js
+        // sets VGSHELL_STARTED_AT to 5000 ms, the case reads the outcome
+        // before the boot time and boots at 9000 ms. The control publishes
+        // the outcome it read unfiltered.
+        function test_restart_only_outcome_expires_after_start_or_boot_data() {
+            const outcome = (remedy, endedAt) => ({ version: 1, ended: "failed", title: "VGS could not restart",
+                text: "Restart the computer when you are ready.", remedy: remedy, endedAt: endedAt });
+            return [
+                { tag: "ended before this shell started", outcome: outcome("computer-restart", 3000), shown: [false, false], control: false },
+                { tag: "ended before this boot", outcome: outcome("shell-restart", 7000), shown: [true, false], control: false },
+                { tag: "ended after this boot", outcome: outcome("computer-restart", 12000), shown: [true, true], control: false },
+                { tag: "a failure no restart resolves", outcome: outcome("", 3000), shown: [true, true], control: false },
+                { tag: "unfiltered-control", outcome: outcome("computer-restart", 3000), shown: [false, false], control: true }
+            ];
+        }
+        function test_restart_only_outcome_expires_after_start_or_boot(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.updates/Service.qml"), false);
+            request.send();
+            let source = request.responseText;
+            const filter = "lastRun: Logic.pendingOutcome(lastRun, shellStartedAt, bootedAt)";
+            compare(source.split(filter).length, 2, "the control reaches the published outcome");
+            if (data.control) source = source.replace(filter, "lastRun: lastRun");
+            service.destroy();
+            wait(0);
+            root.values = {}; root.observed = []; root.handlers = {};
+            service = Qt.createQmlObject(source, root, Qt.resolvedUrl("../../shell/plugins/vgs.updates/Service.qml"));
+            service.shell = root.facade;
+            compare(service.shellStartedAt, 5000, "the service reads the shell's start time");
+            reader(service.statusPath).finishRead(snapshot(97));
+            process("outcome").finish(0, 0, JSON.stringify(data.outcome), "");
+            const beforeBoot = root.values.lastRun ?? null;
+            reader(service.bootPath).finishRead("btime 9\n");
+            const afterBoot = root.values.lastRun ?? null;
+            if (data.control) expectFailContinue("", "an unfiltered outcome outlives its restart");
+            compare([beforeBoot, afterBoot], data.shown.map(shown => shown ? data.outcome : null),
+                "a restart-only outcome hides once a newer shell start or boot is read; others stay");
+        }
         function test_last_run_keeps_title_and_sentence_apart() {
             root.values = { pending: 1, checking: false, lastCheck: Date.now(),
                 checkState: { tone: "ok", text: "Updates available" },
