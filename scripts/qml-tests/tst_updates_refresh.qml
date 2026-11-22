@@ -10,7 +10,7 @@ import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
 // Drive the production service, window and each separately observed status
 // write. Processes and startup reads finish only when the case answers them.
-// inputs: shell/plugins/vgs.updates/* shell/Hosts/SummonHost.qml scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
+// inputs: shell/plugins/vgs.updates/* shell/Hosts/SummonHost.qml shell/Core/Dispatch.js scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
 Item {
     id: root
     width: 900
@@ -84,29 +84,41 @@ Item {
         function sourceRows() {
             return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
         }
-        function test_inactive_toggle_preserves_the_open_window_data() {
-            return [{ tag: "raise", control: false }, { tag: "replayed-open-control", control: true }];
+        // The production host's read-then-act phase over Hyprland client
+        // fixtures: Updates floats; another floating window above it covers
+        // it, and a tiled one holding the keyboard does not. The control
+        // judges by keyboard activation, which a tiled window's focus
+        // leaves false, so it raises where one click must close.
+        function test_toggle_raises_only_a_covered_window_data() {
+            const updates = (focus) => ({ address: "0xa1", mapped: true, hidden: false, floating: true, pinned: false, at: [400, 200], size: [800, 600], workspace: { id: 1, name: "1" }, focusHistoryID: focus });
+            const terminal = { address: "0xb2", mapped: true, hidden: false, floating: true, pinned: false, at: [500, 300], size: [600, 400], workspace: { id: 1, name: "1" }, focusHistoryID: 0 };
+            const tiled = { address: "0xc3", mapped: true, hidden: false, floating: false, pinned: false, at: [0, 40], size: [1920, 1040], workspace: { id: 1, name: "1" }, focusHistoryID: 0 };
+            return [
+                { tag: "held task terminal above", clients: [updates(1), terminal], raised: true, control: false },
+                { tag: "tiled window holds the keyboard", clients: [tiled, updates(1)], raised: false, control: false },
+                { tag: "focus-check-control", clients: [tiled, updates(1)], raised: false, control: true }
+            ];
         }
-        function test_inactive_toggle_preserves_the_open_window(data) {
+        function test_toggle_raises_only_a_covered_window(data) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"), false);
             request.send();
             verify(request.responseText.length > 0, "read the production host");
             // Mount the shipped owner methods, as tst_polkit_prompt does;
-            // native mapping/activation is covered by the Updates smoke row.
+            // the live stacking read is covered by the Updates smoke row.
             const parts = request.responseText.split("\n    Variants {");
             compare(parts.length, 2);
             let methods = parts[0];
             const registration = "    Component.onCompleted: Plugins.registerHost(kind, host)";
             compare(methods.split(registration).length, 2);
             methods = methods.replace(registration, "");
-            const raise = 'focusOpen(id);\n                    return "ok";';
-            compare(methods.split(raise).length, 2, "the control reaches the inactive branch");
-            if (data.control) methods = methods.replace(raise, "return summon(id, payloadJson, origin);");
+            const judge = "const cover = state.ok ? Dispatch.windowCovered(state.clients, address) : state;";
+            compare(methods.split(judge).length, 2, "the control reaches the stacking judge");
+            if (data.control) methods = methods.replace(judge, "const cover = { ok: true, covered: !instance.Window.window.active };");
             const host = Qt.createQmlObject(methods.replace("required property string kind", 'property string kind: "window"') + "\n}", root,
                 Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"));
             // A hidden native window supplies Qt's real inactive attached
-            // Window; no compositor or invented active-property stand-in.
+            // Window, as a tiled window's keyboard focus leaves Updates.
             // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-prop
             const inactive = createTemporaryQmlObject('import QtQuick; import QtQuick.Window; Window { visible: false }', root);
             try {
@@ -118,16 +130,14 @@ Item {
                 host.openIds = ["vgs.updates"];
                 let focused = 0;
                 host.rememberFocuser("vgs.updates", () => { focused += 1; });
-                compare(host.toggle("vgs.updates", "{}", null), "ok");
-                compare(focused, 1, "the existing window is handed to its activation owner once");
-                compare(host.openIds, ["vgs.updates"], "activation keeps the existing host entry");
-                compare(host.instances["vgs.updates"], view);
-                if (data.control) expectFailContinue("", "replaying open resets the existing window's state");
-                compare([view.problem, view.requestState], ["Keep the current refusal visible.", "idle"]);
-                compare(host.summon("vgs.updates", "{}", null), "ok", "explicit summon still delivers its opening request");
-                compare(view.problem, "");
-                compare(view.view.state, "checking");
-                compare(focused, 2);
+                host.toggleRead("vgs.updates", view, "0xa1", { ok: true, clients: data.clients });
+                if (data.control) expectFailContinue("", "a focus-only judge raises a window no floating window covers");
+                compare([focused, host.openIds.indexOf("vgs.updates") !== -1], data.raised ? [1, true] : [0, false],
+                    data.raised ? "a covered window is raised and kept" : "a window in front closes");
+                if (data.raised) {
+                    compare(host.instances["vgs.updates"], view);
+                    compare([view.problem, view.requestState], ["Keep the current refusal visible.", "idle"], "raising keeps the open page's state");
+                }
             } finally {
                 host.destroy();
                 view.parent = root;

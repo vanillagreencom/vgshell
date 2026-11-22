@@ -845,6 +845,31 @@ CLOSEPROMPT
   updates_click_terminal_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c.get("class")=="org.vgs.tui" and c.get("title")=="Updates task" for c in json.load(sys.stdin)))'; }
   expect_poll "the close-prompt terminal is gone" 0 updates_click_terminal_count
 
+  # A tiled window holding the keyboard, as follow_mouse leaves it when the
+  # pointer crosses it on its way to the bar, covers no floating window:
+  # one click closes Updates. The keyboard reading proves the case reaches
+  # the state a focus-only judge takes for an obscured window.
+  open_updates
+  cat >"$updates_state/tiled-task.sh" <<'TILEDTASK'
+#!/usr/bin/env bash
+printf ready >"$1"
+read -rsn1
+TILEDTASK
+  spawn_display "$updates_state/tiled-task.log" "${shell_env[@]}" -- "$updates_click_kitty" --config NONE -o confirm_os_window_close=0 -o shell_integration=disabled --class org.vgs.smoke.tiled --title 'Tiled task' /usr/bin/bash "$updates_state/tiled-task.sh" "$updates_state/tiled-task.ready" || return 1
+  updates_click_tiled() { [[ -f $updates_state/tiled-task.ready ]] && active_window || echo waiting; }
+  expect_poll "the tiled window holds the keyboard beside the open Updates window" '["org.vgs.smoke.tiled", "Tiled task"]' updates_click_tiled
+  updates_click_tiled_floating() { hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.smoke.tiled"]; print(json.dumps(v[0]["floating"]) if len(v)==1 else "count=%d" % len(v))'; }
+  expect "the crossed window is tiled" false updates_click_tiled_floating
+  expect "Updates stays open under a tiled window's focus" open updates_open
+  expect_poll "the shell reads the Updates window without the keyboard" false window_keyboard vgs.updates
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "one bar click closes Updates while a tiled window holds the keyboard" closed updates_open
+  updates_click_address="$(hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.smoke.tiled"]; print(v[0]["address"] if len(v)==1 else "none")')" || return 1
+  [[ $updates_click_address == 0x* ]] || return 1
+  expect "the owned tiled terminal closes" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$updates_click_address\" })"
+  updates_click_tiled_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c.get("class")=="org.vgs.smoke.tiled" for c in json.load(sys.stdin)))'; }
+  expect_poll "the tiled terminal is gone" 0 updates_click_tiled_count
+
   # A real core refusal reaches the widget: the disposable plugin declares
   # no window kind. Its one click must produce exactly one reason line.
   cp -- "$updates_dir/manifest.json" "$updates_state/click-manifest.json"

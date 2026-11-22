@@ -651,6 +651,48 @@ function revealTarget(state, addresses, named) {
     return { state: focused && onScreen(target, state.monitors) ? "shown" : "reveal", address: address };
 }
 
+// Whether another window covers the window at ADDRESS, from windowState's
+// clients: a mapped floating client, not hidden, on its workspace or
+// pinned, whose box overlaps it and that draws above it or holds the
+// keyboard (focusHistoryID 0, the window focused last). Hyprland v0.57.0
+// draws tiled windows, then floating ones in its window list's order, then
+// pinned ones (src/render/Renderer.cpp renderWorkspaceWindows); j/clients
+// prints that list in order (src/ipc/s1/Commands.cpp clientsRequest), and
+// a raise moves a window to its end (src/desktop/state/WindowState.cpp
+// moveToTop). Focus alone restacks nothing (src/desktop/state/FocusState.cpp
+// rawWindowFocus), so a tiled window follow_mouse focuses covers nothing.
+// No documented field names a stacking position: neither hyprctl's nor
+// Quickshell 0.3.1's HyprlandToplevel
+// (https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandToplevel/),
+// so this reads the list's order; revisit if Hyprland changes it.
+// { ok: true, covered } or { ok: false, error }.
+function windowCovered(clients, address) {
+    var want = String(address).toLowerCase();
+    var box = function (c) { return { x: c.at && c.at[0], y: c.at && c.at[1], w: c.size && c.size[0], h: c.size && c.size[1] }; };
+    var rect = function (r) { return [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; };
+    var index = -1;
+    for (var i = 0; i < clients.length; i++) {
+        if (!clients[i] || !clients[i].mapped || String(clients[i].address).toLowerCase() !== want) continue;
+        if (index !== -1) return { ok: false, error: "refused: cover=windows address=" + want };
+        index = i;
+    }
+    if (index === -1) return { ok: false, error: "refused: cover=unmapped address=" + want };
+    var self = clients[index], own = box(self), key = workspaceKey(self.workspace || {});
+    if (!rect(own)) return { ok: false, error: "refused: cover=window-shape address=" + want };
+    for (var j = 0; j < clients.length; j++) {
+        var c = clients[j];
+        if (j === index || !c || !c.mapped || c.hidden === true || c.floating !== true) continue;
+        if (c.pinned !== true && (key === "" || workspaceKey(c.workspace || {}) !== key)) continue;
+        var other = box(c);
+        if (!rect(other)) return { ok: false, error: "refused: cover=window-shape address=" + String(c.address) };
+        if (other.x >= own.x + own.w || own.x >= other.x + other.w || other.y >= own.y + own.h || own.y >= other.y + other.h) continue;
+        var above = self.floating !== true || (c.pinned === true && self.pinned !== true)
+            || (c.pinned === true) === (self.pinned === true) && j > index;
+        if (above || c.focusHistoryID === 0) return { ok: true, covered: true };
+    }
+    return { ok: true, covered: false };
+}
+
 // ------------------------------------------------------- keyboard layout
 
 // The keyboard layout switch, the `hyprland` capability's
