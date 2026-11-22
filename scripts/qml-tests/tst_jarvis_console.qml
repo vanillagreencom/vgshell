@@ -342,6 +342,45 @@ Item {
             compare(button.disabledReason, changed.actions.reply.reason);
         }
 
+        // An ask never posted on a tracker has no link: its active or
+        // snoozed card keeps its sender, words, state and actions and shows
+        // no link control, and a linked card still opens its link.
+        function test_ask_without_link_shows_no_link_control() {
+            const actions = { reply: { allowed: true, reason: "" }, done: { allowed: true, reason: "" }, later: { allowed: true, reason: "" } };
+            const row = (id, link, state, until) => ({ id: id, revision: "one", kind: "jarvis-ask", what: "Choose " + id,
+                askedBy: { id: "jarvis", name: "Jarvis" }, askedAt: new Date().toISOString(),
+                link: link, state: state, snoozedUntil: until, actions: actions });
+            const link = { label: "Original thread", url: "https://example.invalid/thread" };
+            const later = new Date(Date.now() + 3600000).toISOString();
+            const values = root.values({});
+            values.ownerAsks = { kind: "ready", homeId: "home", revision: "one",
+                active: [row("linked", link, "open", null), row("unposted", null, "open", null)],
+                snoozed: [row("resting", null, "snoozed", later)], activeCount: 2, snoozedCount: 1 };
+            const opened = [];
+            const shell = root.shellWith(values);
+            shell.run = { detached: argv => { opened.push(argv); return "ok"; } };
+            jarvisConsole.shell = shell;
+            jarvisConsole.snoozedExpanded = true;
+            jarvisConsole.tab = 1;
+            wait(0);
+            const card = what => collect(jarvisConsole, n => n instanceof MessageRow && n.title === what, [])[0];
+            const links = message => collect(message, n => n instanceof LinkText && n.visible && n.text === n.link, []);
+            const linked = card("Choose linked");
+            for (const [what, state] of [["Choose unposted", linked.stateText], ["Choose resting", "Snoozed"]]) {
+                const message = card(what);
+                verify(message !== undefined && message.visible, what);
+                compare(links(message).length, 0, what + " shows no link control");
+                compare(message.sender, linked.sender);
+                compare(message.stateText, state);
+                compare(JSON.stringify(message.actions), JSON.stringify(linked.actions));
+            }
+            compare(links(linked).map(n => n.text), [link.label]);
+            linked.sourceActivated();
+            compare(opened.length, 1, "the linked card opens its link");
+            verify(JSON.stringify(opened[0]).indexOf(link.url) !== -1);
+            jarvisConsole.snoozedExpanded = false;
+        }
+
         // Recovery names the ask its Retry acts on, for each
         // action, while the ask is on the page.
         function test_ask_recovery_names_its_ask_data() {

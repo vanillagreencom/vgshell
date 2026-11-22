@@ -154,7 +154,7 @@ FocusScope {
             : "The retry could not be sent. Your previous action is still unconfirmed.";
     }
     function openAskLink(row) {
-        if (shell === null) return;
+        if (shell === null || row.link === null) return;
         const reply = shell.run.detached(DesktopLaunch.open(row.link.url));
         askProblem = reply === "ok" ? "" : "The original thread could not be opened.";
     }
@@ -1034,7 +1034,7 @@ FocusScope {
                                 sender: activeCard.live ? activeCard.ask.askedBy.name : ""
                                 title: activeCard.live ? activeCard.ask.what : ""
                                 bodyText: !activeCard.live || activeCard.ask.statusText === undefined ? "" : activeCard.ask.statusText
-                                linkText: activeCard.live ? activeCard.ask.link.label : ""
+                                linkText: activeCard.live && activeCard.ask.link !== null ? activeCard.ask.link.label : ""
                                 stateText: activeCard.live ? root.askState(activeCard.ask) : ""
                                 stateTone: activeCard.live && activeCard.ask.state === "checking" ? "info" : "warning"
                                 actions: activeCard.live ? root.askActions(activeCard.ask) : []
@@ -1061,7 +1061,7 @@ FocusScope {
                                 Accessible.description: snoozedCard.live ? "Returns " + root.when(Date.parse(snoozedCard.ask.snoozedUntil)) : ""
                                 sender: snoozedCard.live ? snoozedCard.ask.askedBy.name : ""
                                 title: snoozedCard.live ? snoozedCard.ask.what : ""
-                                linkText: snoozedCard.live ? snoozedCard.ask.link.label : ""
+                                linkText: snoozedCard.live && snoozedCard.ask.link !== null ? snoozedCard.ask.link.label : ""
                                 stateText: "Snoozed"
                                 actions: snoozedCard.live ? root.askActions(snoozedCard.ask) : []
                                 onSourceActivated: if (snoozedCard.live) root.openAskLink(snoozedCard.ask)

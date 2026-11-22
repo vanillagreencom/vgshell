@@ -19,7 +19,7 @@ function seed(home, count = 3) {
     const rows = [
         { id: "jarvis-briefing", kind: "jarvis-ask", what: "Choose the voice for tomorrow's briefing", askedBy: { id: "jarvis", name: "Jarvis" }, link: { label: "Briefing thread", url: "https://example.invalid/briefing" } },
         { id: "tracker-design", kind: "tracker-item", what: "Review the console design", askedBy: { id: "overseer", name: "Shell overseer" }, link: { label: "VGS-2185", url: "https://linear.app/vanillagreen/issue/VGS-2185" } },
-        { id: "fleet-update", kind: "fleet-approval", what: "Approve the update on px13", askedBy: { id: "fleet", name: "Fleet" }, link: { label: "Approval thread", url: "https://example.invalid/fleet" } }
+        { id: "fleet-update", kind: "fleet-approval", what: "Approve the update on px13", askedBy: { id: "fleet", name: "Fleet" }, link: null }
     ];
     for (let i = rows.length; i < count; i++) rows.push({ ...rows[0], id: "ask-" + i, what: "Review ask " + i });
     write(home, { revision: 1, mode: "ready", receipts: {}, rows: rows.slice(0, count).map(row => ({ ...common, ...row, threadRef: "thread:" + row.id })) });

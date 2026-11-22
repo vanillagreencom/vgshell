@@ -99,9 +99,12 @@ function ownerAskRows(rows, view) {
         ids[row.id] = true;
         keys(row.askedBy, ["id", "name"], "owner-ask-sender");
         if (!printable(row.askedBy.id, 1, 128) || !printable(row.askedBy.name, 1, 100)) fail("owner-ask-sender");
-        keys(row.link, ["label", "url"], "owner-ask-link");
-        if (!printable(row.link.label, 1, 100) || !printable(row.link.url, 1, 2048)
-                || !/^https?:\/\/[^\s]+$/.test(row.link.url)) fail("owner-ask-link");
+        // An ask that was never posted on a tracker has no link.
+        if (row.link !== null) {
+            keys(row.link, ["label", "url"], "owner-ask-link");
+            if (!printable(row.link.label, 1, 100) || !printable(row.link.url, 1, 2048)
+                    || !/^https?:\/\/[^\s]+$/.test(row.link.url)) fail("owner-ask-link");
+        }
         keys(row.actions, ["reply", "done", "later"], "owner-ask-actions");
         for (var action of ["reply", "done", "later"]) {
             var offer = row.actions[action];

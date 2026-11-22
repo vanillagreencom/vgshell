@@ -157,11 +157,16 @@ function client(extra = {}) {
         value => { value.active.push({ ...value.active[0] }); },
         value => { value.activeNextCursor = value.activeCursor = "same"; },
         value => { value.active[0].link.url = "file:///private"; },
+        value => { value.active[0].link = { label: value.active[0].link.label }; },
         value => { value.active[0].actions.done = { allowed: false, reason: "" }; }
     ]) {
         const value = JSON.parse(JSON.stringify(accepted)); mutate(value);
         assert.throws(() => Protocol.ownerAsksSnapshot(value));
     }
+    const linked = accepted.active.find(row => row.link !== null);
+    const mixed = { v: 1, homeId: "home", revision: "1", observedAt: new Date().toISOString(), activeCount: 2, snoozedCount: 0,
+        rows: [linked, { ...linked, id: "unposted", link: null }], nextCursor: null, complete: true };
+    assert.doesNotThrow(() => Protocol.ownerAsksPage(mixed, "active", null), "an ask never posted on a tracker has no link");
     function doneChecks(judge) {
         assert.throws(() => judge.ownerAskAnswer({ v: 1, requestId: "done", kind: "accepted", state: "closed", cause: "" }, "done"));
     }
