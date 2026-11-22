@@ -719,11 +719,15 @@ nix_host_rows() { # BIN [restart-reset]: refuse before engine or session discove
     got="$("${base_env[@]}" PATH="$engine_path:$tmp/nix-managers:$base_path" XDG_RUNTIME_DIR="$rt" STUB_QS_CALLS="$tmp/nix-calls" STUB_HYPR_CALLS="$tmp/nix-hypr-calls" \
       bwrap --ro-bind / / --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "${args[@]}" 2>&1)" || status=$?
     first="${got%%$'\n'*}"
-    [[ $status == 78 && $first == "vgshell: refused: install=nix host=unsupported route=$route" && ! -e $tmp/nix-calls && ! -e $tmp/nix-hypr-calls ]] || return 1
+    # A failed case names what it read, so a red row shows which verb and
+    # which reading broke.
+    nix_row_failed() { printf 'nix-row: verb=%s status=%s first=%q calls=%s hypr-calls=%s lock=%q\n' "$verb" "$status" "$first" \
+      "$([[ -e $tmp/nix-calls ]] && echo yes || echo no)" "$([[ -e $tmp/nix-hypr-calls ]] && echo yes || echo no)" "$(cat "$rt/vgshell.lock" 2>/dev/null || echo absent)" >&2; return 1; }
+    [[ $status == 78 && $first == "vgshell: refused: install=nix host=unsupported route=$route" && ! -e $tmp/nix-calls && ! -e $tmp/nix-hypr-calls ]] || nix_row_failed || return 1
     if [[ $verb == reset ]]; then
-      [[ $(cat "$rt/vgshell.lock") == "$$" ]] || return 1
+      [[ $(cat "$rt/vgshell.lock") == "$$" ]] || nix_row_failed || return 1
     else
-      [[ ! -e $rt/vgshell.lock ]] || return 1
+      [[ ! -e $rt/vgshell.lock ]] || nix_row_failed || return 1
     fi
   done <<'NIX_ROWS'
 direct|arch|run|aur
