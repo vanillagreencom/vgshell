@@ -19,8 +19,12 @@ const offers=world=>world.calls().filter(call=>call.kind==="offer");
 // The keyed lines Updates reads from a step (pipeline.sh _updates_review_of).
 const keyed=(result,key)=>judge.transcriptLines(result.stdout).filter(line=>line.startsWith("vgshell: "+key+": "));
 try{
- // Updates' check must leave review-run's private root to its sole owner.
- // Include a folder made by an older check and retain its existing runs.
+ // An Update runs the check first, then review-run. The check, as the
+ // shell's start does, makes <runtime>/vgshell with the caller's umask; under
+ // umask 002, as Fedora gives a user with a private group, it is
+ // group-writable. An older check also left updates/ under it. The owner
+ // repairs both in place and keeps their runs. test-updates-check.sh holds
+ // the check's own side: it makes no updates/ and keeps its lock beside it.
  function updatesRoot(folder,owner=path.resolve(__dirname,"../../../bin/vgshell-pkg")){
   const world=create(path.join(scratch,folder)),bin=path.join(world.root,"check-bin");
   fs.mkdirSync(path.join(bin,"lib"),{recursive:true});
@@ -30,17 +34,20 @@ try{
   const probe=path.join(bin,"vgshell");
   fs.writeFileSync(probe,'#!/usr/bin/bash\ncase "$1 $2" in\n"self status") printf \'{"version":"0.1.0","method":"checkout","package":null,"current":"0.1.0","latest":"0.1.0","behind":false,"step":"none","reason":null,"error":null}\\n\' ;;\n*) printf \'[]\\n\' ;;\nesac\n',{mode:0o755});
   const parent=path.join(world.env.XDG_RUNTIME_DIR,"vgshell"),updates=path.join(parent,"updates");
-  fs.mkdirSync(parent,{mode:0o755});
-  const result=cp.spawnSync("/usr/bin/bash",[path.resolve(__dirname,"../../../shell/plugins/vgs.updates/bin/check"),"--vgshell",probe],{env:{...world.env,PATH:world.env.PATH+":/usr/bin:/bin"},encoding:"utf8",timeout:30000});
+  const result=cp.spawnSync("/usr/bin/bash",["-c",'umask 002 && exec /usr/bin/bash "$0" "$@"',path.resolve(__dirname,"../../../shell/plugins/vgs.updates/bin/check"),"--vgshell",probe],{env:{...world.env,PATH:world.env.PATH+":/usr/bin:/bin"},encoding:"utf8",timeout:30000});
   assert.equal(result.status,0,"updates check: "+result.stderr);
-  assert.ok(!fs.existsSync(updates),"updates check: leaves review root absent");
-  assert.ok(fs.existsSync(path.join(parent,"updates-check.lock")),"updates check: lock beside package check lock");
+  assert.equal(fs.statSync(parent).mode&0o777,0o775,"updates check: umask 002 leaves the runtime folder group-writable");
+  let run=cp.spawnSync(process.execPath,[owner,"review-run"],{env:world.env,encoding:"utf8",timeout:30000});
+  assert.equal(run.status,0,"updates review: admitted after check: "+run.stderr);
+  assert.equal(fs.statSync(parent).mode&0o777,0o755,"updates review: repairs the runtime folder in place");
+  fs.rmSync(updates,{recursive:true});
   fs.mkdirSync(updates,{mode:0o755});
+  fs.chmodSync(updates,0o755);
   fs.writeFileSync(path.join(updates,"retained"),"prior run");
   for(const mode of [0o755,0o555,0o000]){
    fs.chmodSync(updates,mode);
-   const run=cp.spawnSync(process.execPath,[owner,"review-run"],{env:world.env,encoding:"utf8",timeout:30000});
-   assert.equal(run.status,0,"updates review: admitted after check: "+run.stderr);
+   run=cp.spawnSync(process.execPath,[owner,"review-run"],{env:world.env,encoding:"utf8",timeout:30000});
+   assert.equal(run.status,0,"updates review: admitted over an older updates folder: "+run.stderr);
    assert.equal(fs.statSync(updates).mode&0o777,0o700,"updates review: repairs owned directory in place");
    assert.equal(fs.readFileSync(path.join(updates,"retained"),"utf8"),"prior run","updates review: preserves prior runs");
    assert.equal(path.dirname(run.stdout.trim()),updates,"updates review: uses the owned root");
@@ -48,19 +55,25 @@ try{
  }
  updatesRoot("updates-root");
  // Ownership metadata is injected only in this child. The caller has no
- // permission to chown a real directory to another user's identity.
+ // permission to chown a real directory to another user's identity. A link,
+ // to updates/ or in place of <runtime>/vgshell, is refused before any
+ // chmod could reach the folder it names.
  function unsafeUpdatesRoot(kind,folder="updates-refuse-"+kind,owner=path.resolve(__dirname,"../../../bin/vgshell-pkg")){
   const world=create(path.join(scratch,folder)),parent=path.join(world.env.XDG_RUNTIME_DIR,"vgshell"),updates=path.join(parent,"updates");
-  fs.mkdirSync(parent,{mode:0o700});
-  if(kind==="link")fs.symlinkSync(world.env.HOME,updates);
+  const target=path.join(world.root,"link-target");
+  fs.mkdirSync(target);fs.chmodSync(target,0o755);
+  if(kind==="parent-link")fs.symlinkSync(target,parent);
+  else fs.mkdirSync(parent,{mode:0o700});
+  if(kind==="link")fs.symlinkSync(target,updates);
   else if(kind==="file")fs.writeFileSync(updates,"");
-  else fs.mkdirSync(updates,{mode:0o700});
+  else if(kind!=="parent-link")fs.mkdirSync(updates,{mode:0o700});
   const code='const fs=require("node:fs"),[owner,dir,kind]=process.argv.slice(1);if(kind==="foreign"){const stat=fs.lstatSync;fs.lstatSync=function(file,...args){const value=stat.call(this,file,...args);if(file===dir)value.uid=process.getuid()+1;return value;};}require(owner).createRun();';
   const result=cp.spawnSync(process.execPath,["-e",code,path.resolve(path.dirname(owner),"lib/pkg-review.js"),updates,kind],{env:world.env,encoding:"utf8",timeout:30000});
   assert.notEqual(result.status,0,kind+": unsafe updates root refused");
   assert.match(result.stderr,/review=directory-unsafe/,kind+": directory refusal");
+  assert.equal(fs.statSync(target).mode&0o777,0o755,kind+": the linked folder keeps its mode");
  }
- for(const kind of ["link","foreign","file"])unsafeUpdatesRoot(kind);
+ for(const kind of ["link","parent-link","foreign","file"])unsafeUpdatesRoot(kind);
  // Each entry point reaches the same file-manager operation. The picker and
  // requirement notice themselves route to these same public owner verbs.
  for(const [name,args] of [
@@ -321,11 +334,14 @@ try{
  // copy's; the rest of the checkout is linked.
  const repo=path.resolve(__dirname,"../../..");
  for(const [name,needle,replacement,rerun,fails,file="bin/lib/pkg-review.js"] of [
-  ["updates-mode","fs.chmodSync(updates, 0o700);","void updates;",owner=>updatesRoot("control-updates-mode",owner),/^updates review: admitted after check:/],
+  ["updates-repair","if (repaired !== old) fs.chmodSync(dir, repaired);","void repaired;",owner=>updatesRoot("control-updates-repair",owner),/^updates review: admitted after check:/],
+  ["runtime-repair",'return repairedFolder(path.join(real, "vgshell"), 0o022);','return ownedFolder(path.join(real, "vgshell"), 0o022);',owner=>updatesRoot("control-runtime-repair",owner),/^updates review: admitted after check:/],
+  ["updates-folder-repair",'repairedFolder(path.join(runtimeRoot(), "updates"), 0o077)','ownedFolder(path.join(runtimeRoot(), "updates"))',owner=>updatesRoot("control-updates-folder-repair",owner),/^updates review: admitted over an older updates folder:/],
+  ["chmod-before-check","    ownedDirectory(dir, 0);\n    const old","    const old",owner=>unsafeUpdatesRoot("link","control-chmod-before-check",owner),/^link: the linked folder keeps its mode$/],
   ["updates-link",
    "const stat = fs.lstatSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode) || fs.realpathSync(dir) !== dir)",
    "const stat = fs.statSync(dir);\n    if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode))",
-   owner=>unsafeUpdatesRoot("link","control-updates-link",owner),/^link: unsafe updates root refused$/],
+   owner=>unsafeUpdatesRoot("link","control-updates-link",owner),/^link: (?:unsafe updates root refused|the linked folder keeps its mode)$/],
   ["updates-foreign","!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & forbiddenMode)","!stat.isDirectory() || (stat.mode & forbiddenMode)",owner=>unsafeUpdatesRoot("foreign","control-updates-foreign",owner),/^foreign: unsafe updates root refused$/],
   ["tracking-old-shape","!Array.isArray(state[base])","!Array.isArray(state[base]?.repos)",owner=>devel(develCurrent,"control-tracking-old-shape",owner),/^devel-paru-2.2.0: untracked devel base result$/,"bin/vgshell-pkg"],
   // helperReviewCovered's named-target branch, which reinstall takes.
