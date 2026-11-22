@@ -110,9 +110,13 @@ stub() { # DIR NAME BODY
 # after its first answer when $FIX/owner-changes does.
 # `pkg review-custom-mode` fails with 4 while $FIX/fail-custom-mode exists.
 # `pkg run` for a manager ID ends its caller, the pipeline's run, with
-# SIGUSR1 for $FIX/kill-run-<id>: a signal the pipeline traps none of, as
-# the OOM killer's KILL is. pipeline() reads 137 as its own deadline kill,
-# so the case uses a signal whose status means nothing else there.
+# SIGUSR1 for $FIX/kill-run-<id>, a signal the pipeline traps none of.
+# pipeline() reads 137 as its own deadline kill, so the case cannot send
+# KILL. SIGUSR1 is not KILL's equal: bash runs the run subshell's EXIT trap
+# on it and skips that trap on KILL (bash 5.3.20: exit 138 with the trap
+# run, 137 with nothing). The case still proves the no-cause outcome: the
+# part file is written before the step, and no trap inside the run writes
+# outcome facts, so only the outer EXIT writer records the end.
 # `pkg check --json --source <id>` answers $FIX/check-<id>.json, else one
 # pending update; a file source answers no row, as one with none of its
 # packages installed does, while $FIX/unused-file-source exists.
