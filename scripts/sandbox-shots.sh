@@ -253,6 +253,9 @@
 # inbox from its top to its end and, where the tree can open a cut card,
 # the theme check card open, each shot's box in items.tsv: the cards on
 # screen, or the inbox panel.
+# jarvis-speech-only, taken only when named, is the Jarvis console's Chat
+# under a voice that takes speech only, with the pointer on the locked
+# message box and its reason shown, then at rest.
 # add-widget, taken only when named, is the bar's widget chooser, Manage
 # widgets, or Add widget in a --rev tree from before it, at rest with the
 # Tick fixture on the bar, AI Usage off it and Displays turned off, with
@@ -702,6 +705,7 @@ while [[ $# -gt 0 ]]; do
     warden-states) scenes+=("$1"); shift ;;
     vpn-nord) scenes+=("$1"); shift ;;
     notification-limits) scenes+=("$1"); shift ;;
+    jarvis-speech-only) scenes+=("$1"); shift ;;
     notice-banners) scenes+=("$1"); shift ;;
     workspaces) scenes+=("$1"); shift ;;
 
@@ -880,6 +884,7 @@ scene_ships() {
     automations) ships_plugin vgs.automations ;;
     automation-failure) ships_plugin vgs.automations vgs.notifications ;;
     notification-limits) ships_plugin vgs.notifications ;;
+    jarvis-speech-only) ships_plugin vgs.jarvis ;;
     screensaver) ships_plugin vgs.screensaver ;;
     screensaver-lock) ships_plugin vgs.screensaver vgs.lock ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
@@ -5094,6 +5099,51 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   jarvis_restore_requirements
   jarvis_console_restore
   tree_rescan "the stock Jarvis files are scanned after console images"
+  jarvis_notice_close
+}
+
+# The jarvis-speech-only scene: Chat over the scripted daemon fixture under
+# a voice that takes speech only, with the pointer on the locked message
+# box, its reason shown, then at rest.
+scene_jarvis-speech-only() { # MODE
+  local plugin="$repo/shell/plugins/vgs.jarvis" backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  local before_backend="$sandbox/jarvis-speech-only-$1-jarvisd-before.js"
+  local before_config="$sandbox/jarvis-speech-only-$1-config-before.json"
+  local gates="$sandbox/jarvis-speech-only-$1-gates" rect x y
+  cp -- "$backend" "$before_backend"
+  cp -- "$home/.config/vgshell/shell.json" "$before_config"
+  mkdir -p -- "$gates"
+  jarvis_setup_requirements
+  jarvis_asks_fixture "$checkout"
+  expect "the package fixture Home is selected for the speech-only images" ok ipc shell reloadConfig
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --duplex
+  tree_rescan "the Jarvis speech-only daemon is scanned"
+  expect "enabling vgs.jarvis for the speech-only images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis speech-only daemon answers hello" ready jarvis_started
+  expect "the Jarvis console summons" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the Jarvis console maps" 1 window_count Jarvis
+  expect_poll "Chat shows a voice that takes speech only" true ipc smoke readInstance window vgs.jarvis speechOnly
+  # The locked area reads no hover of its own, so the pointer goes to its
+  # centre and the reason's own reading settles it.
+  rect="$(ipc smoke windowGeometry window vgs.jarvis TextArea "")" || rect=unreadable
+  if [[ $rect == \[* ]] && read -r x y < <(at_centre window:Jarvis "$rect"); then
+    hover "$x" "$y" || fail "the pointer did not reach the message box"
+    expect_poll "the locked message box shows its reason" true ipc smoke readMatchingDescendant window vgs.jarvis Tooltip text "Typing is off for this voice." opened
+    take_posed "jarvis-speech-only-$1-reason"
+  else
+    fail "the message box has no box: $rect"
+  fi
+  take "jarvis-speech-only-$1-rest"
+  expect "the Jarvis console hides after its speech-only images" ok ipc shell hide window vgs.jarvis
+  expect "disabling vgs.jarvis after its speech-only images is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after its speech-only images" absent ipc smoke jarvisProcess
+  jarvis_asks_restore
+  user_config_restore "$before_config"
+  expect "the speech-only capture restores the selected Home" ok ipc shell reloadConfig
+  jarvis_restore_requirements
+  cp -- "$before_backend" "$backend"
+  rm -f -- "${plugin:?}/backend/scripted-fixture.js"
+  tree_rescan "the stock Jarvis files are scanned after the speech-only images"
   jarvis_notice_close
 }
 

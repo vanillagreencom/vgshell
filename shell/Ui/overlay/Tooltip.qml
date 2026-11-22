@@ -12,10 +12,17 @@ import qs.Ui
 // rows. After the theme's delay with the pointer resting on the item or
 // after keyboard focus reaches it, the tooltip opens in its own surface
 // on the item's `side`, "below" (the default), "right", or "clear", beside the item where it
-// covers no text, image or Tab stop of its window (`placed`), and takes no
-// focus. It closes when the pointer leaves and focus leaves, on a press on
-// the item, when the item hides, and it does
-// not open while another overlay is open. After a press it stays closed
+// covers no text, image, Tab stop or notice or card plate of its window
+// (`placed`), and takes no focus. Its window takes its place and size
+// before it first shows. One tooltip shows at a time (OverlayState
+// `tooltip`): one that opens closes the one that shows, except that a
+// tooltip the focus alone opens does not close one the pointer opened.
+// It closes when the pointer leaves and focus leaves, on a press on
+// the item, when the item hides or scrolls out of view, and it does
+// not open while another overlay is open. It opens again when the
+// pointer or the focus comes to rest on the item again, or, while it
+// waits for the pointer's tooltip to close, once that one closes.
+// After a press it stays closed
 // until the pointer leaves the item, so it never covers what the press
 // opened. It opens beside `box`, a rectangle in the item's coordinates,
 // the item's own box unless set, and wraps its text past `maxWidth`,
@@ -52,6 +59,10 @@ Item {
     // tooltip never covers that label.
     property string side: "below"
     property rect box: Qt.rect(0, 0, anchorItem === null ? 0 : anchorItem.width, anchorItem === null ? 0 : anchorItem.height)
+    // The frame the user sees round the item when the item draws none of
+    // its own, as a message box's FieldFrame round its frameless text
+    // area; a "clear" tooltip opens beside it. Null: the item's own box.
+    property Item frame: null
     property real maxWidth: Theme.tooltip.maxWidth
     readonly property int edge: edgeFor(side)
     // A corner of the box with the gravity of the opposite corner starts
@@ -64,11 +75,17 @@ Item {
     property var scene: null
     // The box a "clear" tooltip takes, in the item's coordinates; it moves
     // with the item, and the window is read again only at the next open.
-    readonly property rect placed: side === "clear" && scene !== null && popup.item !== null ? placedOn(scene, popup.item.implicitWidth, popup.item.implicitHeight) : Qt.rect(0, 0, 0, 0)
-    readonly property rect anchorRect: side === "clear" ? placed : box
+    // The popup computes it from its own size (`placedBox`), so the box is
+    // known when the popup first shows.
+    readonly property rect placed: popup.item !== null ? popup.item.placedBox : Qt.rect(0, 0, 0, 0)
     // A "clear" tooltip is no wider than the box its window's content spans.
     readonly property real clearWidth: scene === null ? Infinity : scene.content.width
     property bool shown: false
+    // Whether the pointer rested on the item when the tooltip opened.
+    property bool shownByPointer: false
+    // Whether the tooltip waits for another tooltip to close before it
+    // opens again (OverlayState `tooltip`).
+    property bool waiting: false
     readonly property bool opened: popup.item !== null && popup.item.visible
     readonly property var tracker: popup.item === null ? null : popup.item.tracker
     property Item anchorItem: parent
@@ -227,8 +244,10 @@ Item {
     // What a drawn item is to a "clear" tooltip: a Tab stop is a
     // "control", a Text, TextInput or TextEdit a "text" ("repeat" when
     // it declares repeatsReason), an Image or an
-    // Icon of this module an "image"; anything else, another Shape such as
-    // a card's background too, draws no obstacle of its own. A Qt Quick
+    // Icon of this module an "image", and a notice or a card that
+    // declares `plate` (Callout, Card) a "plate", whose content is read
+    // too; anything else, another Shape or a background, draws no
+    // obstacle of its own. A Qt Quick
     // Controls control sets activeFocusOnTab from its focusPolicy.
     // A pointer-only button still needs its full box kept clear, as a
     // list Switch with Qt.NoFocus does (tst_reasontip.qml).
@@ -238,6 +257,7 @@ Item {
         if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return item.repeatsReason === true ? "repeat" : "text";
         if (item.sourceSize !== undefined) return "image";
         if (Array.isArray(item.painted) && item.stroke !== undefined) return "image";
+        if (item.plate === true) return "plate";
         return "";
     }
 
@@ -261,15 +281,17 @@ Item {
     }
 
     // What the item's window draws, in its content item's coordinates:
-    // `obstacles`, { x, y, width, height, control } for each drawn text,
-    // image and Tab stop, cut by every clipping item that holds it;
-    // `anchor`, the box the places keep clear of, the item's `box` and,
-    // for an item that lies in a control as an unlock mark lies in its
-    // toggle, the nearest such control, which the tooltip explains too;
+    // `obstacles`, { x, y, width, height, control, plate } for each drawn
+    // text, image, Tab stop and plate, cut by every clipping item that
+    // holds it; `anchor`, the box the places keep clear of: the `frame`
+    // where one is set, else the item's `box` and, for an item that lies
+    // in a control as an unlock mark lies in its toggle, the nearest such
+    // control, which the tooltip explains too; `itemBox`, that box beside
+    // a set frame, else null;
     // `origin`, the item's own corner; and `content`, the box the
     // obstacles and that anchor span inside the window, on whole pixels. The item and all it holds, an unlock mark
     // too, are no obstacle, and an item that holds the item, a Tab stop
-    // too, is read into. It surveys before the popup is built, then finds
+    // or a plate too, is read into. It surveys before the popup is built, then finds
     // the covered repeat text when the popup opens at its final size.
     function survey(place) {
         const view = anchorItem.Window.contentItem;
@@ -281,11 +303,15 @@ Item {
         const walk = (item, held) => {
             if (item === anchorItem || !item.visible || item.opacity <= 0) return;
             const kind = holders.indexOf(item) === -1 ? obstacleKind(item) : "";
-            if (kind !== "") {
+            if (kind !== "" && kind !== "plate") {
                 const drawn = cut(drawnBox(item, kind, view), held);
                 if (kind === "repeat" && drawn !== null && place !== undefined && covered(place, drawn) > 0) coveredRepeat = item;
-                if (drawn !== null) (kind === "repeat" ? repeats : obstacles).push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control" });
+                if (drawn !== null) (kind === "repeat" ? repeats : obstacles).push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: kind === "control", plate: false });
                 return;
+            }
+            if (kind === "plate") {
+                const drawn = cut(drawnBox(item, kind, view), held);
+                if (drawn !== null) obstacles.push({ x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height, control: false, plate: true });
             }
             const inner = item.clip ? cut(item.mapToItem(view, 0, 0, item.width, item.height), held) : held;
             if (inner === null) return;
@@ -296,11 +322,13 @@ Item {
         const mapped = anchorItem.mapToItem(view, box.x, box.y, box.width, box.height);
         const owner = holders.find(item => item.activeFocusOnTab === true);
         const owned = owner === undefined ? mapped : owner.mapToItem(view, 0, 0, owner.width, owner.height);
-        const anchor = {
+        const control = {
             x: Math.min(mapped.x, owned.x), y: Math.min(mapped.y, owned.y),
             width: Math.max(mapped.x + mapped.width, owned.x + owned.width) - Math.min(mapped.x, owned.x),
             height: Math.max(mapped.y + mapped.height, owned.y + owned.height) - Math.min(mapped.y, owned.y)
         };
+        const framed = frame === null || !frame.visible ? null : cut(frame.mapToItem(view, 0, 0, frame.width, frame.height), whole);
+        const anchor = framed === null ? control : framed;
         const span = obstacles.concat(repeats, [anchor]).reduce((all, each) => ({
             x: Math.min(all.x, each.x), y: Math.min(all.y, each.y),
             right: Math.max(all.right, each.x + each.width), bottom: Math.max(all.bottom, each.y + each.height)
@@ -313,24 +341,17 @@ Item {
             repeats: repeats,
             covered: coveredRepeat,
             anchor: anchor,
+            itemBox: framed === null ? null : control,
             origin: { x: corner.x, y: corner.y },
             content: { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
         };
     }
 
-    // The box, in the window's content item coordinates, that a "clear"
-    // tooltip `width` by `height` takes in `scene` (survey). The places
-    // lie `gap` from the item, below, above, right and left in that order,
-    // each centred on the item, then on its start and on its end edge,
-    // held inside `content`; none overlaps the item. The first place by
-    // [outside content, covers a Tab stop, the obstacle area it covers]
-    // plus each repeat text's rows, end and start aligned to the anchor,
-    // then centred on the text. The first
-    // free place wins, else the place that covers the least,
-    // one that stays inside the content and covers no Tab stop first.
-    function clearPlace(scene, width, height, gap) {
-        const a = scene.anchor, room = scene.content;
-        const w = Math.ceil(width), h = Math.ceil(height);
+    // The places `width` by `height` beside the box `a`, `gap` from it,
+    // below, above, right and left in that order, each centred on the box,
+    // then on its start and on its end edge, held inside `room` along the
+    // box's side; none overlaps the box.
+    function besides(a, room, w, h, gap) {
         const hold = (at, low, size, span) => Math.max(low, Math.min(Math.round(at), low + span - size));
         const across = [a.x + (a.width - w) / 2, a.x, a.x + a.width - w].map(x => hold(x, room.x, w, room.width));
         const along = [a.y + (a.height - h) / 2, a.y, a.y + a.height - h].map(y => hold(y, room.y, h, room.height));
@@ -339,29 +360,58 @@ Item {
             for (const x of across) places.push({ x: x, y: y, width: w, height: h });
         for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)])
             for (const y of along) places.push({ x: x, y: y, width: w, height: h });
+        return places;
+    }
+
+    // What a place in `room` costs, compared in order: it leaves the room,
+    // it covers a Tab stop, the plate area it covers, the area of text,
+    // images and Tab stops it covers. A free place costs nothing.
+    function cost(scene, place, room) {
+        const on = kind => scene.obstacles.filter(kind).reduce((sum, each) => sum + covered(place, each), 0);
+        return [
+            covered(place, room) === place.width * place.height ? 0 : 1,
+            scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0,
+            on(each => each.plate),
+            on(each => !each.plate)
+        ];
+    }
+
+    // The box, in the window's content item coordinates, that a "clear"
+    // tooltip `width` by `height` takes in `scene` (survey), in three
+    // steps. First the places beside the anchor (`besides`) held inside
+    // `content`, then each repeat text's rows, end and start aligned to
+    // the anchor, then centred on the text: the first free one wins.
+    // Else, beside a frame, the places beside the item inside the frame:
+    // a message box's text stands over its own controls and leaves its
+    // empty room beside them, while the frame fills its window's width
+    // under a notice; the first free one wins. Else the place of the
+    // first step that costs the least (`cost`).
+    function clearPlace(scene, width, height, gap) {
+        const a = scene.anchor, room = scene.content;
+        const w = Math.ceil(width), h = Math.ceil(height);
+        const hold = (at, low, size, span) => Math.max(low, Math.min(Math.round(at), low + span - size));
+        const places = besides(a, room, w, h, gap);
         // On repeated text's rows, stay under the control before moving away.
         for (const repeat of scene.repeats) {
-            const xs = [across[2], across[1], hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width)];
+            const xs = [places[2].x, places[1].x, hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width)];
             for (const x of xs) {
                 const place = { x: x, y: hold(repeat.y + (repeat.height - h) / 2, room.y, h, room.height), width: w, height: h };
                 if (covered(place, a) === 0) places.push(place);
             }
         }
-        const rank = place => [
-            covered(place, room) === w * h ? 0 : 1,
-            scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0,
-            scene.obstacles.reduce((sum, each) => sum + covered(place, each), 0)
-        ];
         const first = (one, other) => {
             for (let i = 0; i < one.length; i++) if (one[i] !== other[i]) return one[i] < other[i];
             return false;
         };
-        let best = places[0], bestRank = rank(best);
+        const free = rank => rank.every(each => each === 0);
+        let best = places[0], bestRank = cost(scene, best, room);
         for (const place of places.slice(1)) {
-            const placeRank = rank(place);
+            const placeRank = cost(scene, place, room);
             if (first(placeRank, bestRank)) { best = place; bestRank = placeRank; }
         }
-        return best;
+        if (free(bestRank)) return best;
+        const inside = scene.itemBox === null ? undefined : besides(scene.itemBox, a, w, h, gap).find(place => free(cost(scene, place, a)));
+        return inside === undefined ? best : inside;
     }
 
     // The place `clearPlace` picks, in the item's coordinates.
@@ -376,17 +426,36 @@ Item {
         press = pressComponent.createObject(anchorItem);
     }
 
+    // The delay starts as the pointer or the focus comes to rest on the
+    // item, also while the other already rests there, so a tooltip a
+    // scroll or another tooltip closed opens again on the next rest.
+    function arm() {
+        if (resting && !shown) delay.restart();
+    }
     onRestingChanged: {
         if (resting) delay.restart();
-        else delay.stop();
+        else {
+            delay.stop();
+            waiting = false;
+        }
         settle();
     }
-    onPointerRestingChanged: settle()
+    onPointerRestingChanged: {
+        if (pointerResting) arm();
+        settle();
+    }
+    onFocusRestingChanged: if (focusResting) arm()
     onReachableChanged: settle()
     onReachedChanged: settle()
-    onShownChanged: if (!shown) {
+    onShownChanged: {
+        if (shown) {
+            waiting = false;
+            OverlayState.tooltip = root;
+            return;
+        }
         current = -1;
         scene = null;
+        if (OverlayState.tooltip === root) OverlayState.tooltip = null;
     }
     function publishCoverage() {
         if (side !== "clear") return;
@@ -403,9 +472,17 @@ Item {
         id: delay
         interval: Theme.tooltip.delay
         // The window is read before the popup is built, so the popup is
-        // built at the width that content box allows.
-        onTriggered: if (root.resting && OverlayState.open === 0) {
+        // built at the width that content box allows. A tooltip the focus
+        // alone opens waits while the pointer's tooltip shows.
+        onTriggered: {
+            if (!(root.resting && OverlayState.open === 0)) return;
+            const other = OverlayState.tooltip;
+            if (other !== null && other !== root && other.shownByPointer && !root.pointerResting) {
+                root.waiting = true;
+                return;
+            }
             if (root.side === "clear") root.scene = root.survey();
+            root.shownByPointer = root.pointerResting;
             root.shown = true;
         }
     }
@@ -428,6 +505,19 @@ Item {
     Connections {
         target: OverlayState
         function onOpenChanged() { if (OverlayState.open > 0) root.shown = false; }
+        // One tooltip shows at a time: another one's opening closes this
+        // one, which then waits to open again while its item still holds
+        // the pointer or the focus, until the other one closes.
+        function onTooltipChanged() {
+            const other = OverlayState.tooltip;
+            if (other !== null && other !== root && root.shown) {
+                root.shown = false;
+                root.waiting = root.resting;
+            } else if (other === null && root.waiting) {
+                root.waiting = false;
+                root.arm();
+            }
+        }
     }
 
     // LazyLoader owns its item and destroys it when active drops. A
@@ -440,11 +530,18 @@ Item {
         PopupWindow {
             id: window
 
+            // A "clear" tooltip's place, from the window's own size: the
+            // window exists before LazyLoader hands it out as its item
+            // (lazyloader.cpp onIncubationCompleted,
+            // Quickshell 0.3.1), so a place read through
+            // that item would show the first frame at the item's corner.
+            readonly property rect placedBox: root.side === "clear" && root.scene !== null ? root.placedOn(root.scene, implicitWidth, implicitHeight) : Qt.rect(0, 0, 0, 0)
+            readonly property rect anchorRect: root.side === "clear" ? placedBox : root.box
             anchor.item: root.anchorItem
-            anchor.rect.x: root.anchorRect.x
-            anchor.rect.y: root.anchorRect.y
-            anchor.rect.width: root.anchorRect.width
-            anchor.rect.height: root.anchorRect.height
+            anchor.rect.x: anchorRect.x
+            anchor.rect.y: anchorRect.y
+            anchor.rect.width: anchorRect.width
+            anchor.rect.height: anchorRect.height
             // A negative margin grows the anchor rect past that edge, so the
             // popup opens the gap away from the item.
             anchor.edges: root.anchorEdges
@@ -463,7 +560,14 @@ Item {
             mask: root.reachable ? null : passiveMask
             readonly property Region passiveMask: Region {}
             visible: root.shown
-            readonly property AnchorTracker tracker: AnchorTracker { popup: window; anchor: root.anchorItem }
+            // The tooltip closes itself, so its window keeps `visible`
+            // bound to `shown` and opens again on the next rest.
+            readonly property AnchorTracker tracker: AnchorTracker {
+                popup: window
+                anchor: root.anchorItem
+                closeOnHide: false
+                onAnchorHidden: root.shown = false
+            }
             readonly property bool pointerOver: over.hovered
             color: "transparent"
             // One line up to `maxWidth`, then title and plain details

@@ -19,6 +19,9 @@ Rectangle {
     default property alias content: column.data
     readonly property real contentInset: clearingInset.inset
     property bool floating: false
+    // A plate a "clear" tooltip keeps off while a free place
+    // exists (Tooltip obstacleKind).
+    readonly property bool plate: true
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth + 2 * contentInset

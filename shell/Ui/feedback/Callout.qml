@@ -61,6 +61,9 @@ Rectangle {
     property bool dismissible: false
     property bool showDontShowAgain: false
     property var links: []
+    // A plate a "clear" tooltip keeps off while a free place
+    // exists (Tooltip obstacleKind).
+    readonly property bool plate: true
     readonly property var tokens: toneOf(tone)
     readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : dismissal.visible ? dismissal : close.visible ? close : null
     // The first shown line, which the icon leads.

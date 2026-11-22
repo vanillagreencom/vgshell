@@ -44,6 +44,10 @@ Window {
     // emits windowConnected; this window exists from the start, so it
     // emits the signal on its first show.
     signal windowConnected()
+    // The anchor rect and the size the window first shows with, which the
+    // compositor maps a popup from: { x, y, width, height, popupWidth,
+    // popupHeight }, null before the first show.
+    property var firstShown: null
     // Quickshell's PopupWindow deletes its backing window on every hide and
     // takes its content off it, so the content reads hidden until the next
     // show puts it on a new window, before visibleChanged
@@ -59,6 +63,7 @@ Window {
         }
         if (visible && !connected) {
             connected = true;
+            firstShown = { x: anchor.rect.x, y: anchor.rect.y, width: anchor.rect.width, height: anchor.rect.height, popupWidth: width, popupHeight: height };
             windowConnected();
         }
     }

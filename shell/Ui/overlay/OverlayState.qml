@@ -21,6 +21,8 @@ QtObject {
     property int grabs: 0
     // Typed Item references clear when their item is destroyed (reasontip unit).
     property Item coveredReason: null
+    // The tooltip that shows, or null: one shows at a time (Tooltip).
+    property Item tooltip: null
 
     function opened() { open += 1; grabs += 1; }
     function closed() { if (open > 0) open -= 1; if (grabs > 0) grabs -= 1; }

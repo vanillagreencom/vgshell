@@ -15,11 +15,13 @@ import qs.Unit
 // with the focus still on the item. The crossing waits on `tooltip.delay`
 // in real time, so it proves the timer's wiring; the nested sandbox proves
 // the real pointer, the real keys and the popup's surface. With the
-// user's glass on, the tooltip draws its glass solid.
+// user's glass on, the tooltip draws its glass solid. One tooltip shows at
+// a time, and the pointer's wins over the focus's. A tooltip closed
+// because its item scrolled out of view opens again on the next rest.
 Item {
     id: root
     width: 300
-    height: 200
+    height: 240
 
     // A focusable item, as BarItem is: it hands its keys to its tooltip.
     component Anchor: T.Button {
@@ -43,6 +45,16 @@ Item {
     // it starts below its last line.
     Anchor { id: wrapping; y: 120; pageLinks: true; title: "Jarvis heard nothing"
         details: ["Choose a working microphone in [Microphone](page:acme.probe/Settings/microphone), then talk again, and check that the microphone is not muted.", "AI model: Fixture"] }
+    // An item in a scrolling view taller than the view.
+    Flickable {
+        id: scroller
+        y: 170
+        width: root.width
+        height: 60
+        contentHeight: 400
+        clip: true
+        Anchor { id: scrolled; y: 10; title: "Scrolled" }
+    }
     SignalSpy { id: activations; target: linked.tip; signalName: "pageActivated" }
 
     TestCase {
@@ -59,10 +71,12 @@ Item {
         }
 
         function cleanup() {
-            for (const item of [bare, linked, unrouted, after, wrapping]) {
+            for (const item of [bare, linked, unrouted, after, wrapping, scrolled]) {
                 item.tip.shown = false;
                 tryCompare(item.tip, "opened", false);
+                item.tip.waiting = false;
             }
+            scroller.contentY = 0;
         }
 
         function away() { mouseMove(root, root.width - 1, root.height - 1); }
@@ -90,6 +104,45 @@ Item {
         function hoverOpen(item) {
             mouseMove(item, item.width / 2, item.height / 2);
             opened(item);
+        }
+
+        // The names of the items whose tooltip shows.
+        function shownTips() {
+            const items = { bare: bare, linked: linked, unrouted: unrouted, after: after, wrapping: wrapping, scrolled: scrolled };
+            return Object.keys(items).filter(name => items[name].tip.opened);
+        }
+
+        // Opening a tooltip closes the one that shows. One the focus alone
+        // opens waits while the pointer's shows, and opens once it closed.
+        function test_one_tooltip_shows_and_the_pointer_wins() {
+            after.forceActiveFocus(Qt.TabFocusReason);
+            opened(after);
+            compare(after.tip.shownByPointer, false);
+            hoverOpen(bare);
+            tryCompare(after.tip, "opened", false);
+            compare(shownTips(), ["bare"], "the pointer's tooltip closes the focus's");
+            verify(OverlayState.tooltip === bare.tip, "the shared slot holds the pointer's tooltip");
+            linked.forceActiveFocus(Qt.TabFocusReason);
+            wait(3 * Theme.tooltip.delay);
+            compare(shownTips(), ["bare"], "a focus tooltip waits while the pointer's shows");
+            away();
+            tryCompare(bare.tip, "opened", false);
+            tryCompare(linked.tip, "opened", true);
+            compare(shownTips(), ["linked"], "the focus's tooltip opens once the pointer's closed");
+        }
+
+        // A tooltip its item scrolled away from closes, and opens again
+        // when the pointer comes to rest on the item, though the focus
+        // stayed on it the whole time.
+        function test_a_tooltip_a_scroll_closed_opens_again() {
+            scrolled.forceActiveFocus(Qt.TabFocusReason);
+            opened(scrolled);
+            scroller.contentY = 200;
+            tryCompare(scrolled.tip, "opened", false);
+            compare(scrolled.activeFocus, true, "the focus stays on the item");
+            scroller.contentY = 0;
+            hoverOpen(scrolled);
+            compare(scrolled.tip.shownByPointer, true);
         }
 
         // The fill the tooltip draws, read from its surface's body, as

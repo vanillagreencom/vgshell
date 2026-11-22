@@ -8,7 +8,8 @@ import qs.Ui
 // the error colour while the target holds keyboard focus. A TextArea
 // draws it as its background; a box that holds more than the text, such as
 // a message box with its own choices and Send, draws it around them all
-// and sets the area `framed: false`.
+// and sets the area `framed: false`; that frame is then the box the
+// area's locked reason opens beside (DisabledReason `frame`).
 Rectangle {
     id: root
 
@@ -23,4 +24,13 @@ Rectangle {
     // colour immediately.
     border.color: outline
     FocusRing { id: focusRing; target: root.target; ringColor: root.target.error ? Theme.textField.error : Theme.focusRing.color }
+    // A frame drawn round a frameless area and more is the box the user
+    // sees, so the area's locked reason opens beside it, not beside the
+    // text alone.
+    Binding {
+        target: root.target.lock
+        property: "frame"
+        value: root
+        when: root.visible && !root.target.framed
+    }
 }

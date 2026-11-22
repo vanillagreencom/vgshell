@@ -40,6 +40,9 @@ Item {
     // name leaves.
     property rect reasonBox: Qt.rect(0, 0, control.width, control.height)
     property real reasonWidth: Theme.tooltip.maxWidth
+    // The frame the user sees round a control that draws none, which the
+    // reason opens beside: a frameless TextArea's FieldFrame sets it.
+    property Item frame: null
 
     // `color` as a locked part draws it (Theme.faded).
     function faded(color) {
@@ -83,6 +86,7 @@ Item {
             text: root.control.disabledReason
             side: "clear"
             box: root.reasonBox
+            frame: root.frame
             maxWidth: root.reasonWidth
         }
     }
