@@ -22,10 +22,12 @@ import "GoogleDriveLogic.js" as Logic
 // into one line that unfolds in place, and each of their rows offers
 // Dismiss, which asks the service to hide the row until its record
 // changes; the row leaves when the runner writes the record again, and
-// the fold line goes with the last row (reviewView). A Dismiss pressed
-// from the keyboard hands the focus to the fold line, or from the last
-// row to the stop after it, so the keyboard keeps its place when the row
-// leaves. A row's name, in Needs you and in the rows that need no
+// the fold line goes with the last row (reviewView). Dismiss all, first in
+// the opened list, asks the service to hide every one of them, the rows
+// the list leaves out included. A Dismiss pressed from the keyboard hands
+// the focus to the fold line, or from the last row, and Dismiss all, to
+// the stop after the fold, so the keyboard keeps its place when the rows
+// leave. A row's name, in Needs you and in the rows that need no
 // action, is a link that opens the file through
 // the core's one file route (a text file in the core editor, any other
 // in its default application) and closes the popover; a file that is no
@@ -82,6 +84,27 @@ Item {
     // Dismiss through the service: the row of KEY, which needs no action.
     function dismiss(key) {
         return answered(shell.ipc.call("dismiss", key), "VGS could not remove the file from the list.");
+    }
+
+    // Dismiss all through the service: every row that needs no action, in
+    // one runner call over the whole record.
+    function dismissAll() {
+        return answered(shell.ipc.call("dismiss-all", ""), "VGS could not remove the files from the list.");
+    }
+
+    // The first focus stop after FROM that is not in the fold of the rows
+    // that need no action (Item.nextItemInFocusChain), which keeps the
+    // focus when Dismiss all takes the fold away.
+    function stopAfterFold(from) {
+        let next = from.nextItemInFocusChain(true);
+        while (next !== null && next !== from && inFold(next)) next = next.nextItemInFocusChain(true);
+        return next;
+    }
+
+    function inFold(item) {
+        for (let at = item; at !== null; at = at.parent)
+            if (at === notesFold) return true;
+        return false;
     }
 
     // A callout's fix: the plugin's own TUI or a tab of its page. A fix
@@ -427,6 +450,22 @@ Item {
                     Keys.onSpacePressed: notesFold.expanded = !notesFold.expanded
                     Keys.onRightPressed: notesFold.expanded = true
                     Keys.onLeftPressed: notesFold.expanded = false
+                }
+            }
+
+            // visualFocus holds only while Tab, Backtab or a shortcut gave
+            // the action its focus, so only a press from the keyboard
+            // moves the focus, as a row's Dismiss does.
+            RowAction {
+                id: dismissAllAction
+                visible: notesFold.expanded
+                text: Logic.DISMISS_ALL
+                onClicked: {
+                    if (visualFocus) {
+                        const next = root.stopAfterFold(dismissAllAction);
+                        if (next !== null && next !== dismissAllAction) next.forceActiveFocus(Qt.TabFocusReason);
+                    }
+                    root.dismissAll();
                 }
             }
 

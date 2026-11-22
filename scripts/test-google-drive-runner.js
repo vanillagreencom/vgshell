@@ -2102,6 +2102,39 @@ function caseDismiss(runner) {
     assert.deepEqual([versioned.dismissed, kept()], [[row.key], [row.key]], "the dismissal carries to the versioned record");
 }
 
+// Dismiss all (VGS-2726): one call keeps the key of every row that needs
+// nothing, more rows than the popover lists (GoogleDriveLogic.CONFLICTS_MAX,
+// 20) among them, once each beside a key one Dismiss kept, and keeps no row
+// that needs the user. A second call with nothing left adds nothing and is
+// no refusal; an argument is refused.
+function caseDismissAll(runner) {
+    const w = world({ user: ACCOUNT });
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    const restored = Array.from({ length: 21 }, (_, i) => ({ kind: "removed-locally", path: "Vendor/receipt-" + i + ".pdf" }));
+    writeRecords(w, NEEDS_ROWS.map(row => row[0]).concat(restored));
+    const before = status(w, runner);
+    const notes = before.conflicts.filter(c => c.needs === "nothing").map(c => c.key);
+    const needing = before.conflicts.filter(c => c.needs === "you").map(c => c.key);
+    assert.ok(notes.length > 20 && needing.length > 0, "more notes than the popover lists, beside rows that need the user");
+    assert.equal(cli(w, ["dismiss", notes[0]], runner).status, 0);
+    const all = cli(w, ["dismiss-all"], runner);
+    assert.equal(all.status, 0, all.stderr);
+    assert.equal(all.stdout, "dismissed-all=" + (notes.length - 1) + "\n");
+    const after = status(w, runner);
+    const kept = JSON.parse(read(path.join(w.state, "control.json"))).dismissed;
+    assert.deepEqual([after.dismissed.slice().sort(), kept.slice().sort()], [notes.slice().sort(), notes.slice().sort()], "every note's key, once");
+    assert.deepEqual([after.needsYou, after.attention], [before.needsYou, before.attention], "the rows that need the user still ask for attention");
+    const again = cli(w, ["dismiss-all"], runner);
+    assert.deepEqual([again.status, again.stdout], [0, "dismissed-all=0\n"], "nothing left to dismiss is no refusal");
+    assert.deepEqual(status(w, runner).dismissed.slice().sort(), notes.slice().sort());
+    const argued = cli(w, ["dismiss-all", notes[0]], runner);
+    assert.equal(argued.status, 2, argued.stderr);
+    assert.match(argued.stderr, /^google-drive: refused: argument=[0-9a-f]{16}$/m);
+}
+
 // The pair record's earlier doubled-name kind, which said nothing of the
 // copies, is dropped on the first invocation, with no credential or
 // network; the next sync that meets the name records it whole. A status
@@ -3486,6 +3519,9 @@ async function controls() {
     await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync, modeAdmitted: control.modeAdmitted }));", "writeJson(controlFile, Object.assign(next, { twoWaySync: control.twoWaySync }));"), caseDismiss);
     await mustFail("the key follows the copies", mutant("the key follows the copies", "mine: mine, version: version };", "mine: mine };"), caseDismiss);
     await mustFail("a dismissal carries to the versioned record", mutant("a dismissal carries to the versioned record", "if (carried.length > 0) writeJson(", "if (false) writeJson("), caseDismiss);
+    await mustFail("dismiss all keeps the keys", mutant("dismiss all keeps the keys", "if (keys.length > 0) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat(keys) }));", ""), caseDismissAll);
+    await mustFail("dismiss all keeps no row that needs the user", mutant("dismiss all keeps no row that needs the user", "filter(c => c.needs === \"nothing\" && control.dismissed", "filter(c => control.dismissed"), caseDismissAll);
+    await mustFail("dismiss all keeps a key once", mutant("dismiss all keeps a key once", "c.needs === \"nothing\" && control.dismissed.indexOf(c.key) === -1)", "c.needs === \"nothing\")"), caseDismissAll);
     await mustFail("only needs-you rows ask for attention", mutant("only needs-you rows ask for attention", "if (needing.length > 0) reasons.push(\"conflicts\");", "if (conflicts.length > 0) reasons.push(\"conflicts\");"), caseNeedsAttention);
     await mustFail("the key hashes needs-you rows", mutant("the key hashes needs-you rows", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])"), caseNeedsAttention);
     await mustFail("the earlier doubled-name kind is dropped", mutant("the earlier doubled-name kind is dropped", "    if (oldDuplicates(state)) {", "    if (false) {"), r => caseDuplicateMigration(r, "not notified"));
@@ -3597,6 +3633,7 @@ async function main() {
     caseDuplicateListing();
     caseNeedsAttention();
     caseDismiss();
+    caseDismissAll();
     caseDuplicateMigration();
     caseUnreadableKeepsBaseline();
     caseUnreadableDriveFolderGone();

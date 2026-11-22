@@ -35,6 +35,11 @@
 //       popover until its record changes; prints `dismissed=<key>`. A key
 //       that names no current row, or a row that needs the user, is
 //       refused with `dismiss=unknown` or `dismiss=needs-you`.
+//   google-drive dismiss-all
+//       hides every current conflict row that needs nothing, the ones the
+//       popover's list leaves out included, as dismiss does; a row that
+//       needs the user stays. Prints `dismissed-all=<n>`, n the rows newly
+//       hidden; 0 is no refusal.
 //   google-drive probe
 //       the presence of every credential account, read without unlocking
 //       the store, as one JSON line; a token's row carries `user`, the
@@ -166,7 +171,7 @@ const FAILURE_STATES = {
     "initialization-required": "initialization-required",
     offline: "offline"
 };
-const USAGE = "usage: google-drive run [--pair <id>] | initialize --pair <id> | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: google-drive run [--pair <id>] | initialize --pair <id> | status [--quiet] | attention-seen <key> | dismiss <key> | dismiss-all | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("google-drive: refused: " + first + "\n" + USAGE + "\n");
@@ -2655,6 +2660,21 @@ function dismissVerb(words) {
     process.stdout.write("dismissed=" + key + "\n");
 }
 
+// The popover's Dismiss all over the list of rows that need nothing. It
+// reads the rows under the lock, so a row a sync added since the popover's
+// read is hidden too, and one that now needs the user is not.
+function dismissAllVerb(words) {
+    if (words.length !== 0) bad("argument=" + words[0]);
+    const added = withStateLock(() => {
+        const control = readControl();
+        const keys = renderStatus().conflicts.filter(c => c.needs === "nothing" && control.dismissed.indexOf(c.key) === -1).map(c => c.key);
+        if (keys.length > 0) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat(keys) }));
+        writeStatus();
+        return keys.length;
+    });
+    process.stdout.write("dismissed-all=" + added + "\n");
+}
+
 function probeVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
     migrateCredentialsIfNeeded();
@@ -2938,6 +2958,7 @@ case "service-mode": serviceModeVerb(rest); break;
 case "status": statusVerb(rest); break;
 case "attention-seen": attentionSeenVerb(rest); break;
 case "dismiss": dismissVerb(rest); break;
+case "dismiss-all": dismissAllVerb(rest); break;
 case "probe": probeVerb(rest); break;
 case "authorize": authorizeVerb(rest); break;
 case "sign-out": signOutVerb(rest); break;

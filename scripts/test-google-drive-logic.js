@@ -12,7 +12,10 @@
 // tones, actions and structure, never their words. A review row is held by
 // its structured fields alone (VGS-1727): its needs mark, its local-action
 // flag, its action, the file its name opens (VGS-1935), and which case of
-// its kind its line takes, never its words. The popover (VGS-1745) is held by its structure: its header's
+// its kind its line takes, never its words, except an earlier copy-only
+// sync's line, whose words are the issue's contract (VGS-2726): it says
+// where the file is now and that nothing left the other side, where the
+// owner read data loss. The popover (VGS-1745) is held by its structure: its header's
 // parts, which problem callout shows and where its fix goes, whether its
 // body speaks, the rows in Needs you and in the folded notes with the
 // counts, and when its footer shows and lets Sync now start. The tooltip,
@@ -329,7 +332,14 @@ function verifyTwoWay(L) {
     ]) same(L.parseStatus(JSON.stringify(tw({ conflicts: [Object.assign({}, base, fields)] }))), { ok: false, error: "status=conflicts" }, "invalid outcome: " + JSON.stringify(fields));
 
     // Untagged old records and tagged copy records are never reworded by
-    // the current switch. Their original keys and paths still work.
+    // the current switch. Their original keys and paths still work. Each
+    // line says where the file is now, that nothing left the other side
+    // and what the user may do, and asks for no review (VGS-2726).
+    const COPY_HISTORY_TEXT = {
+        "removed-locally": "Earlier copy-only sync: removed here, then put back from Google Drive. The file is here and on Google Drive. Nothing was removed from Google Drive. If you do not need the file, delete it here and on Google Drive.",
+        "removed-on-drive": "Earlier copy-only sync: removed from Google Drive, then put back from this computer. The file is here and on Google Drive. Nothing was removed from this computer. If you do not need the file, delete it here and on Google Drive.",
+        renamed: "Earlier copy-only sync: renamed to new.txt on Google Drive, then kept both names. The file is here and on Google Drive with both names. Nothing was removed from Google Drive. If you do not need this name, delete it here and on Google Drive."
+    };
     for (const kind of ["removed-locally", "removed-on-drive", "renamed"])
         for (const operation of [undefined, "copy"]) {
             const c = keyed(Object.assign({}, base, { kind, to: "new.txt" }, operation === undefined ? {} : { operation }));
@@ -340,6 +350,7 @@ function verifyTwoWay(L) {
             });
             same(shown[0], shown[1], "switch preserves " + operation + " " + kind);
             same([shown[0].variant, shown[0].file], [kind, base.localPath], "copy history is not a completed two-way removal");
+            assert.equal(shown[0].detail, COPY_HISTORY_TEXT[kind], "copy history says nothing left the other side: " + kind);
         }
     for (const [kind, operation, mayHaveChanged] of [
         ["rclone-failed", "two-way", true], ["deletion-limit", "two-way", false],
@@ -1119,6 +1130,7 @@ const controls = [
     ["a doubled name the user owns says what they do", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1) return conflict.kind;"],
     ["a shared doubled name names who can fix it", "conflict.kind + (conflict.owner !== undefined ? \"-shared\" : \"-unowned\")", "conflict.kind + \"-unowned\""],
     ["a change on both sides says which copy is here", "return conflict.copyFolder !== undefined ? \"both-changed-kept\" : \"both-changed\";", "return \"both-changed-kept\";"],
+    ["a copy-only removal says nothing left Google Drive", "The file is here and on Google Drive. Nothing was removed from Google Drive.", "Review unwanted restored files with Jarvis before initialization."],
     ["a rename names its new name", ".replace(\"{to}\", function () { return conflict.to; })", ""],
     ["the notification counts the rows that need the user", "needsLine(record.needsYou)", "needsLine(record.conflicts.length)"],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],

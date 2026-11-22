@@ -28,7 +28,7 @@ On downloads native exports only into the pair state's `exports/` folder, with a
 
 [GoogleDriveLogic.js](GoogleDriveLogic.js) judges the runner's status in `parseStatus` and derives published data in `cloudValue`. `needsYou` counts records that require user action, not every review record. A doubled name's ownership and copy metadata belong to the runner's `duplicateRecords`, not a view's inference.
 
-A conflict key identifies the whole record. Dismiss applies only to a current record needing no user action; `dismissVerb` checks it under the lock. A changed record can reappear with a new key. Dismissed keys survive restart but are retained only for current records, except when the pair list is unreadable.
+A conflict key identifies the whole record. Dismiss applies only to a current record needing no user action; `dismissVerb` checks it under the lock. Dismiss all hides every such record in one call, including records past the popover's 20-row list; `dismissAllVerb` reads them under the same lock. A changed record can reappear with a new key. Dismissed keys survive restart but are retained only for current records, except when the pair list is unreadable.
 
 New records carry an operation tag. Untagged records remain historical copy events; toggling the mode never rewords them into completed deletions. `bisyncRecords` consumes rclone's reported actions and actual backup bytes, not VGS rename matching. Only a successful operation promotes upstream actions to completed notes. A failed operation retains generic partial local recovery and never claims a queued removal completed. Recovery generation age controls the local keep; active undecidable conflict variants remain until settled.
 

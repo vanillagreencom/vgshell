@@ -31,6 +31,10 @@ import "GoogleDriveLogic.js" as Logic
 //     dismiss   with a review row's key as its argument, hides that row,
 //               one that needs nothing, until its record changes
 //               (bin/google-drive dismiss); `ok`
+//     dismiss-all
+//               hides every row that needs nothing, in one runner call
+//               over the whole record, the rows the popover's list leaves
+//               out included (bin/google-drive dismiss-all); `ok`
 //     refresh   renders the record and probes the keys again; `ok`
 // A request that fails is logged and shown in the popover as `problem`. An
 // answer the runner holds for the rename from the plugin's previous name
@@ -103,6 +107,7 @@ Item {
         shell.ipc.handle("pause", () => root.act(["pause"]));
         shell.ipc.handle("resume", () => root.act(["resume"]));
         shell.ipc.handle("dismiss", key => root.act(["dismiss", key]));
+        shell.ipc.handle("dismiss-all", () => root.act(["dismiss-all"]));
         shell.ipc.handle("refresh", () => {
             root.refresh();
             root.probe();
@@ -172,7 +177,7 @@ Item {
         if (code === Logic.RUNNER_HELD) held.restart();
     }
 
-    // start, pause, resume or dismiss, the runner's verb and its
+    // start, pause, resume, dismiss or dismiss-all, the runner's verb and its
     // arguments; the runner's record write shows its effect.
     function act(args) {
         const operation = args[0];

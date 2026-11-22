@@ -100,18 +100,21 @@ var INITIALIZATION_REASONS = {
 // A missing sign-in, the token's credential-absent.
 var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).";
 // Each review row's one line: what the sync did, then what the user does,
-// or that nothing is lost and how to remove the row from the list. A
-// variant key is the record's kind, or a kind and its case
-// (conflictVariant). {to} is a Drive rename's new name, {owner} the address
+// or that nothing is lost and how to remove the row from the list. A row
+// of an earlier copy-only sync says where the file is now, that nothing
+// left the other side and what the user may do: copy-only sync puts back
+// a file removed on one side, so a file unwanted on both is deleted on
+// both (README.md § Features). A variant key is the record's kind, or a
+// kind and its case (conflictVariant). {to} is a Drive rename's new name, {owner} the address
 // that owns a doubled name's copies. VGS keeps a displaced copy for 30 days
 // (bin/google-drive KEEP_MS); Drive keeps an earlier revision of an upload
 // under its own retention (developer.md).
 var CONFLICT_TEXT = {
     "both-changed-kept": "Changed here and on Google Drive. The Google Drive version is here now. Compare it with the copy that was here, which VGS keeps for 30 days.",
     "both-changed": "Changed here and on Google Drive. The copy here was newer, so VGS copied it to Google Drive. If you need the other version, open the file's version history in Google Drive.",
-    "removed-locally": "Earlier copy-only sync: removed here, then put back from Google Drive. Review unwanted restored files with Jarvis before initialization.",
-    "removed-on-drive": "Earlier copy-only sync: removed from Google Drive, then put back from this computer. Review unwanted restored files with Jarvis before initialization.",
-    renamed: "Earlier copy-only sync: renamed to {to} on Google Drive, then kept both names. Review the intended destination with Jarvis before initialization.",
+    "removed-locally": "Earlier copy-only sync: removed here, then put back from Google Drive. The file is here and on Google Drive. Nothing was removed from Google Drive. If you do not need the file, delete it here and on Google Drive.",
+    "removed-on-drive": "Earlier copy-only sync: removed from Google Drive, then put back from this computer. The file is here and on Google Drive. Nothing was removed from this computer. If you do not need the file, delete it here and on Google Drive.",
+    renamed: "Earlier copy-only sync: renamed to {to} on Google Drive, then kept both names. The file is here and on Google Drive with both names. Nothing was removed from Google Drive. If you do not need this name, delete it here and on Google Drive.",
     "two-way-removed-locally": "Removed here and sent to Drive Trash. This sync did not put the file back.",
     "two-way-removed-on-drive": "Removed from Google Drive and from this folder. The local copy is in recovery for 30 days.",
     "two-way-removed-on-drive-expired": "Removed from Google Drive and from this folder. The local recovery copy is no longer available.",
@@ -233,7 +236,8 @@ var PROBLEM_TEXT = {
     "service-mode": "VGS could not save the sync mode for the hourly runner. Sync now is held until this succeeds.",
     "mode-migration": "VGS could not save the sync choice for these folder pairs. Sync now waits until VGS can save it.",
     initialize: "VGS could not open the two-way sync setup window.",
-    dismiss: "VGS could not remove the file from the list."
+    dismiss: "VGS could not remove the file from the list.",
+    "dismiss-all": "VGS could not remove the files from the list."
 };
 
 // Where a file that needs the user is shown: the bar icon's popover.
@@ -1073,6 +1077,11 @@ function conflictRow(conflict) {
         variant: variant, operation: conflict.operation, outcome: conflict.outcome, recovery: conflict.recovery,
         recoveryAction: !needs && conflict.operation !== undefined && conflict.operation !== "copy" ? folderAction : null };
 }
+
+// The label of the opened list's one action over the rows that need no
+// action: Dismiss all, which hides every one of them, the ones the list
+// leaves out included (bin/google-drive dismiss-all).
+var DISMISS_ALL = "Dismiss all";
 
 // The popover's review: { needs, notes, notesLine, moreNeeds, moreNotes },
 // the rows that need the user and the rows that need no action, each in

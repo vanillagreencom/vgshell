@@ -316,6 +316,34 @@ Item {
             compare(focused(), pause, "Pause keeps the focus");
         }
 
+        // Dismiss all shows only in the opened list, as its first stop, and
+        // a click and Return each ask the service once to dismiss every row
+        // that needs no action. Return hands the focus past the fold to
+        // Pause, which keeps it when the record takes the fold away.
+        function test_dismiss_all_asks_the_service_once_and_moves_the_focus_on() {
+            const fold = control(panel.review.notesLine);
+            verify(find(panel, item => "focusPolicy" in item && item.text === Logic.DISMISS_ALL) === null, "the folded list draws no Dismiss all");
+            tabTo(fold);
+            keyClick(Qt.Key_Return);
+            renderedFrame(panel);
+            keyClick(Qt.Key_Tab);
+            const all = control(Logic.DISMISS_ALL);
+            compare(focused(), all, "Dismiss all is the opened list's first stop");
+            root.calls = [];
+            mouseClick(all);
+            compare(root.calls, [["ipc", "dismiss-all", ""]], "a click asks once for every row");
+            outside.forceActiveFocus(Qt.OtherFocusReason);
+            tabTo(all);
+            root.calls = [];
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["ipc", "dismiss-all", ""]], "Return asks what a click asks");
+            const pause = control(panel.footer.pause.text);
+            compare(focused(), pause, "Return hands the focus to Pause");
+            panel.shell = Object.assign(shell(), { status: { values: { cloud: cloud(["00000000000000a2", "00000000000000a3"]) } } });
+            compare(panel.review.notesLine, "", "the fold goes with the rows");
+            compare(focused(), pause, "Pause keeps the focus");
+        }
+
         // The route answers `reason=missing` for a file that is gone: the
         // popover stays, the row says so and keeps its link.
         function test_a_gone_file_keeps_its_row_and_says_so() {
