@@ -10,7 +10,7 @@ pkgbase = vgshell-git
 	makedepends = qt6-shadertools
 	depends = greetd
 	depends = glibc
-	depends = vgshell-quickshell>=0.3.2.r7.g2b4501a-4
+	depends = vgshell-quickshell>=0.3.2.r7.g2b4501a-6
 	depends = hyprland>=0.57.0
 	depends = bash
 	depends = coreutils

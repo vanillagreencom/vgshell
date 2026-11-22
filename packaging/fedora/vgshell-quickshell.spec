@@ -2,7 +2,7 @@
 
 Name:           vgshell-quickshell
 Version:        0.3.2
-Release:        4.2b4501a%{?dist}
+Release:        5.2b4501a%{?dist}
 Summary:        Quickshell with the VGS lifetime and crash fixes
 License:        LGPL-3.0-only
 URL:            https://git.outfoxxed.me/quickshell/quickshell
@@ -11,6 +11,7 @@ Patch0:         vgs-989-deletelater.patch
 Patch1:         vgs-1109-log-filter-mutex.patch
 Patch2:         vgs-1993-managed-process-lifetime.patch
 Patch3:         vgs-1129-fileview-read.patch
+Patch4:         vgs-2641-presentation-feedback.patch
 Provides:       quickshell = %{version}
 Conflicts:      quickshell
 Conflicts:      quickshell-git
@@ -25,15 +26,16 @@ BuildRequires:  vulkan-headers spirv-tools libzstd-devel
 
 %description
 Pinned upstream Quickshell with the Hyprland request socket lifetime fix and
-thread-safe logging filters, shell-owned process cleanup and quiet FileView
-read failures with confirmed absence classification used by VGS.
+thread-safe logging filters, shell-owned process cleanup, quiet FileView
+read failures with confirmed absence classification and window presentation
+feedback used by VGS.
 
 %prep
 %autosetup -n quickshell -p1
 
 %build
 %cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DDISTRIBUTOR="VGS 4 (package: vgshell-quickshell)" \
+    -DDISTRIBUTOR="VGS 5 (package: vgshell-quickshell)" \
     -DGIT_REVISION=%{commit} -DINSTALL_QMLDIR=%{_libdir}/qt6/qml
 %cmake_build
 
@@ -49,6 +51,8 @@ read failures with confirmed absence classification used by VGS.
 %{_datadir}/icons/hicolor/*/apps/org.quickshell.*
 
 %changelog
+* Sun Nov 22 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-5.2b4501a
+- Report compositor presentation feedback for window frames.
 * Mon Nov 02 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-4.2b4501a
 - Arm managed child lifetime before the parent-dependent forkfd handshake.
 * Thu Oct 29 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-3.2b4501a

@@ -196,6 +196,18 @@ A plugin that needs `ssh` declares it in `requirements` and offers it while it i
 | `screen` | var | null before assignment | Declare `property var screen: null`. The core assigns the copy's screen after creation. |
 | `inputAll` | bool | false when absent | True gives the whole surface pointer input, even with an empty item list. It does not affect keyboard focus. |
 | `inputItems` | var | empty array when absent | An array of Items in this copy's tree. The mask is the union of their rectangles. Gaps and an empty array pass input through. Replace the array when its members change; item geometry updates its region. |
+| `presentationWanted` | bool | false when absent | True asks the compositor to report on each frame of the layer's window. Set it only while the content needs the reports. |
+
+The layer's window, the content's `QsWindow.window`, carries the reports:
+
+| Member | Type | Meaning |
+|---|---|---|
+| `presentationAvailable` | bool | True while the compositor reports presentation for the visible window. While it is false, no frame is reported. |
+| `feedbackSubmitted(serial)` | signal | The frame numbered `serial` asked for a report after its scene was recorded and before its swap. Serials increase for the life of the window. |
+| `feedbackPresented(serial)` | signal | The compositor drew that frame on an output. |
+| `feedbackDiscarded(serial)` | signal | The compositor never drew that frame. |
+
+A frame pending when the window hides or loses its surface gets neither answer.
 
 ## The bar API
 

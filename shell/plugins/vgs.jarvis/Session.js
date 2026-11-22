@@ -16,6 +16,8 @@ var COLLECTION_TIMEOUT_MS = 60000;
 var VOICE_CHECK_MS = 3000;
 var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
+// The review interval counts from the shell's `shown`, which Bubble sends
+// only once the compositor presents a frame that drew the request.
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
 var CONVERSATION_QUIET_MS = 30 * 60 * 1000;

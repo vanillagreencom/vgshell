@@ -28,7 +28,30 @@ Item {
     property var opened: []
     property var intents: []
 
-    QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
+    // The host window of a layer that has presented its first frame, on a
+    // compositor that presents every frame: each swap of the test window
+    // is submitted and then presented, as OverlaySurface forwards the
+    // engine's feedback. The engine numbers no frame while presentation
+    // is unavailable.
+    QtObject {
+        id: presentedHost
+        property bool presented: true
+        property bool visible: true
+        property bool presentationAvailable: true
+        property int frames: 0
+        signal feedbackSubmitted(int serial)
+        signal feedbackPresented(int serial)
+        signal feedbackDiscarded(int serial)
+        property Connections swaps: Connections {
+            target: root.Window.window
+            function onFrameSwapped() {
+                if (!presentedHost.presentationAvailable) return;
+                presentedHost.frames++;
+                presentedHost.feedbackSubmitted(presentedHost.frames);
+                presentedHost.feedbackPresented(presentedHost.frames);
+            }
+        }
+    }
     // Measures a word in a drawn label's font.
     TextMetrics { id: wordMetrics }
 

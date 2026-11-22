@@ -52,8 +52,30 @@ Item {
 
     Bubble { id: bubble; width: root.width; height: root.height; screen: ({ name: "unit" }); service: service }
 
-    // The host window of a layer that has presented its first frame.
-    QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
+    // The host window of a layer that has presented its first frame, on a
+    // compositor that presents every frame: each swap of the test window
+    // is submitted and then presented, as OverlaySurface forwards the
+    // engine's feedback. The engine numbers no frame while presentation
+    // is unavailable.
+    QtObject {
+        id: presentedHost
+        property bool presented: true
+        property bool visible: true
+        property bool presentationAvailable: true
+        property int frames: 0
+        signal feedbackSubmitted(int serial)
+        signal feedbackPresented(int serial)
+        signal feedbackDiscarded(int serial)
+        property Connections swaps: Connections {
+            target: root.Window.window
+            function onFrameSwapped() {
+                if (!presentedHost.presentationAvailable) return;
+                presentedHost.frames++;
+                presentedHost.feedbackSubmitted(presentedHost.frames);
+                presentedHost.feedbackPresented(presentedHost.frames);
+            }
+        }
+    }
     // A Bubble on a layer of its own size, at the window's top left.
     Component {
         id: sizedBubble
@@ -118,6 +140,8 @@ Item {
             service.logs = 0;
             service.sent = null;
             service.microphoneMute = { kind: "ready", muted: false };
+            presentedHost.presentationAvailable = true;
+            QsWindow.window = presentedHost;
             mouseMove(root, root.width - 1, 0);
         }
         function cleanup() { QsWindow.window = null; }
@@ -264,6 +288,33 @@ Item {
             service.microphoneMute = { kind: "ready", muted: true };
             put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
             compare(String(labelOf("Microphone muted").color), String(Qt.color(root.look.ink.state)));
+        }
+
+        // On a layer whose compositor cannot report presentation, no frame
+        // can show the request: a line under the answers says it cannot be
+        // accepted, Confirm takes no click and carries the same reason,
+        // Cancel still answers, and the request is never acknowledged.
+        function test_a_request_without_presentation_cannot_be_confirmed() {
+            presentedHost.presentationAvailable = false;
+            put(root.held);
+            const line = labelOf(bubble.unavailableReason);
+            compare(line.role, "hint");
+            const confirm = answer("Confirm");
+            const cancel = answer("Cancel");
+            verify(line.mapToItem(bubble, 0, 0).y >= confirm.mapToItem(bubble, 0, confirm.height).y, "the line stands under the answers");
+            compare(confirm.disabledReason, bubble.unavailableReason);
+            compare(confirm.lock.locked, true, "Confirm is unavailable");
+            compare(cancel.lock.locked, false, "Cancel stays available");
+            verify(bubble.approvalWhole, "the request's column still draws whole");
+            mouseClick(confirm);
+            compare(service.confirmed, null, "Confirm takes no click");
+            compare(service.acknowledged.filter(entry => entry.item === bubble).length, 0, "the drawn frames acknowledge nothing");
+            presentedHost.presentationAvailable = true;
+            tryVerify(() => service.acknowledged.some(entry => entry.item === bubble && entry.hold.id === "a"), 2000,
+                "a presented frame acknowledges the request once presentation returns");
+            compare(confirm.lock.locked, false, "Confirm is available again");
+            compare(displayedTextItems(bubble).filter(item => displayedText(item) === bubble.unavailableReason && shown(item)).length, 0,
+                "the line leaves with the condition");
         }
 
         // On a layer narrower than the prompt's width the prompt reflows to

@@ -700,8 +700,14 @@ try {
 }
 
 // Execute Bubble's shipped callbacks with controlled GUI/render ordering.
-// The nested bubble row proves rendering; this case proves which queued frame
-// may acknowledge a real Session hold, without a second frame owner.
+// The nested bubble row proves rendering; this case proves which compositor
+// answer may acknowledge a real Session hold, without a second frame owner.
+// The harness binds every handler Bubble's Connections declare on its
+// window and its host by signal name, and a frame fires them in the order
+// Qt and the engine queue them: afterAnimating on the GUI thread, then
+// afterSynchronizing, the engine's feedbackSubmitted(serial) (only while
+// presentation is available) and frameSwapped from the render thread, and
+// later the compositor's feedbackPresented or feedbackDiscarded.
 function approvalFrames(source) {
     let state = detail({ conversation: { kind: "active", purpose: "conversation" }, gen: 1, ...THINKING }).state;
     let at = 0;
@@ -711,9 +717,11 @@ function approvalFrames(source) {
         return result.effects;
     };
     const later = [];
-    // An open, placed overlay: `wanted` is Bubble's open state.
+    // An open, placed overlay on a layer whose compositor offers
+    // presentation: `wanted` is Bubble's open state.
+    const host = { presentationAvailable: true };
     const root = { wanted: true, visible: true, presented: true, placed: true, displayedHold: null,
-        approvalFrames: [], synchronizedHold: null,
+        approvalFrames: [], synchronizedHold: null, submittedFrames: [], host,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });
     // QQuickWindow::update: a request for one more frame, made only while a
@@ -731,99 +739,172 @@ function approvalFrames(source) {
     const approvalText = { x: 0, y: 0, width: 360, height: 40, implicitHeight: 40 };
     Object.defineProperty(approvalText, "text", { get: () => root.hold?.text ?? "" });
     const ctx = vm.createContext({ root, approvalText, Qt: { callLater: fn => later.push(fn) } });
-    // The shipped binding, evaluated like the callbacks, so a frame gates on
-    // the column Bubble itself calls whole.
-    const whole = [...source.matchAll(/^    readonly property bool approvalWhole: ([\s\S]*?)\n(?=    \S)/gm)];
-    assert.equal(whole.length, 1, "one shipped Bubble binding: approvalWhole");
-    const approvalWhole = vm.runInContext("(function() { with(root) { return (" + whole[0][1] + "); } })", ctx);
-    Object.defineProperty(root, "approvalWhole", { get: approvalWhole });
-    for (const name of ["approvalPolished", "approvalSynchronized", "approvalSwapped"]) {
-        const matches = [...source.matchAll(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
-        assert.equal(matches.length, 1, "one shipped Bubble callback: " + name);
-        const run = vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })", ctx);
-        root[name] = run;
+    const evaluate = text => vm.runInContext("(function() { with(root) { return (" + text + "); } })", ctx);
+    // The shipped bindings, evaluated like the callbacks, so a frame gates
+    // on the column Bubble itself calls whole and the request's
+    // availability reads the host as Bubble reads it.
+    for (const name of ["approvalWhole", "presentationAvailable", "approvalUnavailable"]) {
+        const binding = [...source.matchAll(new RegExp("^    readonly property bool " + name + ": ([\\s\\S]*?)\\n(?=    \\S)", "gm"))];
+        if (name === "approvalWhole") assert.equal(binding.length, 1, "one shipped Bubble binding: " + name);
+        if (binding.length === 1) Object.defineProperty(root, name, { get: evaluate(binding[0][1]) });
     }
+    const callbacks = [...source.matchAll(/^    function (approval\w+)\(([^)\n]*)\) \{\n[\s\S]*?^    \}/gm)];
+    for (const [text, name] of callbacks) root[name] = vm.runInContext("(function() { with(root) { return (" + text + "); } })", ctx)();
+    for (const name of ["approvalPolished", "approvalSynchronized"])
+        assert.equal(typeof root[name], "function", "the callback reader finds the shipped " + name);
+    // Each Connections block's handlers, by its target.
+    const handlers = { window: {}, host: {} };
+    const blocks = [...source.matchAll(/^    Connections \{\n        target: (root\.Window\.window|root\.host)\n([\s\S]*?)^    \}/gm)];
+    for (const [, target, body] of blocks) {
+        const table = handlers[target === "root.host" ? "host" : "window"];
+        const found = [...body.matchAll(/^        function (on\w+)\(([^)\n]*)\) \{ (.*) \}$/gm)];
+        assert.equal(found.length, body.split("function on").length - 1, "the handler reader reads every " + target + " handler");
+        for (const [, name, params, code] of found)
+            table[name] = vm.runInContext("(function(" + params + ") { with(root) { " + code + " } })", ctx);
+    }
+    for (const name of ["onAfterAnimating", "onAfterSynchronizing"])
+        assert.equal(typeof handlers.window[name], "function", "the handler reader finds the shipped window " + name);
     const flush = () => { while (later.length) later.shift()(); };
+    const emit = (target, signal, ...args) => {
+        const handler = handlers[target]["on" + signal[0].toUpperCase() + signal.slice(1)];
+        if (handler !== undefined) handler(...args);
+        flush();
+    };
+    let serial = 0;
+    const polish = () => emit("window", "afterAnimating");
+    // One frame's render-thread signals; it answers the frame's serial, or
+    // null when the engine numbered none because presentation is unavailable.
+    const render = () => {
+        emit("window", "afterSynchronizing");
+        const frame = host.presentationAvailable ? ++serial : null;
+        if (frame !== null) emit("host", "feedbackSubmitted", frame);
+        emit("window", "frameSwapped");
+        return frame;
+    };
+    const present = frame => emit("host", "feedbackPresented", frame);
+    const discard = frame => emit("host", "feedbackDiscarded", frame);
     const propose = id => dispatch({ type: "approval", gen: 1, op: 4, id, digest: id, purpose: "action",
         text: "Fixture action", physical: false, tool: "fixture", timeoutMs: 1000, cancellable: false });
     const confirm = h => dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+    const refusal = h => confirm(h).find(e => e.kind === "confirm-refused")?.reason;
 
-    root.approvalPolished();
+    polish();
     propose("first");
     const h = root.hold;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
-    assert.equal(state.approval.shownAt, null, "an earlier frame cannot acknowledge a newer request");
+    polish();
+    present(render());
+    assert.equal(state.approval.shownAt, null, "a presented frame that drew an earlier state cannot acknowledge a newer request");
+    let frame = render();
+    assert.equal(state.approval.shownAt, null, "a submitted and swapped frame the compositor has not answered cannot acknowledge");
     at = 1000;
-    assert.equal(confirm(h).find(e => e.kind === "confirm-refused")?.reason, "early",
-        "confirmation stays refused until the request's frame completes");
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
-    assert.equal(state.approval.shownAt, 1000, "the matching frame acknowledges its request");
-    at += Session.APPROVAL_DRAW_MS;
-    assert.ok(confirm(h).some(e => e.kind === "tool-start"), "the matching frame starts the full draw interval");
+    assert.equal(refusal(h), "early", "confirmation stays refused until the compositor presents the request's frame");
+    discard(frame);
+    assert.equal(state.approval.shownAt, null, "a discarded frame cannot acknowledge");
+    polish();
+    present(render());
+    assert.equal(state.approval.shownAt, 1000, "the presented frame that drew the request acknowledges it");
+    at += Session.APPROVAL_DRAW_MS - 1;
+    assert.equal(refusal(h), "early", "the draw interval counts from the presented frame");
+    at += 1;
+    assert.ok(confirm(h).some(e => e.kind === "tool-start"), "the presented frame starts the full draw interval");
 
     state.action = { kind: "none" };
     propose("second");
     root.displayedHold = null;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
+    polish();
+    frame = render();
     dispatch({ type: "approval-cancel", gen: 1, id: "second" });
     propose("third");
-    flush();
-    assert.equal(state.approval.shownAt, null, "a deferred acknowledgment cannot cross request replacement");
+    present(frame);
+    assert.equal(state.approval.shownAt, null, "a presented frame of a replaced request cannot acknowledge its successor");
     root.presented = false;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
+    polish();
+    present(render());
     assert.equal(state.approval.shownAt, null, "a hidden host cannot acknowledge");
     root.presented = true;
     root.placed = false;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
+    polish();
+    present(render());
     assert.equal(state.approval.shownAt, null, "a frame drawn before the placement is known cannot acknowledge");
     root.placed = true;
     approvalText.height = approvalText.implicitHeight - 1;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
+    polish();
+    present(render());
     assert.equal(state.approval.shownAt, null, "a frame that clips the request's column cannot acknowledge");
     approvalText.height = approvalText.implicitHeight;
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
+    polish();
+    present(render());
     assert.notEqual(state.approval.shownAt, null, "the placed whole frame acknowledges its request");
 
-    // A static hidden bubble: Qt polished a frame it never synced, so the
-    // hold's own frame swaps an older snapshot, and nothing else draws.
+    // Qt commits the next frame before the compositor answers the one
+    // before it: the earlier frame, which did not draw the request, is
+    // presented while the later frame that drew it waits unanswered.
     dispatch({ type: "approval-cancel", gen: 1, id: "third" });
     root.displayedHold = null;
-    frameRequested = false;
-    root.approvalPolished();
+    polish();
+    propose("pipelined");
+    polish();
+    const early = render();
+    const drawing = render();
+    present(early);
+    assert.equal(state.approval.shownAt, null, "a presented frame that did not draw the request cannot acknowledge a later submitted one");
+    present(drawing);
+    assert.notEqual(state.approval.shownAt, null, "the later frame's own presented answer acknowledges the request");
+
+    // A later frame that did not draw the request supersedes the earlier
+    // frame that drew it: the later one is presented, the earlier one is
+    // discarded, and nothing on the screen shows the request.
+    dispatch({ type: "approval-cancel", gen: 1, id: "pipelined" });
+    root.displayedHold = null;
+    polish();
+    propose("superseded");
+    polish();
+    present(render());
+    const drew = render();
+    root.placed = false;
+    polish();
+    const covering = render();
+    root.placed = true;
+    present(covering);
+    discard(drew);
+    assert.equal(state.approval.shownAt, null, "a later presented frame that did not draw the request cannot acknowledge an earlier one");
+    polish();
+    present(render());
+    assert.notEqual(state.approval.shownAt, null, "the next presented frame that draws the request acknowledges it");
+
+    // A layer without presentation: no frame is numbered, so none can
+    // acknowledge, and the request reads unavailable for confirmation.
+    dispatch({ type: "approval-cancel", gen: 1, id: "superseded" });
+    root.displayedHold = null;
+    assert.equal(root.approvalUnavailable, false, "no request, nothing to mark unavailable");
+    host.presentationAvailable = false;
+    assert.equal(root.approvalUnavailable, false, "no request, nothing to mark unavailable without presentation");
     propose("fourth");
-    root.approvalPolished();
-    root.approvalSynchronized();
-    root.approvalSwapped();
-    flush();
+    assert.equal(root.approvalUnavailable, true, "a request without presentation reads unavailable for confirmation");
+    polish();
+    assert.equal(render(), null, "the engine numbers no frame without presentation");
+    at += 1000;
+    assert.equal(refusal(root.hold), "early", "a request without presentation stays unconfirmable");
+    host.presentationAvailable = true;
+    assert.equal(root.approvalUnavailable, false, "presentation returns the request to confirmation");
+
+    // A static hidden bubble: Qt polished a frame it never synced, so the
+    // hold's own frame draws an older snapshot, and nothing else draws.
+    dispatch({ type: "approval-cancel", gen: 1, id: "fourth" });
+    root.displayedHold = null;
+    frameRequested = false;
+    polish();
+    propose("fifth");
+    polish();
+    present(render());
     for (let frames = 0; frameRequested; frames++) {
         assert.ok(frames < 3, "a static window's frame requests end");
         frameRequested = false;
-        root.approvalPolished();
-        root.approvalSynchronized();
-        root.approvalSwapped();
-        flush();
+        polish();
+        present(render());
     }
     assert.notEqual(state.approval.shownAt, null, "a static window's hidden hold still receives its acknowledgment");
-    assert.equal(root.displayedHold?.id, "fourth", "the acknowledged frame drew the current hold");
+    assert.equal(root.displayedHold?.id, "fifth", "the acknowledged frame drew the current hold");
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
@@ -1138,4 +1219,18 @@ assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "")), assert.As
     "a swap that asks for no frame must fail the static hidden hold's acknowledgment");
 assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "root.Window.window.update();")), assert.AssertionError,
     "a frame asked for on every swap must fail the frame request bound");
-console.log(`test-jarvis-widget: ok frame-controls=5 frame-control=detected`);
+const discardNeedle = "function onFeedbackDiscarded(serial) { root.approvalDiscarded(serial); }";
+assert.equal(bubble.split(discardNeedle).length, 2, "one discard control match");
+assert.throws(() => approvalFrames(bubble.replace(discardNeedle, "function onFeedbackDiscarded(serial) { root.approvalShown(serial); }")),
+    assert.AssertionError, "a discard read as a presentation must fail the discarded-frame assertion");
+const serialNeedle = "const frame = submittedFrames.find(record => record.serial === serial);";
+assert.equal(bubble.split(serialNeedle).length, 2, "one serial binding control match");
+assert.throws(() => approvalFrames(bubble.replace(serialNeedle, "const frame = submittedFrames.find(record => record.serial >= serial);")),
+    assert.AssertionError, "an earlier frame's presented answer read for a later frame must fail the pipelined assertion");
+assert.throws(() => approvalFrames(bubble.replace(serialNeedle, "const frame = submittedFrames.find(record => record.serial <= serial);")),
+    assert.AssertionError, "a later frame's presented answer read for an earlier frame must fail the superseded assertion");
+const unavailableNeedle = "readonly property bool approvalUnavailable: hold !== null && !presentationAvailable";
+assert.equal(bubble.split(unavailableNeedle).length, 2, "one unavailable control match");
+assert.throws(() => approvalFrames(bubble.replace(unavailableNeedle, "readonly property bool approvalUnavailable: false")),
+    assert.AssertionError, "a request that never reads unavailable must fail the unavailable assertion");
+console.log(`test-jarvis-widget: ok frame-controls=9 frame-control=detected`);

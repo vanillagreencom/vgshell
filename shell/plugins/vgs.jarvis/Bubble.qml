@@ -119,6 +119,18 @@ Item {
     property var displayedHold: null
     property var approvalFrames: []
     property var synchronizedHold: null
+    // The frames the engine numbered that drew a hold, oldest first, as
+    // { serial, hold }, until the compositor answers them.
+    property var submittedFrames: []
+    // The layer asks the compositor about its frames only while a request
+    // waits (LayerHost, OverlaySurface): each answer costs a protocol
+    // object per frame.
+    readonly property bool presentationWanted: hold !== null
+    readonly property bool presentationAvailable: host !== null && host.presentationAvailable === true
+    // Without the compositor's answer no frame can acknowledge the request,
+    // so Confirm stays refused (Session's `early`) until the request ends.
+    readonly property bool approvalUnavailable: hold !== null && !presentationAvailable
+    readonly property string unavailableReason: "Jarvis cannot make sure that the screen shows this request, so you cannot accept it."
     // The held request's column laid out whole inside the layer: it draws
     // every line it acknowledges, a payload past the room the layer leaves
     // in its scrolled region, which the pointer reaches.
@@ -133,11 +145,24 @@ Item {
         if (hold === null || displayedHold === null || hold.id !== displayedHold.id
                 || hold.gen !== displayedHold.gen || hold.digest !== displayedHold.digest) displayedHold = null;
     }
+    // A request is shown only when the compositor presents a frame that
+    // drew it. Qt's frameSwapped means only that a frame was queued for
+    // presenting (https://doc.qt.io/qt-6/qquickwindow.html#frameSwapped),
+    // and the compositor can still discard that commit: a later commit
+    // supersedes it, or the layer is covered, hidden or destroyed
+    // (wp_presentation_feedback, presentation-time.xml). The engine's
+    // PresentationFeedback numbers each frame on the render thread after its
+    // scene is recorded and before its swap, and the host forwards
+    // feedbackSubmitted, then the compositor's feedbackPresented or
+    // feedbackDiscarded for that serial. A frame pending at a hide or a
+    // surface loss gets neither.
+    //
     // Qt 6.12 emits afterAnimating on the GUI thread once polish ends, before
-    // it asks for a sync; afterSynchronizing and frameSwapped queue from the
-    // render thread in order. Each sync takes the oldest polish snapshot,
-    // including frames without a hold, so a queued old swap never consumes a
-    // newer request's GUI state and no acknowledgment comes early.
+    // it asks for a sync; afterSynchronizing and the engine's submitted
+    // signal queue from the render thread in order. Each sync takes the
+    // oldest polish snapshot, including frames without a hold, so a queued
+    // old frame never consumes a newer request's GUI state and no
+    // acknowledgment comes early.
     // Qt does not sync every afterAnimating. The threaded loop skips
     // syncSceneGraph for a zero-size window (QSGRenderThread::sync), an empty
     // surface, a failed swapchain init or a failed beginFrame
@@ -152,8 +177,11 @@ Item {
     // lag lasts the Bubble's life. Each sync takes the snapshot from as many
     // frames back as there have been skips. An animating window's later
     // frames reach the current hold's snapshot; a static hidden bubble draws
-    // no further frame, so approvalSwapped keeps asking for frames until one
-    // draws the current hold.
+    // no further frame, so approvalSubmitted keeps asking for frames until
+    // one draws the current hold.
+    // A discarded frame asks for none: a covered layer would then draw
+    // frame after frame until the request ends. The next frame, such as
+    // the pointer's hover over an answer, can still acknowledge it.
     // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
     function approvalPolished() {
         approvalFrames.push(wanted && visible && placed && approvalWhole ? hold : null);
@@ -161,34 +189,46 @@ Item {
     function approvalSynchronized() {
         synchronizedHold = approvalFrames.length === 0 ? null : approvalFrames.shift();
     }
-    function approvalSwapped() {
+    function approvalSubmitted(serial) {
         const drawn = synchronizedHold;
         if (displayedHold !== null) return;
         // QQuickWindow::update forces one more polish, sync and swap
         // (QSGThreadedRenderLoop::update sets forceRenderPass). It is asked
         // only while a later frame's snapshot of the current hold waits
         // unused, so each such frame consumes one older snapshot, and the
-        // requests end once a swap draws the hold, it is acknowledged or the
+        // requests end once a frame draws the hold, it is acknowledged or the
         // hold changes.
         const current = hold;
         const isCurrent = frame => frame !== null && current !== null && frame.id === current.id
             && frame.gen === current.gen && frame.digest === current.digest;
         if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();
-        if (drawn === null) return;
-        // LayerHost observes this swap too. Its presented value must settle
-        // before the service checks this frame's unchanged request identity.
-        Qt.callLater(() => {
-            if (!root.presented || root.hold === null || root.hold.id !== drawn.id
-                    || root.hold.gen !== drawn.gen || root.hold.digest !== drawn.digest) return;
-            root.displayedHold = drawn;
-            if (root.service !== null) root.service.shownApproval(root, drawn);
-        });
+        if (drawn !== null) submittedFrames.push({ serial: serial, hold: drawn });
+    }
+    // A later commit supersedes an earlier one the compositor has not
+    // shown, and that earlier one is discarded (presentation-time.xml), so
+    // a frame older than a presented one is never presented.
+    function approvalShown(serial) {
+        const frame = submittedFrames.find(record => record.serial === serial);
+        submittedFrames = submittedFrames.filter(record => record.serial > serial);
+        if (frame === undefined || displayedHold !== null) return;
+        const drawn = frame.hold;
+        if (!presented || hold === null || hold.id !== drawn.id || hold.gen !== drawn.gen || hold.digest !== drawn.digest) return;
+        displayedHold = drawn;
+        if (service !== null) service.shownApproval(root, drawn);
+    }
+    function approvalDiscarded(serial) {
+        submittedFrames = submittedFrames.filter(record => record.serial !== serial);
     }
     Connections {
         target: root.Window.window
         function onAfterAnimating() { root.approvalPolished(); }
         function onAfterSynchronizing() { root.approvalSynchronized(); }
-        function onFrameSwapped() { root.approvalSwapped(); }
+    }
+    Connections {
+        target: root.host
+        function onFeedbackSubmitted(serial) { root.approvalSubmitted(serial); }
+        function onFeedbackPresented(serial) { root.approvalShown(serial); }
+        function onFeedbackDiscarded(serial) { root.approvalDiscarded(serial); }
     }
     readonly property var microphoneMute: service === null ? null : View.microphoneMuted(service.microphoneMute)
     readonly property bool micMuted: microphoneMute === true
@@ -836,7 +876,7 @@ Item {
                 // (https://doc.qt.io/qt-6/qml-qtquick-column.html). The
                 // overlay keeps the margin to the layer's edge at its bottom,
                 // or at its top over the console.
-                readonly property var others: [question, fullPath, alwaysRow, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
+                readonly property var others: [question, fullPath, alwaysRow, answerButtons, unavailableLine].filter(item => item.visible && item.width > 0 && item.height > 0)
                 readonly property real room: root.height - root.look.layout.bottom - overlay.below - overlay.card.paddingY
                     - others.reduce((sum, item) => sum + item.height + approvalText.spacing, 0)
                 width: parent.width
@@ -935,8 +975,20 @@ Item {
                     quiet: root.hold !== null && root.hold.physical
                     width: (answerButtons.width - answerButtons.spacing) / 2
                     text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
+                    disabledReason: root.approvalUnavailable ? root.unavailableReason : ""
                     onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
                 }
+            }
+            Label {
+                id: unavailableLine
+                width: parent.width
+                visible: root.approvalUnavailable
+                role: "hint"
+                color: root.look.ink.action
+                text: root.unavailableReason
+                textFormat: Text.PlainText
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
             }
         }
 

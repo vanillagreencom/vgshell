@@ -25,6 +25,7 @@
             ./packaging/arch/vgshell-quickshell/vgs-1109-log-filter-mutex.patch
             ./packaging/arch/vgshell-quickshell/vgs-1993-managed-process-lifetime.patch
             ./packaging/arch/vgshell-quickshell/vgs-1129-fileview-read.patch
+            ./packaging/arch/vgshell-quickshell/vgs-2641-presentation-feedback.patch
           ];
           cmakeFlags = builtins.filter (flag: !(lib.hasPrefix "-DDISTRIBUTOR" flag) && !(lib.hasPrefix "-DGIT_REVISION" flag)) old.cmakeFlags ++ [
             (lib.cmakeFeature "GIT_REVISION" "2b4501a282689792b62e94f3fb30d8f512324fe6")
@@ -32,7 +33,7 @@
           # The unstructured cmakeFlags environment splits spaces. Keep the
           # distributor as one argument through CMake's supported shell array.
           preConfigure = (old.preConfigure or "") + ''
-            cmakeFlagsArray+=("-DDISTRIBUTOR=VGS 4 (package: vgshell-quickshell)")
+            cmakeFlagsArray+=("-DDISTRIBUTOR=VGS 5 (package: vgshell-quickshell)")
           '';
         });
       })));

@@ -13,6 +13,22 @@ PanelWindow {
     required property int inset
     property var inputItems: []
     property bool inputAll: false
+    // The engine's presentation feedback for this window's frames
+    // (Quickshell.Wayland PresentationFeedback, VGS engine 5): the content
+    // reads whether the compositor reports presentation, and each frame's
+    // serial once it is submitted, then presented or discarded. A frame
+    // pending at a hide or a surface loss gets neither answer. Each answer
+    // costs a protocol object per frame, so the window asks only while its
+    // content wants them.
+    property bool presentationWanted: false
+    readonly property bool presentationAvailable: PresentationFeedback.available
+    signal feedbackSubmitted(int serial)
+    signal feedbackPresented(int serial)
+    signal feedbackDiscarded(int serial)
+    PresentationFeedback.enabled: presentationWanted
+    PresentationFeedback.onSubmitted: serial => surface.feedbackSubmitted(serial)
+    PresentationFeedback.onPresented: serial => surface.feedbackPresented(serial)
+    PresentationFeedback.onDiscarded: serial => surface.feedbackDiscarded(serial)
     property var releaseInputSurface: null
     readonly property var inputWindow: surface.contentItem.Window.window
     onInputWindowChanged: {

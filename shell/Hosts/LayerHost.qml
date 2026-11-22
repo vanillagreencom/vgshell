@@ -62,6 +62,7 @@ Scope {
                     inset: 0
                     inputAll: !hiding && content !== null && content.inputAll === true
                     inputItems: !hiding && content !== null && content.inputItems !== undefined ? content.inputItems : []
+                    presentationWanted: content !== null && content.presentationWanted === true
                     screen: targetScreen
                     // `shown` is independent of Item.visible, which inherits
                     // the hidden host and cannot request that host's map.
