@@ -108,10 +108,14 @@ stub() { # DIR NAME BODY
 # marker on the terminal so the reboot row can read the final output order.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
+# `pkg review-custom-mode` fails with 4 while $FIX/fail-custom-mode exists.
+# `pkg run` for a manager ID SIGKILLs its caller, the pipeline's run, for
+# $FIX/kill-run-<id>, as the OOM killer or a stop timeout ends a run.
 # `pkg check --json --source <id>` answers $FIX/check-<id>.json, else one
 # pending update; a file source answers no row, as one with none of its
 # packages installed does, while $FIX/unused-file-source exists.
 stub "$tree/bin" vgshell 'pkg_run() {
+  [ ! -e "$FIX/kill-run-$5" ] || { kill -KILL "$PPID"; exit 9; }
   if [ -e "$FIX/devel-status" ] && [ "$5" = aur ]; then
     ( shift 5; paru -Sua "$@" ) || exit "$?"
   fi
@@ -148,6 +152,7 @@ case "$1 $2" in
     printf "%s\n" "$d" >"$FIX/current-run"
     printf "%s\n" "$d" ;;
   "pkg review-custom-mode")
+    [ ! -e "$FIX/fail-custom-mode" ] || exit 4
     exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3" ;;
   "pkg review-custom-consent")
     [ ! -e "$FIX/fail-consume" ] || exit 3
@@ -2111,6 +2116,24 @@ assert.equal(JSON.parse(fs.readFileSync(file,"utf8")).version,99,"future outcome
 JS
 }
 row_outcome_migration
+# The two outcomes no part's own failure words: a command that fails inside
+# a part with no cause of its own, which the error trap records, and a run
+# killed by a signal the pipeline does not trap, which only the outer EXIT
+# writer sees. Both name the part and say to update again.
+row_uncaused_outcomes() {
+  reset_fix
+  settings "paru -Sua --devel" false
+  touch "$fix/fail-custom-mode"
+  pipeline update.sh
+  assert "a fault inside a part ends the run with its status" test "$status" == 4
+  assert "a fault inside a part stores the part's title and the generic next step" outcome_is failed "AUR packages failed" "VGS could not find the cause. Update again." ""
+  reset_fix
+  touch "$fix/kill-run-flatpak"
+  pipeline update-source.sh flatpak
+  assert "a killed run ends with the signal's status" test "$status" == 137
+  assert "a killed run stores the part it died in and the generic next step" outcome_is failed "Flatpak failed" "VGS could not find the cause. Update again." ""
+}
+row_uncaused_outcomes
 row_pty_shell; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
@@ -2210,6 +2233,8 @@ control reboot-from-earlier-upgrade '  _updates_reboot "${_updates_core[@]}"' ' 
 control reboot-still-restarts '        _updates_rebooted=1' '        :' row_reboot
 control no-desktop-is-failure 'if [[ $restart_status == 69 && $restart_first ==' 'if [[ $restart_status == 1 && $restart_first ==' row_reboot
 control outcome-migration-not-persisted 'if (before.version !== current.version)' 'if (false)' row_outcome_migration bin/facts
+control trap-outcome-wordless '"${_updates_failed_text:-VGS could not find the cause. Update again.}"' '"${_updates_failed_text:-}"' row_uncaused_outcomes
+control killed-outcome-wordless 'ended=failed title="$part failed" text="VGS could not find the cause. Update again."' 'ended=failed title="$part failed" text=""' row_uncaused_outcomes
 control system-plan-silent 'system_plan="System: $_updates_pending_count $update_word. System packages update first so package versions stay compatible."' 'system_plan="System: install available updates"' row_vgs_only
 control custom-config-lost 'custom_config_args=(--config "$custom_config")' 'custom_config_args=()' row_helper_configs
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
