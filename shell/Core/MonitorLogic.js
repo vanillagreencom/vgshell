@@ -107,6 +107,24 @@ function parseOutputs(text) {
     return { ok: true, outputs: out };
 }
 
+// Whether a configuration reload now would reach FALLBACK's framebuffer:
+// { ok: true, lit } for OUTPUTS, parseOutputs's list, `lit` true while it
+// lists FALLBACK; { ok: false, error } while OUTPUTS is unread (null).
+// Hyprland v0.57.0 creates FALLBACK as a headless output once no real
+// output is left, and destroys it a turn of its event loop after one
+// returns (src/state/FallbackState.cpp, setFallbackActive), so it is lit
+// from its creation to its destruction, that turn beside the real output
+// included. A reload's REFRESH_BLUR_FB pass
+// calls refreshBlurFB on every lit output
+// (src/config/supplementary/propRefresher/PropRefresher.cpp lines 79-90),
+// and src/render/Framebuffer.cpp asserts FALLBACK's 0x0 size.
+// HyprlandLayer.qml, HyprlandState.qml and scripts/smoke/hypr-call.sh hold
+// their reloads on it.
+function fallbackLit(outputs) {
+    if (!Array.isArray(outputs)) return { ok: false, error: "refused: outputs=unread" };
+    return { ok: true, lit: outputs.some(function (output) { return output.name === "FALLBACK"; }) };
+}
+
 // The colour modes Hyprland's `cm` takes (CMType.cpp), and what each needs
 // of the panel's EDID before Hyprland 0.56.2 shows it rather than sRGB
 // (CMonitor::applyMonitorRuleSoft): `edid` its chromaticity, `hdr` and
@@ -541,33 +559,29 @@ function luaList(ids) {
     return "{ " + ids.map(luaString).join(", ") + " }";
 }
 
-// The one reload that turns outputs back on, for the layer's guard and a
-// trial's restore alike: once no output but FALLBACK is lit and GATE, a Lua
-// condition, holds; "" for none. A rule set while only FALLBACK
-// is lit never applies, and a reload reruns the saved layer. Hyprland 0.56.2
-// turns outputs off and on one by one in list order inside
-// ensureMonitorStatus (MonitorRuleManager.cpp), posting `monitor.removed`
-// for each output a rule turns off, so the outputs are read from a oneshot
-// timer, which the event loop runs once that pass has returned; any timeout
-// above zero does (docs/architecture/hyprland.md § Configuration layer).
-function relightLines(gate) {
-    return [
-        "hl.timer(function()",
-        "    -- A rule set from a handler waits for a render tick that never comes with only FALLBACK left, so a reload turns the outputs back on; it goes when Hyprland applies such a rule at once.",
-        "    for _, m in ipairs(hl.get_monitors()) do",
-        "        if m.name ~= \"FALLBACK\" then return end",
-        "    end",
-        gate === "" ? "    hl.exec_cmd(\"hyprctl reload\")" : "    if " + gate + " then hl.exec_cmd(\"hyprctl reload\") end",
-        "end, { timeout = 1, type = \"oneshot\" })"
-    ];
-}
-
 // The layer turns an output off only while another output stays on, so a
 // laptop that starts or is left undocked never stays dark. The layer runs
 // before Hyprland lists any output at start, so the check runs again as each
 // output comes; Hyprland 0.56.2 lists enabled outputs that mirror nothing,
 // or FALLBACK when none is left, in `hl.get_monitors()`, each with the short
 // description a `desc:` identifier names (docs/architecture/hyprland.md § Configuration layer).
+// Once no output but FALLBACK is lit, the guard sends each output it
+// turned off one scoped rule, `disabled = false` alone, and clears
+// `vgs_monitors_applied`, so the next output that comes turns them off
+// again. Hyprland v0.57.0's hl.monitor merges the call into the rule in
+// force for that output, so the user's later lines keep their fields, and
+// schedules only a monitor-state refresh
+// (src/config/lua/bindings/LuaBindingsConfigRules.cpp, hlMonitor, lines
+// 1077-1137). A full reload is never sent: its REFRESH_BLUR_FB pass calls
+// refreshBlurFB on every monitor, FALLBACK's 0x0 one included
+// (src/config/supplementary/propRefresher/PropRefresher.cpp lines 79-90),
+// and src/render/Framebuffer.cpp asserts a positive size. Whether a real
+// panel lights while only that FALLBACK is lit is read on hardware.
+// Hyprland 0.56.2 turns outputs off and on one by one in list order inside
+// ensureMonitorStatus (MonitorRuleManager.cpp), posting `monitor.removed`
+// for each output a rule turns off, so the outputs are read from a oneshot
+// timer, which the event loop runs once that pass has returned; any
+// timeout above zero does.
 function guardLines(rules, ids) {
     var off = ids.filter(function (id) { return rules[id].disabled === true; });
     if (off.length === 0) return [];
@@ -596,11 +610,18 @@ function guardLines(rules, ids) {
         "    end",
         "    vgs_monitors_apply()",
         "    hl.on(\"monitor.added\", vgs_monitors_apply)",
-        "    hl.on(\"monitor.removed\", function()"
-    ].concat(relightLines("vgs_monitors_applied").map(function (line) { return "        " + line; }), [
+        "    hl.on(\"monitor.removed\", function()",
+        "        hl.timer(function()",
+        "            for _, m in ipairs(hl.get_monitors()) do",
+        "                if m.name ~= \"FALLBACK\" then return end",
+        "            end",
+        "            if not vgs_monitors_applied then return end",
+        "            for _, id in ipairs(vgs_monitors_off) do " + monitorCall(["output = id", "disabled = false"]) + " end",
+        "            vgs_monitors_applied = false",
+        "        end, { timeout = 1, type = \"oneshot\" })",
         "    end)",
         "end"
-    ]);
+    ];
 }
 
 function rulesLines(rules) {
@@ -613,8 +634,9 @@ function rulesLines(rules) {
 // A trial of RULES over the owner's SAVED rules: { ok: true, lua, kept,
 // restore, restoreRules }, `kept` the set Keep saves, SAVED with RULES over
 // them, `restore` the Lua that puts back the outputs RULES name as OUTPUTS
-// list them, and the reload once none but FALLBACK is lit, or { ok: false,
-// error }. RULES are judged against the listed OUTPUTS and the panel
+// list them, and no reload, which would abort Hyprland 0.57 while only
+// FALLBACK is lit (guardLines), or { ok: false, error }. RULES are judged
+// against the listed OUTPUTS and the panel
 // SUPPORT, and `kept` as the settings write judges it, so a trial never
 // shows what Keep cannot save.
 function trialPlan(saved, rules, outputs, support) {
@@ -628,7 +650,7 @@ function trialPlan(saved, rules, outputs, support) {
     var restoreRules = captureRules(outputs, rules);
     var restore = rulesLua(restoreRules);
     if (!restore.ok) return restore;
-    return { ok: true, lua: trial.lua, kept: kept, restore: restore.lua + "\n" + relightLines("").join("\n"), restoreRules: restoreRules };
+    return { ok: true, lua: trial.lua, kept: kept, restore: restore.lua, restoreRules: restoreRules };
 }
 
 function rulesLua(rules) {

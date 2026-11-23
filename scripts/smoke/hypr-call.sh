@@ -4,7 +4,8 @@
 # run when an operation cannot leave a usable world, and arms that end on USR1 in the
 # shell that sources it. It reads the caller's shell_env, signature and
 # sandbox, fail and row_class from verdict.sh, and smoke_finish,
-# which the caller defines before the first call.
+# which the caller defines before the first call. A reload also reads the
+# caller's repo, the tree whose MonitorLogic.js judges it, and node.
 #
 # hyprctl bounds its read but not its connect, so once a stopped compositor's
 # listen backlog is full every later call blocks for good, holding the slot
@@ -29,6 +30,7 @@ hypr_bound_s=10
 hypr() {
   local out="$sandbox/hypr-$BASHPID.out" status=0 copied=0
   [[ ! -e $sandbox/smoke-aborted ]] || return 1
+  if hypr_reloads "$@" && ! hypr_reload_clear "$*"; then return 1; fi
   "${shell_env[@]}" timeout -k 2 "$hypr_bound_s" hyprctl -i "$signature" "$@" >"$out" || status=$?
   cat -- "$out" || copied=$?
   if [[ ${hypr_advisory:-false} != true ]]; then
@@ -41,6 +43,53 @@ hypr() {
   rm -f -- "$out"
   [[ $status -ne 0 ]] || status=$copied
   return "$status"
+}
+
+# hypr_reloads ARG...: whether the call asks Hyprland to reload its
+# configuration, as its command or as one command of a --batch.
+hypr_reloads() {
+  local arg command batch=false
+  local -a commands
+  for arg in "$@"; do
+    if [[ $batch == true ]]; then
+      IFS=';' read -r -a commands <<<"$arg"
+      for command in "${commands[@]}"; do
+        read -r command _ <<<"$command"
+        if [[ $command == reload ]]; then return 0; fi
+      done
+      return 1
+    fi
+    case "$arg" in
+      --batch) batch=true ;;
+      -*) ;;
+      *) if [[ $arg == reload ]]; then return 0; fi; return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# hypr_reload_clear REQUEST: true once `monitors all` lists no FALLBACK,
+# judged by MonitorLogic.fallbackLit. A reload while it is listed aborts
+# Hyprland 0.57 and hides the row's own failure behind a dead compositor,
+# so FALLBACK listed, a failed read or a failed judge ends the run here
+# with the cause. REVISIT(VGS-2136): remove the check once the oldest
+# Hyprland VGS supports carries hyprwm/Hyprland#16927.
+hypr_reload_clear() {
+  local reply verdict status=0
+  reply="$(hypr -j monitors all)" || status=$?
+  if [[ $status -ne 0 ]]; then
+    smoke_abort "hypr-reload: refused cause=monitors-read status=$status request=[$1]"
+    return 1
+  fi
+  verdict="$(node -e '
+const repo = process.argv[1];
+const logic = require(repo + "/bin/lib/qml-library.js").load(repo + "/shell/Core/MonitorLogic.js");
+const read = logic.parseOutputs(require("fs").readFileSync(0, "utf8"));
+const answer = logic.fallbackLit(read.ok ? read.outputs : null);
+process.stdout.write(!read.ok ? read.error : !answer.ok ? answer.error : answer.lit ? "fallback=listed" : "clear");' "$repo" <<<"$reply")" || verdict="judge=failed status=$? out=${verdict//$'\n'/ }"
+  [[ $verdict != clear ]] || return 0
+  smoke_abort "hypr-reload: refused cause=[$verdict] request=[$1]"
+  return 1
 }
 
 # smoke_abort REASON: record the first fatal operation in

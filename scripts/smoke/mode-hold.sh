@@ -7,7 +7,31 @@
 # mode_hold_run_base and the smoke_row_abandon of the row that calls them,
 # a local of smoke_row in harness.sh.
 
-# create_output NAME: add a usable output to the nested sink and return
+# fixture_mode: the mode create_output copies, WxH, from the first output
+# `hypr -j monitors` lists that has a size and is not FALLBACK. With every
+# real output off Hyprland lists only its 0x0 FALLBACK, so nothing is left
+# to copy: a keyed line on stderr and status 1, as for an unreadable reply.
+fixture_mode() {
+  local reply
+  reply="$(hypr -j monitors)" || { printf 'output-create: operation=mode-read reply=failed\n' >&2; return 1; }
+  python3 -c '
+import json, sys
+try:
+    rows = json.loads(sys.argv[1])
+except ValueError:
+    rows = None
+if not isinstance(rows, list):
+    print("output-create: operation=mode-read reply=unparsed", file=sys.stderr)
+    sys.exit(1)
+for m in rows:
+    if isinstance(m, dict) and m.get("name") != "FALLBACK" and m.get("width", 0) > 0 and m.get("height", 0) > 0:
+        print("%dx%d" % (m["width"], m["height"]))
+        sys.exit(0)
+print("output-create: operation=mode-read sized=none", file=sys.stderr)
+sys.exit(1)' "$reply"
+}
+
+# create_output NAME [MODE]: add a usable output to the nested sink and return
 # only once it has a sized mode. Headless outputs on cachy's NVIDIA stack
 # reject buffer allocation and stay 0x0. A layer reload in Hyprland
 # 0.57.0 then reaches CPropRefresher::refreshProp's REFRESH_BLUR_FB loop,
@@ -16,7 +40,7 @@
 # unchanged-main displays-modes run, 2026-10-31). A Wayland configure can
 # precede aquamarine 0.15.1's newOutput announcement, leaving Hyprland no
 # preferred mode (the compositor-reveal run in VGS-2133). Install an
-# explicit mode copied from the sized primary before creating the output;
+# explicit mode, MODE or fixture_mode's, before creating the output;
 # Wayland accepts that custom mode, as the run-base hold does. New fixture
 # outputs stand auto-right at scale 1. Read up to 25 times, 0.2 s between
 # readings, as take_mode does; each IPC keeps hypr's bound. The row removes its
@@ -28,7 +52,8 @@ create_output() {
     printf 'output-create: operation=acquire output=%s state=[%s]\n' "$output" "$got" >&2
     return 1
   fi
-  mode="$(first_mode)" || return
+  mode="${2:-}"
+  [[ -n $mode ]] || mode="$(fixture_mode)" || return
   reply="$(hypr eval "$(monitor_rule "$output" "$mode" 1 "" auto-right)")" || status=$?
   if [[ $status != 0 || $reply != ok ]]; then
     printf 'output-create: operation=rule status=%s output=%s reply=[%s]\n' "$status" "$output" "$reply" >&2

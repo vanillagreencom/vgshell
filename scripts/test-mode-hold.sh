@@ -14,7 +14,8 @@
 # the row's end and through the row's early-end command.
 # A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
-# pins its output and exit status. A third reads base_mode_scale. The
+# pins its output and exit status. A third reads base_mode_scale, and a
+# fourth reads fixture_mode, the mode a created output copies. The
 # controls after them plant one defect per rule in a copy of the file and
 # require the case that rule owns to go red. The coordinate cases at the
 # end run the pointer steps of scripts/smoke/harness.sh and the Surfaces
@@ -744,7 +745,9 @@ source "$1"
 stub_dir="$2"
 IFS="|" read -r label stub_reply plan want_status want_reads want_remove want_abort <<<"$3"
 printf "0\n" >"$stub_dir/reads"
-first_mode() { echo 1920x1080; }
+if [[ $label == no-mode || $label == explicit-mode ]]; then fixture_mode() { return 1; }; else fixture_mode() { echo 1920x1080; }; fi
+create_args=(SMOKE-OUTPUT)
+[[ $label != explicit-mode ]] || create_args+=(1920x1080)
 smoke_abort() { : >"$stub_dir/aborted"; }
 hypr() {
   if [[ $1 == eval ]]; then
@@ -803,12 +806,12 @@ hypr() {
 }
 sleep() { :; }
 status=0
-reply="$(create_output SMOKE-OUTPUT 2>"$stub_dir/error")" || status=$?
+reply="$(create_output "${create_args[@]}" 2>"$stub_dir/error")" || status=$?
 [[ $status == "$want_status" ]] || exit 1
-if [[ $label == rule-* || $label == pre-existing* || $label == acquire-unreadable ]]; then
+if [[ $label == rule-* || $label == pre-existing* || $label == acquire-unreadable || $label == no-mode ]]; then
   [[ ! -e $stub_dir/create-called ]] || exit 1
 fi
-if [[ $label == pre-existing* ]]; then [[ ! -e $stub_dir/rule ]] || exit 1; fi
+if [[ $label == pre-existing* || $label == no-mode ]]; then [[ ! -e $stub_dir/rule ]] || exit 1; fi
 if [[ $want_remove == 1 ]]; then [[ -e $stub_dir/remove-called ]] || exit 1
 else [[ ! -e $stub_dir/remove-called ]] || exit 1; fi
 if [[ $want_abort == 1 ]]; then [[ -e $stub_dir/aborted ]] || exit 1
@@ -828,6 +831,8 @@ fi
 }
 output_create_cases=(
   'sized|ok|1920x1080|0|1|0|0'
+  'explicit-mode|ok|1920x1080|0|1|0|0'
+  'no-mode|ok|1920x1080|1|0|0|0'
   'announced-before-sized|ok|absent,0x0,1920x1080|0|3|0|0'
   'zero-size|ok|0x0|1|1|1|0'
   'absent|ok|absent|1|1|1|1'
@@ -866,7 +871,7 @@ python3 - "$subject" "$tmp/no-output-mode.sh" <<'PYMUTATE'
 import pathlib,sys
 source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
-start=text.index('  mode="$(first_mode)" || return\n')
+start=text.index('  mode="${2:-}"\n')
 end=text.index('  reply="$(hypr output create wayland "$output")" || status=$?\n',start)
 changed=text[:start]+text[end:]
 assert changed!=text and 'hypr output create wayland "$output"' in changed
@@ -891,6 +896,53 @@ if output_create_case "$tmp/unproved-output-release.sh" 'release-unreadable|ok|0
   fail 'control: an unproved release must abort the world'
 else
   ok 'control: an unproved release must abort the world'
+fi
+
+# fixture_mode over `hypr -j monitors` replies: the first sized output
+# that is not FALLBACK, or a refusal. rows: label|reply|status|mode, the
+# reply `failed` for a read that fails.
+fixture_mode_case() {
+  local file="$1" row="$2" label reply want_status want_mode out
+  IFS='|' read -r label reply want_status want_mode <<<"$row"
+  out="$(env -i PATH="$PATH" "$BASH" -c '
+set -euo pipefail
+source "$1"
+stub_reply="$2"
+hypr() { [[ $* == "-j monitors" ]] || return 9; [[ $stub_reply != failed ]] || return 7; printf "%s\n" "$stub_reply"; }
+status=0
+mode="$(fixture_mode 2>/dev/null)" || status=$?
+printf "status=%s mode=%s\n" "$status" "$mode"
+' _ "$file" "$reply" 2>&1)" || out="harness-status=$?"
+  [[ $out == "status=$want_status mode=$want_mode" ]] && return 0
+  printf '        fixture mode %s: %s\n' "$label" "$out"
+  return 1
+}
+fixture_mode_cases=(
+  'sized|[{"name":"WAYLAND-1","width":1920,"height":1080}]|0|1920x1080'
+  'only FALLBACK lit|[{"name":"FALLBACK","width":0,"height":0}]|1|'
+  'a sized FALLBACK listed first|[{"name":"FALLBACK","width":1280,"height":720},{"name":"WAYLAND-1","width":1920,"height":1080}]|0|1920x1080'
+  'an unsized output listed first|[{"name":"SMOKE-A","width":0,"height":0},{"name":"WAYLAND-1","width":1920,"height":1080}]|0|1920x1080'
+  'no output|[]|1|'
+  'an unparsed reply|unread|1|'
+  'a failed read|failed|1|'
+)
+for row in "${fixture_mode_cases[@]}"; do
+  if fixture_mode_case "$subject" "$row"; then ok "fixture mode ${row%%|*}"; else fail "fixture mode ${row%%|*}"; fi
+done
+python3 - "$subject" "$tmp/fallback-mode.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old='m.get("name") != "FALLBACK" and '
+assert text.count(old)==1
+changed=text.replace(old,'')
+assert changed!=text
+out.write_text(changed)
+PYMUTATE
+if fixture_mode_case "$tmp/fallback-mode.sh" 'a sized FALLBACK listed first|[{"name":"FALLBACK","width":1280,"height":720},{"name":"WAYLAND-1","width":1920,"height":1080}]|0|1920x1080' >/dev/null; then
+  fail 'control: a fixture never copies the mode of FALLBACK'
+else
+  ok 'control: a fixture never copies the mode of FALLBACK'
 fi
 
 if [[ $failures -gt 0 ]]; then

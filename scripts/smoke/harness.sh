@@ -3656,7 +3656,10 @@ hypr_lua_save() { cp -p -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-
 hypr_lua_restore() { cp -- "$sandbox/hyprland-$1.lua" "$home/.config/hypr/hyprland.lua.next" && mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua"; }
 # Consent owns its loader and markers together. Reload the current file
 # to reset live options without rewinding only its loader after Connect.
-hypr_config_reload() { hypr reload config-only >/dev/null; }
+# The reply is read through a command substitution, not sent to /dev/null:
+# hypr can end the run from this shell, and the USR1 trap then prints the
+# cause and the verdict through whatever redirect the call carries.
+hypr_config_reload() { local reply; reply="$(hypr reload config-only)"; }
 # The key capture rows' readings, rows/key-capture.sh and
 # rows/key-passthrough.sh. key_submap: the nested instance's current
 # submap, `default` for none; a failed read fails. settings_key: the

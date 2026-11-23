@@ -6,8 +6,8 @@
 // are built in the shape `CHyprCtl::getMonitorData` prints.
 //
 // The layer's guard block runs under `lua` with a stub `hl` that lists the
-// outputs a row names and records each output the block turns off and each
-// command it runs; Hyprland 0.56.2 on host cachy links Lua 5.5, the `lua`
+// outputs a row names and records each output the block turns off or back
+// on and each command it runs; Hyprland 0.56.2 on host cachy links Lua 5.5, the `lua`
 // on PATH there. A missing interpreter fails the suite.
 //
 // The controls at the end edit a copy of the file, one rule at a time, and
@@ -121,13 +121,24 @@ const NONE = { hdr: false, chroma: false, bt2020: false, vrr: false };
 // `mark` records where a row's steps stand; `tick` runs the timers set so
 // far, as Hyprland's event loop does once its pass returns. Each
 // output is [name, description]. The answer is the turned-off outputs
-// (`off <output>`) and the commands run (`exec <command>`), in order.
+// (`off <output>`), the outputs turned back on with each of mode, position
+// and scale the rule names (`on <output> [mode=<mode>] [position=<position>]
+// [scale=<scale>]`), and the commands run (`exec <command>`), in order.
 const LUA_STUB = `
 local events, outputs, handlers, timers = {}, {}, {}, {}
 hl = {
     timer = function(fn, opts) assert(opts.type == "oneshot" and opts.timeout > 0); timers[#timers + 1] = fn end,
     get_monitors = function() return outputs end,
-    monitor = function(rule) if rule.disabled == true then events[#events + 1] = "off " .. rule.output end end,
+    monitor = function(rule)
+        if rule.disabled == true then events[#events + 1] = "off " .. rule.output end
+        if rule.disabled == false then
+            local line = "on " .. rule.output
+            for _, key in ipairs({ "mode", "position", "scale" }) do
+                if rule[key] ~= nil then line = line .. " " .. key .. "=" .. tostring(rule[key]) end
+            end
+            events[#events + 1] = line
+        end
+    end,
     on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
     exec_cmd = function(command) events[#events + 1] = "exec " .. command end
 }
@@ -208,6 +219,18 @@ function suite(lib, check) {
         ["connector overrides disabled description", connected, { [connected[0].identifier]: { disabled: true }, "DP-1": {} }, connected[0].identifier, names, "DP-1"]
     ]) check("login placement: " + label, lib.loginOutput(outputs, rules, primary, screens), want);
     homeSuite(lib, check);
+    // Whether a reload now reaches FALLBACK, over the outputs `monitors all`
+    // lists. rows: [name, outputs, answer]
+    const fallbackOutput = monitor(9, "FALLBACK", { make: "", model: "", width: 0, height: 0, refreshRate: 60, scale: 1, availableModes: [] });
+    const realOff = monitor(2, "eDP-1", { make: "BOE", model: "0x0BCA", disabled: true });
+    const listed = list => { const read = lib.parseOutputs(reply(list)); if (!read.ok) throw new Error(read.error); return read.outputs; };
+    for (const [name, outputs, want] of [
+        ["FALLBACK alone, the real output off", listed([realOff, fallbackOutput]), { ok: true, lit: true }],
+        ["FALLBACK beside a real output that just came", listed([DESK[0], fallbackOutput]), { ok: true, lit: true }],
+        ["a real output alone", listed([DESK[0]]), { ok: true, lit: false }],
+        ["no output", [], { ok: true, lit: false }],
+        ["an unread list refuses", null, { ok: false, error: "refused: outputs=unread" }]
+    ]) check("fallbackLit: " + name, lib.fallbackLit(outputs), want);
     check("primary choices omit off and mirroring outputs",
         lib.primaryOutputs(desk.outputs, { "DP-2": { mirror: "DP-1" } }).map(output => output.name), ["DP-1"]);
     check("parseOutputs: a mode list parsed to numbers", desk.ok ? desk.outputs[1].availableModes : desk, [{ width: 3840, height: 2160, refresh: 60 }]);
@@ -333,23 +356,27 @@ function suite(lib, check) {
     // The guard block, run under Lua. rows: [name, rules, steps, events]
     const laptop = ["eDP-1", "BOE 0x0BCA"], dock = ["DP-1", "Dell U2720Q"], fallback = ["FALLBACK", ""], side = ["DP-2", "LG"];
     const offLaptop = { "eDP-1": { scale: 1, disabled: true } };
+    const offPlacedLaptop = { "eDP-1": { mode: { width: 2880, height: 1800, refresh: 120 }, position: { x: 0, y: 0 }, disabled: true } };
     const guardRows = [
         ["boot: no output at load, the laptop, then a dock turns the laptop off once", offLaptop,
             [["reload", []], ["list", [laptop]], ["fire", "monitor.added"], ["list", [laptop, dock]], ["fire", "monitor.added"], ["list", [dock, side]], ["fire", "monitor.added"]],
             ["off eDP-1"]],
-        ["undock: the last other output goes and the layer reloads", offLaptop,
+        ["undock: the last other output goes and the guard relights the laptop", offLaptop,
             [["reload", [laptop, dock]], ["list", [dock]], ["fire", "monitor.removed"], ["tick"], ["mark"], ["list", [fallback]], ["fire", "monitor.removed"], ["tick"]],
-            ["off eDP-1", "mark", "exec hyprctl reload"]],
+            ["off eDP-1", "mark", "on eDP-1"]],
+        ["undock, then re-dock turns the kept-off laptop off again", offPlacedLaptop,
+            [["reload", [laptop, dock]], ["list", [fallback]], ["fire", "monitor.removed"], ["tick"], ["mark"], ["list", [laptop, dock]], ["fire", "monitor.added"]],
+            ["off eDP-1", "on eDP-1", "mark", "off eDP-1"]],
         ["a trial that lights the laptop and turns the dock off keeps the trial", offLaptop,
             [["reload", [laptop, dock]], ["list", [laptop]], ["fire", "monitor.removed"], ["tick"]],
             ["off eDP-1"]],
-        ["a removal read before the pass ends reloads nothing", offLaptop,
+        ["a removal read before the pass ends relights nothing", offLaptop,
             [["reload", [laptop, dock]], ["list", [fallback]], ["fire", "monitor.removed"], ["list", [laptop]], ["tick"]],
             ["off eDP-1"]],
         ["a reload with the laptop alone leaves it on", offLaptop,
             [["reload", [laptop]], ["fire", "monitor.removed"], ["tick"]],
             []],
-        ["FALLBACK keeps nothing on, and the layer reloads nothing it did not turn off", offLaptop,
+        ["FALLBACK keeps nothing on, and the guard relights nothing it did not turn off", offLaptop,
             [["reload", [fallback]], ["fire", "monitor.added"], ["fire", "monitor.removed"], ["tick"]],
             []],
         ["an output a rule mirrors keeps nothing on", Object.assign({ "DP-2": { scale: 1, mirror: "eDP-1" } }, { "DP-1": { scale: 1, disabled: true } }),
@@ -374,14 +401,10 @@ function suite(lib, check) {
     const plan = lib.trialPlan({ "HDMI-A-1": { scale: 2 }, "eDP-1": { scale: 1.5 } }, offPanel, office);
     check("trialPlan keeps the saved rules under the trial's", [plan.ok, plan.lua, plan.kept, plan.restoreRules],
         [true, lib.rulesLua(offPanel).lua, { "HDMI-A-1": { scale: 2 }, "eDP-1": { disabled: true } }, lib.captureRules(office, { "eDP-1": {} })]);
-    check("trialPlan's restore starts with the captured rules", plan.restore.indexOf(lib.rulesLua(lib.captureRules(office, { "eDP-1": {} })).lua + "\n"), 0);
-    // The restore, run under Lua after the trial's outputs change.
-    // rows: [name, outputs lit once the restore's pass ends, events]
-    const restoreRows = [
-        ["the dock went during the trial: only FALLBACK is lit, so it reloads", [["FALLBACK", ""]], ["exec hyprctl reload"]],
-        ["another output is lit: no reload", [["HDMI-A-1", ""]], []]
-    ];
-    for (const [name, lit, want] of restoreRows) check("restore: " + name, luaEvents([plan.restore], [["reload", lit], ["tick"]]), want);
+    // The restore, run under Lua once the dock went during the trial: its
+    // captured rule, then nothing from a timer and no reload.
+    check("restore: only FALLBACK is lit after the trial: the captured rule alone",
+        luaEvents([plan.restore], [["reload", [["FALLBACK", ""]]], ["mark"], ["tick"]]), ["on eDP-1 mode=2880x1800@59.997 position=0x0 scale=1.5", "mark"]);
     check("trialPlan judges the trial against the outputs first", lib.trialPlan({}, { "eDP-1": { disabled: true }, "HDMI-A-1": { disabled: true } }, office),
         { ok: false, error: "refused: monitors.layout=all-off" });
     check("captureRules records an output that is off as off alone", lib.captureRules(outputs, { "eDP-1": { cm: "hdr", bitdepth: 10 } }), { "eDP-1": { disabled: true } });
@@ -695,12 +718,19 @@ const CONTROLS = [
     ["the guard waits for an output at load", '"    vgs_monitors_apply()",', ""],
     ["the guard waits for no output to come", '"    hl.on(\\"monitor.added\\", vgs_monitors_apply)",', ""],
     ["the guard turns outputs off twice", "if vgs_monitors_applied or not vgs_monitors_others_on() then return end", "if not vgs_monitors_others_on() then return end"],
-    ["the guard never reloads", 'then hl.exec_cmd(\\"hyprctl reload\\") end', "then end"],
-    ["the guard reloads with nothing it turned off", 'relightLines("vgs_monitors_applied")', 'relightLines("")'],
-    ["the reload ignores a lit output", '        "        if m.name ~= \\"FALLBACK\\" then return end",\n', ""],
-    ["the reload counts FALLBACK as lit", 'm.name ~= \\"FALLBACK\\" then return end', "true then return end"],
-    ["the reload reads the outputs before the pass ends", '"hl.timer(function()",', '"(function(f) f() end)(function()",'],
-    ["a restore never reloads", 'restore: restore.lua + "\\n" + relightLines("").join("\\n")', "restore: restore.lua"],
+    ["the relight runs the old full reload", '"            for _, id in ipairs(vgs_monitors_off) do " + monitorCall(["output = id", "disabled = false"]) + " end",', '"            hl.exec_cmd(\\"hyprctl reload\\")",', "guard block: undock: the last other output goes and the guard relights the laptop"],
+    ["the guard never relights", '"            for _, id in ipairs(vgs_monitors_off) do " + monitorCall(["output = id", "disabled = false"]) + " end",', "", "guard block: undock: the last other output goes and the guard relights the laptop"],
+    ["the guard keeps its applied mark after a relight", '"            vgs_monitors_applied = false",', "", "guard block: undock, then re-dock turns the kept-off laptop off again"],
+    ["the guard relights with nothing it turned off", '"            if not vgs_monitors_applied then return end",', "", "guard block: FALLBACK keeps nothing on, and the guard relights nothing it did not turn off"],
+    ["the relight leaves disabled out", 'monitorCall(["output = id", "disabled = false"])', 'monitorCall(["output = id"])', "guard block: undock: the last other output goes and the guard relights the laptop"],
+    ["the relight writes the saved fields over the user's", 'monitorCall(["output = id", "disabled = false"])', 'monitorCall(["output = id", "disabled = false", "scale = 1"])', "guard block: undock, then re-dock turns the kept-off laptop off again"],
+    ["the relight ignores a lit output", '"                if m.name ~= \\"FALLBACK\\" then return end",\n', "", "guard block: a removal read before the pass ends relights nothing"],
+    ["the relight counts FALLBACK as lit", 'm.name ~= \\"FALLBACK\\" then return end', "true then return end", "guard block: undock: the last other output goes and the guard relights the laptop"],
+    ["the relight reads the outputs before the pass ends", '"        hl.timer(function()",', '"        (function(f) f() end)(function()",'],
+    ["a restore runs the old full reload", "restore: restore.lua,", 'restore: restore.lua + "\\nhl.exec_cmd(\\"hyprctl reload\\")",', "restore: only FALLBACK is lit after the trial: the captured rule alone"],
+    ["a restore sets a relight timer", "restore: restore.lua,", 'restore: restore.lua + "\\nhl.timer(function() hl.monitor({ output = \\"eDP-1\\", disabled = false }) end, { timeout = 1, type = \\"oneshot\\" })",', "restore: only FALLBACK is lit after the trial: the captured rule alone"],
+    ["an unread list reads as no FALLBACK", 'if (!Array.isArray(outputs)) return { ok: false, error: "refused: outputs=unread" };', "if (!Array.isArray(outputs)) return { ok: true, lit: false };", "fallbackLit: an unread list refuses"],
+    ["FALLBACK counts only alone", 'outputs.some(function (output) { return output.name === "FALLBACK"; })', 'outputs.length > 0 && outputs.every(function (output) { return output.name === "FALLBACK" || output.disabled; })', "fallbackLit: FALLBACK beside a real output that just came"],
     ["a trial ignores the saved rules", "var badKept = rulesError(kept, null);", 'var badKept = "";'],
     ["Keep saves the trial alone", "var kept = Object.assign({}, saved, rules);", "var kept = rules;"],
     ["restore leaves an output off on", "selected[output.name] = { disabled: true };", "selected[output.name] = {};", "captureRules records an output that is off as off alone"],

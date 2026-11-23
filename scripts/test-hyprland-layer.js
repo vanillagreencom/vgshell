@@ -1676,10 +1676,24 @@ const notDeclined = { type: "declineChecked", declined: false, failure: "" };
 const declined = { type: "declineChecked", declined: true, failure: "" };
 const trialOn = { type: "trial", running: true };
 const trialOff = { type: "trial", running: false };
+const fallbackOn = { type: "fallback", lit: true };
+const fallbackOff = { type: "fallback", lit: false };
 // A wired layer at T1 after its first cycle.
 const WIRED = [[loaded("T0"), "T1"], [mkdirOk, "T1"], [saved, "T1"], [reloaded, "T1"], [probeWired, "T1"]];
 const WIRED_ACTIONS = ["mkdir", "write", "reload", "probe", "none"];
 const SEQUENCES = [
+    ["renders while Hyprland lists FALLBACK write and reload nothing, then the last text writes once it goes",
+        [...WIRED, [fallbackOn, "T1"], [render, "T2"], [render, "T3"], [fallbackOff, "T3"], [mkdirOk, "T3"], [saved, "T3"], [reloaded, "T3"]],
+        [...WIRED_ACTIONS, "none", "none", "none", "mkdir", "write", "reload", "none"], { phase: "idle", onDisk: "T3", fallbackHeld: false }],
+    ["a write that lands while Hyprland lists FALLBACK owes its reload, and one reload runs once a real output returns",
+        [...WIRED, [render, "T2"], [mkdirOk, "T2"], [fallbackOn, "T2"], [saved, "T2"], [fallbackOff, "T2"], [reloaded, "T2"]],
+        [...WIRED_ACTIONS, "mkdir", "write", "none", "none", "reload", "none"], { phase: "idle", onDisk: "T2", reloadOwed: "", fallbackHeld: false }],
+    ["a trial that ends while Hyprland lists FALLBACK starts nothing until FALLBACK goes",
+        [...WIRED, [trialOn, "T1"], [render, "T2"], [fallbackOn, "T2"], [trialOff, "T2"], [render, "T3"], [fallbackOff, "T3"], [mkdirOk, "T3"], [saved, "T3"], [reloaded, "T3"]],
+        [...WIRED_ACTIONS, "none", "none", "none", "none", "none", "mkdir", "write", "reload", "none"], { phase: "idle", onDisk: "T3", trialHeld: false, fallbackHeld: false }],
+    ["FALLBACK that goes while a trial runs starts nothing until the trial ends",
+        [...WIRED, [fallbackOn, "T1"], [render, "T2"], [trialOn, "T2"], [fallbackOff, "T2"], [trialOff, "T2"], [mkdirOk, "T2"], [saved, "T2"], [reloaded, "T2"]],
+        [...WIRED_ACTIONS, "none", "none", "none", "none", "mkdir", "write", "reload", "none"], { phase: "idle", onDisk: "T2", trialHeld: false, fallbackHeld: false }],
     ["renders while a display trial runs wait for its end, then write the last text once",
         [...WIRED, [trialOn, "T1"], [render, "T2"], [render, "T3"], [trialOff, "T3"], [mkdirOk, "T3"], [saved, "T3"], [reloaded, "T3"], [trialOff, "T3"]],
         [...WIRED_ACTIONS, "none", "none", "none", "mkdir", "write", "reload", "none", "none"], { phase: "idle", onDisk: "T3", trialHeld: false }],
@@ -2511,6 +2525,7 @@ const CONTROLS = [
     [layerFile, "a forced cycle writes whatever the bytes", "state.forcing || (text !== state.onDisk", "(text !== state.onDisk"],
     [layerFile, "a failed save leaves the view stale", "withChanges(state, { stale: true, failedText: state.pending })", "withChanges(state, { failedText: state.pending })"],
     [layerFile, "a failed mkdir keeps its text", "return idleDecision(withChanges(state, { failedText: state.pending }), event.failure, text, true);", "return idleDecision(state, event.failure, text, true);"],
+    [layerFile, "the hold ignores FALLBACK", "return state.trialHeld || state.fallbackHeld;", "return state.trialHeld;"],
     [layerFile, "held bytes skip the write", "if (state.pending === state.onDisk) return written(", "if (false) return written("],
     [layerFile, "a write clears the failed text", "{ onDisk: state.pending, failedText: null, reloadOwed: \"\" }", "{ onDisk: state.pending, reloadOwed: \"\" }"],
     [layerFile, "an unchanged wired start reloads", "state.consent.phase === \"wired\" && state.failure === \"\" && text !== null && text === state.onDisk && !state.reloaded", "false"],

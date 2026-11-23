@@ -2006,6 +2006,11 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // held render and force asked for, from the text rendered then, whose
 // reload stands for the owed one; with nothing to write, it runs the owed
 // reload alone.
+// The same hold stands while Hyprland lists FALLBACK (`fallbackHeld`,
+// MonitorLogic.fallbackLit): a reload then aborts Hyprland 0.57 at
+// FALLBACK's 0x0 framebuffer. A held cycle starts once neither reason
+// stands. REVISIT(VGS-2136): remove the FALLBACK hold once the oldest
+// Hyprland VGS supports carries hyprwm/Hyprland#16927.
 //
 // State: phase (`reading`, `idle`, `preparing`, `writing`, `reloading`,
 // `probing`, `checkingDecline`, `declining`, `wiring`);
@@ -2016,8 +2021,8 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
 // Connect reload; reloaded, whether this run has asked Hyprland to reload,
 // failed reloads included, set by the first reload of either owner and
-// never cleared; trialHeld; reloadOwed, "" or the owner of the reload a
-// trial held; consent, a tagged
+// never cleared; trialHeld; fallbackHeld; reloadOwed, "" or the owner of
+// the reload a hold kept; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
 // `probe`, `checkDecline`, `ask`, `decline` and `wire`.
@@ -2034,6 +2039,7 @@ function initialState() {
         reloadOwner: "",
         reloaded: false,
         trialHeld: false,
+        fallbackHeld: false,
         reloadOwed: "",
         consent: { phase: "pending", queued: "", failure: "" }
     };
@@ -2055,9 +2061,24 @@ function consentChanges(state, changes) {
     return withChanges(state, { consent: withChanges(state.consent, changes) });
 }
 
+// Whether a hold stands: a display trial runs or Hyprland lists FALLBACK.
+function held(state) {
+    return state.trialHeld || state.fallbackHeld;
+}
+
+// The hold's REASON, `trialHeld` or `fallbackHeld`, set to ON; the cycle
+// every held render asked for starts once no reason stands.
+function holdChanged(state, reason, on, text) {
+    if (state[reason] === on) return { state: state, action: "none" };
+    var changes = {};
+    changes[reason] = on;
+    var next = withChanges(state, changes);
+    return !held(next) && state.phase === "idle" ? begin(next, text) : { state: next, action: "none" };
+}
+
 // An idle writer: start the next cycle, or rest.
 function begin(state, text) {
-    if (state.trialHeld) return { state: state, action: "none" };
+    if (held(state)) return { state: state, action: "none" };
     if (state.queuedForce || state.stale)
         return { state: withChanges(state, { phase: "reading", forcing: state.forcing || state.queuedForce, queuedForce: false, stale: false }), action: "read" };
     if (text !== null && (state.forcing || (text !== state.onDisk && text !== state.failedText)))
@@ -2084,14 +2105,14 @@ function begin(state, text) {
 }
 
 // The bytes are on disk: reload the layer after every write.
-// The reload after a write stands for one a trial left owed, with its owner.
+// The reload after a write stands for one a hold left owed, with its owner.
 function written(state) {
     return reload(withChanges(state, { onDisk: state.pending, failedText: null, reloadOwed: "" }), state.reloadOwed || "layer");
 }
 
-// Reload Hyprland for OWNER, or owe that reload while a trial runs.
+// Reload Hyprland for OWNER, or owe that reload while a hold stands.
 function reload(state, owner) {
-    if (state.trialHeld) return { state: withChanges(state, { phase: "idle", reloadOwed: owner }), action: "none" };
+    if (held(state)) return { state: withChanges(state, { phase: "idle", reloadOwed: owner }), action: "none" };
     return { state: withChanges(state, { phase: "reloading", reloadOwner: owner, reloaded: true }), action: "reload" };
 }
 
@@ -2106,7 +2127,8 @@ function idleDecision(state, failure, text, clearForcing) {
 // { type: "probeDone", answer|failure }, { type: "declineChecked",
 // declined|failure }, { type: "connect" }, { type: "decline" },
 // { type: "declineDone", failure }, { type: "wireDone", failure } and
-// { type: "trial", running }, a failure being "" when the step worked.
+// { type: "trial", running } and { type: "fallback", lit }, a failure being
+// "" when the step worked.
 function step(state, event, text) {
     switch (event.type) {
     case "loaded":
@@ -2128,7 +2150,7 @@ function step(state, event, text) {
         if (event.failure !== "") return idleDecision(withChanges(state, { failedText: state.pending }), event.failure, text, true);
         // FileView skips the bytes it holds already, and reports nothing.
         if (state.pending === state.onDisk) return written(withChanges(state, { phase: "writing" }));
-        if (state.trialHeld) return { state: withChanges(state, { phase: "idle" }), action: "none" };
+        if (held(state)) return { state: withChanges(state, { phase: "idle" }), action: "none" };
         return { state: withChanges(state, { phase: "writing" }), action: "write" };
     case "saved":
         expectPhase(state, event, "writing");
@@ -2179,9 +2201,9 @@ function step(state, event, text) {
         expectPhase(state, event, "declining");
         return idleDecision(consentChanges(state, { phase: "declined", queued: "", failure: "" }), event.failure, text);
     case "trial":
-        if (event.running === state.trialHeld) return { state: state, action: "none" };
-        var held = withChanges(state, { trialHeld: event.running });
-        return !event.running && state.phase === "idle" ? begin(held, text) : { state: held, action: "none" };
+        return holdChanged(state, "trialHeld", event.running, text);
+    case "fallback":
+        return holdChanged(state, "fallbackHeld", event.lit, text);
     case "wireDone":
         expectPhase(state, event, "wiring");
         if (event.failure !== "")

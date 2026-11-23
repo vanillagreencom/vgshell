@@ -8,7 +8,10 @@
 # lines run after the call only if the run did not end. The stand-in never
 # answers, answers only once the bound's kill arrives, prints hyprctl's
 # read-timeout lines and exits 6, exits 6 without them, or answers at once.
-# Each case pins the child's exit status, the lines it prints and does not
+# It answers `-j monitors all`, the read a reload's check sends first, from
+# the case's listing: a lit output, FALLBACK alone or beside one, a reply
+# that does not parse, or a failed read; in the FALLBACK and failure modes
+# it says RELOAD-REACHED on stderr when a reload reaches it. Each case pins the child's exit status, the lines it prints and does not
 # print, and its elapsed time under the suite's own timeout. The controls
 # at the end plant one defect per rule in a copy of the file and require
 # the case that rule owns to go red.
@@ -39,11 +42,25 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # The stand-in hyprctl logs its argv and acts as its case's mode file says.
 mkdir -p -- "$tmp/home"
+# A reload's check runs node. node on PATH may be a version-manager shim
+# that fails under the case's HOME, so the child's PATH leads with the
+# binary it resolves to, as the harness's world PATH does.
+node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-smoke-hypr-bound: node=unresolved" >&2; exit 1; }
+mkdir -p -- "$tmp/node"
+ln -s -- "$node_bin" "$tmp/node/node"
 cat >"$tmp/hyprctl" <<'SH'
 #!/usr/bin/env bash
 dir="${0%/*}/.."
 printf '%s\n' "$*" >>"$dir/calls"
-case "$(<"$dir/mode")" in
+mode="$(<"$dir/mode")"
+if [[ $* == "-i test -j monitors all" ]]; then
+  [[ $mode != monitors-failed ]] || exit 3
+  cat -- "$dir/monitors"
+  exit 0
+fi
+case "$mode" in
+  fallback-alone|fallback-beside|monitors-unparsed|monitors-failed)
+    printf 'RELOAD-REACHED\n' >&2; printf 'ok\n' ;;
   silent) exec sleep infinity ;;
   deaf) trap '' TERM; while :; do sleep 1; done ;;
   read-timeout) printf "Hyprland IPC didn't respond in time\nCouldn't read (6)\n"; exit 6 ;;
@@ -61,7 +78,7 @@ chmod 755 "$tmp/hyprctl"
 # goes on after it.
 cat >"$tmp/child.sh" <<'SH'
 set -euo pipefail
-case_dir="$1" hypr_call="$2" verdict="$3" row="$4" shape="$5"
+case_dir="$1" hypr_call="$2" verdict="$3" row="$4" shape="$5" repo="$6"
 run() {
   source "$verdict"
   sandbox="$case_dir/sandbox"
@@ -113,7 +130,18 @@ if cmp -s -- "$case_dir/got" "$case_dir/want"; then echo BYTE-EXACT; fi
 if [[ "$(<"$case_dir/err")" == "stand-in stderr" ]]; then echo STDERR-PASSED; fi
 if [[ ! -e $sandbox/smoke-aborted ]]; then echo NO-STALL; fi
 if ! compgen -G "$sandbox/hypr-*.out" >/dev/null; then echo NO-CAPTURE-LEFT; fi
-echo "CALLED $(<"$case_dir/calls")"
+while IFS= read -r call; do echo "CALLED $call"; done <"$case_dir/calls"
+echo ROW-KEPT-RUNNING
+SH
+cat >"$tmp/rows/reload.sh" <<'SH'
+status=0
+reply="$(hypr reload config-only)" || status=$?
+echo "hypr-status=$status"
+if grep -qxF -- '-i test reload config-only' "$case_dir/calls"; then echo RELOAD-SENT; fi
+echo ROW-KEPT-RUNNING
+SH
+cat >"$tmp/rows/batch-reload.sh" <<'SH'
+reply="$(hypr --batch 'j/version ; reload config-only')" || true
 echo ROW-KEPT-RUNNING
 SH
 cat >"$tmp/rows/refused.sh" <<'SH'
@@ -146,6 +174,15 @@ echo ROW-KEPT-RUNNING
 SH
 
 stall_line() { printf '  FAIL  the nested compositor stopped answering: hyprctl %s: %s; the run ends here' "$1" "$2"; }
+refusal_line() { printf '  FAIL  hypr-reload: refused cause=%s request=[%s]; the run ends here' "$1" "$2"; }
+fallback_line="$(refusal_line '[fallback=listed]' 'reload config-only')"
+batch_fallback_line="$(refusal_line '[fallback=listed]' '--batch j/version ; reload config-only')"
+read_failed_line="$(refusal_line 'monitors-read status=3' 'reload config-only')"
+# monitor NAME WIDTH DISABLED: one output as `hyprctl -j monitors all`
+# prints the fields MonitorLogic.parseOutputs reads.
+monitor() {
+  printf '{"id":0,"name":"%s","description":"","make":"","model":"","serial":"","width":%s,"height":%s,"refreshRate":60.0,"x":0,"y":0,"scale":1,"transform":0,"vrr":false,"disabled":%s,"currentFormat":"XRGB8888","mirrorOf":"none","availableModes":[],"colorManagementPreset":"srgb","sdrBrightness":1,"sdrSaturation":1}' "$1" "$2" "$2" "$3"
+}
 silent_line="$(stall_line 'reload config-only' 'no answer within 1s')"
 monitors_line="$(stall_line '-j monitors' 'no answer within 1s')"
 read_line="$(stall_line 'reload config-only' 'hyprctl read timed out after 5s')"
@@ -161,11 +198,17 @@ run_case() {
   mkdir -p -- "$dir/bin" "$dir/sandbox"
   cp -- "$tmp/hyprctl" "$dir/bin/hyprctl"
   printf '%s\n' "$mode" >"$dir/mode"
+  case "$mode" in
+    fallback-alone) printf '[%s,%s]\n' "$(monitor WAYLAND-1 1080 true)" "$(monitor FALLBACK 0 false)" ;;
+    fallback-beside) printf '[%s,%s]\n' "$(monitor WAYLAND-1 1080 false)" "$(monitor FALLBACK 0 false)" ;;
+    monitors-unparsed) printf 'unread\n' ;;
+    *) printf '[%s]\n' "$(monitor WAYLAND-1 1080 false)" ;;
+  esac >"$dir/monitors"
   printf '%s\n' "$fault" >"$dir/sandbox/hyprland.log"
   printf 'ok\n\n\n[]\n\n' >"$dir/want"
   started="$(date +%s%N)"
-  out="$(timeout -k 1 $((limit_ms / 1000 + 2)) env -i PATH="$PATH" HOME="$tmp/home" LC_ALL=C \
-    "$BASH" "$tmp/child.sh" "$dir" "$file" "$verdict" "$tmp/rows/$row.sh" "$shape" </dev/null 2>&1)" || status=$?
+  out="$(timeout -k 1 $((limit_ms / 1000 + 2)) env -i PATH="$tmp/node:$PATH" HOME="$tmp/home" LC_ALL=C \
+    "$BASH" "$tmp/child.sh" "$dir" "$file" "$verdict" "$tmp/rows/$row.sh" "$shape" "$repo" </dev/null 2>&1)" || status=$?
   elapsed_ms=$((($(date +%s%N) - started) / 1000000))
   [[ $status -eq $want_status ]] || reasons+=("status=$status want=$want_status")
   ((elapsed_ms <= limit_ms)) || reasons+=("elapsed_ms=$elapsed_ms limit_ms=$limit_ms")
@@ -192,7 +235,7 @@ cases=(
   "a call that never returns ends the run|silent|expect|plain|1|6000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
   "a call that outlives the bound's TERM ends the run|deaf|expect|plain|1|7000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
   "hyprctl's own read timeout ends the run|read-timeout|expect|plain|1|3000|$read_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
-  "an answer is copied byte for byte and the row goes on|answer|answer|plain|0|3000|hypr-status=0~BYTE-EXACT~STDERR-PASSED~NO-STALL~NO-CAPTURE-LEFT~CALLED -i test --batch reload config-only ; j/configerrors~ROW-KEPT-RUNNING~qml-smoke: ok|FAIL"
+  "an answer is copied byte for byte and the row goes on|answer|answer|plain|0|3000|hypr-status=0~BYTE-EXACT~STDERR-PASSED~NO-STALL~NO-CAPTURE-LEFT~CALLED -i test -j monitors all~CALLED -i test --batch reload config-only ; j/configerrors~ROW-KEPT-RUNNING~qml-smoke: ok|FAIL"
   "exit 6 without the read-timeout line is no stall|refused|refused|plain|0|3000|hypr-status=6~NO-STALL~ROW-KEPT-RUNNING~qml-smoke: ok|FAIL"
   "a stall in a command substitution ends the run and later calls return at once|silent|substitution|plain|1|6000|$monitors_line~qml-smoke: failed=1|ROW-KEPT-RUNNING"
   "a stall in a pipeline ends the run|silent|pipeline|plain|1|6000|$monitors_line~qml-smoke: failed=1|ROW-KEPT-RUNNING"
@@ -200,6 +243,12 @@ cases=(
   "a stall in a geometry row is a behaviour failure|silent|geometry|plain|1|6000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
   "a stall in a harness sourced inside a subshell ends the subshell only|silent|expect|subshell|0|6000|$silent_line~qml-smoke: failed=1~PARENT-CONTINUED status=1|ROW-KEPT-RUNNING"
   "an unproved fixture release ends the run from a command substitution|answer|operation|plain|1|3000|qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
+  "a reload while FALLBACK is listed alone ends the run before it is sent|fallback-alone|reload|plain|1|3000|$fallback_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~RELOAD-REACHED~status=not-measured"
+  "a reload while FALLBACK stays beside a lit output ends the run before it is sent|fallback-beside|reload|plain|1|3000|$fallback_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~RELOAD-REACHED~status=not-measured"
+  "a batch that holds a reload while FALLBACK is listed ends the run before it is sent|fallback-alone|batch-reload|plain|1|3000|$batch_fallback_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~RELOAD-REACHED~status=not-measured"
+  "a failed monitors read refuses the reload|monitors-failed|reload|plain|1|3000|$read_failed_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~RELOAD-REACHED~status=not-measured"
+  "a monitors reply that does not parse refuses the reload|monitors-unparsed|reload|plain|1|3000|qml-smoke: failed=1|ROW-KEPT-RUNNING~RELOAD-REACHED~status=not-measured"
+  "a reload with a lit output and no FALLBACK is sent|answer|reload|plain|0|3000|hypr-status=0~RELOAD-SENT~ROW-KEPT-RUNNING~qml-smoke: ok|FAIL"
 )
 for row in "${cases[@]}"; do
   if detail="$(run_case "$hypr_call" "$row")"; then ok "${row%%|*}"; else fail "${row%%|*}"; printf '        %s\n' "$detail"; fi
@@ -232,6 +281,9 @@ controls=(
   "the bound's kill is no stall@\$status -eq 124 || \$status -eq 137@\$status -eq 124@a call that outlives the bound's TERM ends the run"
   "hyprctl's read timeout is no stall@grep -qF \"Hyprland IPC didn't respond in time\"@grep -qF \"no such line\"@hyprctl's own read timeout ends the run"
   "every exit 6 is a stall@\$status -eq 6 ]] && grep@\$status -eq 6 ]] || grep@exit 6 without the read-timeout line is no stall"
+  "a reload goes unchecked@&& ! hypr_reload_clear \"\$*\"; then return 1; fi@&& false; then return 1; fi@a reload while FALLBACK is listed alone ends the run before it is sent"
+  "a batch's reload goes unchecked@      --batch) batch=true ;;@      --batch) ;;@a batch that holds a reload while FALLBACK is listed ends the run before it is sent"
+  "a failed monitors read lets the reload through@  if [[ \$status -ne 0 ]]; then@  if false; then@a failed monitors read refuses the reload"
   "the answer is not copied byte for byte@  cat -- \"\$out\" || copied=\$?@  printf '%s\\n' \"\$(<\"\$out\")\" || copied=\$?@an answer is copied byte for byte and the row goes on"
 )
 for i in "${!controls[@]}"; do

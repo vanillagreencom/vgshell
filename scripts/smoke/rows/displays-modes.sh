@@ -2,9 +2,18 @@
 # a nested output rule, the detached guard reverts it when it is not kept,
 # Keep saves it into the generated layer, a position trial reverts, and the
 # guard still reverts while the shell is stopped. A kept rule that turns
-# the main output off holds while the second output stays on. The row
-# restores the main output before removing the second, and a reload with
-# the main output alone leaves it on. An sRGB colour rule goes through
+# the main output off holds while the second output stays on. When the
+# second output goes, the layer's guard sends the scoped rule that turns
+# the main output back on. The row reads the relit output, waits for its
+# bar to bind, and reads that Hyprland keeps answering and lists no
+# configuration error. When the second output returns, the guard
+# turns the main output off again. A reload with the main output alone
+# leaves it on, and an off rule sent with no check while it is the only
+# output leaves it off, with Hyprland still answering. A reload while
+# Hyprland lists FALLBACK aborts Hyprland 0.57, so the row waits for
+# FALLBACK to go before its next step, and hypr ends the run before any
+# reload while it is listed (scripts/smoke/hypr-call.sh). An sRGB colour
+# rule goes through
 # trial, Keep and reload with no configuration error, and the judge refuses
 # an HDR trial, since the nested panel has no EDID. WAYLAND-1 advertises
 # 1920x1080@60 on cachy with Hyprland 0.57.1 and aquamarine 0.16.0
@@ -105,6 +114,15 @@ print("yes" if "Your Hyprland file now sets this display differently." in texts 
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
 hold_file_state() { [[ -e $mode_hold_file ]] && echo present || echo absent; }
 disabled_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(str(rows[0]["disabled"]).lower() if rows else "absent")' "$1"; }
+# The outputs Hyprland lists as on, FALLBACK left out, or none.
+lit_outputs() { hypr -j monitors all | py_reply 'import json,sys; print(" ".join(m["name"] for m in json.load(sys.stdin) if not m["disabled"] and m["name"] != "FALLBACK") or "none")'; }
+fallback_listed() { hypr -j monitors all | py_reply 'import json,sys; print("yes" if any(m["name"] == "FALLBACK" for m in json.load(sys.stdin)) else "no")'; }
+# A Lua eval that changes nothing: Hyprland answers ok while it runs.
+hypr_answers() { hypr eval "local vgs_smoke_answer = true"; }
+# The configuration errors as a JSON list, read with no reload. A `hyprctl
+# eval` empties the list (hypr_reload_errors), so it is read before the
+# row's next eval.
+config_errors() { hypr -j configerrors | py_reply 'import json,sys; print(json.dumps([e for e in json.load(sys.stdin) if e]))'; }
 layer_turns_off() { grep -q -F -x -- "    local vgs_monitors_off = { \"$1\" }" "$hypr_layer" && echo yes || echo no; }
 off_rule_json() {
   python3 - "$1" "$2" <<'PY'
@@ -231,12 +249,48 @@ display_modes_remove_output() {
   ok "the nested compositor removes the second output"
   expect_poll "the shell drops its bar on the removed second output" no shell_bar_on "$extra_output"
 }
+# display_modes_redock LABEL: the second output back, owned by the row,
+# while only FALLBACK is lit. $output is off, so the output copies the
+# row's base mode. A failure ends the row through its abandon, since every
+# later step needs an output other than FALLBACK lit.
+display_modes_redock() {
+  local created
+  if created="$(create_output "$extra_output" "$base")"; then
+    display_modes_output_owned=true
+    ok "$1"
+    return 0
+  fi
+  fail "$1: $created"
+  return 1
+}
 display_modes_abandon() {
+  local main_off main_on
+  main_off="$(disabled_of "$output")" || main_off=unreadable
+  # With $output off and no second output, only FALLBACK is lit, and the
+  # next reload would abort Hyprland: the second output comes back first.
+  if [[ $display_modes_output_owned != true && $main_off != false ]]; then
+    if display_modes_created="$(create_output "$extra_output" "$base")"; then
+      display_modes_output_owned=true
+      ok "abandon adds the second output back while $output is off"
+    else
+      fail "abandon adds the second output back while $output is off: $display_modes_created"
+    fi
+  fi
   if [[ $display_modes_output_owned == true ]]; then
     expect "abandon restores $output before removing the second output" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
     expect_poll "abandon reads $output on before removing the second output" false disabled_of "$output"
-    display_modes_remove_output
+    # Removing the second output while $output is off would leave only
+    # FALLBACK lit.
+    main_on="$(disabled_of "$output")" || main_on=unreadable
+    if [[ $main_on == false ]]; then
+      display_modes_remove_output || :
+    else
+      fail "abandon keeps the second output: $output-disabled=$main_on"
+    fi
   fi
+  # resume_run_base reloads; hypr ends the run before a reload while
+  # Hyprland lists FALLBACK (scripts/smoke/hypr-call.sh).
+  expect_poll "abandon waits for FALLBACK to go before the run base is held again" no fallback_listed
   resume_run_base "display modes"
 }
 suspend_run_base "display modes"
@@ -341,7 +395,9 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 # src/wayland/hyprland/ipc/connection.cpp can apply a monitors answer
 # older than the events, drop $output from its list, and warn at the row's
 # next removal of it. Nothing else is lost; the next refresh lists it
-# again.
+# again. When the main output is off and no other is left, Hyprland lists
+# FALLBACK, and Quickshell warns when FALLBACK goes because it never
+# tracked it.
 # An output that goes off before the shell has bound it ends the shell.
 # Hyprland 0.56.2 over libwayland 1.26.0 answers the late wl_registry bind
 # with `global wl_output (N) is unavailable`, a protocol error, and Qt
@@ -355,7 +411,7 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 # $output off and for it to come back before the next one.
 display_modes_output_regex_safe() { [[ $output =~ ^[A-Za-z0-9_-]+$ ]] && echo yes || echo no; }
 expect "the output name is regex-safe for the warning excuse" yes display_modes_output_regex_safe
-expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"$output\" which was not previously tracked\\.")
+expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"(FALLBACK|$output)\" which was not previously tracked\\.")
 display_modes_warning_filter_control() {
   local log="$sandbox/display-modes-warning-control.log" output_line extra_line got
   output_line="2026-01-01 00:00:00.000  WARN quickshell.hyprland.ipc: Got removal for monitor \"$output\" which was not previously tracked."
@@ -374,22 +430,42 @@ expect "Keep saves the off rule" ok invoke_displays keepTrial "{\"token\":\"$tok
 expect_poll "the layer turns $output off inside its check" yes layer_turns_off "$output"
 expect "reload with the second output on" ok hypr reload config-only
 expect_poll "the kept off rule holds while the second output is on" true disabled_of "$output"
-# Avoid only-FALLBACK's aborting reload; this avoidance is removed by VGS-2136.
-expect "the row restores $output while the second output is on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
-expect_poll "$output is on before the unchecked off control" false disabled_of "$output"
-expect_poll "the shell holds a bar on $output before the unchecked off control" yes shell_bar_on "$output"
 
-# This control proves the unchecked request acts while another output is on.
-expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
-expect_poll "control: an unchecked off rule turns the primary off while the second output stays on" true disabled_of "$output"
-expect_poll "the shell drops its bar on $output after the control" no shell_bar_on "$output"
-expect "the row restores $output after the control while the second output stays on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
-expect_poll "the primary is on before the second output is removed" false disabled_of "$output"
-expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
+# Undock with $output off. The guard's oneshot timer runs once the
+# removal's pass returns and sends the scoped relight. Re-dock may turn
+# $output off again only once the shell has bound it.
+display_modes_remove_output
+expect_poll "the guard relights $output once the second output goes" "$output" lit_outputs
+expect_poll "FALLBACK goes once the guard relights $output" no fallback_listed
+expect_poll "the shell holds a bar on the relit $output before re-dock turns it off" yes shell_bar_on "$output"
+expect "Hyprland reports no configuration error" '[]' config_errors
+expect "Hyprland keeps answering after the guard's timer" ok hypr_answers
+# Re-dock: the guard turns $output off again.
+display_modes_redock "the nested compositor adds the second output back"
+expect_poll "FALLBACK goes once the second output is back" no fallback_listed
+expect_poll "the shell builds its bar on the second output once it is back" yes shell_bar_on "$extra_output"
+expect "the guard keeps $output off once the second output is back" true disabled_of "$output"
+expect "the row turns $output on while the second output is on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
+expect_poll "$output is on before the second output goes again" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output before the second output goes again" yes shell_bar_on "$output"
 display_modes_remove_output
 rules="$(rule_json "$output" "$trial_mode" "$trial_scale")"
 expect "reload with $output alone" ok hypr reload config-only
 expect_poll "$output stays on after a reload with no other output" false disabled_of "$output"
+
+# Control: the same rule with no check, sent while $output is the only
+# output, leaves it off, which the layer's check prevents. The row recovers
+# with no reload, since only FALLBACK is lit.
+expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
+expect_poll "control: an unchecked off rule leaves the only output off" true disabled_of "$output"
+expect_poll "the shell drops its bar on $output after the control" no shell_bar_on "$output"
+expect "Hyprland keeps answering with only FALLBACK lit after the control" ok hypr_answers
+display_modes_redock "the nested compositor adds the second output after the control"
+expect "the row turns $output on after the control" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
+expect_poll "$output is on after the control" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
+display_modes_remove_output
+expect_poll "FALLBACK is gone before the off rule is cleared" no fallback_listed
 expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the off rule" no layer_has_rule
 expect "reload drops the off rule" ok hypr reload config-only

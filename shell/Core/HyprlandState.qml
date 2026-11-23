@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import "HyprlandState.js" as State
+import "MonitorLogic.js" as Monitors
 import "PluginLogic.js" as Logic
 
 // Owns the reads behind the `hyprland` capability: Hyprland's input
@@ -91,6 +92,26 @@ Scope {
     property bool userBindsPending: false
     // The bind line edit running, { done, said }, or null.
     property var bindEdit: null
+    // A bind edit's reload, held while Hyprland lists FALLBACK or the
+    // outputs are unread, as the layer holds its own (HyprlandLayer.qml,
+    // fallbackLit): a reload then aborts Hyprland 0.57. The edit answers at
+    // once, since its answer never carried the reload's result, and the
+    // reload runs once FALLBACK goes. It is held here, not in the layer's
+    // machine, because that machine reloads only for its own write and
+    // Connect, and this reload answers an edit the layer never sees.
+    // REVISIT(VGS-2136): remove the hold once the oldest Hyprland VGS
+    // supports carries hyprwm/Hyprland#16927.
+    property bool bindReloadOwed: false
+    // MonitorState's outputs, which Capabilities.qml hands in.
+    property var outputs: null
+    readonly property bool fallbackLit: {
+        const answer = Monitors.fallbackLit(outputs);
+        return !answer.ok || answer.lit;
+    }
+    onFallbackLitChanged: if (!fallbackLit && bindReloadOwed && !bindReloader.running) {
+        bindReloadOwed = false;
+        bindReloader.running = true;
+    }
     // The user's configuration directory and Hyprland directory, as
     // bin/vgshell names them.
     readonly property string configDir: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") || "") + "/.config"
@@ -474,7 +495,7 @@ Scope {
     // answer DONE with { ok: true, said } or { ok: false, error }; one edit
     // at a time.
     function editBinds(args, done) {
-        if (bindEdit !== null) { done({ ok: false, error: "refused: user-bind=busy" }); return; }
+        if (bindEdit !== null || bindReloader.running) { done({ ok: false, error: "refused: user-bind=busy" }); return; }
         bindEdit = { done: done, said: "" };
         bindEditor.command = [Quickshell.shellDir + "/../bin/vgshell", "hypr"].concat(args);
         bindEditor.running = true;
@@ -699,6 +720,12 @@ Scope {
                 root.finishEdit({ ok: false, error: error === "" ? "refused: user-bind=edit-failed" : error });
                 return;
             }
+            if (root.fallbackLit) {
+                root.bindReloadOwed = true;
+                root.finishEdit({ ok: true, said: said });
+                return;
+            }
+            root.bindReloadOwed = false;
             root.bindEdit = Object.assign({}, root.bindEdit, { said: said });
             bindReloader.running = true;
         }

@@ -29,7 +29,8 @@ import "PluginLogic.js" as Logic
 Scope {
     id: root
 
-    // Whether anything needs the outputs: a plugin holds `monitors`.
+    // Whether anything needs the outputs: a plugin or the Hyprland layer
+    // holds `monitors`.
     property bool active: false
     // parseOutputs's outputs, null until read while active and after a
     // failed read.
