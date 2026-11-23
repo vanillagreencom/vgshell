@@ -138,6 +138,8 @@ Scope {
         const address = PluginLogic.hasOwn(addressReaders, id) ? addressReaders[id]() : "";
         if (address === "") return hide(id);
         const instance = instances[id];
+        // A held window refuses at once, as hide() does, before any read.
+        if (typeof instance.holdsHide === "function" && instance.holdsHide()) return "refused: held=" + id;
         Compositor.readWindows(state => toggleRead(id, instance, address, state));
         return "ok";
     }
@@ -147,7 +149,8 @@ Scope {
     // hides (Dispatch.windowCovered). Keyboard focus alone is no proof:
     // follow_mouse gives it to a tiled window the pointer crosses. An
     // unread stacking hides as before, so the click still acts, and the
-    // line names the failed read.
+    // line names the failed read. The toggle already answered ok, so a hold
+    // that began during the read is the other fault this logs.
     function toggleRead(id, instance, address, state) {
         if (instances[id] !== instance) return;
         const cover = state.ok ? Dispatch.windowCovered(state.clients, address) : state;
