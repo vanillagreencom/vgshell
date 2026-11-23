@@ -506,11 +506,32 @@ Item {
             let scroll = entry.parent;
             while (scroll !== null && scroll.contentY === undefined) scroll = scroll.parent;
             verify(scroll !== null, "the box's text lies in a scroll area");
-            const state = () => JSON.stringify({
-                shown: tip.shown, resting: tip.resting, opened: tip.opened,
-                tracker: tip.tracker === null ? "no-popup" : tip.tracker.anchorInView() ? "in-view" : "hidden",
-                contentY: scroll.contentY, overlaysOpen: OverlayState.open
-            });
+            // The items under the pointer, bottom to top in paint order,
+            // as the window's hit test walks them: a clipping item hides
+            // what lies outside it.
+            const pointer = entry.mapToItem(null, entry.width / 2, entry.height / 2);
+            const under = (item, out) => {
+                if (!item.visible) return out;
+                const at = item.mapFromItem(null, pointer.x, pointer.y);
+                const inside = at.x >= 0 && at.y >= 0 && at.x < item.width && at.y < item.height;
+                if (item.clip && !inside) return out;
+                if (inside) out.push(item);
+                const children = Array.from(item.children).map((child, order) => ({ child, order }))
+                    .sort((a, b) => a.child.z - b.child.z || a.order - b.order);
+                for (const each of children) under(each.child, out);
+                return out;
+            };
+            const state = () => {
+                const hits = under(root, []);
+                return JSON.stringify({
+                    shown: tip.shown, resting: tip.resting, opened: tip.opened,
+                    live: tip.live, hovered: tip.hover !== null && tip.hover.hovered, unpressed: tip.unpressed,
+                    tracker: tip.tracker === null ? "no-popup" : tip.tracker.anchorInView() ? "in-view" : "hidden",
+                    contentY: scroll.contentY, overlaysOpen: OverlayState.open,
+                    pointer: [pointer.x, pointer.y], entryUnder: hits.indexOf(entry) !== -1,
+                    top: hits.slice(-3).map(item => String(item))
+                });
+            };
             // tryVerify builds its message before it waits; this reads the
             // state when the wait gives up.
             const waitFor = (holds, timeout) => {
