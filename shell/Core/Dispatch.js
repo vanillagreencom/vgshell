@@ -524,13 +524,15 @@ function shellWindowTarget(windowClass) {
     return HyprlandLayer.tuiClass(windowClass) ? { kind: "vgs", id: windowClass, terminal: true } : { kind: "vgs", id: windowClass };
 }
 
+// A box { x, y, w, h } of finite numbers with a positive width and height.
+function rect(r) { return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; }
+
 function inputTarget(text, point, keyboardProtected, entries, lookup, executables) {
     var read = jsonReplies(text, [["clients", "array"], ["active", "object"], ["monitors", "array"],
         ["layers", "object"], ["cursor", "object"]], "input state");
     if (!read.ok) return read;
     var clients = read.values[0], active = read.values[1], monitors = read.values[2], layers = read.values[3], cursor = read.values[4];
     var refusal = function (error) { return { ok: false, error: "refused: input=" + error }; };
-    var rect = function (r) { return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; };
     var contains = function (r, p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; };
     if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || typeof keyboardProtected !== "boolean" || !Array.isArray(entries) || typeof lookup !== "function")
         return refusal("observation");
@@ -649,6 +651,49 @@ function revealTarget(state, addresses, named) {
     var address = String(target.address).toLowerCase();
     var focused = String(state.active.address || "").toLowerCase() === address;
     return { state: focused && onScreen(target, state.monitors) ? "shown" : "reveal", address: address };
+}
+
+// Whether a raise would bring the floating window at ADDRESS in front, from
+// windowState's clients: another mapped floating client, not hidden, on its
+// workspace or pinned, overlaps it and draws above it. This judges stacking
+// among windows that are not fullscreen. Hyprland v0.57.0 draws tiled
+// windows, then floating ones in its window list's order, then pinned ones
+// (src/render/Renderer.cpp renderWorkspaceWindows); j/clients prints that
+// list in order (src/ipc/s1/Commands.cpp clientsRequest), and a raise moves
+// a window to its end (src/desktop/state/WindowState.cpp moveToTop). Focus
+// alone restacks nothing (src/desktop/state/FocusState.cpp rawWindowFocus),
+// so the window holding the keyboard is judged by its place in the list.
+// A tiled window is never covered: no raise draws it above a floating one.
+// No documented field names a stacking position: neither hyprctl's nor
+// Quickshell 0.3.1's HyprlandToplevel
+// (https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandToplevel/),
+// so this reads the list's order; revisit if Hyprland changes it.
+// { ok: true, covered } or { ok: false, error }.
+function windowCovered(clients, address) {
+    var want = String(address).toLowerCase();
+    var box = function (c) { return { x: c.at && c.at[0], y: c.at && c.at[1], w: c.size && c.size[0], h: c.size && c.size[1] }; };
+    var index = -1;
+    for (var i = 0; i < clients.length; i++) {
+        if (!clients[i] || !clients[i].mapped || String(clients[i].address).toLowerCase() !== want) continue;
+        if (index !== -1) return { ok: false, error: "refused: cover=windows address=" + want };
+        index = i;
+    }
+    if (index === -1) return { ok: false, error: "refused: cover=unmapped address=" + want };
+    var self = clients[index], own = box(self), key = workspaceKey(self.workspace || {});
+    if (!rect(own)) return { ok: false, error: "refused: cover=window-shape address=" + want };
+    if (self.floating !== true) return { ok: true, covered: false };
+    for (var j = 0; j < clients.length; j++) {
+        var c = clients[j];
+        if (j === index || !c || !c.mapped || c.hidden === true || c.floating !== true) continue;
+        if (c.pinned !== true && (key === "" || workspaceKey(c.workspace || {}) !== key)) continue;
+        var other = box(c);
+        if (!rect(other)) return { ok: false, error: "refused: cover=window-shape address=" + String(c.address) };
+        if (other.x >= own.x + own.w || own.x >= other.x + other.w || other.y >= own.y + own.h || own.y >= other.y + other.h) continue;
+        var above = (c.pinned === true && self.pinned !== true)
+            || (c.pinned === true) === (self.pinned === true) && j > index;
+        if (above) return { ok: true, covered: true };
+    }
+    return { ok: true, covered: false };
 }
 
 // ------------------------------------------------------- keyboard layout

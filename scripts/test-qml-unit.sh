@@ -2600,12 +2600,14 @@ mutation_tree() { # LAYOUT DIR
       cp -R -- "$repo/shell/Core" "$dir/core"
       core_args=(--core "$dir/core") ;;
     plugins)
-      mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins" "$dir/mirror/shell/Commons" "$dir/mirror/shell/Core"
+      mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins" "$dir/mirror/shell/Commons" "$dir/mirror/shell/Core" "$dir/mirror/shell/Hosts"
       cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
-      # Tests can read manifests from sibling plugins through relative paths.
+      # Tests can read manifests from sibling plugins, and a host's methods
+      # (tst_updates_refresh mounts SummonHost's), through relative paths.
       cp -R -- "$repo/shell/plugins/." "$dir/mirror/shell/plugins/"
       cp -R -- "$repo/shell/Commons/." "$dir/mirror/shell/Commons/"
       cp -R -- "$repo/shell/Core/." "$dir/mirror/shell/Core/"
+      cp -R -- "$repo/shell/Hosts/." "$dir/mirror/shell/Hosts/"
       ln -s -- "$dir/ui" "$dir/mirror/shell/Ui"
       ln -s -- "$repo/themes" "$dir/mirror/themes"
       tests_dir="$dir/mirror/scripts/qml-tests"

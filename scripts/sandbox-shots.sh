@@ -204,7 +204,15 @@
 # state and the tab's warning reading. It is taken only when named;
 # updates is the Updates
 # page with every tool it requires found or stood in and no Setup tab: its
-# Settings tab, then Details, taken only when named; clone-voice is the
+# Settings tab, then Details, taken only when named; updates-flyout,
+# taken only when named, is the Updates window over status fixtures as
+# updates-flyout-MODE-checking, -available, -current and -failed, then
+# before an Update that adds the system step: updates-MODE-available with
+# the VGS row's aurUpgrade note and one AUR package beside the system's
+# updates, updates-MODE-banner under a failed run's last-run banner, and
+# updates-MODE-plan, the terminal's plan at its start question, run over
+# a stand-in vgshell so no check, elevation or package step runs;
+# clone-voice is the
 # Jarvis page's Settings and Details tabs at their Local voice sections,
 # over a ready Large local voice, with the Cloned voice
 # off and not set up, with the clone setup's floating terminal at its first
@@ -2670,7 +2678,9 @@ scene_reboot-notice() { # MODE
 }
 
 # The production flyout over status fixtures, with its open-time refresh
-# removed only in the disposable capture tree. No check or update runs.
+# removed only in the disposable capture tree, then the window and the
+# terminal plan before an Update that adds the system step. No check or
+# update runs.
 scene_updates-flyout() { # MODE
   local mode="$1" state values key value
   expect "the Updates provider is held for flyout pictures" held ipc smoke holdStatus service vgs.updates
@@ -2709,7 +2719,89 @@ PYSTATE
     take "updates-flyout-$mode-$state"
     record_item "updates-flyout-$mode-$state" "$(surface_box window:Updates)"
   done
+  updates_system_first_shots "$mode"
   expect "Updates closes after its flyout pictures" ok ipc shell hide window vgs.updates
+  updates_plan_shot "$mode"
+}
+
+# The window before an Update that adds the system step: 123 system
+# updates, one AUR package the system step joins and the VGS row's
+# aurUpgrade note, then the same rows under a failed run's last-run
+# banner. The banner's outcome has the shape the captured tree's pipeline
+# writes for a failed shell restart: a title apart from its sentence where
+# the pipeline stores one, else the one sentence the older pipeline wrote.
+updates_system_first_shots() { # MODE
+  local mode="$1" titled=false state values key value
+  ! tree_has shell/plugins/vgs.updates/tui/pipeline.sh 'version: 1, ended, title' || titled=true
+  for state in available banner; do
+    values="$(python3 - "$checkout/scripts/smoke/fixtures/updates-status.json" "$state" "$titled" <<'PYSYSTEMFIRST'
+import json, sys, time
+snapshot = json.load(open(sys.argv[1]))
+state, titled = sys.argv[2], sys.argv[3] == "true"
+now = int(time.time() * 1000) - 60000
+rows = snapshot["sources"]
+for row in rows:
+    row.update(label={"pacman":"System", "aur":"AUR", "flatpak":"Flatpak", "mise":"mise", "vgs":"VGS", "plugins":"Plugins", "themes":"Themes"}[row["source"]], checkedAt=now, error=None, packages=[])
+    if row["source"] == "pacman": row["count"] = 123
+    elif row["source"] == "aur": row.update(count=1, packages=[{"name":"sample-package", "old":"1.0", "new":"2.0"}])
+    elif row["source"] == "vgs": row.update(count=0, note={"kind":"aurUpgrade"}, packages=[{"name":"vgshell-git", "old":"0.1.0", "new":"0.2.0"}])
+    else: row["count"] = 0
+outcome = ({"version":1, "ended":"failed", "title":"VGS could not restart", "text":"Restart the computer when you are ready.", "remedy":"computer-restart", "endedAt":now}
+           if titled else {"ended":"failed", "text":"VGS could not restart. Restart the computer when you are ready."})
+values = {"snapshot":{"args":[json.dumps({"checkedAt":now, "error":None, "sources":rows}), True]}, "admission":"online", "checking":False,
+          "pending":sum(r["count"] or 0 for r in rows), "lastCheck":now, "checkState":{"tone":"ok", "text":"Updates available"},
+          "lastRun":outcome if state == "banner" else None}
+for key, value in values.items(): print(key + "\t" + json.dumps(value, separators=(",",":")))
+PYSYSTEMFIRST
+)" || { fail "the system-first status fixture is unreadable"; return; }
+    while IFS=$'\t' read -r key value; do
+      if [[ $key == snapshot ]]; then
+        expect "the $state system-first fixture reads its snapshot" true ipc smoke invokeInstanceArgs service vgs.updates acceptText "$value"
+      else
+        expect "the $state system-first fixture writes $key" ok ipc smoke heldStatusSet "$key" "$value"
+      fi
+    done <<<"$values"
+    expect_poll "the $state system-first window draws its sources" open updates_window
+    park_pointer
+    take "updates-$mode-$state"
+    record_item "updates-$mode-$state" "$(surface_box window:Updates)"
+  done
+  expect "the system-first pictures clear the last run" ok ipc smoke heldStatusSet lastRun null
+}
+
+# The terminal's plan for an Update of VGS alone that adds the system
+# step, stopped at the pipeline's own start question. The captured tree's
+# tui/update-source.sh runs over a tree whose bin/vgshell answers the
+# plan's reads: pacman with paru, 123 system updates, vgshell-git to
+# rebuild and snapshots off. Its other files link the captured tree.
+updates_plan_shot() { # MODE
+  local mode="$1" world="$sandbox/updates-plan-$1" tool
+  terminal_world_style "$world" || { fail "the Updates plan terminal colours could not be rendered"; return; }
+  mkdir -p -- "$world/tree/bin" "$world/runs" && mkdir -m 700 -- "$world/rt" &&
+    ln -s -- "$repo/shell" "$world/tree/shell" && ln -s -- "$repo/bin/lib" "$world/tree/bin/lib" ||
+    { fail "the Updates plan tree is not made"; return; }
+  cat >"$world/tree/bin/vgshell" <<'PLANVGSHELL'
+#!/usr/bin/env bash
+case "$1 ${2:-}" in
+  "pkg review-run") mktemp -d "$PLAN_RUNS/run.XXXXXX" ;;
+  "plugin settings") printf '%s\n' '{"intervalHours":6,"hideWhenCurrent":false,"aurCommand":"","snapshot":"off","trustPluginUpdates":false,"placement":"center"}' ;;
+  "pkg detect") printf '%s\n' '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}' ;;
+  "self status") printf '%s\n' '{"version":"0.1.0","method":"package","package":"vgshell-git","current":"0.1.0.r1.gabc1234","latest":"0.1.0.r2.gdef5678","behind":true,"step":"rebuild","reason":null,"error":null}' ;;
+  "pkg plan") [[ ${4:-} == pacman ]] && printf '%s\n' '{"manager":"pacman","binary":"pacman","action":"upgrade","elevate":true,"steps":[["pacman","-Syu"]],"elevator":{"ok":true,"command":"sudo"}}' ;;
+  "pkg check") [[ ${5:-} == pacman ]] && printf '%s\n' '[{"source":"pacman","count":123,"packages":[],"checkedAt":"x","error":null}]' ;;
+  *) printf 'vgshell: refused: fixture=unanswered args=%s\n' "$*" >&2; exit 70 ;;
+esac
+PLANVGSHELL
+  chmod 755 "$world/tree/bin/vgshell" || { fail "the Updates plan vgshell is not made"; return; }
+  # Nothing before the question elevates or touches a package manager; a
+  # pipeline that did would meet these, never the host's.
+  for tool in sudo doas run0 pacman paru yay; do
+    printf '#!/bin/sh\nexit 1\n' >"$world/bin/$tool" && chmod 755 "$world/bin/$tool" || { fail "the $tool stand-in is not written"; return; }
+  done
+  terminal_world_gum "$world" confirm || return
+  terminal_shot "$world" "updates-$mode-plan" org.vgs.tui 'Update VGS' \
+    env XDG_RUNTIME_DIR="$world/rt" PLAN_RUNS="$world/runs" VGS_TUI_LIB="$world/tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates \
+    "$BASH" "$repo/shell/plugins/vgs.updates/tui/update-source.sh" vgs || return
 }
 
 scene_updates() { # MODE
@@ -12436,6 +12528,16 @@ s = p.read_text(); old = "        refresh();"
 assert s.count(old) == 1
 p.write_text(s.replace(old, ""))
 PYOPEN
+      # Each requirement command the shell does not find is stood in, as
+      # scene_updates does, so the window is the one a machine with its
+      # tools draws. No step runs one: the window's refresh is removed
+      # above and the service reads the planted snapshot.
+      commands="$(python3 -c 'import json,sys; print("\n".join(r["command"] for r in json.load(open(sys.argv[1]))["requirements"] if "command" in r))' "$repo/shell/plugins/vgs.updates/manifest.json")" ||
+        fail "the Updates requirements are unreadable"
+      while IFS= read -r command; do
+        [[ -n $command && $(shell_resolves "$command") == none ]] || continue
+        printf '#!/bin/sh\nexit 99\n' >"$shim/$command" && chmod 755 "$shim/$command" || fail "the $command stand-in is not written"
+      done <<<"$commands"
       updates_snapshot_plant
       tree_rescan "the Updates flyout capture fixture is scanned"
       expect "Updates enables for its flyout pictures" ok ipc shell setPluginEnabled vgs.updates true

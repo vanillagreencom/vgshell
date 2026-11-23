@@ -65,7 +65,7 @@
 # after each choice. Update all while unanswered opens the offer
 # without a run. Keep and dismissal start the update; VGS only starts it
 # after the held setup terminal ends. A saved answer starts it directly.
-# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
+# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -498,9 +498,21 @@ widget_setting() { ipc smoke readInstance "$widget_key" vgs.updates settings | p
 updates_rows() { ipc smoke readInstance window vgs.updates rows | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 print(json.dumps([[r["source"], r["updatable"], len(r["lines"]), bool(r["more"])] for r in rows]))'; }
-updates_package_lines() { ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
+updates_package_lines() { # SOURCE_LABEL [all-control]
+  ipc smoke descendantGeometry window vgs.updates | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-print(sum(1 for r in rows if r["displayedOwner"] and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
+sources=[i for i,r in enumerate(rows) if r["type"] == "Disclosure" and r.get("text") == sys.argv[1]]
+if len(sources) != 1:
+    print("unread: source=%s matches=%d" % (sys.argv[1], len(sources))); sys.exit()
+def inside(j):
+    while j != -1:
+        if j == sources[0]: return True
+        j=rows[j]["parent"]
+    return False
+# Other sources may already expose packages beside their unique detail.
+# Count displayed code lines inside the selected source, not the window.
+print(sum(1 for i,r in enumerate(rows) if r["displayedOwner"] and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and (sys.argv[2] == "all-control" or inside(i))))' "$1" "${2:-}"
+}
 updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 # Open the window with a click on the widget, unless it is open: the
 # click toggles it.
@@ -806,6 +818,81 @@ expect "the widget draws the icon in the accent colour with the count" '["refres
 expect "the tooltip lists every source's count" '[2, 1, 1, 1, 1, 1, 0]' widget_tip_values
 expect "the tooltip ends with the check's time" True widget_tip_last
 
+# A mapped window behind a failed task's close prompt is summoned and
+# raised by one bar click. Only an already active window toggles closed.
+updates_click_task() {
+  local updates_click_kitty updates_click_address updates_click_before
+  updates_click_kitty="$(command -v kitty)" || { printf 'qml-smoke: status=not-measured missing=kitty\n'; return 77; }
+  fresh_updates "the task-terminal click"
+  cat >"$updates_state/close-prompt.sh" <<'CLOSEPROMPT'
+#!/usr/bin/env bash
+printf 'The task failed. Press any key to close.\n'
+printf ready >"$1"
+read -rsn1
+CLOSEPROMPT
+  spawn_display "$updates_state/close-prompt.log" "${shell_env[@]}" -- "$updates_click_kitty" --config NONE -o confirm_os_window_close=0 -o shell_integration=disabled --class org.vgs.tui --title 'Updates task' /usr/bin/bash "$updates_state/close-prompt.sh" "$updates_state/close-prompt.ready" || return 1
+  updates_click_prompt() { [[ -f $updates_state/close-prompt.ready ]] && active_window || echo waiting; }
+  expect_poll "the failed task holds its close prompt in front of Updates" '["org.vgs.tui", "Updates task"]' updates_click_prompt
+  [[ $(updates_click_prompt) == '["org.vgs.tui", "Updates task"]' ]] || return 1
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "one bar click keeps the obscured Updates window mapped" open updates_open
+  updates_keyboard "the bar click over the task terminal"
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "a bar click closes Updates when it is already in front" closed updates_open
+  updates_click_address="$(hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.tui" and c.get("title")=="Updates task"]; print(v[0]["address"] if len(v)==1 else "none")')" || return 1
+  [[ $updates_click_address == 0x* ]] || return 1
+  expect "the owned close-prompt terminal closes" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$updates_click_address\" })"
+  updates_click_terminal_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c.get("class")=="org.vgs.tui" and c.get("title")=="Updates task" for c in json.load(sys.stdin)))'; }
+  expect_poll "the close-prompt terminal is gone" 0 updates_click_terminal_count
+
+  # A tiled window holding the keyboard, as follow_mouse leaves it when the
+  # pointer crosses it on its way to the bar, covers no floating window:
+  # one click closes Updates. The keyboard reading proves the case reaches
+  # the state a focus-only judge takes for an obscured window.
+  open_updates
+  cat >"$updates_state/tiled-task.sh" <<'TILEDTASK'
+#!/usr/bin/env bash
+printf ready >"$1"
+read -rsn1
+TILEDTASK
+  spawn_display "$updates_state/tiled-task.log" "${shell_env[@]}" -- "$updates_click_kitty" --config NONE -o confirm_os_window_close=0 -o shell_integration=disabled --class org.vgs.smoke.tiled --title 'Tiled task' /usr/bin/bash "$updates_state/tiled-task.sh" "$updates_state/tiled-task.ready" || return 1
+  updates_click_tiled() { [[ -f $updates_state/tiled-task.ready ]] && active_window || echo waiting; }
+  expect_poll "the tiled window holds the keyboard beside the open Updates window" '["org.vgs.smoke.tiled", "Tiled task"]' updates_click_tiled
+  updates_click_tiled_floating() { hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.smoke.tiled"]; print(json.dumps(v[0]["floating"]) if len(v)==1 else "count=%d" % len(v))'; }
+  expect "the crossed window is tiled" false updates_click_tiled_floating
+  expect "Updates stays open under a tiled window's focus" open updates_open
+  expect_poll "the shell reads the Updates window without the keyboard" false window_keyboard vgs.updates
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "one bar click closes Updates while a tiled window holds the keyboard" closed updates_open
+  updates_click_address="$(hypr -j clients | py_reply 'import json,sys; v=[c for c in json.load(sys.stdin) if c.get("class")=="org.vgs.smoke.tiled"]; print(v[0]["address"] if len(v)==1 else "none")')" || return 1
+  [[ $updates_click_address == 0x* ]] || return 1
+  expect "the owned tiled terminal closes" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$updates_click_address\" })"
+  updates_click_tiled_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c.get("class")=="org.vgs.smoke.tiled" for c in json.load(sys.stdin)))'; }
+  expect_poll "the tiled terminal is gone" 0 updates_click_tiled_count
+
+  # A real core refusal reaches the widget: the disposable plugin declares
+  # no window kind. Its one click must produce exactly one reason line.
+  cp -- "$updates_dir/manifest.json" "$updates_state/click-manifest.json"
+  python3 - "$updates_dir/manifest.json" <<'REFUSAL'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+value['kinds'].remove('window'); del value['entryPoints']['window']
+value['capabilities'].remove('run'); del value['capabilityKinds']
+p.write_text(json.dumps(value))
+REFUSAL
+  rescan "the refused window declaration is scanned"
+  expect_poll "the widget remains built without its window kind" '"vgs.updates"' ipc smoke readInstance "$widget_key" vgs.updates moduleName
+  updates_click_before="$(log_lines 'updates widget: window refused: kind=window id=vgs.updates')" || return 1
+  expected_errors+=('updates widget: window refused: kind=window id=vgs\.updates')
+  click_centre "$widget_key" vgs.updates || return 1
+  expect_poll "a click that cannot open Updates logs one reason" "$((updates_click_before + 1))" log_lines 'updates widget: window refused: kind=window id=vgs.updates'
+  cp -- "$updates_state/click-manifest.json" "$updates_dir/manifest.json"
+  rescan "the normal window declaration is restored"
+  expect_poll "the restored Updates service is idle" idle updates_idle
+}
+updates_click_task
+
 # The window: one row per source with its count and its own Update when it
 # has updates; a click on a row lists its packages.
 # Keyboard-only path.
@@ -815,8 +902,14 @@ updates_keyboard "the shortcut's keys"
 expect_poll "the shortcut opens with primary focus and no ring" '[false, false, true]' updates_focused
 forget_record
 type_keys -k Left || fail "sending Left to the updates row control failed"
+expect_poll "the collapsed System row exposes no package lines" 0 updates_package_lines System
 type_keys -k Space || fail "sending Space to expand the first updates row failed"
-expect_poll "Space expands the first updates row's package lines" 2 updates_package_lines
+expect_poll "Space expands the first updates row's package lines" 2 updates_package_lines System
+expect "AUR exposes its own package beside the system-first detail" 1 updates_package_lines AUR
+updates_unscoped_package_control() {
+  (failures=0 behaviour_failures=0; expect "the System package count" 2 updates_package_lines System all-control >"$smoke_log_dir/updates-unscoped-packages-control.log"; echo "$failures")
+}
+expect "control: counting another source fails the same System package assertion" 1 updates_unscoped_package_control
 expect "control: Left on the source row runs no TUI" absent launched
 forget_record
 type_keys -k Tab -k Return || fail "sending Tab and Return to the source Update button failed"
@@ -841,7 +934,7 @@ open_updates
 expect_poll "the window draws one row per source" \
   '[["pacman", true, 2, false], ["aur", true, 1, false], ["flatpak", true, 1, false], ["mise", true, 1, false], ["vgs", true, 1, false], ["plugins", true, 1, false], ["themes", false, 0, false]]' updates_rows
 click_in window:Updates window vgs.updates NavigationRow System || fail "the click on the window's System row failed"
-expect_poll "a click on a row lists its packages" 2 updates_package_lines
+expect_poll "a click on a row lists its packages" 2 updates_package_lines System
 # The window's geometry with a row expanded: each source row's last
 # trailing item, the chevron, the Update button or the count badge, ends on
 # that row's right content edge. The footer's buttons lie inside the

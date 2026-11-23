@@ -308,6 +308,20 @@ function ownedFolder(dir, forbiddenMode = 0o077) {
     ownedDirectory(dir, forbiddenMode);
     return dir;
 }
+// D107: a folder other VGS producers make with the caller's umask, such as
+// the update check and the shell's start under umask 002, or an older
+// check's updates/, is repaired in place: FORBIDDEN bits cleared, the
+// owner's kept whole. Only this owner judges them. Links and other users'
+// folders are refused before chmod, also when the old mode grants no read
+// or search permission.
+function repairedFolder(dir, forbiddenMode) {
+    try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
+    ownedDirectory(dir, 0);
+    const old = fs.lstatSync(dir).mode & 0o777, repaired = (old & ~forbiddenMode) | 0o700;
+    if (repaired !== old) fs.chmodSync(dir, repaired);
+    ownedDirectory(dir, forbiddenMode);
+    return dir;
+}
 // <runtime>/vgshell. A review keeps its verdicts, outcome, agent home and
 // evidence here, so REVIEWED also requires the resolved XDG_RUNTIME_DIR to
 // be the user's own and outside /tmp and TMPDIR, which an agent may write.
@@ -318,17 +332,17 @@ function ownedFolder(dir, forbiddenMode = 0o077) {
 function runtimeFolder(reviewed) {
     const dir = process.env.XDG_RUNTIME_DIR;
     if (!dir || !path.isAbsolute(dir)) refuse("review=runtime-dir-unset");
-    if (!reviewed) return ownedFolder(path.join(dir, "vgshell"), 0o022);
+    if (!reviewed) return repairedFolder(path.join(dir, "vgshell"), 0o022);
     const real = fs.realpathSync(dir);
     ownedDirectory(real);
     if (writableTemporaryRoots().some(root => inside(real, root))) refuse("review=runtime-dir-agent-writable");
-    return ownedFolder(path.join(real, "vgshell"), 0o022);
+    return repairedFolder(path.join(real, "vgshell"), 0o022);
 }
 function runtimeRoot() { return runtimeFolder(true); }
 function workRoot(reviewed = false) { return ownedFolder(path.join(runtimeFolder(reviewed), "package-review")); }
 function agentHome() { return ownedFolder(path.join(workRoot(true), "agent")); }
 function createRun(prefix = "review-") {
-    const dir = fs.mkdtempSync(path.join(ownedFolder(path.join(runtimeRoot(), "updates")), prefix));
+    const dir = fs.mkdtempSync(path.join(repairedFolder(path.join(runtimeRoot(), "updates"), 0o077), prefix));
     fs.chmodSync(dir, 0o700);
     return dir;
 }

@@ -10,7 +10,7 @@ import "../../shell/plugins/vgs.updates/UpdatesLogic.js" as Logic
 
 // Drive the production service, window and each separately observed status
 // write. Processes and startup reads finish only when the case answers them.
-// inputs: shell/plugins/vgs.updates/* scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
+// inputs: shell/plugins/vgs.updates/* shell/Hosts/SummonHost.qml shell/Core/Dispatch.js scripts/qml-tests/stand-ins/Process.qml scripts/qml-tests/stand-ins/FileView.qml
 Item {
     id: root
     width: 900
@@ -63,6 +63,7 @@ Item {
         function startup() {
             reader(service.statusPath).finishRead(snapshot(97));
             reader(service.bootPath).finishRead("btime 1\n");
+            process("outcome").finish(0, 0, "null", "");
         }
         function init() {
             ProcessRegistry.clear(); root.values = {}; root.observed = []; root.handlers = {}; root.refuseKey = "";
@@ -82,6 +83,127 @@ Item {
         }
         function sourceRows() {
             return descendants(view).filter(item => item.expandable !== undefined && item.focusItem !== undefined);
+        }
+        // The production host's read-then-act phase over Hyprland client
+        // fixtures: Updates floats; another floating window above it covers
+        // it, and a tiled one holding the keyboard does not. The control
+        // judges by keyboard activation, which a tiled window's focus
+        // leaves false, so it raises where one click must close.
+        function test_toggle_raises_only_a_covered_window_data() {
+            const updates = (focus) => ({ address: "0xa1", mapped: true, hidden: false, floating: true, pinned: false, at: [400, 200], size: [800, 600], workspace: { id: 1, name: "1" }, focusHistoryID: focus });
+            const terminal = { address: "0xb2", mapped: true, hidden: false, floating: true, pinned: false, at: [500, 300], size: [600, 400], workspace: { id: 1, name: "1" }, focusHistoryID: 0 };
+            const tiled = { address: "0xc3", mapped: true, hidden: false, floating: false, pinned: false, at: [0, 40], size: [1920, 1040], workspace: { id: 1, name: "1" }, focusHistoryID: 0 };
+            return [
+                { tag: "held task terminal above", clients: [updates(1), terminal], raised: true, control: false },
+                { tag: "tiled window holds the keyboard", clients: [tiled, updates(1)], raised: false, control: false },
+                { tag: "focus-check-control", clients: [tiled, updates(1)], raised: false, control: true }
+            ];
+        }
+        function test_toggle_raises_only_a_covered_window(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"), false);
+            request.send();
+            verify(request.responseText.length > 0, "read the production host");
+            // Mount the shipped owner methods, as tst_polkit_prompt does;
+            // the live stacking read is covered by the Updates smoke row.
+            const parts = request.responseText.split("\n    Variants {");
+            compare(parts.length, 2);
+            let methods = parts[0];
+            const registration = "    Component.onCompleted: Plugins.registerHost(kind, host)";
+            compare(methods.split(registration).length, 2);
+            methods = methods.replace(registration, "");
+            const judge = "const cover = state.ok ? Dispatch.windowCovered(state.clients, address) : state;";
+            compare(methods.split(judge).length, 2, "the control reaches the stacking judge");
+            if (data.control) methods = methods.replace(judge, "const cover = { ok: true, covered: !instance.Window.window.active };");
+            const host = Qt.createQmlObject(methods.replace("required property string kind", 'property string kind: "window"') + "\n}", root,
+                Qt.resolvedUrl("../../shell/Hosts/SummonHost.qml"));
+            // A hidden native window supplies Qt's real inactive attached
+            // Window, as a tiled window's keyboard focus leaves Updates.
+            // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-prop
+            const inactive = createTemporaryQmlObject('import QtQuick; import QtQuick.Window; Window { visible: false }', root);
+            try {
+                view.parent = inactive.contentItem;
+                compare(view.Window.window.active, false);
+                view.problem = "Keep the current refusal visible.";
+                host.requests = { "vgs.updates": { payloadJson: "{}", anchored: false } };
+                host.instances = { "vgs.updates": view };
+                host.openIds = ["vgs.updates"];
+                let focused = 0;
+                host.rememberFocuser("vgs.updates", () => { focused += 1; });
+                host.toggleRead("vgs.updates", view, "0xa1", { ok: true, clients: data.clients });
+                if (data.control) expectFailContinue("", "a focus-only judge raises a window no floating window covers");
+                compare([focused, host.openIds.indexOf("vgs.updates") !== -1], data.raised ? [1, true] : [0, false],
+                    data.raised ? "a covered window is raised and kept" : "a window in front closes");
+                if (data.raised) {
+                    compare(host.instances["vgs.updates"], view);
+                    compare([view.problem, view.requestState], ["Keep the current refusal visible.", "idle"], "raising keeps the open page's state");
+                }
+            } finally {
+                host.destroy();
+                view.parent = root;
+            }
+        }
+        // Restart-only expiry through the production service: UnitEnv.js
+        // sets VGSHELL_STARTED_AT to 5000 ms, the case reads the outcome
+        // before the boot time and boots at 9000 ms. The control publishes
+        // the outcome it read unfiltered.
+        function test_restart_only_outcome_expires_after_start_or_boot_data() {
+            const outcome = (remedy, endedAt) => ({ version: 1, ended: "failed", title: "VGS could not restart",
+                text: "Restart the computer when you are ready.", remedy: remedy, endedAt: endedAt });
+            return [
+                { tag: "ended before this shell started", outcome: outcome("computer-restart", 3000), shown: [false, false], control: false },
+                { tag: "ended before this boot", outcome: outcome("shell-restart", 7000), shown: [true, false], control: false },
+                { tag: "ended after this boot", outcome: outcome("computer-restart", 12000), shown: [true, true], control: false },
+                { tag: "a failure no restart resolves", outcome: outcome("", 3000), shown: [true, true], control: false },
+                { tag: "unfiltered-control", outcome: outcome("computer-restart", 3000), shown: [false, false], control: true }
+            ];
+        }
+        function test_restart_only_outcome_expires_after_start_or_boot(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.updates/Service.qml"), false);
+            request.send();
+            let source = request.responseText;
+            const filter = "lastRun: Logic.pendingOutcome(lastRun, shellStartedAt, bootedAt)";
+            compare(source.split(filter).length, 2, "the control reaches the published outcome");
+            if (data.control) source = source.replace(filter, "lastRun: lastRun");
+            service.destroy();
+            wait(0);
+            root.values = {}; root.observed = []; root.handlers = {};
+            service = Qt.createQmlObject(source, root, Qt.resolvedUrl("../../shell/plugins/vgs.updates/Service.qml"));
+            service.shell = root.facade;
+            compare(service.shellStartedAt, 5000, "the service reads the shell's start time");
+            reader(service.statusPath).finishRead(snapshot(97));
+            process("outcome").finish(0, 0, JSON.stringify(data.outcome), "");
+            const beforeBoot = root.values.lastRun ?? null;
+            reader(service.bootPath).finishRead("btime 9\n");
+            const afterBoot = root.values.lastRun ?? null;
+            if (data.control) expectFailContinue("", "an unfiltered outcome outlives its restart");
+            compare([beforeBoot, afterBoot], data.shown.map(shown => shown ? data.outcome : null),
+                "a restart-only outcome hides once a newer shell start or boot is read; others stay");
+        }
+        function test_last_run_keeps_title_and_sentence_apart() {
+            root.values = { pending: 1, checking: false, lastCheck: Date.now(),
+                checkState: { tone: "ok", text: "Updates available" },
+                sources: [{ source: "pacman", label: "System", count: 1, error: null, packages: [] }],
+                lastRun: { version: 1, ended: "failed", title: "VGS could not restart",
+                    text: "Restart the computer when you are ready.", remedy: "computer-restart", endedAt: Date.now() } };
+            // Columns apply child visibility and size changes during polish.
+            // Wait for all nested positioners before measuring their gap:
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(view.Window.window));
+            const labels = displayedTextItems(view);
+            const title = labels.find(item => displayedText(item) === root.values.lastRun.title);
+            const sentence = labels.find(item => displayedText(item) === root.values.lastRun.text);
+            verify(title !== undefined && sentence !== undefined, "the banner renders both stored fields");
+            compare(title.role, "bodyStrong");
+            compare(sentence.textFormat, Text.PlainText);
+            verify(title.mapToItem(view, 0, 0).y < sentence.mapToItem(view, 0, 0).y, "the title stands above its sentence");
+            const banner = descendants(view).find(item => item.title === root.values.lastRun.title && item.plain === true);
+            verify(banner !== undefined);
+            const count = labels.find(item => displayedText(item) === "1 update");
+            verify(count !== undefined);
+            const countBottom = count.mapToItem(banner.parent, 0, count.height).y;
+            verify(banner.y - countBottom >= Theme.stack.page, "the banner keeps the window's block spacing above it");
         }
         // VGS-2622's product result: a short failed-check count beside an
         // upright time in the shared muted ink.
@@ -194,7 +316,10 @@ Item {
         function test_open_waits_for_startup_and_never_unmasks_a_mixed_result() {
             view.open("{}");
             compare(view.view.state, "checking", "the opening frame is masked before startup reads answer");
-            compare(ProcessRegistry.processes.filter(row => row.running).length, 0);
+            // The independent last-run read may run while refresh admission waits.
+            compare(checks().length, 0, "startup reads precede every check");
+            compare(ProcessRegistry.processes.filter(row => row.running && row.command.some(arg => String(arg).endsWith("connectivity.js"))).length,
+                0, "startup reads precede connectivity admission");
             startup();
             compare(checks().length, 0, "admission precedes every check");
             admission(4);
@@ -250,8 +375,9 @@ Item {
             endRun(1);
             compare(service.checking, false, "the run's end starts no third check");
             compare(checks().length, 0);
-            reader(service.outcomePath).finishRead(JSON.stringify({ ended: "failed", text: "Flatpak failed." }));
-            compare(root.values.lastRun, { ended: "failed", text: "Flatpak failed." }, "the run's outcome is published");
+            const outcome = { version: 1, ended: "failed", title: "Flatpak failed", text: "Update again.", remedy: "", endedAt: 1000 };
+            process("outcome").finish(0, 0, JSON.stringify(outcome), "");
+            compare(root.values.lastRun, outcome, "the run's outcome is published");
             endRun(2);
             admission(4);
             compare(checks().length, 1, "a run that asked no check gets one at its end");

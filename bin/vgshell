@@ -39,8 +39,9 @@
 # It makes private font copies under the greeter's XDG_STATE_HOME/fonts,
 # then execs the greeter root without taking the desktop's instance lock.
 #
-# `restart` checks the same floor first, so below it restart refuses as run
-# does and leaves the running shell alone. It refuses while the session is
+# `restart` selects the Hyprland instance and checks the same floor before
+# stopping, so below it restart refuses as run does and leaves the running
+# shell alone. It refuses while the session is
 # locked, because the shell owns the lock client. Otherwise it sends TERM to
 # the runner, the parent of the pid in the instance lock when that parent
 # holds the lock, which stops the shell and exits with no relaunch, or to
@@ -400,7 +401,8 @@
 # refuses because the session is locked, 75 when another shell holds the
 # lock, another theme command holds the theme lock, another self update
 # holds its lock or another wallpaper download holds the download lock,
-# 69 when the shell is not running, 78 when `run` or `restart` finds a tool below the runtime
+# 69 when the shell is not running or no Hyprland session is reachable,
+# 78 when `run` or `restart` finds a tool below the runtime
 # floor. `vgshell --help` prints the short screen from help_text and exits 0.
 set -euo pipefail
 # A read pipes its producer into mapfile: pipefail gives the read that
@@ -1112,6 +1114,7 @@ hyprland_config_uses_lua() {
 }
 
 select_hyprland_instance() {
+  nix_host_check
   [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || return 0
   # shellcheck source=bin/lib/hyprland-instance.sh
   source "$root/bin/lib/hyprland-instance.sh" || refuse 1 "library=missing path=$root/bin/lib/hyprland-instance.sh" "VGS cannot load a required file. Repair the VGS installation, then try again."
@@ -2399,6 +2402,7 @@ reset_lock_wait_s=10
 reset_run() { # KEY STEP
   local status=0
   if shell_pid >/dev/null 2>&1; then
+    select_hyprland_instance
     preflight
     theme_lock_hold "$1" -w "$reset_lock_wait_s"
     shell_restart "$2"
@@ -2579,6 +2583,8 @@ shell_launch() {
   (
     printf '%s\n' "$BASHPID" >&9
     exec 9>&-
+    export VGSHELL_STARTED_AT
+    VGSHELL_STARTED_AT="$(date +%s%3N)"
     VGSHELL_RUNNER_PID=$BASHPID QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"
   ) &
   shell_child=$!
@@ -2695,7 +2701,6 @@ case "$cmd" in
       try_help
       exit 2
     fi
-    nix_host_check
     select_hyprland_instance
     preflight
     start_lock="$rt_dir/vgshell-start.lock"
@@ -2741,6 +2746,7 @@ case "$cmd" in
     fi
     # Before the stop: the relaunched `vgshell run` would refuse below the
     # floor and leave no shell.
+    select_hyprland_instance
     preflight
     shell_restart
     ;;

@@ -3,6 +3,7 @@ import Quickshell
 import qs.Core
 import qs.Commons
 import "../Core/HyprlandLayer.js" as Layer
+import "../Core/Dispatch.js" as Dispatch
 
 // Keep one surface per plugin id; reopening delivers a new payload.
 // Unmap layers before deferred teardown, but let anchored popups finish
@@ -21,6 +22,9 @@ Scope {
     property var instances: ({})
     // id -> function() that focuses that instance's host slot.
     property var focusers: ({})
+    // id -> function() that reads an application window's Hyprland
+    // address, "" until Compositor binds it.
+    property var addressReaders: ({})
     // id -> function() that starts an anchored popup's host-close motion.
     property var closers: ({})
     // id -> function() that cancels that close motion for a new open.
@@ -127,7 +131,36 @@ Scope {
     function toggle(id, payloadJson, origin) {
         if (PluginLogic.hasOwn(instances, id) && PluginLogic.hasOwn(closingReaders, id) && closingReaders[id]())
             return summon(id, payloadJson, origin);
-        return PluginLogic.hasOwn(instances, id) ? hide(id) : summon(id, payloadJson, origin);
+        if (!PluginLogic.hasOwn(instances, id)) return summon(id, payloadJson, origin);
+        // A window with no bound address, still mapping or refused by
+        // Compositor, cannot be judged and hides as before, as do panels,
+        // menus and layers.
+        const address = PluginLogic.hasOwn(addressReaders, id) ? addressReaders[id]() : "";
+        if (address === "") return hide(id);
+        const instance = instances[id];
+        // A held window refuses at once, as hide() does, before any read.
+        if (typeof instance.holdsHide === "function" && instance.holdsHide()) return "refused: held=" + id;
+        Compositor.readWindows(state => toggleRead(id, instance, address, state));
+        return "ok";
+    }
+
+    // An application window another floating window covers, such as a held
+    // task terminal, is raised with its page and edits kept; one in front
+    // hides (Dispatch.windowCovered). Keyboard focus alone is no proof:
+    // follow_mouse gives it to a tiled window the pointer crosses. An
+    // unread stacking hides as before, so the click still acts, and the
+    // line names the failed read. The toggle already answered ok, so a hold
+    // that began during the read is the other fault this logs.
+    function toggleRead(id, instance, address, state) {
+        if (instances[id] !== instance) return;
+        const cover = state.ok ? Dispatch.windowCovered(state.clients, address) : state;
+        if (cover.ok && cover.covered) {
+            focusOpen(id);
+            return;
+        }
+        if (!cover.ok) console.warn("summon host: toggle " + id + " " + cover.error);
+        const reply = hide(id);
+        if (reply !== "ok") console.warn("summon host: toggle " + id + " " + reply);
     }
 
     function navigate(direction) {
@@ -169,6 +202,12 @@ Scope {
         focusers = next;
     }
 
+    function rememberAddressReader(id, read) {
+        const next = Object.assign({}, addressReaders);
+        next[id] = read;
+        addressReaders = next;
+    }
+
     function rememberHostClose(id, close, reopen, isClosing) {
         const nextClosers = Object.assign({}, closers);
         nextClosers[id] = close;
@@ -190,6 +229,9 @@ Scope {
         const nextFocusers = Object.assign({}, focusers);
         delete nextFocusers[id];
         focusers = nextFocusers;
+        const nextAddressReaders = Object.assign({}, addressReaders);
+        delete nextAddressReaders[id];
+        addressReaders = nextAddressReaders;
         const nextClosers = Object.assign({}, closers);
         delete nextClosers[id];
         closers = nextClosers;
@@ -245,11 +287,16 @@ Scope {
             Component {
                 id: appWindow
                 AppWindow {
+                    id: appWindowSurface
                     pluginId: entry.modelData
                     kind: host.kind
                     request: entry.request
                     onBuilt: instance => {
                         host.rememberFocuser(entry.modelData, () => focusInitial());
+                        host.rememberAddressReader(entry.modelData, () => {
+                            const record = Compositor.windowRecord(appWindowSurface);
+                            return record !== null && record.state.phase === "bound" ? record.state.address : "";
+                        });
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => host.drop(entry.modelData))

@@ -294,6 +294,51 @@ function verifyReveal(lib, report) {
 }
 failures += verifyReveal(ctx, true);
 
+// Whether another window covers an application window, which decides
+// whether a bar click raises it or closes it. Every value is written out by
+// hand; verifyCover answers how many rows failed, so the controls below can
+// require a mutant to fail it.
+function verifyCover(lib, report) {
+    let bad = 0;
+    const row = (name, got, want) => {
+        const ok = JSON.stringify(got) === JSON.stringify(want);
+        if (!ok) bad += 1;
+        if (report) check(name, got, want);
+    };
+    // A mapped floating client on workspace 1, overlapping the window at
+    // 0xa1 unless placed elsewhere; the list is Hyprland's, bottom first.
+    const win = (address, extra) => Object.assign({ address: address, mapped: true, hidden: false, floating: true, pinned: false,
+        at: [400, 200], size: [800, 600], workspace: { id: 1, name: "1" }, focusHistoryID: 1 }, extra || {});
+    const self = win("0xa1");
+    // rows: [name, clients, want]
+    const covers = [
+        ["a held task terminal above it", [self, win("0xb2", { at: [500, 300], size: [600, 400], focusHistoryID: 0 })], { ok: true, covered: true }],
+        ["a tiled window holding the keyboard", [win("0xc3", { floating: false, at: [0, 40], size: [1920, 1040], focusHistoryID: 0 }), self], { ok: true, covered: false }],
+        ["the window itself holding the keyboard, on top", [win("0xb2", { focusHistoryID: 1 }), win("0xa1", { focusHistoryID: 0 })], { ok: true, covered: false }],
+        ["a floating window below it, unfocused", [win("0xb2", { focusHistoryID: 2 }), self], { ok: true, covered: false }],
+        ["a floating window below it holding the keyboard", [win("0xb2", { focusHistoryID: 0 }), self], { ok: true, covered: false }],
+        ["a tiled window listed after it", [self, win("0xc3", { floating: false, at: [0, 40], size: [1920, 1040], focusHistoryID: 0 })], { ok: true, covered: false }],
+        ["a floating window above it that does not overlap", [self, win("0xb2", { at: [1300, 200], size: [200, 200], focusHistoryID: 0 })], { ok: true, covered: false }],
+        ["a floating window touching its edge", [self, win("0xb2", { at: [1200, 200], size: [200, 200] })], { ok: true, covered: false }],
+        ["a floating window above it on another workspace", [self, win("0xb2", { workspace: { id: 2, name: "2" } })], { ok: true, covered: false }],
+        ["a pinned window from another workspace", [self, win("0xb2", { workspace: { id: 2, name: "2" }, pinned: true })], { ok: true, covered: true }],
+        ["a pinned window listed below it", [win("0xb2", { pinned: true }), self], { ok: true, covered: true }],
+        ["a window listed above a pinned one", [win("0xa1", { pinned: true }), win("0xb2")], { ok: true, covered: false }],
+        ["a hidden group member above it", [self, win("0xb2", { hidden: true })], { ok: true, covered: false }],
+        ["an unmapped window above it", [self, win("0xb2", { mapped: false })], { ok: true, covered: false }],
+        ["a tiled window under a floating one listed after it", [win("0xa1", { floating: false }), win("0xb2")], { ok: true, covered: false }],
+        ["a tiled window under a floating one listed before it", [win("0xb2"), win("0xa1", { floating: false })], { ok: true, covered: false }],
+        ["the window at an address in capitals", [win("0xA1"), win("0xb2")], { ok: true, covered: true }],
+        ["the window unmapped", [win("0xa1", { mapped: false })], { ok: false, error: "refused: cover=unmapped address=0xa1" }],
+        ["the window listed twice", [self, self], { ok: false, error: "refused: cover=windows address=0xa1" }],
+        ["the window with no size", [win("0xa1", { size: [0, 0] })], { ok: false, error: "refused: cover=window-shape address=0xa1" }],
+        ["another window with no position", [self, win("0xb2", { at: null })], { ok: false, error: "refused: cover=window-shape address=0xb2" }]
+    ];
+    for (const [name, clients, want] of covers) row("window cover: " + name, lib.windowCovered(clients, "0xa1"), want);
+    return bad;
+}
+failures += verifyCover(ctx, true);
+
 // The keyboard layout switch: the argv it runs, never a dispatch, and the
 // targets it refuses. verifySwitch answers how many rows failed.
 function verifySwitch(lib, report) {
@@ -731,6 +776,30 @@ try {
             bad = 1;
         }
         check("control " + name + " fails the reveal rows", bad > 0, true);
+    }
+    const coverControls = [
+        ["the old rule: an inactive window is covered", "if (above) return { ok: true, covered: true };", "if (self.focusHistoryID !== 0) return { ok: true, covered: true };"],
+        ["only floating windows cover", "c.hidden === true || c.floating !== true) continue;", "c.hidden === true) continue;"],
+        ["the list's order is the stacking", "|| (c.pinned === true) === (self.pinned === true) && j > index;", "|| (c.pinned === true) === (self.pinned === true);"],
+        ["the keyboard's window counts as above", "if (above) return { ok: true, covered: true };", "if (above || c.focusHistoryID === 0) return { ok: true, covered: true };"],
+        ["a raise cannot lift a tiled window", "    if (self.floating !== true) return { ok: true, covered: false };\n", ""],
+        ["pinned windows draw last", "(c.pinned === true && self.pinned !== true)", "false"],
+        ["only an overlap covers", "if (other.x >= own.x + own.w || own.x >= other.x + other.w || other.y >= own.y + own.h || own.y >= other.y + other.h) continue;", ""],
+        ["only its workspace covers", "if (c.pinned !== true && (key === \"\" || workspaceKey(c.workspace || {}) !== key)) continue;", ""],
+        ["a hidden window covers nothing", "c.hidden === true || c.floating !== true) continue;", "c.floating !== true) continue;"]
+    ];
+    for (const [name, needle, replacement] of coverControls) {
+        if (source.split(needle).length !== 2) { failures += 1; console.log("  FAIL  control " + name + ": the text to replace must occur once"); continue; }
+        const mutant = path.join(scratch, "Dispatch.js");
+        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        const lib = require("../bin/lib/qml-library.js").load(mutant);
+        let bad;
+        try {
+            bad = verifyCover(lib, false);
+        } catch (e) {
+            bad = 1;
+        }
+        check("control " + name + " fails the cover rows", bad > 0, true);
     }
 } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
