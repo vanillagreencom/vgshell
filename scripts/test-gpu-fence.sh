@@ -1689,7 +1689,7 @@ PY
   git -C "$tree" init -q
   git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
   if [[ $name == measure-shader.sh && $3 == 0 && ${4:-} != missing-hold ]]; then
-    touch -- "$tree/.git/vgs-smoke-hold" "$tree/.git/vgs-smoke-gate"
+    touch -- "$tree/.git/vgs-smoke-hold" "$tree/.git/vgs-smoke-turn"
   fi
   if [[ $name == measure-shader.sh ]]; then
     mkdir -p -- "$tree/scripts/shader"
@@ -1742,7 +1742,7 @@ enters() {
   if [[ $2 == sandbox-shots.sh ]]; then want+=" [--out] [$TMP_ROOT/tree-$2/tmp/o ut]"; fi
   for word in "${words[@]}"; do want+=" [$word]"; done
   if [[ $2 == measure-shader.sh ]]; then
-    [[ -f $tree/.git/vgs-smoke-hold && -f $tree/.git/vgs-smoke-gate ]] || return 1
+    [[ -f $tree/.git/vgs-smoke-hold && -f $tree/.git/vgs-smoke-turn ]] || return 1
     [[ -f $TMP_ROOT/fence-pid && "$(<"$TMP_ROOT/fence-pid")" != "$(<"$TMP_ROOT/entry-pid")" ]] || return 1
   fi
   [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == "$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" ]]
@@ -1774,7 +1774,7 @@ for name in "${entry_points[@]}"; do
 done
 entry "$repo/scripts/measure-shader.sh" measure-shader.sh 0 missing-hold
 if [[ $status -eq 77 && "$(<"$TMP_ROOT/fence.log")" == check && "$(<"$TMP_ROOT/err")" == *'missing=smoke-hold cause=lock-file-absent'* \
-  && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-hold && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-gate ]]; then
+  && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-hold && ! -e $TMP_ROOT/tree-measure-shader.sh/.git/vgs-smoke-turn ]]; then
   ok 'shader entry refuses absent hold files inside the world'
 else
   fail 'shader entry refuses absent hold files inside the world'; show

@@ -138,7 +138,7 @@ if ! smoke_hold_dir="$(git -C "$repo" rev-parse --path-format=absolute --git-com
 fi
 # As in qml-smoke.sh, create the shared files only before world entry.
 # Noclobber lets concurrent drivers agree on the same inode (D112).
-for lock in "$smoke_hold_dir/vgs-smoke-hold" "$smoke_hold_dir/vgs-smoke-gate"; do
+for lock in "$smoke_hold_dir/vgs-smoke-hold" "$smoke_hold_dir/vgs-smoke-turn"; do
   [[ ! -f $lock ]] || continue
   if [[ $in_world == true ]]; then
     printf 'shader-cost: status=not-measured missing=smoke-hold cause=lock-file-absent path=%s\n' "$lock" >&2

@@ -742,7 +742,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         (root / "home").mkdir()
         env = {"PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "LC_ALL": "C"}
         subprocess.run(["git", "init", "-q", "--template=", str(root)], env=env, check=True)
-        for lock in ("vgs-smoke-hold", "vgs-smoke-gate"):
+        for lock in ("vgs-smoke-hold", "vgs-smoke-turn"):
             (root / ".git" / lock).touch()
         (root / "shell/Ui/feedback/shaders").mkdir(parents=True)
         (root / "shell/Ui/foundation/shaders").mkdir(parents=True)

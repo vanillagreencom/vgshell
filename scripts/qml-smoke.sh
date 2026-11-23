@@ -38,7 +38,7 @@
 # sink=exited.
 # scripts/smoke/verdict.sh holds the verdict. Exit 1 when a check failed.
 # Before its first world the driver creates the quiet-host hold's lock
-# files, vgs-smoke-hold and vgs-smoke-gate, in the checkout's common git
+# files, vgs-smoke-hold and vgs-smoke-turn, in the checkout's common git
 # directory (smoke_hold in scripts/smoke/harness.sh). Where it cannot, it
 # starts nothing and exits 77 with `qml-smoke: status=not-measured
 # missing=smoke-hold cause=git-common-dir-unread|create-failed`.
@@ -441,7 +441,7 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
     printf 'qml-smoke: status=not-measured missing=smoke-hold cause=git-common-dir-unread repo=%s\n' "$repo" >&2
     exit 77
   fi
-  for qml_smoke_lock in "$smoke_hold_dir/vgs-smoke-hold" "$smoke_hold_dir/vgs-smoke-gate"; do
+  for qml_smoke_lock in "$smoke_hold_dir/vgs-smoke-hold" "$smoke_hold_dir/vgs-smoke-turn"; do
     # noclobber: of two drivers that create a file at once, one creates it.
     if [[ ! -f $qml_smoke_lock ]] && ! (set -C; : >"$qml_smoke_lock") 2>/dev/null && [[ ! -f $qml_smoke_lock ]]; then
       printf 'qml-smoke: status=not-measured missing=smoke-hold cause=create-failed path=%s\n' "$qml_smoke_lock" >&2
