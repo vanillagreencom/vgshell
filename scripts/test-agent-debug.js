@@ -159,6 +159,18 @@ function verify(d) {
         assert.equal(d.syncFacts(text) !== null, accepted, "sync facts: " + label);
     same(d.syncArgs("claude", Object.assign({}, SYNC, { error: "line\nnext" }), SYNC.at, -480),
         ["claude", "sync", "notes.service", "Notes", "rsync", "/home/u/notes/", "/mnt/a/", "line?next", "2026-11-03T13:40:00-08:00"]);
+    // A Jarvis error handed as text by its card's Send to agent.
+    const JARVIS = { kind: "jarvis", cause: "speech=dictation-idle", title: "Jarvis did not hear your words", at: 1793742000123 };
+    for (const [label, text, accepted] of [
+        ["the shape Jarvis writes", JSON.stringify(JARVIS), true],
+        ["a sync job's", JSON.stringify(SYNC), false],
+        ["a key too many", JSON.stringify(Object.assign({}, JARVIS, { command: "rm -rf ~" })), false],
+        ["a cause that is not text", JSON.stringify(Object.assign({}, JARVIS, { cause: 1 })), false],
+        ["no time", JSON.stringify(Object.assign({}, JARVIS, { at: "now" })), false]
+    ])
+        assert.equal(d.jarvisFacts(text) !== null, accepted, "jarvis facts: " + label);
+    same(d.jarvisArgs("codex", Object.assign({}, JARVIS, { title: "line\nnext" }), JARVIS.at, -480),
+        ["codex", "jarvis", "speech=dictation-idle", "line?next", "2026-11-03T13:40:00-08:00"]);
     // Diagnose reads the failure the core holds at the press while it is
     // still the run the notification told, so a record path the core
     // listed after the first read reaches the prompt.

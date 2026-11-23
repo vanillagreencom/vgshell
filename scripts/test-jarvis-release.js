@@ -58,6 +58,21 @@ world(async () => {
                     for (const granted of [false, true]) cell(Policy, profile, vision, name, brain, speech, source, granted);
 
     const selected = select(Policy);
+    // Always allow for a release: each needed label's key names the label
+    // and the remote recipients; a saved key marks its label standing, and
+    // another provider's, account's or origin's key covers none.
+    const screenKey = "release:screen:recipient=brain|fixture|https%3A//brain.example:recipient=voice|fixture|https%3A//voice.example";
+    const screen = Policy.item("PRIVATE pixels", ["screen", "file"]);
+    const needed = Policy.release(screen, selected).needed;
+    const asked = Policy.releaseGrants(selected, needed, []);
+    assert.deepEqual([{ ...asked.keys }, [...asked.standing]],
+        [{ screen: screenKey, file: screenKey.replace(":screen:", ":file:") }, []], "an ask names each label's key");
+    assert.deepEqual([...Policy.releaseGrants(selected, needed, [screenKey]).standing], ["screen"], "a saved key stands for its label");
+    for (const other of [{ provider: "other" }, { account: "other" }, { origin: "https://other.example" }]) {
+        const moved = select(Policy, "standard", "ask", { ...remote, ...other });
+        assert.deepEqual([...Policy.releaseGrants(moved, needed, [screenKey]).standing], [], "a key covers its recipients alone");
+    }
+    assert.throws(() => Policy.releaseGrants(selected, needed, "screen"), { message: "jarvis: policy=allowed" });
     const fileText = Policy.item("PRIVATE file", ["file"]);
     assert.deepEqual(Policy.release(fileText, selected), { kind: "ask", content: "[withheld: file text]", labels: ["file"], needed: ["file"] });
     assert.equal(Policy.release(fileText, selected, [{ recipients: selected, labels: ["file"] }]).kind, "send");

@@ -66,7 +66,7 @@ Item {
     readonly property bool shown: wanted || closing
     readonly property bool presented: wanted && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
-        && overlay.width <= width && overlay.height + look.layout.margin <= height
+        && overlay.width <= width && overlay.height + look.layout.bottom <= height
     // A capture shows only on an orb a pointer can use: one at least as
     // wide as one of its own icon buttons.
     readonly property bool capturePresented: presented && !hidden && orb.visible && orb.width >= icons.width
@@ -98,8 +98,8 @@ Item {
     readonly property var consoleBox: service === null ? null : service.consoleBox
     readonly property bool overConsole: consoleBox !== null && screen !== null
         && consoleBox.output === screen.name
-        && consoleBox.y + consoleBox.height > height - look.layout.margin - bottomHeight
-        && consoleBox.y < height - look.layout.margin
+        && consoleBox.y + consoleBox.height > height - look.layout.bottom - bottomHeight
+        && consoleBox.y < height - look.layout.bottom
         && consoleBox.x < (width + bottomWidth) / 2 && consoleBox.x + consoleBox.width > (width - bottomWidth) / 2
     // A held request retains its centred top placement and frame contract.
     // Other states fit the roomier side, leaving the plates clear of Console.
@@ -241,11 +241,11 @@ Item {
     // The open menu's entries, which scripts/smoke/rows/jarvis-bubble.sh
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
-    readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea]
+    readonly property var textItems: [words, stateLine, silenceLine, faultAction, viewLog, sendFault, question, fullPath, payloadArea]
     readonly property var inputItems: !wanted || !visible ? [] : (active && !hidden ? [orbHit] : [])
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
-        .concat(hold === null || !approvalText.visible ? [] : [cancel, confirm])
+        .concat(hold === null || !approvalText.visible ? [] : [cancel, confirm].concat(alwaysRow.visible ? [alwaysRow] : []))
         // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
     // Whether ITEM and every item over it up to the overlay show.
@@ -361,6 +361,7 @@ Item {
         height: bottomTitle.implicitHeight
             + (silenceLine.visible ? root.look.layout.gap + bottomSilence.implicitHeight : 0)
             + (faultAction.visible ? root.look.layout.gap + bottomAction.implicitHeight : 0)
+            + (faultLinks.visible ? root.look.layout.gap + faultLinks.height : 0)
         Label {
             id: bottomTitle
             width: parent.width
@@ -433,7 +434,7 @@ Item {
             + root.look.plate.gap + iconPill.height
             + (stateBox.visible ? root.look.plate.gap + 2 * card.paddingY + stateBox.height : 0)
         // The height `presented` lets this box take above the layer's margin.
-        readonly property real layerRoom: root.height - root.look.layout.margin
+        readonly property real layerRoom: root.height - root.look.layout.bottom
         readonly property real rowRoom: width - iconPill.width - root.look.plate.gap
         // Choose the group arrangement before assigning any box. A row that
         // leaves the orb's normal hover target stays a row. A tighter side
@@ -481,7 +482,7 @@ Item {
         // width and height up its parents; a transform moves none of them
         // and would leave the mask where the move began).
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: root.look.layout.margin - (1 - root.rest) * root.look.orb.rise
+        anchors.bottomMargin: root.look.layout.bottom - (1 - root.rest) * root.look.orb.rise
         anchors.topMargin: root.look.layout.margin + (1 - root.rest) * root.look.orb.rise
         // AnchorChanges releases the bottom anchor as it sets the top one,
         // where two bindings could hold both for a moment and stretch the
@@ -694,7 +695,8 @@ Item {
             readonly property Item column: root.hold !== null ? approvalText : stateBox
             readonly property real lines: root.hold !== null ? approvalText.width
                 : Math.min(stateBox.width, Math.max(stateLine.contentWidth,
-                    silenceLine.visible ? silenceLine.implicitWidth : 0, faultAction.visible ? faultAction.implicitWidth : 0))
+                    silenceLine.visible ? silenceLine.implicitWidth : 0, faultAction.visible ? faultAction.implicitWidth : 0,
+                    faultLinks.visible ? faultLinks.width : 0))
             visible: column.visible
             x: Math.round(overlay.centre - width / 2)
             y: column.y - overlay.card.paddingY
@@ -755,6 +757,33 @@ Item {
                     if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
                 }
             }
+            // An error's View log and Send to agent, the actions Local Sync
+            // gives a failed job: the log's Jarvis lines, and the error as
+            // a draft Agent Debug's chosen agent diagnoses.
+            Row {
+                id: faultLinks
+                x: (parent.width - width) / 2
+                visible: root.phase === "error" && root.fault !== null
+                spacing: root.look.layout.actions
+                LinkText {
+                    id: viewLog
+                    role: "body"
+                    color: root.look.ink.action
+                    linkColor: root.look.ink.link
+                    text: "View log"
+                    link: text
+                    onActivated: if (root.service !== null) root.service.viewLog()
+                }
+                LinkText {
+                    id: sendFault
+                    role: "body"
+                    color: root.look.ink.action
+                    linkColor: root.look.ink.link
+                    text: "Send to agent"
+                    link: text
+                    onActivated: if (root.service !== null) root.service.sendFault(root.state.fault, root.fault.title)
+                }
+            }
         }
 
         Column {
@@ -807,8 +836,8 @@ Item {
                 // (https://doc.qt.io/qt-6/qml-qtquick-column.html). The
                 // overlay keeps the margin to the layer's edge at its bottom,
                 // or at its top over the console.
-                readonly property var others: [question, fullPath, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
-                readonly property real room: root.height - root.look.layout.margin - overlay.below - overlay.card.paddingY
+                readonly property var others: [question, fullPath, alwaysRow, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
+                readonly property real room: root.height - root.look.layout.bottom - overlay.below - overlay.card.paddingY
                     - others.reduce((sum, item) => sum + item.height + approvalText.spacing, 0)
                 width: parent.width
                 height: Math.min(payload.implicitHeight, Math.max(root.look.layout.payload, Math.floor(room)))
@@ -829,6 +858,57 @@ Item {
                     textFormat: Text.PlainText
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
+                }
+            }
+            // Always allow, with what it covers: checked with a Yes, the
+            // daemon saves the request's key, and that kind of request asks
+            // no more in any turn: a physical step, a tainted turn's
+            // request, an external one and a release alike (D139). A hold
+            // with no key, a forward to Jarvis main or a key no settings row
+            // could hold, shows none.
+            Item {
+                id: alwaysRow
+                objectName: "alwaysAllow"
+                readonly property bool checked: root.hold !== null && root.hold.always === true
+                width: parent.width
+                height: alwaysContent.height
+                visible: root.hold !== null && root.hold.grantable === true
+                Row {
+                    id: alwaysContent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: root.look.always.gap
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: root.look.always.box
+                        height: width
+                        radius: root.look.always.radius
+                        color: alwaysRow.checked ? root.look.always.fill : root.look.answer.clear
+                        border.width: alwaysRow.checked ? 0 : root.look.always.line
+                        border.color: root.look.always.border
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: root.look.always.check
+                            color: root.look.always.mark
+                            visible: alwaysRow.checked
+                        }
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(implicitWidth, alwaysRow.width - root.look.always.box - alwaysContent.spacing)
+                        role: "hint"
+                        color: root.look.always.ink
+                        text: root.hold === null || root.hold.label === undefined || root.hold.label === "" ? "Always allow"
+                            : "Always allow: " + root.hold.label
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                    }
+                }
+                PointerCursor {}
+                // keyboard-path: the Always allow Jarvis shortcut answers Yes with the box checked
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: if (root.service !== null) root.service.alwaysApproval(root.displayedHold, !alwaysRow.checked)
                 }
             }
             Row {

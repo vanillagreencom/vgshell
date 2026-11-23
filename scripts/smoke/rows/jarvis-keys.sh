@@ -332,7 +332,7 @@ expect_poll "disable drops the stopped startup owner" absent ipc smoke jarvisPro
 jarvis_key_startup
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","confirm":"SUPER+CTRL+Y","deny":null,"console":"SUPER+ALT+C"}' \
+  '{"talk":"SUPER+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","confirm":"SUPER+CTRL+Y","confirm-always":"SUPER+CTRL+SHIFT+Y","deny":null,"console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 expect_poll "ready acknowledges the startup" '{"kind":"ready"}' ipc smoke readInstance service vgs.jarvis lifetime

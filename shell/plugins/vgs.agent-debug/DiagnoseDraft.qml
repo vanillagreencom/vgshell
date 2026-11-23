@@ -40,7 +40,10 @@ FocusScope {
         else if (reply !== "recovery") problem = "The agent could not open. Check its installation, then try again.";
     }
     // The facts in the order the prompt names them (Diagnose.js).
-    readonly property var rows: facts === null ? [] : [
+    readonly property var rows: facts === null ? [] : facts.kind === "jarvis" ? [
+        { label: "Error", value: facts.title },
+        { label: "Cause", value: facts.cause }
+    ].filter(row => row.value !== "") : [
         { label: "System job", value: facts.unit },
         { label: "Name", value: facts.name },
         { label: "Engine", value: facts.engine },
@@ -53,7 +56,7 @@ FocusScope {
         id: layout
         anchors.fill: parent
         container: "window"
-        title: "Diagnose a failed sync job"
+        title: root.facts !== null && root.facts.kind === "jarvis" ? "Diagnose a Jarvis error" : "Diagnose a failed sync job"
         header: Label {
             width: layout.contentWidth
             text: root.agent === "" ? "Choose an agent in Agent Debug's settings, then run the diagnosis." : "Run opens " + root.agent + " with these facts. The agent asks you before it runs a command."

@@ -44,11 +44,27 @@ world(() => {
         ["standard", ["allow", "allow", "scope", "allow", "confirm", "confirm", "physical"]],
         ["trusted", ["allow", "allow", "allow", "allow", "allow", "confirm", "physical"]]
     ];
+    // Every confirm names the key Always allow saves, the tool, its effect,
+    // its input target and each judged path by its field, or an
+    // application's scope, with the line its card shows (fitted to a row
+    // label by grantLine, whose table is below).
+    const keys = { input: "input.text:input:application=org.example.Editor", persistent: "files.write:persistent:path=" + newFile,
+        exec: "shell.line:exec:cwd=" + project, external: "browser:external:site=https%3A//example.test",
+        destructive: "files.delete:destructive:path=" + existing };
+    const lines = { input: "Type any text in org.example.Editor", persistent: "Write any text to " + newFile,
+        exec: "Run any command in " + project, external: "Submit anything on https://example.test", destructive: "Delete " + existing };
     function expected(effect, rule) {
         if (rule === "allow") return { kind: "allow", effect };
         const result = { kind: "confirm", effect, physical: rule === "physical" };
-        if (rule === "scope") result.scope = "application:org.example.Editor";
+        if (rule === "scope") Object.assign(result, { scope: "application:org.example.Editor", grant: "application:org.example.Editor",
+            line: "Any input anywhere in org.example.Editor" });
+        else Object.assign(result, { grant: keys[effect], line: Policy.grantLine(lines[effect]) });
         return result;
+    }
+    // A decision without its key, for a row about something else.
+    function bare(decision) {
+        const { grant: _grant, line: _line, ...rest } = decision;
+        return rest;
     }
     function checkCell(logic, profile, effect, rule) {
         const current = { ...context, profile, input: effect === "external" ? site : input };
@@ -56,6 +72,115 @@ world(() => {
     }
     for (const [profile, rules] of profiles)
         Object.keys(effects).forEach((effect, index) => checkCell(Policy, profile, effect, rules[index]));
+
+    // Always allow: one table of grant, reuse and removal (D139). Each row
+    // decides a call with ALLOWED, the saved keys, and expects its decision.
+    // A key covers its own kind of request alone, and every kind takes one:
+    // a networked run, a destructive step and a tainted turn's request too.
+    // A forward to Jarvis main takes none: its record cites one confirmation.
+    const otherFolder = path.join(home, "elsewhere");
+    fs.mkdirSync(otherFolder, { recursive: true });
+    const networked = call("shell.line", { line: "echo literal", cwd: project, network: true });
+    const forward = call("fleet.forward", { text: "status" });
+    const task = (agent, account) => call("task.start", { goal: "fix", cwd: project, ...(agent ? { agent } : {}), ...(account ? { account } : {}) });
+    // A harness program's proposal; harnessCases below judges each entry.
+    const harnessFiles = (write, move = [], remove = []) => call("harness.files", { write, move, remove, diff: "" });
+    const asks = (effect, physical, grant, line, extra = {}) => ({ kind: "confirm", effect, physical, ...extra, grant, line: Policy.grantLine(line) });
+    const netKey = "shell.line:external:cwd=" + project;
+    const taskKey = "task.start:exec:cwd=" + project + ":agent=codex:account=work";
+    const editor = "application:org.example.Editor";
+    const editorLine = "Any input anywhere in org.example.Editor";
+    const other = { ...input, target: { kind: "application", id: "org.example.Other" } };
+    const typedTerminal = { target: { kind: "terminal", id: "org.example.Terminal" }, text: { effective: [] } };
+    const second = path.join(path.dirname(newFile), "second.txt");
+    const writeExisting = "harness.files:destructive:write=" + existing;
+    const writeBoth = "harness.files:persistent:write=" + newFile + ":write=" + second;
+    const grantRows = [
+        ["exec asks with its key", effects.exec, [], {}, asks("exec", false, keys.exec, lines.exec)],
+        ["exec under its key is allowed", effects.exec, [keys.exec], {}, { kind: "allow", effect: "exec", grant: keys.exec }],
+        ["a removed key asks again", effects.exec, [], {}, asks("exec", false, keys.exec, lines.exec)],
+        ["another folder's key covers none", call("shell.line", { line: "echo literal", cwd: otherFolder, network: false }), [keys.exec], {},
+            asks("exec", false, "shell.line:exec:cwd=" + otherFolder, "Run any command in " + otherFolder)],
+        ["application under its key is allowed", effects.input, [editor], {}, { kind: "allow", effect: "input", grant: editor }],
+        ["another application's key covers none", effects.input, ["application:org.example.Other"], {},
+            asks("input", false, editor, editorLine, { scope: editor })],
+        ["another application's card names that application", effects.input, [editor], { input: other },
+            asks("input", false, "application:org.example.Other", "Any input anywhere in org.example.Other",
+                { scope: "application:org.example.Other" })],
+        ["a tainted turn's input card names the application its key covers", effects.input, [], { taint: { kind: "tainted" } },
+            asks("input", false, editor, editorLine)],
+        ["a cautious input card names any text in its target", effects.input, [], { profile: "cautious" },
+            asks("input", false, keys.input, lines.input)],
+        ["a browser submit names any submit on its site", effects.external, [], { input: site }, asks("external", false, keys.external, lines.external)],
+        ["a terminal's typing names any text there", effects.input, [], { profile: "trusted", input: typedTerminal },
+            asks("destructive", true, "input.text:destructive:terminal=org.example.Terminal", "Type any text in org.example.Terminal")],
+        ["a mailbox request names any request", call("fleet.request", { text: "status" }), [], {},
+            asks("exec", false, "fleet.request:exec", "Put any request in your Jarvis session mailbox")],
+        ["a networked run asks with its own key", networked, [keys.exec], {}, asks("external", false, netKey, "Run any online command in " + project)],
+        ["a networked run under its key is allowed", networked, [netKey], {}, { kind: "allow", effect: "external", grant: netKey }],
+        ["a destructive step asks with its key", effects.destructive, [], {}, asks("destructive", true, keys.destructive, lines.destructive)],
+        ["a destructive step under its key is allowed", effects.destructive, [keys.destructive], {}, { kind: "allow", effect: "destructive", grant: keys.destructive }],
+        ["a tainted turn asks with the same key", effects.exec, [], { taint: { kind: "tainted" } }, asks("exec", false, keys.exec, lines.exec)],
+        ["a tainted turn under the key is allowed", effects.exec, [keys.exec], { taint: { kind: "tainted" } }, { kind: "allow", effect: "exec", grant: keys.exec }],
+        ["a task's key names its agent and account", task("codex", "work"), [taskKey], {}, { kind: "allow", effect: "exec", grant: taskKey }],
+        ["another agent asks again", task("claude", "work"), [taskKey], {},
+            asks("exec", false, "task.start:exec:cwd=" + project + ":agent=claude:account=work", "Start any claude task with account work in " + project)],
+        ["another account asks again", task("codex", "home"), [taskKey], {},
+            asks("exec", false, "task.start:exec:cwd=" + project + ":agent=codex:account=home", "Start any codex task with account home in " + project)],
+        ["a saved overwrite still asks for a remove of that file", harnessFiles([], [], [existing]), [writeExisting], {},
+            asks("destructive", true, "harness.files:destructive:remove=" + existing, "Remove files: " + existing)],
+        ["a split across fields is not one list", harnessFiles([newFile], [second]), [writeBoth], { profile: "cautious" },
+            asks("persistent", false, "harness.files:persistent:write=" + newFile + ":move=" + second,
+                "Move and write any text to files: " + second + "; " + newFile)],
+        ["a forward takes no key", forward, [netKey, "fleet.forward:external"], {}, { kind: "confirm", effect: "external", physical: false }]
+    ];
+    assert.deepEqual(Policy.decide(harnessFiles([existing]), context).grant, writeExisting, "always allow: an overwrite's key names its role");
+    // A line's cut shortens path text alone: every role and wildcard word
+    // comes before the first path. Two scratch paths overrun the 60-unit
+    // line; a deeper folder would overrun the 256-unit key too under a long
+    // TMPDIR, and a key past it is named on no card.
+    const cut = Policy.decide(harnessFiles([newFile], [], [existing]), context).line;
+    assert.deepEqual([cut.startsWith("Remove and write any text to files: "), cut.length <= 60, cut.endsWith("…")], [true, true, true],
+        "always allow: a cut line still names every role");
+    const moveCut = Policy.decide(call("files.move", { from: existing, to: newFile }), { ...context, profile: "cautious" }).line;
+    assert.deepEqual([moveCut.startsWith("Move a file, from and to: "), moveCut.length <= 60], [true, true],
+        "always allow: a cut move line still names both roles");
+    for (const [name, action, allowed, extra, want] of grantRows)
+        assert.deepEqual(Policy.decide(action, { ...context, ...extra, allowed }), want, "always allow: " + name);
+    // Two requests share a key only when every part is equal: each part
+    // names its field, and a value holding a joining character keeps it
+    // escaped. Each pair would join to one key otherwise; a saved key allows
+    // only its own request. Each key holds one scratch path, so it stays a
+    // row id under a long TMPDIR.
+    const apart = [
+        ["one path in two roles", harnessFiles([newFile]), harnessFiles([], [newFile])],
+        ["an agent that names an account", task("codex:account=work"), task("codex", "work")]];
+    for (const [name, first, second] of apart) {
+        const [one, two] = [first, second].map(action => Policy.decide(action, { ...context, profile: "cautious" }));
+        assert.deepEqual([typeof one.grant, typeof two.grant, one.grant === two.grant], ["string", "string", false], "always allow: two keys for " + name);
+        assert.equal(Policy.decide(second, { ...context, profile: "cautious", allowed: [one.grant] }).kind, "confirm",
+            "always allow: one key does not allow the other: " + name);
+    }
+    // A key is a status row id (TuiArguments): a folder named with a C1
+    // control gives none, so it is never saved; one with a line separator
+    // gives one, and its line (grantLine) drops the separator.
+    for (const [name, keyed] of [["c\u0085d", false], ["a\u2028b", true]]) {
+        const odd = path.join(home, name);
+        fs.mkdirSync(odd, { recursive: true });
+        assert.equal(Policy.decide(call("shell.line", { line: "echo literal", cwd: odd, network: false }), context).grant,
+            keyed ? "shell.line:exec:cwd=" + odd : undefined, "always allow: a key only a row id can hold: " + JSON.stringify(name));
+    }
+    assert.deepEqual(["shell.line:exec:cwd=/x", "application:a", "site:https%3A//a", "release:screen:recipient=p|a|https%3A//o"].map(Policy.grantKind),
+        ["shell.line:exec", "application", "site", "release:screen"], "an audit names a key's kind alone");
+    // A key's line is one the status rows judge takes as a label: one line
+    // of at most 60 UTF-16 units, cut before a whole character.
+    for (const [name, text, line] of [
+        ["a short line is kept", "Run commands in /home/u/proj", "Run commands in /home/u/proj"],
+        ["a line separator becomes a space", "Run commands in /home/u/a b", "Run commands in /home/u/a b"],
+        ["a long line is cut to 60", "a".repeat(70), "a".repeat(59) + "…"],
+        ["a cut never splits a character or passes 60 units", "a".repeat(58) + "\u{1F600}bbb", "a".repeat(58) + "…"]])
+        assert.equal(Policy.grantLine(text), line, "always allow: " + name);
+    assert.deepEqual(Policy.decide(effects.exec, { ...context, allowed: "shell.line" }), { kind: "refuse", reason: "allowed-grants" });
 
     const refuse = (logic, action, current, reason) => {
         let result;
@@ -69,7 +194,10 @@ world(() => {
         for (const taintEffect of ["input", "persistent", "exec", "external"]) {
             const current = { ...context, profile, taint: { kind: "tainted" },
                 input: taintEffect === "external" ? site : input, grants: ["application:org.example.Editor"] };
-            assert.deepEqual(Policy.decide(effects[taintEffect], current), { kind: "confirm", effect: taintEffect, physical: false });
+            // A tainted turn's confirm names the same key a clean one does.
+            const applicationScope = taintEffect === "input" && profile === "standard";
+            assert.deepEqual(Policy.decide(effects[taintEffect], current), asks(taintEffect, false,
+                applicationScope ? editor : keys[taintEffect], applicationScope ? editorLine : lines[taintEffect]));
         }
         assert.deepEqual(Policy.decide(memoryWrite, { ...context, profile, taint: { kind: "tainted" } }),
             { kind: "allow", effect: "persistent" }, "tainted memory writes reach Memory.js quarantine");
@@ -137,7 +265,7 @@ world(() => {
     assert.deepEqual(Policy.decide(effects.input, { ...context, grants: ["application:org.example.Other"] }), expected("input", "scope"));
     const browserInput = call("browser", { command: "fill", args: { ref: "@e1", text: "literal" } });
     assert.deepEqual(Policy.decide(browserInput, { ...context, input: site }),
-        { kind: "confirm", effect: "input", physical: false, scope: "site:https://example.test" });
+        asks("input", false, "site:https%3A//example.test", "Click and type anything on https://example.test", { scope: "site:https://example.test" }));
     assert.deepEqual(Policy.decide(browserInput, { ...context, input: site, grants: ["site:https://example.test"] }),
         { kind: "allow", effect: "input" });
     const terminal = { target: { kind: "terminal", id: "org.example.Terminal" }, text: { effective: [] } };
@@ -146,7 +274,7 @@ world(() => {
             refuse(Policy, effects.input, { ...context, profile, input: terminal, taint: { kind } }, "terminal-text");
     for (const kind of ["clean", "tainted"])
         assert.deepEqual(Policy.decide(effects.input, { ...context, profile: "trusted", input: terminal, taint: { kind } }),
-            { kind: "confirm", effect: "destructive", physical: true });
+            asks("destructive", true, "input.text:destructive:terminal=org.example.Terminal", "Type any text in org.example.Terminal"));
     for (const [profile] of profiles)
         for (const kind of ["clean", "tainted"])
             for (const [action, , key] of inputRoutes.filter(row => ["key", "pointer"].includes(row[1])))
@@ -183,9 +311,9 @@ world(() => {
     for (const [profile] of profiles) {
         for (const action of [overwrite, moveOverwrite, executionWrite, executionWorkspace])
             for (const kind of ["clean", "tainted"])
-                assert.deepEqual(Policy.decide(action, { ...context, profile, taint: { kind } }), expected("destructive", "physical"));
-        assert.deepEqual(Policy.decide(moved, { ...context, profile }),
-            expected("persistent", profile === "cautious" ? "confirm" : "allow"));
+                assert.deepEqual(bare(Policy.decide(action, { ...context, profile, taint: { kind } })), bare(expected("destructive", "physical")));
+        assert.deepEqual(bare(Policy.decide(moved, { ...context, profile })),
+            bare(expected("persistent", profile === "cautious" ? "confirm" : "allow")));
     }
     const linkedProfile = path.join(project, "profile");
     fs.symlinkSync(path.join(home, ".bashrc"), linkedProfile);
@@ -193,18 +321,17 @@ world(() => {
     refuse(Policy, call("files.write", { path: linkedProfile, text: "" }), context, "path-resolution");
 
     // A harness program's proposal names each path; every entry is judged.
-    const harnessFiles = (write, move = [], remove = []) => call("harness.files", { write, move, remove, diff: "" });
     const harnessCommand = call("harness.command", { command: "ls -la", cwd: project });
     const harnessCases = logic => {
         for (const [profile] of profiles) {
-            assert.deepEqual(logic.decide(harnessFiles([newFile]), { ...context, profile }),
-                expected("persistent", profile === "cautious" ? "confirm" : "allow"));
+            assert.deepEqual(bare(logic.decide(harnessFiles([newFile]), { ...context, profile })),
+                bare(expected("persistent", profile === "cautious" ? "confirm" : "allow")));
             for (const action of [harnessFiles([newFile, existing]), harnessFiles([], [], [newFile]),
                 harnessFiles([newFile, path.join(home, ".bashrc")])])
-                assert.deepEqual(logic.decide(action, { ...context, profile }), expected("destructive", "physical"));
+                assert.deepEqual(bare(logic.decide(action, { ...context, profile })), bare(expected("destructive", "physical")));
             refuse(logic, harnessFiles([newFile, path.join(home, ".ssh", "absent")]), { ...context, profile }, "protected-path");
             if (profile === "trusted")
-                assert.deepEqual(logic.decide(harnessCommand, { ...context, profile }), expected("destructive", "physical"));
+                assert.deepEqual(bare(logic.decide(harnessCommand, { ...context, profile })), bare(expected("destructive", "physical")));
             else refuse(logic, harnessCommand, { ...context, profile }, "unconfined-command");
         }
     };
@@ -218,7 +345,9 @@ world(() => {
     fs.mkdirSync(brainFolder, { recursive: true });
     const folderCases = logic => {
         for (const [id, args] of [["shell.argv", { argv: ["date"], network: false }], ["shell.line", { line: "date", network: false }]]) {
-            assert.deepEqual(logic.decide(call(id, args), context), { kind: "confirm", effect: "exec", physical: false }, id);
+            // With no folder the command runs in a new empty one: its key
+            // names no folder.
+            assert.deepEqual(logic.decide(call(id, args), context), asks("exec", false, id + ":exec", "Run any command in a new empty folder"), id);
             assert.deepEqual(logic.decide(call(id, args), { ...context, profile: "trusted" }), { kind: "allow", effect: "exec" }, id);
             for (const cwd of [brainFolder, home]) refuse(logic, call(id, { ...args, cwd }), context, "protected-path");
         }
@@ -261,9 +390,9 @@ world(() => {
         logic => refuse(logic, call("files.read", { path: path.join(home, ".ssh", "absent") }), context, "protected-path"));
     control("lazy-snapshot", "if (refined.paths.length > 0) {", "if (void context.denied, refined.paths.length > 0) {", unread);
     control("execution-write", 'target.execution || role === "remove"', 'false || role === "remove"',
-        logic => assert.deepEqual(logic.decide(executionWrite, context), expected("destructive", "physical")));
+        logic => assert.deepEqual(bare(logic.decide(executionWrite, context)), bare(expected("destructive", "physical"))));
     control("overwrite", '(role === "write" && target.exists)', '(false && role === "write" && target.exists)',
-        logic => assert.deepEqual(logic.decide(overwrite, context), expected("destructive", "physical")));
+        logic => assert.deepEqual(bare(logic.decide(overwrite, context)), bare(expected("destructive", "physical"))));
     control("input-target", 'return { kind: "refuse", reason: "input-target" };',
         'return { kind: "allow", effect: "input" };',
         logic => refuse(logic, effects.input, { ...context, input: null }, "input-target"));
@@ -342,7 +471,7 @@ world(() => {
         });
     control("terminal-physical", 'effect = "destructive";\n        }\n        if (refined.input === "text") {',
         'effect = "input";\n        }\n        if (refined.input === "text") {',
-        logic => assert.deepEqual(logic.decide(effects.input, { ...context, profile: "trusted", input: terminal }), expected("destructive", "physical")));
+        logic => assert.deepEqual(bare(logic.decide(effects.input, { ...context, profile: "trusted", input: terminal })), bare(expected("destructive", "physical"))));
     control("path-list", "[refined.call.args[field]].flat()", "[[refined.call.args[field]].flat()[0]]", harnessCases);
     control("unconfined-refusal", 'if (context.profile === "trusted") effect = "destructive";',
         'if (true) effect = "destructive";', harnessCases);
@@ -363,7 +492,7 @@ world(() => {
             grants: ["application:org.example.Editor"] }).kind, "confirm"));
     control("taint-upgrade", 'if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         'if (false && context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
-        logic => assert.deepEqual(logic.decide(effects.persistent, { ...context, taint: { kind: "tainted" } }), expected("persistent", "confirm")));
+        logic => assert.deepEqual(bare(logic.decide(effects.persistent, { ...context, taint: { kind: "tainted" } })), bare(expected("persistent", "confirm"))));
     control("memory-taint-quarantine", 'if (context.taint.kind === "tainted" && refined.executor === "memory-write")\n        return { kind: "allow", effect };',
         '',
         logic => assert.deepEqual(logic.decide(memoryWrite, { ...context, taint: { kind: "tainted" } }),
@@ -374,12 +503,12 @@ world(() => {
         const needle = '["persistent", "exec", "input", "external"].includes(effect)';
         const replacement = needle.replace(`"${effect}"`, '"removed"');
         control("taint-effect-" + effect, needle, replacement,
-            logic => assert.deepEqual(logic.decide(effects[effect], { ...context, profile: "trusted",
-                taint: { kind: "tainted" } }), expected(effect, "confirm")));
+            logic => assert.deepEqual(bare(logic.decide(effects[effect], { ...context, profile: "trusted",
+                taint: { kind: "tainted" } })), bare(expected(effect, "confirm"))));
     }
-    control("physical-before-taint", 'if (rule === "physical") return { kind: "confirm", effect, physical: true };',
-        'if (rule === "physical") return { kind: "confirm", effect, physical: false };',
-        logic => assert.deepEqual(logic.decide(effects.destructive, { ...context, taint: { kind: "tainted" } }), expected("destructive", "physical")));
+    control("physical-before-taint", 'if (rule === "physical") return asked(true);',
+        'if (rule === "physical") return asked(false);',
+        logic => assert.deepEqual(bare(logic.decide(effects.destructive, { ...context, taint: { kind: "tainted" } })), bare(expected("destructive", "physical"))));
     for (const source of ["file", "screen", "web", "agent"]) {
         const needle = 'const TAINT_SOURCES = ["file", "screen", "web", "agent"];';
         control("taint-source-" + source, needle, needle.replace(`"${source}"`, '"removed"'),

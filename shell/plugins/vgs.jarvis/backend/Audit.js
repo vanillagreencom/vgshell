@@ -117,6 +117,12 @@ function eventRecord(event, time) {
             || typeof reason !== "string" || !(VISION_REASONS.includes(reason) || VISION_COMMAND.test(reason)))) fail("reason");
     // An action the local matcher proposed, not a brain (Tools.match).
     if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");
+    // The kinds of the saved Always allow keys a row's consent went under
+    // (Policy.grantKind): a tool and its effect, an input kind or a released
+    // label, never a key's target, path, recipient or account.
+    if (event.standing !== undefined && (!Array.isArray(event.standing) || event.standing.length === 0
+            || event.standing.length > 8 || !event.standing.every(kind => typeof kind === "string" && /^[a-z][a-z.-]*(?::[a-z][a-z-]*)?$/.test(kind))))
+        fail("standing");
     return { time, kind, gen, op,
         tool: kind === "release" ? "release" : Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown",
         args: Redact.argumentsFor(kind, tool, event.args), effect, decision, confirmed, outcome,
@@ -124,6 +130,7 @@ function eventRecord(event, time) {
         ...(event.cause === undefined ? {} : { cause: event.cause }),
         ...(reason === undefined ? {} : { reason }),
         ...(event.proposer === undefined ? {} : { proposer: event.proposer }),
+        ...(event.standing === undefined ? {} : { standing: event.standing.slice() }),
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
 

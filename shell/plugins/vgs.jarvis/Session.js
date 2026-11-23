@@ -32,7 +32,7 @@ var EVENTS = [
     "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
-    "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
+    "flushed", "tool", "tool-done", "approval", "shown", "always", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound", "input-unbroken",
     "preview", "speech-input-ended", "new-conversation", "conversation-reset"
 ];
@@ -662,6 +662,12 @@ function reduce(state, e, restartFor) {
                 // Toggle can reopen capture before the brain proposes a hold.
                 // Its transcript owns no answer identity. Talk replaces it,
                 // then capture-closed admits an answer bound to this hold.
+                // Talk to answer cuts a line that holds no reply, as a
+                // barge-in does; a reply, or a line a reply waits behind,
+                // plays out, and the answer's capture opens once playback is
+                // idle (captureWanted). The card itself cuts nothing.
+                if (s.playback.kind === "feedback" && s.playback.cue === "line" && s.playback.reply.kind === "none")
+                    flushPlayback(s, effects);
                 closeCapture(s, effects);
                 start(s, effects, "held", e.at);
             }
@@ -897,11 +903,6 @@ function reduce(state, e, restartFor) {
             s.playback.reply = { kind: "waiting", gen: e.gen, source: e.op, interruptible: e.interruptible, deadline: null };
             break;
         }
-        if (s.playback.kind === "feedback" && s.playback.cue === "working" && s.playback.source === e.op) {
-            s.playback = { kind: "playing", gen: s.playback.gen, op: s.playback.op, source: e.op,
-                interruptible: e.interruptible, admission: s.playback.admission, deadline: s.playback.deadline };
-            break;
-        }
         // Audio closes asynchronously. The reply keeps its one admission
         // request until the old player's matching flush acknowledgment.
         if (s.playback.kind === "flushing" && s.conversation.kind === "active") {
@@ -940,15 +941,14 @@ function reduce(state, e, restartFor) {
         e = Object.assign({}, e, { restart: restartFor(e.reason) });
         failConversation(s, effects, e, { kind: "error", reason: e.reason });
         break;
+    // A spoken line of the thinking turn, Jarvis's word while the brain
+    // works. Jarvis plays no tone around an answer.
     case "feedback":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
-        var cue = e.cue === "line" ? "line" : "working";
-        if ((cue !== "line" && s.settings.sounds !== true) || !canEngage(s)
-                || s.conversation.kind !== "active" || s.approval.kind !== "none") break;
-        if (s.playback.kind === "feedback" && s.playback.source === e.op
-                && ["working", "line"].indexOf(s.playback.cue) !== -1) break;
+        if (e.cue !== "line") throw new Error("jarvis: session=feedback-cue");
+        if (!canEngage(s) || s.conversation.kind !== "active" || s.approval.kind !== "none") break;
         if (s.playback.kind !== "idle") break;
-        s.playback = { kind: "feedback", gen: s.gen, op: operation(s), source: e.op, cue: cue,
+        s.playback = { kind: "feedback", gen: s.gen, op: operation(s), source: e.op, cue: "line",
             admission: { kind: "waiting" }, deadline: null, reply: { kind: "none" } };
         break;
     case "tool":
@@ -976,13 +976,16 @@ function reduce(state, e, restartFor) {
         if (!canPropose(s)) break;
         toolDuration(e);
         var purpose = e.purpose === "release" ? "release" : "action";
-        if (s.playback.kind === "feedback" && (s.playback.cue === "working"
-                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);
+        // A line that plays finishes: the card waits beside it, and the
+        // answer's capture opens once playback is idle (captureWanted).
         var hold = effect(s, effects, "approval-show", { id: e.id, digest: e.digest, purpose: purpose });
+        // A request a saved key can cover offers Always allow, unchecked,
+        // with the line that names what the key covers.
+        var grantable = e.grantable === true && typeof e.label === "string" && e.label !== "";
         s.approval = { kind: "held", purpose: purpose, gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
             deadline: e.at + APPROVAL_TIMEOUT_MS, shownAt: null, physical: e.physical,
             text: e.text, tool: e.tool, timeoutMs: e.timeoutMs, cancellable: e.cancellable,
-            brain: e.op };
+            brain: e.op, grantable: grantable, always: false, label: grantable ? e.label : "" };
         // The held request has its own full interval. The scheduler selects
         // that interval, then thinking gets a fresh interval after a decision.
         s.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;
@@ -991,6 +994,16 @@ function reduce(state, e, restartFor) {
         if (!live(s, e, "approval", ["held"])) { stale(s); break; }
         if (e.id !== s.approval.id) { stale(s); break; }
         if (s.approval.shownAt === null) s.approval.shownAt = e.at;
+        break;
+    // The card's Always allow box, for this hold alone; any accepted answer,
+    // a key, a button or the voice, carries it. As with an answer, a box set
+    // before the card was drawn for APPROVAL_DRAW_MS counts for nothing.
+    case "always":
+        if (typeof e.always !== "boolean") throw new Error("jarvis: session=always");
+        if (s.approval.kind !== "held" || e.gen !== s.approval.gen || e.id !== s.approval.id
+                || e.digest !== s.approval.digest || !s.approval.grantable
+                || s.approval.shownAt === null || e.at - s.approval.shownAt < APPROVAL_DRAW_MS) { stale(s); break; }
+        s.approval.always = e.always;
         break;
     case "confirm": {
         var approval = s.approval;
@@ -1004,6 +1017,9 @@ function reduce(state, e, restartFor) {
                 || e.idleAt < 0 || e.beganAt - e.idleAt < VOICE_QUIET_MS
                 || s.playback.kind !== "idle") ? "voice-timing" : null;
         if (reason !== null) {
+            // A refused answer clears the box, so it never carries to a
+            // later Yes.
+            if (approval.kind === "held") s.approval.always = false;
             effect(s, effects, "confirm-refused", { reason: reason, id: e.id,
                 gen: approval.kind === "held" ? approval.gen : s.gen,
                 target: approval.kind === "held" ? approval.brain : null,
@@ -1016,11 +1032,12 @@ function reduce(state, e, restartFor) {
         activity(s, e.at);
         closeCapture(s, effects);
         if (approval.purpose === "release") {
-            effect(s, effects, "release-confirmed", { id: approval.id, target: approval.brain, confirmed: e.source });
+            effect(s, effects, "release-confirmed", { id: approval.id, target: approval.brain, confirmed: e.source,
+                always: approval.always });
             break;
         }
         var accepted = effect(s, effects, "tool-start", { tool: approval.tool,
-            id: approval.id, confirmed: e.source });
+            id: approval.id, confirmed: e.source, always: approval.always });
         s.action = { kind: "running", gen: accepted.gen, op: accepted.op, tool: approval.tool,
             brain: approval.brain, limit: { kind: "pending", deadline: e.at + approval.timeoutMs },
             cancellation: { kind: approval.cancellable ? "available" : "unavailable" } };
@@ -1129,7 +1146,7 @@ var REGIONS = {
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
-    approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
+    approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain grantable always label" },
     fault: { none: "", error: "reason category", "voice-connection": "reason category" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
@@ -1174,7 +1191,7 @@ function validate(s) {
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
-            } else if (["interruptible", "physical", "cancellable", "heard"].indexOf(f) !== -1) {
+            } else if (["interruptible", "physical", "cancellable", "heard", "grantable", "always"].indexOf(f) !== -1) {
                 if (typeof r[f] !== "boolean") return false;
             } else if (f === "cancellation") {
                 if (!exact(r[f], ["kind"]) || ["available", "unavailable", "requested"].indexOf(r[f].kind) === -1) return false;
@@ -1199,13 +1216,14 @@ function validate(s) {
             } else if (typeof r[f] !== "string") return false;
         }
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
+        if (region === "approval" && r.kind === "held" && (r.label.length > 60 || (r.label !== "") !== r.grantable)) return false;
         if (region === "conversation" && r.kind !== "ended" && ["conversation", "preview"].indexOf(r.purpose) === -1) return false;
         if (region === "history" && r.kind === "reset" && ["requested", "turn-limit"].indexOf(r.reason) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "check"].indexOf(r.mode) === -1) return false;
         if (region === "sound" && r.kind === "silent" && (typeof r.device !== "string" || r.device === "")) return false;
         if (region === "check" && (r.kind === "done" || r.kind === "kept") && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
-        if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;
+        if (region === "playback" && r.kind === "feedback" && ["start", "stop", "line"].indexOf(r.cue) === -1) return false;
         if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;
         if (region === "restart" && r.kind === "restarted" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;
         if (region === "fault" && r.kind !== "none" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;

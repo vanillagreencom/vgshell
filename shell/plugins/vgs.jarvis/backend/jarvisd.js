@@ -684,6 +684,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     if (message.intent === "confirm" || message.intent === "cancel") {
                         runner.dispatch({ type: message.intent === "cancel" ? "approval-cancel" : "confirm",
                             gen: message.gen, id: message.id, digest: message.digest, source: message.source });
+                    } else if (message.intent === "always") {
+                        runner.dispatch({ type: "always", gen: message.gen, id: message.id, digest: message.digest, always: message.always });
                     } else {
                         // No hello follows an edit inside the home folder, nor
                         // the network's return after a failed read of the
@@ -760,9 +762,17 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     auditFailures(audit.failures());
                     fs.mkdirSync(context.directories.runtime, { recursive: true, mode: 0o700 });
                     const profile = () => runner.state.settings.policy ?? "standard";
+                    // A Yes with Always allow, audited, asks the shell to save
+                    // the key in the plugin's alwaysAllow setting; only the
+                    // shell writes settings (configuration.md).
+                    const allow = (grant, label) => {
+                        if (!ending) write({ v: 1, type: "allow", gen: runner.state.gen, revision: context.revision, grant, label });
+                    };
                     const router = ToolRouter.create({ session: Session, state: () => runner.state,
                         dispatch: event => runner.dispatch(event), audit,
-                        context: () => ({ profile: profile(), locked: context.locked, get denied() { return deniedOrNull(); } }),
+                        context: () => ({ profile: profile(), locked: context.locked, allowed: context.settings.alwaysAllow.map(row => row.grant),
+                            get denied() { return deniedOrNull(); } }),
+                        allow,
                         result: value => gate.deliver(value) || bridge.deliver(value) || runner.ports.brain.outcome(value),
                         routed: turn => engine?.brain.routed(turn),
                         release: (item, turn) => engine.release.query(item, turn),
@@ -883,7 +893,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
                         log: line => diagnostic(line + "\n"),
                         modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),
-                        renewal: gen => write({ v: 1, type: "voice-renewal", gen, revision: context.revision }),
+                        renewal: gen => write({ v: 1, type: "voice-renewal", gen, revision: context.revision }), allow,
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         tasks: { held: () => tasks.held(),
                             answer: (task, prompt, value) => {

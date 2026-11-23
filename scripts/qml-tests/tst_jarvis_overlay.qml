@@ -12,7 +12,7 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // shows only while the pointer rests on the orb in an active state and
 // stays on the way to an icon, a right click opens the Jarvis menu, whose
 // entries send their keys' intents or open the Keys section, and the orb
-// draws at the look's 255 px canvas. The region on a real layer and the
+// draws at the look's 204 px canvas. The region on a real layer and the
 // menu in a real popup are scripts/smoke/rows/jarvis-bubble.sh's.
 Item {
     id: root
@@ -137,14 +137,14 @@ Item {
             compare(box.y + hit.height / 2, centre.y);
         }
 
-        // The orb draws at the look's canvas, 15% under the first build's
-        // 300 px, and the icon row's capsule stands the plates' gap right
-        // of what the orb draws, at the orb's height.
-        function test_the_orb_draws_at_255_px() {
+        // The orb draws at the look's canvas, 204 px, 20% under the 255 px
+        // before it (owner), and the icon row's capsule stands the plates'
+        // gap right of what the orb draws, at the orb's height.
+        function test_the_orb_draws_at_204_px() {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             put(root.listening);
-            compare(orb().width, 255);
-            compare(orb().height, 255);
+            compare(orb().width, 204);
+            compare(orb().height, 204);
             const centre = orbCentre();
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);

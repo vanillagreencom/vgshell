@@ -5,7 +5,7 @@ const Tools = require("./Tools.js");
 
 /** @typedef {{kind: "clean"}|{kind: "tainted"}} Taint */
 /** @typedef {import("./Tools.js").Effect} Effect */
-/** @typedef {{kind: "allow", effect: Effect}|{kind: "confirm", effect: Effect, physical: boolean, scope?: string}|{kind: "refuse", reason: string}} Decision */
+/** @typedef {{kind: "allow", effect: Effect, grant?: string}|{kind: "confirm", effect: Effect, physical: boolean, scope?: string, grant?: string, line?: string}|{kind: "refuse", reason: string}} Decision */
 
 const PROFILES = {
     cautious: { read: "allow", reversible: "allow", input: "confirm", persistent: "confirm", exec: "confirm", external: "confirm", destructive: "physical" },
@@ -18,6 +18,48 @@ const PROFILES = {
 const SOURCES = Object.freeze(["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"]);
 const TAINT_SOURCES = ["file", "screen", "web", "agent"];
 const recipientSets = new WeakSet();
+
+// A settings row id: the status rows judge takes one only as one TUI
+// argument (PluginLogic.statusRowFits).
+function grantKey(key) {
+    return typeof key === "string" && require("./Core.js").tuiArguments().valid([key]);
+}
+
+// A saved key's line on its card and in Settings: the status rows judge
+// takes a label of one printable line of at most STATUS_LABEL_MAX UTF-16
+// units (PluginLogic.isPrintableLine), so the cut counts units and keeps
+// each character whole.
+const LINE_MAX = 60;
+function grantLine(text) {
+    const line = text.replace(new RegExp(require("./Core.js").settingValues().CONTROL_OR_SEPARATOR.source, "g"), " ");
+    if (line.length <= LINE_MAX) return line;
+    let cut = "";
+    for (const char of line) {
+        if (cut.length + char.length > LINE_MAX - 1) break;
+        cut += char;
+    }
+    return cut + "…";
+}
+
+/** The saved Always allow keys of a context or a release, [] for none. */
+function allowedKeys(value) {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || !value.every(grantKey)) throw new Error("jarvis: policy=allowed");
+    return value;
+}
+
+/**
+ * The standing grant key of a release of LABEL to SELECTED: the label and
+ * the brain and speech recipients outside this computer, by provider,
+ * account and origin. Another provider, account or origin asks again.
+ */
+function releaseKey(selected, label) {
+    assertRecipients(selected);
+    const remote = [selected.brain, ...selected.speech]
+        .filter(value => value.kind === "network" && !require("./net.js").endpoint(value.origin).loopback)
+        .map(value => "recipient=" + [value.provider, value.account, value.origin].map(escaped).join("|"));
+    return ["release", label, ...[...new Set(remote)].sort()].join(":");
+}
 
 function labels(value) {
     if (!Array.isArray(value) || value.length === 0 || !value.every(source => SOURCES.includes(source)))
@@ -81,7 +123,8 @@ function assertRecipients(value) {
 
 /**
  * Judge a transfer against brain AND speech. Conversation-local grants are
- * {recipients, labels}, issued only by the user approval owner. A new immutable
+ * {recipients, labels}, issued only by the user approval owner, from a Yes
+ * or a saved Always allow key (releaseGrants). A new immutable
  * set invalidates old grants, including an identical selection in a new session.
  * Non-send answers contain a marker, never the withheld original bytes.
  * @returns {{kind:"send"|"withhold", content:string|Buffer, labels:readonly string[]}|{kind:"ask", content:string, labels:readonly string[], needed:readonly string[]}}
@@ -106,6 +149,20 @@ function release(value, selected, grants = []) {
     });
     if (missing.length !== 0) return { kind: "ask", content: marker, labels: current.labels, needed: Object.freeze(missing) };
     return { kind: "send", ...current };
+}
+
+/**
+ * The standing grants of a release ask's NEEDED labels to SELECTED: `keys`
+ * names each label's key, a label whose key is no settings row id having
+ * none, and `standing` the labels whose key ALLOWED, the saved Always allow
+ * keys, holds. The approval owner records those as the user's Yes and asks
+ * for the rest.
+ */
+function releaseGrants(selected, needed, allowed) {
+    const saved = allowedKeys(allowed);
+    const keys = Object.freeze(Object.fromEntries(labels(needed).map(label => [label, releaseKey(selected, label)])
+        .filter(([, key]) => grantKey(key))));
+    return { keys, standing: Object.freeze(needed.filter(label => saved.includes(keys[label]))) };
 }
 
 /** Session owns the turn. The router observes only content reaching that turn. */
@@ -151,6 +208,10 @@ function textChord(bound, symbols) {
  * judge, then resolves symbols against the live keymap. A literal comparison
  * cannot distinguish keycode/symbol aliases. A missing resolution refuses.
  * grants are J19-owned application/site ids for this conversation only.
+ * allowed are the saved Always allow keys (D139). A confirm a key can cover
+ * names it in `grant`, and in `line` what it covers (standing); a call whose
+ * key is saved is allowed with it: a physical step, a tainted turn's request
+ * and an external one alike. A key that is no settings row id is not named.
  *
  * Allow is not an execution permit: J19 must also enforce held-action
  * serialization, approval and J21's pre-action audit. Rejudge fresh targets
@@ -161,6 +222,9 @@ function textChord(bound, symbols) {
 function decide(call, context) {
     if (!context || context.locked !== false) return { kind: "refuse", reason: "session-locked" };
     if (!Object.hasOwn(PROFILES, context.profile)) return { kind: "refuse", reason: "policy-profile" };
+    let allowed;
+    try { allowed = allowedKeys(context.allowed); }
+    catch { return { kind: "refuse", reason: "allowed-grants" }; }
     if (!context.taint || !["clean", "tainted"].includes(context.taint.kind))
         return { kind: "refuse", reason: "turn-taint" };
     const refined = Tools.refine(call);
@@ -193,6 +257,7 @@ function decide(call, context) {
         else return { kind: "refuse", reason: "unconfined-command" };
     }
     let scope = null;
+    let target = null;
     if (refined.input !== null) {
         const input = context.input;
         if (input && typeof input.refusal === "string") return { kind: "refuse", reason: input.refusal };
@@ -238,26 +303,100 @@ function decide(call, context) {
             if (input.text.effective.some(bound => textChord(bound, symbols)))
                 return { kind: "refuse", reason: "own-shortcut" };
         }
+        target = { kind: input.target.kind, id: input.target.id };
         if (input.target.kind !== "terminal") scope = input.target.kind + ":" + input.target.id;
     }
     const rule = PROFILES[context.profile][effect];
-    if (rule === "physical") return { kind: "confirm", effect, physical: true };
+    const { key, line } = standing(refined, effect, target, rule === "application" && scope !== null);
+    const grant = line !== null && grantKey(key) ? key : undefined;
+    // A confirm, unless its key is saved.
+    const asked = (physical, extra = {}) => grant !== undefined && allowed.includes(grant) ? { kind: "allow", effect, grant }
+        : { kind: "confirm", effect, physical, ...extra, ...(grant === undefined ? {} : { grant, line: grantLine(line) }) };
+    if (rule === "physical") return asked(true);
     if (context.taint.kind === "tainted" && refined.executor === "memory-write")
         return { kind: "allow", effect };
     if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))
-        return { kind: "confirm", effect, physical: false };
+        return asked(false);
     // REVISIT(D134): only the router's exact live-session sending grant
     // can cover another forward; taint above still asks for this request.
     if (refined.call.id === "fleet.forward" && context.forwardGranted === true) return { kind: "allow", effect };
-    if (rule === "confirm") return { kind: "confirm", effect, physical: false };
+    if (rule === "confirm") return asked(false);
     if (rule === "application") {
         if (!Array.isArray(context.grants) || !context.grants.every(grant => typeof grant === "string"))
             return { kind: "refuse", reason: "input-grants" };
-        if (!context.grants.includes(scope)) return { kind: "confirm", effect, physical: false, scope };
+        if (!context.grants.includes(scope)) return asked(false, { scope });
         return { kind: "allow", effect };
     }
     if (rule === "allow") return { kind: "allow", effect };
     throw new Error("jarvis: policy=unhandled-effect");
 }
 
-module.exports = { decide, observe, item, summary, recipients, assertRecipients, release, labels, SOURCES, TAINT_SOURCES };
+// A key part's value, with each character that joins parts, names a part
+// or joins a recipient's fields escaped, so two requests share a key only
+// when every part is equal.
+function escaped(value) {
+    return String(value).replace(/[%:=,|]/g, char => "%" + char.charCodeAt(0).toString(16).toUpperCase());
+}
+
+/**
+ * The Always allow key of a refined call and the line that names what it
+ * covers, built from the same parts so the line never claims less than the
+ * key allows; line null for a call no key covers. Every role and wildcard
+ * word comes before the first path, so grantLine's cut shortens path text
+ * alone. An application's or
+ * site's input scope covers every input tool there. Otherwise the key is the
+ * tool, its effect, its input target and each judged path by its field; a
+ * coding task's also names its agent and account as the call gives them.
+ * TaskRunner resolves an omitted one at launch and releases the goal to it
+ * through the release gate, whose key names the provider and account, so a
+ * changed default asks there. fleet.forward takes none: its consent record
+ * must cite one accepted confirmation (D134).
+ */
+function standing(refined, effect, target, scoped) {
+    const id = refined.call.id;
+    const args = refined.call.args;
+    const where = target === null ? "" : (target.kind === "site" ? " on " : " in ") + target.id;
+    if (scoped) return { key: target.kind + ":" + escaped(target.id),
+        line: target.kind === "site" ? "Click and type anything on " + target.id : "Any input anywhere in " + target.id };
+    const named = (field, value) => field + "=" + escaped(value);
+    const key = [id, effect, ...(target === null ? [] : [named(target.kind, target.id)]),
+        ...refined.paths.filter(([field]) => args[field] !== undefined).flatMap(([field]) => [args[field]].flat().map(value => named(field, value))),
+        ...(id === "task.start" ? ["agent", "account"].filter(field => args[field] !== undefined).map(field => named(field, args[field])) : [])].join(":");
+    const folder = args.cwd === undefined ? "a new empty folder" : args.cwd;
+    const roles = [["remove", args.remove], ["move", args.move], ["write any text to", args.write]]
+        .filter(([, list]) => Array.isArray(list) && list.length > 0);
+    const verbs = roles.map(([verb]) => verb);
+    const files = roles.length === 0 ? "" : (verbs.length === 1 ? verbs[0] : verbs.slice(0, -1).join(", ") + " and " + verbs.at(-1))
+        + " files: " + roles.map(([, list]) => list.join(", ")).join("; ");
+    const lines = {
+        "input.text": () => "Type any text" + where,
+        "input.key": () => "Press any keys" + where,
+        "input.click": () => "Click anywhere" + where,
+        "input.scroll": () => "Scroll anywhere" + where,
+        "browser": () => (effect === "external" ? "Submit anything" : "Click and type anything") + where,
+        "memory.replace": () => "Replace any memory note",
+        "fleet.request": () => "Put any request in your Jarvis session mailbox",
+        "windows.close": () => "Close any window",
+        "files.write": () => "Write any text to " + args.path,
+        "files.move": () => "Move a file, from and to: " + args.from + " → " + args.to,
+        "files.delete": () => "Delete " + args.path,
+        "shell.argv": () => "Run any " + (effect === "external" ? "online " : "") + "command in " + folder,
+        "shell.line": () => "Run any " + (effect === "external" ? "online " : "") + "command in " + folder,
+        "task.start": () => "Start any " + (args.agent === undefined ? "" : args.agent + " ") + "task"
+            + (args.account === undefined ? "" : " with account " + args.account) + " in " + folder,
+        "harness.command": () => "Run any command outside the sandbox in " + folder,
+        "harness.files": () => files === "" ? null : files.charAt(0).toUpperCase() + files.slice(1)
+    };
+    return { key, line: Object.hasOwn(lines, id) ? lines[id]() : null };
+}
+
+/**
+ * What an audit row records of a saved key: its kind with no request value,
+ * the tool and effect, the input kind, or the released label.
+ */
+function grantKind(key) {
+    const [head, second] = key.split(":");
+    return head === "application" || head === "site" ? head : head + ":" + second;
+}
+
+module.exports = { grantKind, grantLine, decide, observe, item, summary, recipients, assertRecipients, release, releaseGrants, labels, SOURCES, TAINT_SOURCES };

@@ -158,10 +158,15 @@ Item {
         }
 
         // The level a look reads goes through the curve; a level the look
-        // does not read adds nothing.
+        // does not read adds nothing. A voice at the microphone's speech
+        // levels, an RMS near 0.015 when quiet and 0.05 at full voice, moves
+        // the orb clearly, and room noise barely; Jarvis's own voice goes
+        // through the curve as it is.
         function test_the_driving_level_goes_through_the_curve_data() {
             return [
-                { tag: "listening to a voice", phase: "listening", capture: 0.3, target: 0.3 },
+                { tag: "a quiet voice", phase: "listening", capture: 0.015, least: 0.3 },
+                { tag: "a full voice", phase: "listening", capture: 0.05, least: 0.75 },
+                { tag: "room noise", phase: "listening", capture: 0.001, most: 0.05 },
                 { tag: "speaking", phase: "speaking", playback: 0.3, target: 0.3 },
                 { tag: "a level the look does not read", phase: "idle", capture: 0.5, playback: 0.5, target: 0 }
             ];
@@ -171,7 +176,9 @@ Item {
             orb.phase = data.phase;
             orb.capture = data.capture || 0;
             orb.playback = data.playback || 0;
-            compare(orb.target, data.target === 0 ? 0 : orb.response(data.target));
+            if (data.least !== undefined) verify(orb.target >= data.least, data.tag + " moves the orb " + orb.target);
+            else if (data.most !== undefined) verify(orb.target <= data.most, data.tag + " moves the orb " + orb.target);
+            else compare(orb.target, data.target === 0 ? 0 : orb.response(data.target));
         }
 
         // A clock left running for days wraps where the drawn motion

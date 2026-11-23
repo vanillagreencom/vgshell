@@ -43,8 +43,9 @@ Item {
     // The window the orb draws in, read as vgs.voice's Plasma reads it: a
     // plugin may not import QtQuick.Window (scripts/check-plugin-boundary.py).
     readonly property var host: QsWindow.window
-    // The driving level through the input curve.
-    readonly property real target: response(tone.drive === "capture" ? capture
+    // The driving level through the input curve, the microphone's after
+    // the look's input gain.
+    readonly property real target: response(tone.drive === "capture" ? capture * look.orb.inputGain
         : tone.drive === "playback" ? playback : 0)
     // Whether the clocks move.
     readonly property bool moving: root.active && root.visible && root.look.motion.scale > 0

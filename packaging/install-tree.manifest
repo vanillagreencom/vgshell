@@ -592,6 +592,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/check-microphone.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice-remove.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/edit-instructions.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/log.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-grant.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/repair-home.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh

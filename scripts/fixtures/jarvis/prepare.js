@@ -12,7 +12,7 @@ const { closure } = require("../../../bin/lib/qml-library.js");
 // The shell libraries the suites load. Each is copied with every library its
 // imports reach, so a new import needs no entry here.
 const libraries = ["shell/Core/Dispatch.js", "shell/Commons/DesktopLaunch.js", "shell/Commons/AccountDirectories.js",
-    "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/Commons/SettingValues.js"];
+    "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/Commons/SettingValues.js", "shell/Commons/TuiArguments.js"];
 
 // Synthetic Tasks.js records from the Jarvis plan, 2026-09-30: working
 // events FROM through COUNT, after any events the folder already holds.

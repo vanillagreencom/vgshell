@@ -49,6 +49,7 @@ case "$kind" in
   crash) (( $# == 7 )) || refuse ;;
   task) (( $# == 8 )) || refuse ;;
   sync) (( $# == 9 )) || refuse ;;
+  jarvis) (( $# == 5 )) || refuse ;;
   *) refuse ;;
 esac
 # An agent removed since the last requirement scan, which the select still

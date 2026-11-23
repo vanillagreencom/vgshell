@@ -3,9 +3,7 @@
 // or changes a default device. Session admits overlap only for its judged EC route.
 // playbackSource(op) answers null or {readable, spoken}: spoken is true when
 // the readable carries Jarvis's spoken words, which voice mute silences, and
-// false for a conversation start/stop sound or a voice preview. A packet {pcm, tone: true} is
-// a tone the engine pushes into a spoken source, the working sound, and
-// stays audible; voice mute silences every other packet of a spoken source.
+// false for a conversation start/stop sound or a voice preview.
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -886,7 +884,6 @@ class Audio {
         if (!Buffer.isBuffer(pcm) || pcm.length > BUFFER_BYTES || pcm.length % 2 !== 0)
             throw new Error("playback-frame");
         const sentence = Buffer.isBuffer(packet) ? undefined : packet && packet.sentence;
-        const tone = !Buffer.isBuffer(packet) && packet.tone === true;
         if (sentence !== undefined) {
             if (sentence === null || typeof sentence.text !== "string" || sentence.text.trim() === ""
                     || !Number.isSafeInteger(sentence.frames) || sentence.frames < pcm.length / 2
@@ -919,7 +916,7 @@ class Audio {
             playback.sentenceEnd = playback.received + sentence.frames;
         }
         playback.received += pcm.length / 2;
-        return { pcm, tone };
+        return pcm;
     }
 
     async writePlayback(playback, owner, frame, spoken) {
@@ -1027,8 +1024,8 @@ class Audio {
                     await this.waitPlayback(playback, source, "readable");
                     continue;
                 }
-                const { pcm, tone } = this.playbackPacket(playback, packet);
-                await this.writePlayback(playback, owner, pcm, spoken && !tone);
+                const pcm = this.playbackPacket(playback, packet);
+                await this.writePlayback(playback, owner, pcm, spoken);
             }
             if (this.playback !== playback || owner.stopping) return;
             if (playback.received < playback.sentenceEnd) throw new Error("playback-sentence-incomplete");

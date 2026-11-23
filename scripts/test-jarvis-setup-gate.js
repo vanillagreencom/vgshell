@@ -2534,7 +2534,7 @@ function verifyShortcutRegistration(serviceSource) {
             status: { handlePreview: () => "ok", handleChoice: () => "ok" },
             layers: { show: () => {} }
         },
-        publishMicrophoneMute: () => {}, ownerAskOperation: () => null, setOwnerAskOperation: () => {},
+        publishMicrophoneMute: () => {}, publishGrants: () => {}, ownerAskOperation: () => null, setOwnerAskOperation: () => {},
         bubble: {}, start: () => {}, intent: name => intents.push(name),
         displayedApproval: () => hold, send: value => sent.push(plain(value)),
         confirmApproval: (value, source) => confirmed.push([value, source])

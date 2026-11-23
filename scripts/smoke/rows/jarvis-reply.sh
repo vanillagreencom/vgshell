@@ -236,7 +236,7 @@ expect_poll "the failed turn reaches the fault" error reply_state phase
 expect_poll "the fault reads on the card" "fault:The AI model did not answer" reply_drawn
 expect_poll "the overlay draws no hidden-orb fault line while the card shows" 0 reply_fault_lines
 expect_poll "the card hides after its hold" hidden reply_drawn
-expect_poll "the overlay's hidden-orb fault line returns once the card hides" 1 reply_fault_lines
+expect_poll "the overlay's hidden-orb fault line, View log and Send to agent return once the card hides" 3 reply_fault_lines
 
 jarvis_disable
 if [[ $reply_theme_saved == true ]]; then cp -- "$sandbox/jarvis-reply-theme.json" "$reply_theme"; else rm -f -- "${reply_theme:?}"; fi

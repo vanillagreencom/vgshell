@@ -991,10 +991,10 @@ world(async () => {
             .concat(mainHost === "" ? [] : [["fleet", "fleet.request", { text: "Rebase the lanes." }]]);
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { home: homeSetting, sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost, weeklyOpenaiCap: 25 },
+                settings: { home: homeSetting, sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost, weeklyOpenaiCap: 25, alwaysAllow: [] },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
-                keys: { talk: "SUPER+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null, console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } }) + "\n");
+                keys: { talk: "SUPER+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null, "confirm-always": null, console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } }) + "\n");
             for (const [id, tool, args] of calls) {
                 fs.mkdirSync(driver, { recursive: true });
                 fs.writeFileSync(path.join(driver, "call.next"), JSON.stringify({ id, tool, arguments: args }));

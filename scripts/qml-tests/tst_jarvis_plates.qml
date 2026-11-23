@@ -149,7 +149,7 @@ Item {
             verify(renderedFrame(root), "the first ready frame paints");
             verify(!grabImage(root).equals(empty), "the answered hold paints its prompt");
             const top = () => fuzzyCompare(overlay.y, root.look.layout.margin, 0.5);
-            const bottom = () => fuzzyCompare(overlay.y + overlay.height, root.height - root.look.layout.margin, 0.5);
+            const bottom = () => fuzzyCompare(overlay.y + overlay.height, root.height - root.look.layout.bottom, 0.5);
             if (data.result === "over-console") top(); else bottom();
             tryVerify(() => service.acknowledged.some(hold => hold.id === "a"), 2000, "the placed frame acknowledges the hold");
 

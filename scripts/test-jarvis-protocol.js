@@ -11,14 +11,17 @@ const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: false, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden, incognito", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
+    cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden, incognito", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [] }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+keys: { talk: "SUPER+code:44", deny: null, "confirm-always": null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
 const cancel = { ...intent, intent: "cancel", id };
+const always = { ...intent, intent: "always", id, digest: "a".repeat(64), always: true };
+const allow = { v: 1, type: "allow", gen: 0, revision: hello.revision, grant: "shell.line:exec:/home/user/project", label: "Run commands in /home/user/project" };
+const saved = [{ grant: allow.grant, label: allow.label }];
 const shown = { v: 1, type: "shown", gen: 0, revision: hello.revision, id };
 const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true, bar: "gone" };
 const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [], cautions: [] };
@@ -62,6 +65,7 @@ assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "voice-mute", key: "SUPER+CTRL+M" },
     { shortcut: "stop", key: "SUPER+CTRL+X" },
     { shortcut: "confirm", key: "SUPER+CTRL+Y" },
+    { shortcut: "confirm-always", key: "SUPER+CTRL+SHIFT+Y" },
     { shortcut: "deny", key: null },
     { shortcut: "console", key: "SUPER+ALT+C" }
 ]);
@@ -348,6 +352,16 @@ const cases = [
     ["confirm-digest", changed(confirm, { digest: "A".repeat(64) }), "shell", "approval-digest"],
     ["confirm-voice", changed(confirm, { source: "voice" }), "shell", "approval-source"],
     ["confirm-model", changed(confirm, { source: "model" }), "shell", "approval-source"],
+    ["always-flag", changed(always, { always: "yes" }), "shell", "always"],
+    ["always-id", changed(always, { id: "made-up" }), "shell", "approval-id"],
+    ["always-source", changed(always, { source: "key" }), "shell", "shape-always"],
+    ["allow-shell", changed(allow, {}), "shell", "direction-allow"],
+    ["allow-label-long", changed(allow, { label: "a".repeat(61) }), "daemon", "allow"],
+    ["allow-grant-control", changed(allow, { grant: "a\nb" }), "daemon", "allow"],
+    ["allow-label-separator", changed(allow, { label: "a\u2028b" }), "daemon", "allow"],
+    ["allow-grant-c1", changed(allow, { grant: "a\u0085b" }), "daemon", "allow"],
+    ["always-allow-item", changed(hello, { settings: { ...hello.settings, alwaysAllow: [{ grant: "a" }] } }), "shell", "always-allow"],
+    ["always-allow-repeat", changed(hello, { settings: { ...hello.settings, alwaysAllow: saved.concat(saved) } }), "shell", "always-allow"],
     ["cancel-shape", changed(cancel, { digest: confirm.digest }), "shell", "shape-cancel"],
     ["memory-confirm-shape", changed(memoryConfirm, { extra: true }), "shell", "shape-memory-intent"],
     ["memory-confirm-id", changed(memoryConfirm, { id: "bad" }), "shell", "memory-intent"],
@@ -615,8 +629,11 @@ assert.equal(Protocol.accept(changed(intent, { intent: "home-drift" }), "shell")
     // The copy of the status judge's rule is the judge's own.
     const SettingValues = load(path.join(__dirname, "../shell/Commons/SettingValues.js"));
     assert.equal(Protocol.STATUS_UNPRINTABLE.source, SettingValues.CONTROL_OR_SEPARATOR.source, "the wire refuses what the status judge refuses");
+    const TuiArguments = load(path.join(__dirname, "../shell/Commons/TuiArguments.js"));
+    assert.equal(Protocol.ROW_ID_UNPRINTABLE.source, TuiArguments.CONTROL_CHARACTER.source, "a grant key meets the row id judge");
 }
 for (const [message, direction] of [
+    [allow, "daemon"],
     [taskOpen, "shell"], [{ ...taskOpen, task: "a".repeat(64) }, "shell"],
     [taskOpened, "daemon"], [{ ...taskOpened, task: "a".repeat(64), answer: "a".repeat(40) }, "daemon"],
     [{ ...taskList, rows: [] }, "daemon"], [{ ...auditFailures, rows: [] }, "daemon"],
@@ -627,7 +644,16 @@ for (const [message, direction] of [
 ]) assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), direction)), JSON.stringify(message));
 for (const failure of [null, 1, -1, Number.MAX_SAFE_INTEGER, "lost", "reported-failed"])
     assert.equal(Protocol.accept(changed(taskList, { rows: [{ ...taskRow, failure }] }), "daemon").rows[0].failure, failure);
-for (const message of [confirm, { ...confirm, source: "button" }, cancel, memoryConfirm, memoryDiscard, shown])
+// The hello carries the saved list's well-formed, unrepeated items, so a
+// hand-edited row the judge would refuse never stops the daemon.
+assert.equal(JSON.stringify(Protocol.grantList([saved[0], { grant: "a" }, saved[0], { ...saved[0], label: "" }, "x"])), JSON.stringify(saved));
+assert.equal(JSON.stringify(Protocol.grantList(null)), "[]");
+// A row the status rows judge refuses never reaches the hello or Settings:
+// a folder named with a line separator or a C1 control.
+assert.equal(JSON.stringify(Protocol.grantList([{ grant: "shell.line:exec:/home/u/a\u2028b", label: "Run commands in /home/u/a\u2028b" },
+    { grant: "shell.line:exec:/home/u/c\u0085", label: "Run commands in /home/u/c" }, saved[0]])), JSON.stringify(saved));
+for (const message of [confirm, { ...confirm, source: "button" }, cancel, always, { ...always, always: false }, memoryConfirm, memoryDiscard, shown,
+    { ...hello, settings: { ...hello.settings, alwaysAllow: saved } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
@@ -642,7 +668,7 @@ for (const visibility of [{ kind: "shown" }, { kind: "hidden" }]) for (const bar
 }
 for (const holdToTalk of [false, true])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, holdToTalk },
-        keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
+        keys: { talk: null, deny: null, "confirm-always": null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
 // Deny uses the existing identity-bound cancellation. A key name alone is
 // not a cancellation command, and a stale request cannot name a new hold.
 rejected(Protocol, ["deny-intent", changed(intent, { intent: "deny" }), "shell", "intent"]);
@@ -905,8 +931,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
-            'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap", "alwaysAllow"], "settings");',
+            'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap", "alwaysAllow"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -1010,8 +1036,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
-        'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap", "alwaysAllow"], "settings");',
+        'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap", "alwaysAllow"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

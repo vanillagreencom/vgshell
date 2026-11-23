@@ -288,6 +288,33 @@ function syncFacts(text) {
     return doc;
 }
 
+// The facts of a Jarvis Voice error its card hands to Diagnose as text, a
+// JSON object of JARVIS_KEYS: `kind` "jarvis", the error's keyed `cause`
+// and its card `title` as strings, and `at`, the time in ms. Jarvis writes
+// it (vgs.jarvis Service.sendFault). Anything else is null.
+var JARVIS_KEYS = ["kind", "cause", "title", "at"];
+
+function jarvisFacts(text) {
+    var doc;
+    try {
+        doc = JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc) || doc.kind !== "jarvis") return null;
+    var keys = Object.keys(doc);
+    if (keys.length !== JARVIS_KEYS.length || !JARVIS_KEYS.every(function (key) { return hasOwn(doc, key); })) return null;
+    if (typeof doc.cause !== "string" || typeof doc.title !== "string") return null;
+    if (typeof doc.at !== "number" || !isFinite(doc.at) || doc.at < 0) return null;
+    return doc;
+}
+
+// tui/diagnose.sh's arguments for FACTS, jarvisFacts', opened in AGENT, at
+// AT, the error's time in ms, OFFSET minutes east of UTC.
+function jarvisArgs(agent, facts, at, offset) {
+    return [agent, "jarvis", fact(facts.cause), fact(facts.title), timeText(at, offset)];
+}
+
 // tui/diagnose.sh's arguments for FACTS, syncFacts', opened in AGENT, at
 // AT, the error's time in ms, OFFSET minutes east of UTC.
 function syncArgs(agent, facts, at, offset) {

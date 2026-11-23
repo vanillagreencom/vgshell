@@ -70,8 +70,6 @@ const RELEASE_EFFECT = "external";
 // adapters' keyed fault (Realtime.js, GeminiLive.js); any other fault keeps
 // voice-stopped. Audit.js refuses any other cause.
 const STREAM_CAUSES = Object.freeze({ "live=key-refused": "key-refused" });
-// One local working sound for a still-silent turn, without a speech request.
-const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
 const PROGRESS_AFTER_MS = 4000;
 // The one sentence a voice preview speaks.
@@ -79,21 +77,17 @@ const PREVIEW_LINE = "This is how I sound when I answer you.";
 const HISTORY_TURNS = 40;
 
 function earcon(kind) {
-    const conversation = kind === "start" || kind === "stop";
-    const frames = PCM_RATE * (conversation ? kind === "start" ? 150 : 170 : 120) / 1000;
+    const frames = PCM_RATE * (kind === "start" ? 150 : 170) / 1000;
     const pcm = Buffer.alloc(frames * 2);
-    const edge = PCM_RATE * 5 / 1000;
     const from = kind === "start" ? 180 : 255;
     const to = kind === "start" ? 255 : 180;
     for (let frame = 0; frame < frames; frame++) {
         const position = frame / (frames - 1);
         // A raised-cosine envelope has no abrupt attack or release. The
         // integrated pitch glide keeps the phase continuous through it.
-        const envelope = conversation ? Math.sin(Math.PI * position) ** 2
-            : Math.min(1, frame / edge, (frames - frame - 1) / edge);
-        const phase = conversation ? (from * frame + (to - from) * frame * position / 2) / PCM_RATE
-            : 440 * frame / PCM_RATE;
-        pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);
+        const envelope = Math.sin(Math.PI * position) ** 2;
+        const phase = (from * frame + (to - from) * frame * position / 2) / PCM_RATE;
+        pcm.writeInt16LE(Math.round(2600 * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);
     }
     return pcm;
 }
@@ -482,7 +476,7 @@ function selectBrain(settings, accounts, models) {
  * daemon's shell request port, ShellRequests' send, which a dictation row's
  * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {}, renewal = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {}, renewal = () => {}, allow = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
@@ -996,12 +990,23 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (!sink.destroyed) sink.destroy(error);
             else if (!bound && !capturing) fault("speech-transcribe: " + reason);
         }
+        // The sidecar's latest caption of this utterance.
+        let captioned = "";
         // A refused recording supplies no final words, including an empty
         // transcript that could hide its failure.
         const record = c.plan.speech.dictation !== true ? null : dictation(result => {
             if (utterance.state !== "running" && utterance.state !== "ending") return;
             if (result.kind === "text") {
                 concluded(result.text);
+                return;
+            }
+            // The core ends a recording one second before voxtype's own
+            // length limit (D106), so an open conversation that waited
+            // longer holds none once the user speaks, and the stop answers
+            // idle: the words the sidecar captioned are then the utterance's.
+            if (result.cause === "speech=dictation-idle" && utterance.state === "ending" && captioned.trim() !== "") {
+                log("jarvis: info input-words=caption cause=dictation-idle gen=" + e.gen + " capture=" + e.op);
+                concluded(captioned);
                 return;
             }
             const running = utterance.state === "running";
@@ -1027,6 +1032,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     if (event.kind === "partial" && typeof event.text === "string") {
                         if (!Number.isSafeInteger(event.rev) || event.rev <= rev) fail("transcript-revision");
                         rev = event.rev;
+                        captioned = event.text;
                         utterance.collection?.done("partial", event.text);
                     } else if (event.kind === "final" && record === null && typeof event.text === "string") {
                         void output.return?.();
@@ -1114,34 +1120,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } catch (error) { readable.destroy(error); }
         }
         void pump();
-        // Lines still waiting for synthesis; a reply or a newer line drops them.
-        function dropLines() {
-            for (let at = sentences.length - 1; at >= 0; at--) {
-                if (!sentences[at].line) continue;
-                queued -= sentences[at].item.content.length;
-                sentences.splice(at, 1);
-            }
-        }
         return {
             readable, handed: false,
             queue(item) {
                 if (queued + item.content.length > SENTENCE_TEXT) fail("speech-queue");
                 queued += item.content.length;
-                sentences.push({ item, line: false });
+                sentences.push({ item });
                 input.notify();
             },
-            // A line joins the stream behind what synthesis has taken; a newer
-            // line replaces one that still waits, so at most one waits.
-            queueLine(items) {
-            dropLines();
-                for (const item of items) {
-                    if (queued + item.content.length > SENTENCE_TEXT) fail("speech-queue");
-                    queued += item.content.length;
-                    sentences.push({ item, line: true });
-                }
-                input.notify();
-            },
-            dropLines,
             end() { ended = true; input.notify(); }
         };
     }
@@ -1163,7 +1149,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn.speech === null) {
                 turn.speech = speech(c, turn.voice ?? null);
             }
-            turn.speech.dropLines();
             if (!turn.speaking) {
                 turn.speaking = true;
                 clearProgress(turn);
@@ -1181,8 +1166,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // A line, the acknowledgement or a progress line, is Jarvis's word while
     // the brain works, never its reply: it leaves through the reply's release
     // and audit, is never repeated in a turn, and a secret is never spoken.
-    // While the working sound's stream is open the line joins it. Otherwise
-    // it plays in a stream of its own, which Session admits as feedback, so
+    // It plays in a stream of its own, which Session admits as feedback, so
     // the microphone opens again once it has played; a line asked for while
     // one plays waits, replacing an older waiting one.
     function line(c, turn, text, labels) {
@@ -1214,12 +1198,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 transfer(c, turn, item, () => {});
                 caption(c, turn, sentences[at]);
             }
-            const playing = state().playback;
-            if (turn.speech !== null && playing.kind === "feedback" && playing.cue === "working" && playing.source === turn.op) {
-                turn.linePrefix += (turn.linePrefix === "" ? "" : " ") + sentences.join(" ");
-                turn.speech.queueLine(items);
-                return true;
-            }
             turn.pendingLine = items;
             turn.done("feedback", { cue: "line" });
             return true;
@@ -1234,16 +1212,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function lineAdmitted(c, turn) {
         const stream = speech(c);
         turn.lineStream = stream;
-        stream.queueLine(turn.pendingLine ?? []);
+        for (const item of turn.pendingLine ?? []) stream.queue(item);
         turn.pendingLine = null;
         stream.end();
-    }
-
-    // The words of the working sound's stream that were lines, not the reply.
-    function withoutLinePrefix(turn, text) {
-        if (text === "" || turn.linePrefix === "") return text;
-        if (turn.linePrefix.startsWith(text)) return "";
-        return text.startsWith(turn.linePrefix + " ") ? text.slice(turn.linePrefix.length + 1) : text;
     }
 
     function progress(c, turn) {
@@ -1347,25 +1318,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         turn.stopped = true;
         turn.pendingLine = null;
         turn.waitingLine = null;
-        quiet(turn);
         clearProgress(turn);
         turn.speech?.end();
-    }
-    function quiet(turn) {
-        if (turn.feedbackTimer !== null) clock.clear(turn.feedbackTimer);
-        turn.feedbackTimer = null;
     }
     function clearProgress(turn) {
         if (turn.progressTimer !== null && turn.progressTimer !== undefined) clock.clear(turn.progressTimer);
         turn.progressTimer = null;
-    }
-    function working(c, turn) {
-        if (c.live !== null || state().settings.sounds !== true || clock === undefined) return;
-        turn.feedbackTimer = clock.set(() => {
-            turn.feedbackTimer = null;
-            if (conversation !== c || turn.stopped || !session.live(state(), turn, "turn", ["thinking"])) return;
-            dispatch({ type: "feedback", gen: turn.gen, op: turn.op });
-        }, WORKING_AFTER_MS);
     }
     function restartFor(c, turn, reason) {
         const recipient = c.plan.brain.recipient;
@@ -1446,24 +1404,46 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return tools.filter(tool => tool.id.startsWith("fleet.")).map(tool => tool.id).join(",");
     }
 
-    async function requestRelease(c, identity, labels) {
-        const needed = labels.filter(label => !c.decisions.has(label));
-        if (needed.length === 0) return;
-        if (c.releasePending !== null) fail("release-busy");
+    // The saved Always allow keys (the vgs.jarvis setting alwaysAllow).
+    function allowed() {
+        const saved = state().settings.alwaysAllow;
+        return Array.isArray(saved) ? saved.map(row => row.grant) : [];
+    }
+
+    // "Send screen content to Codex": the release question without its
+    // mark, and a saved key's Settings line.
+    function releaseLabel(c, labels) {
         const names = [...new Set([c.recipients.brain, ...c.recipients.speech]
             .filter(recipient => recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback)
             .map(recipient => PROVIDERS.find(row => row.id === recipient.provider)?.label ?? recipient.provider))];
         const sources = { clipboard: "clipboard text", file: "file text", screen: "screen content",
             web: "web page text", command: "command output", agent: "agent output" };
-        const text = "Send " + needed.map(label => sources[label]).join(" and ") + " to " + names.join(" and ") + "?";
+        return "Send " + labels.map(label => sources[label]).join(" and ") + " to " + names.join(" and ");
+    }
+
+    async function requestRelease(c, identity, labels) {
+        let needed = labels.filter(label => !c.decisions.has(label));
+        if (needed.length === 0) return;
+        if (c.releasePending !== null) fail("release-busy");
+        const { keys, standing } = Policy.releaseGrants(c.recipients, needed, allowed());
+        // A label a saved key covers is released as the user's Yes is.
+        if (standing.length !== 0) {
+            const saved = { identity, labels: standing, recipients: c.recipients, keys };
+            if (!settle(c, saved, true, "none", standing.map(label => Policy.grantKind(keys[label])))) return;
+            needed = needed.filter(label => !standing.includes(label));
+            if (!needed.length) return;
+        }
+        const text = releaseLabel(c, needed) + "?";
         const id = crypto.randomUUID();
         const digest = crypto.createHash("sha256").update(JSON.stringify({ labels: needed, recipients: c.recipients })).digest("hex");
         record(c, identity, needed, "ask");
         let resolve;
         const answered = new Promise(done => { resolve = done; });
-        c.releasePending = { id, labels: needed, identity, recipients: c.recipients, resolve };
+        c.releasePending = { id, labels: needed, identity, recipients: c.recipients, keys, resolve };
         dispatch({ type: "approval", gen: identity.gen, op: identity.op, purpose: "release", id, digest,
-            text, physical: false, tool: "release", timeoutMs: session.RESPONSE_TIMEOUT_MS, cancellable: false });
+            text, physical: false, tool: "release", timeoutMs: session.RESPONSE_TIMEOUT_MS, cancellable: false,
+            grantable: needed.every(label => Object.hasOwn(keys, label)),
+            label: needed.every(label => Object.hasOwn(keys, label)) ? Policy.grantLine(releaseLabel(c, needed)) : "" });
         // A router outcome can request this while the runner drains effects.
         // Its queued proposal must be reduced before we inspect the hold.
         await Promise.resolve();
@@ -1489,16 +1469,28 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             pending.resolve(false);
             return;
         }
+        c.releasePending = null;
+        const saves = accepted && e.always === true && pending.labels.every(label => Object.hasOwn(pending.keys, label));
+        pending.resolve(settle(c, pending, accepted, !accepted ? "none" : e.confirmed === "voice" ? "voice" : "physical",
+            saves ? pending.labels.map(label => Policy.grantKind(pending.keys[label])) : [], saves));
+    }
+
+    // The user's answer to a release of PENDING's labels, or a saved key's
+    // (STANDING, the keys it went under): one audited row, then the
+    // conversation's decision and, on a Yes, its grant. A Yes with Always
+    // allow saves each label's key. True when the content may go.
+    function settle(c, pending, accepted, confirmed, standing, saves = false) {
         const grant = { recipients: pending.recipients, labels: pending.labels };
         const result = audit.before({ ...releaseEvent(c, pending.identity, pending.labels,
-            accepted ? "send" : "withhold", "pending"), confirmed: accepted ? e.confirmed === "voice" ? "voice" : "physical" : "none" }, () => {
+            accepted ? "send" : "withhold", "pending"), confirmed,
+            ...(standing.length === 0 ? {} : { standing }) }, () => {
             for (const label of pending.labels) c.decisions.add(label);
             if (accepted) c.grants.push(grant);
+            for (const label of saves ? pending.labels : []) allow(pending.keys[label], Policy.grantLine(releaseLabel(c, [label])));
         });
-        c.releasePending = null;
         // A turn that sent content on the user's confirm is never restarted.
         if (result.kind === "started" && accepted && c.turn !== null && c.turn.op === pending.identity.op) c.turn.released = true;
-        pending.resolve(result.kind === "started" && accepted);
+        return result.kind === "started" && accepted;
     }
 
     async function respond(c, turn, request) {
@@ -1538,21 +1530,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 switch (event.kind) {
                 case "text":
                     brainText?.write(turn, event.text);
-                    // Only a sentence for speech ends the wait the working
-                    // sound covers: text Speakable keeps silent, as before a
-                    // tool call, leaves the sound due.
                     const sentences = text.push(event.text);
                     if (sentences.length !== 0) turn.replyStarted = true;
-                    for (const sentence of sentences) {
-                        quiet(turn);
-                        say(c, turn, sentence);
-                    }
+                    for (const sentence of sentences) say(c, turn, sentence);
                     stated(c, turn, text);
                     break;
                 case "tool-call": calls.push(event); break;
                 case "done":
                     answered.add(answering);
-                    quiet(turn);
                     // History holds the calls once done is read: an interrupt
                     // from here on must answer them.
                     if (event.reason === "tool-calls") {
@@ -1595,7 +1580,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         continue;
                     }
                     turn.labels.add("desktop");
-                    quiet(turn);
                     say(c, turn, failoverLine(switched.from, switched.to, resend), ["desktop"]);
                     if (resend) {
                         turn.phase = "streaming";
@@ -1649,7 +1633,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.turn !== null) fail("brain-busy");
         const request = { kind: "tool-call", id: crypto.randomUUID(), tool: call.id, arguments: call.args, proposer: "matcher" };
         const turn = { gen: e.gen, op: e.op, done, labels: new Set(["desktop"]), speech: null, stopped: false, speaking: false,
-            delegation: e.delegation, feedbackTimer: null, relay: null, phase: "fast", calls: [request], answers: new Map(),
+            delegation: e.delegation, relay: null, phase: "fast", calls: [request], answers: new Map(),
             routing: request, caption: "", fast: { e } };
         c.turn = turn;
         c.last = turn;
@@ -1685,7 +1669,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const text = CALL_LINES[tool]?.[value.results[0].line ?? value.outcome];
         if (text === undefined) return true;
         try {
-            quiet(turn);
             const speakable = Speakable.create(LANGUAGE);
             const sentences = [...speakable.push(text), ...speakable.finish()];
             for (const sentence of sentences) say(c, turn, sentence, ["desktop"]);
@@ -1713,7 +1696,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function relayTurn(c, e, done, relay) {
         if (c.turn !== null) fail("brain-busy");
         const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false,
-            delegation: undefined, feedbackTimer: null, phase: "relay", calls: [], answers: new Map(), routing: null,
+            delegation: undefined, phase: "relay", calls: [], answers: new Map(), routing: null,
             caption: "", relay };
         c.turn = turn;
         c.last = turn;
@@ -1897,10 +1880,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
-                feedbackTimer: null, relay: null,
+                relay: null,
                 phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner,
                 routed: false, released: false, replyStarted: false, progressTimer: null, progressDue: false, step: null, lines: new Set(),
-                linePrefix: "", lineStream: null, pendingLine: null, waitingLine: null, fixed: null };
+                lineStream: null, pendingLine: null, waitingLine: null, fixed: null };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
@@ -1909,7 +1892,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             c.last = turn;
             line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);
             progress(c, turn);
-            working(c, turn);
             // A replaced duplex delegation waits for the prior adapter's cancellation.
             void c.quiet.then(async () => {
                 if (!turn.stopped && conversation === c) {
@@ -2092,7 +2074,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 return port.flush(e, report => {
                     if (account !== null && c.last === turn) heard(c, turn, account.text(report));
                     const own = speaking && c.live === null && c.last === turn && (report === null || report.source === turn.op);
-                    if (own && turn.relay === null) heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));
+                    if (own && turn.relay === null) heard(c, turn, report === null || flushedLine ? "" : report.heardText);
                     else if (own) unheard(c, turn);
                     c?.closingPlayback?.release();
                     done(report);
@@ -2262,16 +2244,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (conversationCue && cue === null)
                 cue = { gen: s.gen, source: s.playback.source, readable: Readable.from([earcon(s.playback.cue)],
                     { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
-            if (s.playback.kind === "feedback" && !conversationCue) {
+            if (s.playback.kind === "feedback" && s.playback.cue === "line") {
                 const c = current(s.gen);
-                if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
-                        && c.turn.speech === null) {
-                    c.turn.speech = speech(c);
-                    // Marked a tone, so voice mute leaves it audible.
-                    c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });
-                }
-                if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
-                        && c.turn.lineStream === null) lineAdmitted(c, c.turn);
+                if (c.turn !== null && c.turn.op === s.playback.source && c.turn.lineStream === null) lineAdmitted(c, c.turn);
             }
             // A line has played once Session's playback is idle again or
             // plays the reply it held; the waiting line then asks for its own.
@@ -2283,17 +2258,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const waiting = lined.waitingLine;
                 lined.waitingLine = null;
                 if (waiting !== null && session.live(s, lined, "turn", ["thinking"])) line(conversation, lined, waiting.text, waiting.labels);
-            }
-            const turn = conversation?.turn;
-            if (turn && (s.settings.sounds !== true || !session.live(s, turn, "turn", ["thinking"])
-                    || s.approval.kind !== "none")) quiet(turn);
-            // A cue-only stream cannot wait for sentences while the user
-            // answers approval. Later speech gets a new stream after flush.
-            if (turn && (s.settings.sounds !== true || s.approval.kind === "held")
-                    && !turn.speaking && turn.speech !== null) {
-                turn.speech.end();
-                turn.speech.readable.destroy();
-                turn.speech = null;
             }
             if (s.playback.kind !== "idle") idleAt = null;
             else if (idleAt === null && clock !== undefined) idleAt = clock.now();

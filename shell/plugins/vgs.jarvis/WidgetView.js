@@ -76,7 +76,14 @@ var FAULT_KINDS = [
     [/^(brain|net)=/, "brain"],
     [/^speech=local-ready-timeout$/, "localVoice"],
     [/^speech=dictation-busy$/, "dictationBusy"],
-    [/^speech=dictation-/, "dictation"],
+    // The core's recording ended at voxtype's length limit before the stop,
+    // and the sidecar captioned no words (ChainedEngine transcription).
+    [/^speech=dictation-idle$/, "dictationEnded"],
+    // Dictation hears the system default microphone, and there is none.
+    [/^speech=dictation-audio-unavailable$/, "defaultDevice"],
+    // Dictation itself is not running: Voice's Setup shows why.
+    [/^speech=dictation-daemon-/, "dictation"],
+    [/^speech=dictation-/, "dictationFailed"],
     // The ElevenLabs voice fails a reply's playback with its own keyed cause
     // (ElevenLabs.js), which Audio carries behind its source prefix.
     [/^(?:playback-source: jarvis: )?speech=elevenlabs-/, "elevenlabs"],
@@ -106,7 +113,9 @@ var FAULT_TEXT = {
     "voice": { title: "Local voice stopped working", action: ASK_AGAIN },
     "elevenlabs": { title: "ElevenLabs did not speak the reply", action: ASK_AGAIN },
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
-    "dictation": { title: "Dictation did not record", action: "Check dictation in [Settings > Voice](page:vgs.voice/Setup), then talk again." },
+    "dictation": { title: "Dictation is not running", action: "See what to fix in [Setup in Settings > Voice](page:vgs.voice/Setup), then talk again." },
+    "dictationEnded": { title: "Jarvis did not hear your words", action: "The recording reached its length limit first. Talk to Jarvis again." },
+    "dictationFailed": { title: "Dictation did not return your words", action: "Talk to Jarvis again." },
     "audio": { title: "The microphone or speaker stopped working", action: ASK_AGAIN },
     // A cloud voice refused the key at its handshake; the next key clears it.
     "keyRefused": { title: "The voice service refused your key", action: KEY_REFUSED_ACTION },

@@ -388,7 +388,7 @@ Item {
                 // without making the other placements depend on its length.
                 { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true, restartCategory: "audio",
                     box: { x: 300, y: 0, width: 600, height: 600 },
-                    clear: { output: "SMOKE-1", x: 300, y: 0, width: 600, height: 280 } },
+                    clear: { output: "SMOKE-1", x: 300, y: 0, width: 600, height: 160 } },
                 { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
                     box: { x: 120, y: 0, width: 450, height: 600 }, clear: null },
                 { tag: "orb-and-capsule-fit-a-narrow-right-side", width: 600, height: 600, output: "SMOKE-1", side: "right", wraps: true, icons: true,
@@ -420,7 +420,7 @@ Item {
             const overlay = findChild(bubble, "overlay");
             verify(overlay !== null);
             verify(renderedFrame(bubble));
-            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5);
+            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.bottom, 0.5);
             fuzzyCompare(overlay.x + overlay.width / 2, root.width / 2, 0.5);
 
             const box = Object.assign({ output: data.output }, data.box);
@@ -469,7 +469,7 @@ Item {
                         plate.objectName + " stays whole inside the clipped overlay");
                     verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width, plate.objectName + " also clears Console");
                 }
-                fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
+                fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.bottom, 0.5,
                     "a non-held overlay keeps its bottom edge, not the held prompt's top edge");
                 for (const item of bubble.textItems.filter(item => bubble.drawn(item) && item.height > 0)) {
                     const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
@@ -545,7 +545,7 @@ Item {
             service.consoleBox = data.clear;
             verify(renderedFrame(bubble));
             compare(bubble.overConsole, false);
-            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
+            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.bottom, 0.5,
                 "closing or clearing the Console returns the fault orb to the bottom");
             fuzzyCompare(overlay.x + overlay.width / 2, root.width / 2, 0.5,
                 "closing or clearing Console restores centred placement");
@@ -569,7 +569,7 @@ Item {
             const usable = () => JSON.stringify({ presented: bubble.capturePresented, orb: orb.width, hit: hit.width, button: button.width });
             verify(bubble.besideConsole && bubble.capturePresented && orb.width >= button.width && hit.width >= button.width,
                 "the whole layer presents the group with a usable orb: " + usable());
-            root.height = overlay.height + bubble.look.layout.margin - 1;
+            root.height = overlay.height + bubble.look.layout.bottom - 1;
             verify(renderedFrame(bubble));
             verify(bubble.besideConsole, "the shorter layer keeps the overlay beside Console");
             verify(!bubble.capturePresented || orb.width >= button.width && hit.width >= button.width,

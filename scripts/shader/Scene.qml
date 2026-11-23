@@ -139,7 +139,7 @@ ShellRoot {
             // ShellScreen's height is the screen's
             // (https://quickshell.org/docs/v0.3.1/types/Quickshell/ShellScreen/).
             implicitWidth: look.layout.prompt + 2 * look.plate.card.paddingX
-            implicitHeight: Quickshell.screens[0].height - 2 * look.layout.margin - Math.round(look.orb.reach * look.orb.size) - look.plate.gap
+            implicitHeight: Quickshell.screens[0].height - look.layout.margin - look.layout.bottom - Math.round(look.orb.reach * look.orb.size) - look.plate.gap
             optIn: true
             fill: look.plate.card.fill
             standard: ({ background: look.plate.card.base, border: look.plate.card.border, radius: look.plate.card.radius })

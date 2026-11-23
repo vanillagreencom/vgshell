@@ -27,7 +27,8 @@ import "Diagnose.js" as Diagnose
 //     the window's Cancel: `ok`, or `refused: draft=none`
 //
 // Another plugin hands a failure to the `diagnose` receiver as text: a
-// failed sync job's facts (Debug.syncFacts). The receiver opens a draft in
+// failed sync job's facts (Debug.syncFacts) or a Jarvis error's
+// (Debug.jarvisFacts). The receiver opens a draft in
 // the Agent Debug window and starts nothing: only the user's Run opens the
 // agent, as a notification's Diagnose does. A second failure while a draft
 // waits is refused, so the waiting draft stays.
@@ -195,10 +196,11 @@ Item {
     }
 
     // FACTS handed as TEXT by another plugin: a failed sync job's
-    // (Debug.syncFacts), held as the window's draft until the user runs or
+    // (Debug.syncFacts) or a Jarvis error's (Debug.jarvisFacts), held as
+    // the window's draft until the user runs or
     // cancels it. The answer tells the sender why it could not.
     function handed(text) {
-        const facts = Debug.syncFacts(text);
+        const facts = Debug.syncFacts(text) ?? Debug.jarvisFacts(text);
         if (facts === null) return { ok: false, reason: "Agent Debug could not read this failure." };
         if (draft !== null) return { ok: false, reason: "Agent Debug already holds a diagnosis. Run or cancel it first." };
         draft = facts;
@@ -217,7 +219,7 @@ Item {
         if (agent === "") return "refused: agent=none";
         const facts = draft;
         draft = null;
-        const reply = diagnose({ kind: "sync", entry: facts, read: Date.now() });
+        const reply = diagnose({ kind: facts.kind, entry: facts, read: Date.now() });
         if (reply !== "ok" && reply !== "recovery") draft = facts;
         return reply;
     }
@@ -239,6 +241,8 @@ Item {
         } else if (facts.kind === "sync") {
             const at = facts.entry.at === 0 ? facts.read : facts.entry.at;
             args = Debug.syncArgs(agent, facts.entry, at, -new Date(at).getTimezoneOffset());
+        } else if (facts.kind === "jarvis") {
+            args = Debug.jarvisArgs(agent, facts.entry, facts.entry.at, -new Date(facts.entry.at).getTimezoneOffset());
         } else {
             const failure = Debug.pressedFailure(failures, facts.plugin, facts.key, facts.failure);
             args = Debug.taskArgs(agent, facts.plugin, failure, facts.read, -new Date(facts.read).getTimezoneOffset());

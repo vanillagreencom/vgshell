@@ -171,8 +171,12 @@ var TOKENS = {
         scale: number(1, 0, 4)
     },
     layout: {
-        // The gap between the overlay and the layer's bottom edge.
+        // The gap between the overlay and the layer's edges at its sides
+        // and its top.
         margin: length(12),
+        // The gap between the overlay and the layer's bottom edge, which
+        // keeps the orb clear of the monitor's edge (owner).
+        bottom: length(62),
         // The overlay's width, which holds the orb, its icon row and the
         // widest line under it.
         width: length(480),
@@ -187,12 +191,14 @@ var TOKENS = {
         // that fits draws whole.
         payload: length(200),
         gap: length(8),
+        // The gap between an error's View log and Send to agent.
+        actions: length(16),
         // The square over the orb's centre that takes the pointer while
         // the overlay is active (D026): the right click that opens the
         // menu and the hover that shows the icon row. The orb's whole
         // canvas would take clicks meant for the window under its faint
         // edge.
-        hit: length(150),
+        hit: length(120),
         // How far right of and above the orb's centre the icon row's input
         // rectangle starts, inside the hit square, so the pointer moving
         // from the orb to an icon never leaves the input region.
@@ -202,16 +208,15 @@ var TOKENS = {
         anchor: length(1)
     },
     orb: {
-        // The canvas, 15% under the first build's 300 px (owner, revision
-        // 5); the icon row, the hit square and the shader instrument's
-        // scene follow it.
-        size: length(255),
+        // The canvas, 20% under the 255 px before it (owner); the hit
+        // square and the shader instrument's scene follow it.
+        size: length(204),
         // Glass bead's cells per cube edge, full and reduced (the reduced
         // look draws no inner rim strand and the rim's front faces alone).
         cells: number(40, 8, 64),
         reducedCells: number(34, 8, 64),
-        // A dot's radius as a share of the canvas half-width: 0.61 px at
-        // the 255 px canvas.
+        // A dot's radius as a share of the canvas half-width: 0.49 px at
+        // the 204 px canvas.
         dot: number(0.0048, 0, 0.05),
         // The share of the canvas half-width the plates stand outside. It
         // holds Glass bead's band in every state: the outermost strand
@@ -228,10 +233,14 @@ var TOKENS = {
         // The input curve: a level x from 0 to 1 drives the orb by
         // (1 - e^(-k x)) / (1 - e^(-k)) with k this steepness, an
         // exponential ease-out that is 0 at 0 and 1 at 1, continuous and
-        // rising, with no step or threshold. At k 3 quiet speech, level
-        // 0.1, moves the orb 27% of the way and a loud voice, level 0.5,
-        // 82%. Capture and playback share it.
+        // rising, with no step or threshold. At k 3 a level of 0.1 moves
+        // the orb 27% of the way and 0.5 82%. Capture and playback share it.
         response: number(3, 0.1, 10),
+        // The microphone's level times this, held to 1, is the curve's x:
+        // a voice's RMS level sits near 0.01 to 0.05, which at 1 moved the
+        // orb 3% to 15% of the way. At 10, 0.015 moves it 38% and 0.05 82%.
+        // Playback's level reaches the curve as it is.
+        inputGain: number(10, 1, 40),
         // One state's change to the next, and the level's rise and fall.
         transition: duration(400),
         attack: duration(70),
@@ -249,7 +258,7 @@ var TOKENS = {
     // below that square, inside the disc and clear of the pointer. The
     // delay is a wait, not motion, so the motion scale leaves it.
     name: {
-        middle: length(72),
+        middle: length(58),
         paddingX: length(12),
         paddingY: length(4),
         delay: number(600, 0, 2000),
@@ -314,6 +323,20 @@ var TOKENS = {
             pressedFill: color("mix({palette.accent}, contrast({answer.tinted.ink}), 0.05)"),
             ink: color("contrast({palette.accent})")
         }
+    },
+    // The held request's Always allow box over its answers: small, muted
+    // and centred. Its text is the path's hint ink; checked, the box takes
+    // the theme's accent with the ink that reads on it.
+    always: {
+        box: length(14),
+        check: length(12),
+        line: length(1),
+        radius: length(4),
+        gap: length(6),
+        border: color("alpha(#ffffff, 0.55)"),
+        fill: color("{palette.accent}"),
+        mark: color("contrast({palette.accent})"),
+        ink: color("alpha(#f4f5f8, 0.72)")
     },
     // The plates the overlay stands on, each one qs.Ui GlassSurface in the
     // lens form with no drop shadow: the compositor blurs the backdrop

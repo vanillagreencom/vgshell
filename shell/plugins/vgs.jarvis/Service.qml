@@ -272,6 +272,7 @@ Item {
         refreshTextOffer();
         if (shell === null) return;
         publishMicrophoneMute();
+        publishGrants();
         // shell's dependent bindings can still hold the previous settings here.
         const operation = ownerAskOperation();
         if (operation !== null && (lifetime.kind === "new" || operation.home !== shell.settings.home))
@@ -282,6 +283,13 @@ Item {
             shell.shortcut.register("voice-mute", "Mute Jarvis's voice", () => intent("voice-mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
+            // Yes with Always allow, the card's box by key.
+            shell.shortcut.register("confirm-always", "Always allow Jarvis", () => {
+                const hold = displayedApproval();
+                if (hold === null || !hold.grantable) return;
+                alwaysApproval(hold, true);
+                confirmApproval(hold, "key");
+            });
             shell.shortcut.register("deny", "Deny Jarvis request", () => cancelApproval(displayedApproval()));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
             shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));
@@ -352,6 +360,13 @@ Item {
                 return JSON.stringify({ prompt: prompt === undefined ? null : prompt });
             });
             shell.ipc.handle("task-answer", text => respondTask(text));
+            // tui/remove-grant.sh names the row it asks about, then removes
+            // it on the user's yes.
+            shell.ipc.handle("grant-label", key => {
+                const item = Protocol.grantList(shell.settings.alwaysAllow).find(row => row.grant === key);
+                return item === undefined ? "refused: always-allow=unknown" : item.label;
+            });
+            shell.ipc.handle("remove-grant", key => removeGrant(key));
             shell.ipc.handle("task-response", () => JSON.stringify({ response: taskResponse }));
             shell.layers.show(bubble);
             start();
@@ -570,7 +585,7 @@ Item {
             // where a model with no list read is. The daemon repeats the
             // model choice by the account it resolves, for a hello sent
             // before the account reader's first answer.
-            settings: Object.assign(settings, { sounds: feedbackSounds,
+            settings: Object.assign(settings, { sounds: feedbackSounds, alwaysAllow: Protocol.grantList(settings.alwaysAllow),
                 voiceProvider: provider, dictation: Gate.dictationCause(provider, shell.dictation.state) },
                 Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
@@ -678,6 +693,67 @@ Item {
     function confirmApproval(hold, source) {
         if (hold === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
         send({ type: "intent", intent: "confirm", gen: hold.gen, id: hold.id, digest: hold.digest, source: source });
+    }
+
+    // An error card's View log: the newest Jarvis lines of the shell's log.
+    function viewLog() {
+        const reply = shell.tui.run("log", []);
+        if (reply !== "ok") console.warn("jarvis: view-log " + reply);
+    }
+
+    // Agent Debug's Diagnose receiver, the Send to agent of an error card
+    // (vgs.local-sync hands a failed job to it the same way); undefined
+    // while Agent Debug is off.
+    readonly property var agentTarget: shell === null ? undefined
+        : shell.handoff.targets.find(row => row.key === "handoff:vgs.agent-debug/diagnose")
+    // Why the card's Send to agent is unavailable, "" while it is.
+    readonly property string agentReason: agentTarget === undefined ? "Turn on Agent Debug to use this."
+        : agentTarget.available ? "" : agentTarget.reason
+
+    // An error card's Send to agent: FAULT's keyed cause and its card TITLE
+    // go to Agent Debug as a draft the user runs. Why it could not is said
+    // on a notice.
+    function sendFault(fault, title) {
+        const result = agentReason !== "" ? { ok: false, reason: agentReason }
+            : agentTarget.open(JSON.stringify({ kind: "jarvis", cause: fault.reason, title: title, at: Date.now() }));
+        if (result.ok) return;
+        notice({ title: "Jarvis error not sent", message: result.reason, tone: "warning", icon: "vgs-letter-j" });
+    }
+
+    // The card's Always allow box for HOLD, sent as the user sets it.
+    function alwaysApproval(hold, checked) {
+        if (hold === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        send({ type: "intent", intent: "always", gen: hold.gen, id: hold.id, digest: hold.digest, always: checked });
+    }
+
+    // Settings > Jarvis's Always allowed rows, one per saved key: its row id
+    // is the key, which tui/remove-grant.sh hands back.
+    function publishGrants() {
+        const rows = Protocol.grantList(shell.settings.alwaysAllow).map(item => ({ id: item.grant, label: item.label, actions: ["remove"] }));
+        const reply = StatusPublication.write(shell.status, "alwaysAllow", rows);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+    }
+
+    // The daemon's audited Yes with Always allow: the key joins the saved
+    // list. A full list or a refused write saves nothing and says so.
+    function saveGrant(message) {
+        const list = Protocol.grantList(shell.settings.alwaysAllow);
+        if (list.some(item => item.grant === message.grant)) return;
+        const answer = list.length >= Protocol.ALLOW_MAX ? "refused: always-allow=full limit=" + Protocol.ALLOW_MAX
+            : shell.configure.set("alwaysAllow", list.concat([{ grant: message.grant, label: message.label }]));
+        if (answer === "ok") return;
+        console.warn("jarvis: always-allow=" + answer);
+        notice({ title: "Always allow not saved", tone: "warning", icon: "vgs-letter-j",
+            message: list.length >= Protocol.ALLOW_MAX
+                ? "Jarvis keeps at most " + Protocol.ALLOW_MAX + " allowed requests. Remove one in [Settings > Jarvis](page:vgs.jarvis/Settings), then allow it again."
+                : "Jarvis allowed this request once. Its settings could not be saved, so it asks again next time." });
+    }
+
+    // Removes KEY from the saved list: `ok`, or the keyed refusal.
+    function removeGrant(key) {
+        const list = Protocol.grantList(shell.settings.alwaysAllow);
+        if (!list.some(item => item.grant === key)) return "refused: always-allow=unknown";
+        return shell.configure.set("alwaysAllow", list.filter(item => item.grant !== key));
     }
 
     function cancelApproval(hold) {
@@ -1406,6 +1482,10 @@ Item {
                 }
                 if (message.type === "model-fallback") {
                     modelFallback(message);
+                    continue;
+                }
+                if (message.type === "allow") {
+                    saveGrant(message);
                     continue;
                 }
                 if (message.type === "devices") {

@@ -10,7 +10,7 @@ const path = require("node:path");
 const tree = path.resolve(__dirname, "../../..");
 // What backend/Core.js loads, by its path in the tree.
 const FILES = Object.freeze(["bin/lib/qml-library.js", "bin/lib/anchored.js", "bin/lib/account-folders.js",
-    "bin/lib/codex-account.js", "shell/Commons/AccountDirectories.js"]);
+    "bin/lib/codex-account.js", "shell/Commons/AccountDirectories.js", "shell/Commons/TuiArguments.js", "shell/Commons/SettingValues.js"]);
 
 /** Name ROOT, the checkout's tree by default, for the backend in BACKEND. */
 function useTree(backend, root = tree) {

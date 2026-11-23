@@ -3,7 +3,7 @@
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state, echo-cancel-refresh and reply. Voice confirmation
 // is daemon-internal. Daemon produces status/state/devices/echo-cancel/homes/voices/instructions/home-drift/start-text/level/audio-fault,
-// request, tasks, task-answer, model-fallback, voice-renewal and transcript. A line excludes its LF.
+// request, tasks, task-answer, model-fallback, voice-renewal, allow and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
 var MAX_LINE_BYTES = 256 * 1024;
@@ -26,6 +26,10 @@ var HOME_DRIFT = ["none", "checking", "current", "behind", "drift", "pending", "
 // cannot import a core file, so this is a copy, and
 // scripts/test-jarvis-protocol.js holds it equal to the judge's.
 var STATUS_UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+// What a status row id refuses: TuiArguments' CONTROL_CHARACTER, which
+// PluginLogic.statusRowFits reads; a copy for the same reason, held equal
+// to its owner's by the same test.
+var ROW_ID_UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f]/;
 
 // Requests the daemon sends and the service answers, one reply each. `args`
 // lists each argument's type, or "argv" for a command; `data` names the
@@ -235,6 +239,30 @@ function text(value) {
 
 function printable(value, min, max) {
     return typeof value === "string" && value.length >= min && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
+}
+
+// One saved Always allow item: a standing grant key (Policy.decide,
+// Policy.releaseGrants), a status row id of 1 to 256 characters, and its
+// Settings line, of at most 60 (PluginLogic.js STATUS_LABEL_MAX): what
+// PluginLogic.statusRowFits takes, so publishing a saved row never fails.
+var ALLOW_MAX = 64;
+function grantItem(value) {
+    return object(value) && Object.keys(value).sort().join(",") === "grant,label"
+        && typeof value.grant === "string" && value.grant.length >= 1 && Array.from(value.grant).length <= 256
+        && !ROW_ID_UNPRINTABLE.test(value.grant) && statusLine(value.label, 60);
+}
+
+// The well-formed items of the saved alwaysAllow setting, first ALLOW_MAX,
+// without a repeated key: the hello carries these, so a hand-edited row
+// the judge would refuse never stops the daemon.
+function grantList(value) {
+    if (!Array.isArray(value)) return [];
+    var seen = {};
+    return value.filter(function (item) {
+        if (!grantItem(item) || Object.prototype.hasOwnProperty.call(seen, item.grant)) return false;
+        seen[item.grant] = true;
+        return true;
+    }).slice(0, ALLOW_MAX).map(function (item) { return { grant: item.grant, label: item.label }; });
 }
 
 function argv(value) {
@@ -533,7 +561,9 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");
+        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap", "alwaysAllow"], "settings");
+        if (!Array.isArray(message.settings.alwaysAllow) || message.settings.alwaysAllow.length > ALLOW_MAX
+                || JSON.stringify(grantList(message.settings.alwaysAllow)) !== JSON.stringify(message.settings.alwaysAllow)) fail("always-allow");
         if (typeof message.settings.weeklyOpenaiCap !== "number" || !Number.isFinite(message.settings.weeklyOpenaiCap)
                 || message.settings.weeklyOpenaiCap < 0 || message.settings.weeklyOpenaiCap > 10000) fail("weekly-openai-cap");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
@@ -569,7 +599,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "voice-mute", "stop", "confirm", "deny", "console"], "keys");
+        keys(message.keys, ["talk", "voice-mute", "stop", "confirm", "confirm-always", "deny", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -589,11 +619,14 @@ function accept(line, direction) {
     case "intent":
         if (direction !== "shell") fail("direction-intent");
         var fields = ["v", "type", "gen", "revision", "intent"];
-        if (message.intent === "confirm") {
-            keys(message, fields.concat(["id", "digest", "source"]), "confirm");
+        // A confirm, or the card's Always allow box, for one held request.
+        if (message.intent === "confirm" || message.intent === "always") {
+            if (message.intent === "confirm") keys(message, fields.concat(["id", "digest", "source"]), "confirm");
+            else keys(message, fields.concat(["id", "digest", "always"]), "always");
             if (!approvalId(message.id)) fail("approval-id");
             if (typeof message.digest !== "string" || !/^[0-9a-f]{64}$/.test(message.digest)) fail("approval-digest");
-            if (["key", "button"].indexOf(message.source) === -1) fail("approval-source");
+            if (message.intent === "always") { if (typeof message.always !== "boolean") fail("always"); }
+            else if (["key", "button"].indexOf(message.source) === -1) fail("approval-source");
         } else if (message.intent === "cancel") {
             keys(message, fields.concat(["id"]), "cancel");
             if (!approvalId(message.id)) fail("approval-id");
@@ -948,6 +981,11 @@ function accept(line, direction) {
     case "voice-renewal":
         if (direction !== "daemon") fail("direction-voice-renewal");
         keys(message, ["v", "type", "gen", "revision"], "voice-renewal");
+        break;
+    case "allow":
+        if (direction !== "daemon") fail("direction-allow");
+        keys(message, ["v", "type", "gen", "revision", "grant", "label"], "allow");
+        if (!grantItem({ grant: message.grant, label: message.label })) fail("allow");
         break;
     case "transcript":
         if (direction !== "daemon") fail("direction-transcript");

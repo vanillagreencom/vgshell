@@ -61,13 +61,13 @@ async function daemonLease(ending, removeClose = false) {
         fs.writeFileSync(file, mutant);
     }
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25 },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [] },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+        keys: { talk: "SUPER+code:44", deny: null, "confirm-always": null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
     const child = cp.spawn("node", [file, "--tree", tree], { env: {
         PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
         XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -151,13 +151,13 @@ async function daemonStartup(browserFile) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25 },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [] },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+        keys: { talk: "SUPER+code:44", deny: null, "confirm-always": null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
     const child = cp.spawn(process.execPath, [path.join(folder, "backend/jarvisd.js"), "--tree", tree],
         { env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME }, stdio: ["pipe", "pipe", "pipe"] });

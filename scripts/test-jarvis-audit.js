@@ -423,6 +423,20 @@ world(() => {
             assert.equal(records(root).length, 2, "a refused record writes nothing");
         });
     }
+    // A row a saved Always allow key went under names the key's kind and
+    // never its target, path, recipient or account (Policy.grantKind).
+    function checkStanding(logic) {
+        const root = state();
+        withWriter(logic, { state: root }, writer => {
+            for (const kinds of [["shell.line:exec"], ["application"], ["release:screen", "release:file"]])
+                assert.equal(writer.record({ ...event, standing: kinds }).kind, "recorded");
+            assert.deepEqual(records(root).map(record => record.standing), [["shell.line:exec"], ["application"], ["release:screen", "release:file"]]);
+            for (const standing of [["shell.line:exec:/home/u/sentinel-folder"], ["application:org.example.Editor"],
+                ["release:screen:openai|work|https://api.openai.com"], [], "shell.line:exec"])
+                assert.deepEqual(writer.record({ ...event, standing }), { kind: "refuse", reason: "audit-write", cause: "standing" });
+            assert.equal(records(root).length, 3, "a refused record writes nothing");
+        });
+    }
     // A failed voice stream's closing release row keeps one of the stream
     // causes, never the fault's own text; no other record carries one.
     function checkCause(logic) {
@@ -658,7 +672,7 @@ world(() => {
         });
     }
     captureFacts(Audit);
-    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkCause(Audit); checkFaultRow(Audit);
+    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkStanding(Audit); checkCause(Audit); checkFaultRow(Audit);
     for (const invalid of ["relative", "/", base + "/x/../y", null])
         assert.throws(() => Audit.create({ state: invalid }), { code: "state-path" });
     withWriter(Audit, { now: () => NaN }, writer => assert.equal(writer.record(event).kind, "refuse"));
@@ -723,6 +737,7 @@ world(() => {
         ["tool identity", 'Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown"', 'tool', checkUnknownTool],
         ["proposer kept", '...(event.proposer === undefined ? {} : { proposer: event.proposer }),', "", checkProposer],
         ["proposer judged", 'if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");', "", checkProposer],
+        ["standing value kept", "/^[a-z][a-z.-]*(?::[a-z][a-z-]*)?$/.test(kind)", "typeof kind === \"string\"", checkStanding],
         ["cause kept", "...(event.cause === undefined ? {} : { cause: event.cause }),", "", checkCause],
         ["cause judged", 'if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");', "", checkCause],
         ["cause scope", 'kind !== "release" || outcome !== "failed" || !STREAM_CAUSES', "!STREAM_CAUSES", checkCause],

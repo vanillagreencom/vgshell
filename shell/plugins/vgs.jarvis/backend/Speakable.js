@@ -411,16 +411,9 @@ const VERBS = Object.freeze({
     check: "Checking", find: "Finding", look: "Looking", read: "Reading", search: "Searching",
     show: "Showing", list: "Listing", get: "Getting", open: "Opening"
 });
-const QUESTION_START = new Set(["who", "what", "when", "where", "why", "how", "is", "are", "am", "was", "were",
-    "do", "does", "did", "can", "could", "would", "will", "should"]);
 const CLAUSE = new Set(["for", "and", "then", "so", "because", "before", "after", "with"]);
 const ADDRESSES = /^(?:(?:please|jarvis|hey jarvis|hey|can you|could you|would you|will you)\b[\s,]*)+/iu;
 const WORD = /[\p{L}\p{N}'-]+/gu;
-
-function fallback(cleaned) {
-    const words = cleaned.toLowerCase().match(WORD) ?? [];
-    return cleaned.includes("?") || QUESTION_START.has(words[0] ?? "") ? "Let me check." : "On it.";
-}
 
 function swapPronoun(word) {
     const lower = word.toLowerCase();
@@ -433,24 +426,25 @@ function swapPronoun(word) {
  * The line Jarvis says at once for a request that goes to the brain, built
  * from the user's words with no model call: a verb of VERBS turned to its
  * -ing form with at most five words of its object ("Checking the Fidelity
- * pages."), else "Let me check." for a question and "On it." for anything
- * else. A transcript that holds a secret is never echoed.
+ * pages."), else "" and nothing is said. A filler line before every answer
+ * slows each exchange. A transcript that holds a secret is
+ * never echoed.
  */
 function acknowledgement(transcript) {
     const cleaned = typeof transcript === "string" ? transcript.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/gu, " ").trim() : "";
-    if (cleaned === "" || Redact.secret(cleaned)) return fallback(cleaned);
+    if (cleaned === "" || Redact.secret(cleaned)) return "";
     let text = cleaned.replace(ADDRESSES, "").trim();
-    if (text === "") return fallback(cleaned);
+    if (text === "") return "";
     const words = text.match(WORD) ?? [];
-    if (words.length === 0) return fallback(cleaned);
+    if (words.length === 0) return "";
     const verb = VERBS[words[0].toLowerCase()];
-    if (verb === undefined) return fallback(cleaned);
+    if (verb === undefined) return "";
     const object = [];
     for (const word of words.slice(1)) {
         if (CLAUSE.has(word.toLowerCase())) break;
         if (object.length === 0 && ["me", "us"].includes(word.toLowerCase())) continue;
         object.push(swapPronoun(word));
-        if (object.length > 5) return fallback(cleaned);
+        if (object.length > 5) return "";
     }
     if (object.length === 0) return verb + ".";
     return verb + " " + object.join(" ") + ".";

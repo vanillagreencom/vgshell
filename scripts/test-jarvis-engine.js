@@ -20,7 +20,6 @@ const PORT = 11434;
 const OBSERVE_MS = 15000;
 const until = (check, message) => wait(check, message, OBSERVE_MS);
 const INTERRUPTED = "[interrupted] The user heard none of your last reply.";
-const withoutAcks = rows => rows.filter(sentence => !["On it.", "Let me check."].includes(sentence));
 // A synthetic screen image the vision stand-in answers with.
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const heardOnly = prefix => "[interrupted] The user heard only this part of your last reply: \"" + prefix + "\"";
@@ -116,8 +115,12 @@ function rig(kit, server, options = {}) {
         context: { directories: { runtime: fs.mkdtempSync(path.join(process.env.XDG_RUNTIME_DIR, "b-")) } } }) : null;
     const result = daemon === null ? value => runner.ports.brain.outcome(value)
         : shipped(daemonSource, /result: (value => gate\.deliver\(value\)[^\n]*?),\n/g, daemon, "result route");
-    const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
-        context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
+    // The keys a Yes with Always allow asked the shell to save.
+    const saved = [];
+    const allow = (grant, label) => saved.push({ grant, label });
+    const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit, allow,
+        context: () => ({ profile: "standard", locked: false, allowed: (runner.state.settings.alwaysAllow ?? []).map(row => row.grant),
+            denied: options.actionApproval ? Denied.create({
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
             state: options.deniedState ?? process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
         }) : null }),
@@ -188,7 +191,7 @@ function rig(kit, server, options = {}) {
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
-        directories: options.directories, configured, tasks: tasks?.port ?? null, request: dictation.send,
+        directories: options.directories, configured, tasks: tasks?.port ?? null, request: dictation.send, allow,
         ...(options.home === undefined ? {} : { home: options.home }),
         ...(options.log === undefined ? {} : { log: options.log }),
         ...(options.trace === undefined ? {} : { trace: options.trace }),
@@ -229,7 +232,7 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { Session, runnerNow: runnerClock.now, runner, router, audio, audioClock, engine, audit, faults, failed, auditLines, executions, held, partials, captions, rows, configure,
-        state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge,
+        state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge, saved,
         s: () => runner.state, observed,
         async close() {
             daemon?.bridge.close();
@@ -785,8 +788,8 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: ending === "home-missing" ? "~/absent-" + path.basename(root) : "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25 },
-        keys: { talk: null, stop: null, confirm: null, deny: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
+        settings: { home: ending === "home-missing" ? "~/absent-" + path.basename(root) : "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [] },
+        keys: { talk: null, stop: null, confirm: null, deny: null, "confirm-always": null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
     let tryPassed = false;
@@ -1343,29 +1346,28 @@ async function cases(kit, server, only = null, mutation = false) {
         }, { sounds: true });
     }
 
-    await run("feedback-working", async w => {
+    // One spoken exchange with Sounds on: no tone and no filler line plays
+    // before or after the answer, however long the brain takes; the
+    // answer is all Jarvis says.
+    await run("exchange-no-cue", async w => {
         const first = await say(w, utterance("Are you there?"));
         await requested(w, first + 1, "the request starts after the user finishes");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
-        assert.ok(control.spoken.includes("Let me check."), "the acknowledgement speaks before the working cue");
-        await until(() => w.s().capture.kind === "closed", "capture closes before the acknowledgement playback drains");
+        await until(() => w.s().capture.kind === "closed", "capture closes for the answer");
         await playOut(w);
         const startWrites = w.writes.length;
-        w.advanceRunner(1199);
-        assert.equal(w.s().playback.kind, "idle", "working feedback waits for its interval after the acknowledgement");
-        w.advanceRunner(1200);
-        assert.equal(w.s().playback.cue, "working");
-        await until(() => w.writes.length > startWrites, "working PCM reaches the stand-in player");
-        assert.equal(w.writes.slice(startWrites).some(write => write.pcm.some(byte => byte !== 0)), true);
-        w.advanceRunner(1200);
+        w.advanceRunner(5000);
         await advance(w, 6);
-        assert.equal(w.audio.playback.received, 2880, "only one working cue enters the stream");
+        assert.equal(w.s().playback.kind, "idle", "no cue plays while the brain works");
+        assert.equal(w.writes.length, startWrites, "nothing reaches the player before the answer");
         server.replies.push(text("Yes I am here."));
         await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
         await playOut(w);
-        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES);
+        w.advanceRunner(5000);
+        await advance(w, 6);
+        assert.ok(w.writes.slice(startWrites).every(write => write.pcm.every(byte => byte === 0x11)), "only the answer's voice plays");
+        assert.equal(w.audio.lastPlayback.writtenFrames, 4 * Fixture.WORD_FRAMES);
         assert.equal(w.audio.lastPlayback.heardText, "Yes I am", "only aligned assistant words enter heard accounting");
-        assert.deepEqual(control.spoken, ["Let me check.", "Yes I am here."]);
+        assert.deepEqual(control.spoken, ["Yes I am here."], "the answer has no filler before it");
         assert.deepEqual(w.faults, []);
         if (only === null) {
             const request = server.requests[first];
@@ -1382,8 +1384,8 @@ async function cases(kit, server, only = null, mutation = false) {
     }, { sounds: true });
 
     // Voice mute silences Jarvis's spoken words only: a voice preview and the
-    // start and working sounds still reach the player, and the reply keeps
-    // its written count.
+    // start sound still reach the player, and the reply keeps its written
+    // count.
     await run("voice-mute-spoken-only", async w => {
         const kinds = (from, keep = () => true) => [...new Set(w.writes.slice(from).filter(keep).map(write => write.pcm.every(byte => byte === 0) ? "silence"
             : write.pcm.every(byte => byte === 0x11) ? "voice" : "tone"))].sort();
@@ -1395,45 +1397,21 @@ async function cases(kit, server, only = null, mutation = false) {
         const turnFrom = w.writes.length;
         const first = await say(w, utterance("Are you there?"));
         await requested(w, first + 1, "the request starts after the user finishes");
-        await w.observed(() => control.spoken.includes("Let me check."), "the acknowledgement reaches speech");
-        await until(() => w.s().capture.kind === "closed", "capture closes before the acknowledgement playback drains");
+        await until(() => w.s().capture.kind === "closed", "capture closes for the answer");
         await playOut(w);
-        w.advanceRunner(2400);
-        assert.equal(w.s().playback.cue, "working");
-        await advance(w, 6);
         server.replies.push(text("Yes I am here."));
         await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
         await playOut(w);
-        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES, "a muted reply keeps its written count");
-        assert.deepEqual(kinds(turnFrom), ["silence", "tone"], "the start and working sounds play; the spoken words are silence");
+        assert.equal(w.audio.lastPlayback.writtenFrames, 4 * Fixture.WORD_FRAMES, "a muted reply keeps its written count");
+        assert.deepEqual(kinds(turnFrom), ["silence", "tone"], "the start sound plays; the spoken words are silence");
         const reply = w.writes.at(-1).source;
-        assert.deepEqual(kinds(turnFrom, write => write.source === reply), ["silence", "tone"],
-            "the working sound inside the spoken reply's source plays");
+        assert.deepEqual(kinds(turnFrom, write => write.source === reply), ["silence"], "the spoken reply's source is silence");
         assert.deepEqual(w.faults, []);
     }, { sounds: true });
 
-    for (const [kind, reply] of [["text", held => text("A sentence for speech. ", { wait: held.wait })],
-        ["tool", () => calls({ id: "focus", name: "windows_focus", arguments: { window: "0x1f" } })]]) {
-        await run("feedback-suppressed-" + kind, async w => {
-            const first = await say(w, utterance("Hello."));
-            await requested(w, first + 1, "the request reaches the server");
-            const held = gate();
-            // The injected clock advances only after the real stream adapter
-            // has consumed the released sentence or the tool event.
-            server.replies.push(reply(held));
-            await settled(() => ![...w.timers.values()].some(timer => timer.at === w.runnerNow() + 1200),
-                () => kind === "tool" ? w.executions.length > 0 : withoutAcks(control.spoken).length > 0,
-                "substantive provider output retires the feedback timer");
-            w.advanceRunner(1200);
-            assert.notEqual(w.s().playback.cue, "working", "substantive " + kind + " suppresses the working cue");
-            held.open();
-            w.runner.dispatch({ type: "stop" });
-        }, { sounds: true, holdTools: kind === "tool" });
-    }
-
     // Text that stays silent, as a brain writes before a tool call, is no
-    // speech: the working sound still covers the wait. The trace shows the
-    // engine has read the text, since it is written before Speakable reads.
+    // speech. The trace shows the engine has read the text, since it is
+    // written before Speakable reads.
     const silenced = path.join(fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "silenced-")), "brain.jsonl");
     await run("feedback-silenced-text", async w => {
         const first = await say(w, utterance("Hello."));
@@ -1441,86 +1419,23 @@ async function cases(kit, server, only = null, mutation = false) {
         const held = gate();
         server.replies.push(text('<tool_call>{"name": "windows_focus"}</tool_call> Calling `mcp__vgs-jarvis__windows_focus` now. ', { wait: held.wait }));
         await until(() => fs.readFileSync(silenced, "utf8").includes("Calling"), "the engine reads the silenced text");
-        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement reaches speech");
-        assert.ok([...w.timers.values()].some(timer => timer.at === w.runnerNow() + 1200), "silenced text leaves the working sound due");
-        w.advanceRunner(1200);
-        assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "line"], "the acknowledgement line covers the wait");
-        assert.deepEqual(control.spoken, ["On it."], "and none of the silenced text is spoken");
+        await turn();
+        assert.deepEqual(control.spoken, [], "none of the silenced text is spoken");
         held.open();
         w.runner.dispatch({ type: "stop" });
     }, { sounds: true, trace: { marker: "1", file: silenced } });
 
-    await run("feedback-disable-working", async w => {
-        const first = await say(w, utterance("Hello."));
-        await requested(w, first + 1, "the request starts");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
-        await playOut(w);
-        w.advanceRunner(1200);
-        await until(() => w.s().playback.cue === "working" && w.audio.playback?.kind === "feeding", "the working cue starts");
-        w.configure({ ...w.s().settings, sounds: false });
-        await until(() => w.s().playback.kind === "idle", "disabling feedback flushes the working cue");
-        server.replies.push(text("Hello there."));
-        await until(() => w.s().turn.kind === "none", "the live reply still completes");
-        await playOut(w);
-        assert.deepEqual(control.spoken, ["On it.", "Hello there."]);
-        assert.equal(w.audio.lastPlayback.heardText, "Hello");
-        assert.deepEqual(w.faults, []);
-        assert.equal(w.s().fault.kind, "none");
-    }, { sounds: true });
-
-    await run("feedback-delayed-flush", async w => {
-        const first = await say(w, utterance("Hello."));
-        await requested(w, first + 1, "the request starts");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
-        await playOut(w);
-        w.advanceRunner(1200);
-        await until(() => w.s().playback.cue === "working" && w.audio.playback?.received === 2880, "the working cue enters Audio");
-        const flush = w.runner.ports.playback.flush;
-        let acknowledge = null;
-        w.runner.ports.playback.flush = (e, done) => flush(e, report => { acknowledge = () => done(report); });
-        w.configure({ ...w.s().settings, sounds: false });
-        await until(() => acknowledge !== null, "Audio closes the old player before its held acknowledgment");
-        assert.equal(w.audio.playback, null);
-        const writes = w.writes.length;
-        server.replies.push(text("Hello there."));
-        await until(() => w.s().turn.kind === "none", "the brain finishes before flush acknowledgment");
-        await w.observed(() => control.spoken.includes("Hello there."), "the held reply reaches speech before playback");
-        assert.deepEqual(control.spoken, ["On it.", "Hello there."]);
-        assert.equal(w.writes.length, writes, "reply PCM waits for the old flush");
-        assert.equal(w.s().playback.kind, "flushing");
-        acknowledge();
-        await playOut(w);
-        assert.ok(w.writes.slice(writes).some(write => write.pcm.includes(0x11)), "reply PCM reaches the new player");
-        assert.equal(w.audio.lastPlayback.heardText, "Hello");
-        assert.deepEqual(w.faults, []);
-        await say(w, utterance("Another turn."));
-        const body = await requested(w, first + 2, "the next request follows the completed delayed reply");
-        assert.equal(user(body).at(-1), "Another turn.", "a cue flush adds no interrupted speech context");
-        server.replies.push(text(""));
-        await until(() => w.s().turn.kind === "none", "the next request completes");
-    }, { sounds: true });
-
-    for (const purpose of ["action", "release"]) await run("feedback-voice-" + purpose, async w => {
+    for (const purpose of ["action", "release"]) await run("voice-approval-" + purpose, async w => {
         const first = await say(w, utterance("Do the fixture."));
         await requested(w, first + 1, "the quiet request starts");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
-        await playOut(w);
-        w.advanceRunner(1200);
-        await until(() => w.s().playback.cue === "working" && w.audio.playback?.received === 2880, "working feedback enters Audio");
-        const oldSource = w.audio.playbackFeed;
         server.replies.push(calls(purpose === "action"
             ? { id: "call_action", name: "shell_argv", arguments: { argv: ["true"], cwd: w.workspace, network: false } }
             : { id: "call_release", name: "clipboard_read", arguments: {} }));
-        await w.observed(() => w.s().approval.kind === "held", "approval follows the working cue");
+        await w.observed(() => w.s().approval.kind === "held", "the request asks");
         const h = w.s().approval;
         assert.equal(h.purpose, purpose);
         assert.equal(h.physical, false);
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
-        await settled(() => w.s().playback.kind === "idle",
-            () => w.s().approval.kind === "held" && w.s().playback.kind === "feedback" && w.s().playback.cue === "working",
-            "the approval releases cue playback");
-        assert.equal(w.audio.playback, null, "Audio released the old player");
-        assert.equal(oldSource.destroyed, true, "the cue-only speech stream is released");
         w.advanceRunner(1100);
         control.utterances.push(utterance("Yes."));
         w.runner.dispatch({ type: "talk-down" });
@@ -1532,7 +1447,7 @@ async function cases(kit, server, only = null, mutation = false) {
         server.replies.push(text("Done."));
         await until(() => w.s().turn.kind === "none", "the approved reply completes");
         await playOut(w);
-        assert.deepEqual(control.spoken, ["Let me check.", "Done."]);
+        assert.deepEqual(control.spoken, ["Done."]);
         assert.ok(w.writes.slice(writes).some(write => write.pcm.includes(0x11)), "later speech acquires a fresh player");
         assert.equal(w.s().approval.kind, "none");
         assert.deepEqual(w.faults, []);
@@ -1666,7 +1581,10 @@ async function cases(kit, server, only = null, mutation = false) {
         w.advanceRunner(4000);
         await turn();
         assert.equal(control.spoken.includes("Reading the clipboard"), false, "no line plays over a held approval");
-        await w.observed(() => w.s().playback.kind === "idle", "the held approval flushes the acknowledgement");
+        assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "line"], "the card does not cut the line that plays");
+        await playOut(w);
+        assert.equal(w.audio.lastPlayback.writtenFrames, 3 * Fixture.WORD_FRAMES, "the line plays to its end beside the card");
+        assert.equal(w.s().approval.kind, "held", "the card waits");
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
         await w.observed(() => w.s().approval.kind === "none", "the clipboard hold releases");
         const held = gate();
@@ -1676,6 +1594,55 @@ async function cases(kit, server, only = null, mutation = false) {
         held.open();
         await until(() => w.s().turn.kind === "none", "the turn completes");
         assert.deepEqual(w.faults, []);
+    }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+
+    // Always allow on a release card: a Yes with the box checked saves the
+    // key once its row is audited; a later conversation sends to the same
+    // recipients with no card and a row that names the key; removing the
+    // key asks again.
+    await run("release-always-allow", async w => {
+        const ask = async (before, label) => {
+            await say(w, utterance("Read my clipboard."));
+            server.replies.push(calls({ id: "call_" + label, name: "clipboard_read", arguments: {} }), text(""));
+            await requested(w, before + 1, label + " request");
+        };
+        const close = async () => {
+            await until(() => w.s().turn.kind === "none", "the turn completes");
+            await playOut(w);
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.s().conversation.kind === "ended" && w.s().brain.kind === "closed", "the conversation closes");
+        };
+        await ask(server.requests.length, "first");
+        await w.observed(() => w.s().approval.kind === "held", "the first release asks");
+        const h = w.s().approval;
+        assert.equal(h.grantable, true, "the card offers Always allow");
+        assert.equal(/^Send clipboard text to /.test(h.label), true, "the card names what the key covers");
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        w.advanceRunner(1000);
+        w.runner.dispatch({ type: "always", gen: h.gen, id: h.id, digest: h.digest, always: true });
+        w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        await w.observed(() => w.saved.length === 1, "the Yes with Always allow saves the key");
+        const key = "release:clipboard:recipient=scripted-voice|fixture|http%3A//192.0.2.1%3A9";
+        assert.deepEqual(w.saved[0].grant, key, "the key names the label and the recipients");
+        assert.equal(w.saved[0].label.length <= 60 && /^Send clipboard text to /.test(w.saved[0].label), true, "one Settings line");
+        await close();
+        w.configure({ ...w.s().settings, alwaysAllow: w.saved.slice() });
+        const asks = w.rows().filter(row => row.kind === "release" && row.decision === "ask").length;
+        await ask(server.requests.length, "standing");
+        await until(() => w.s().turn.kind === "none", "the standing release sends with no card");
+        assert.equal(w.rows().filter(row => row.kind === "release" && row.decision === "ask").length, asks, "no card");
+        assert.ok(w.rows().some(row => row.kind === "release" && row.decision === "send"
+            && JSON.stringify(row.standing) === JSON.stringify(["release:clipboard"])), "the audit names the saved key's kind alone");
+        await close();
+        w.configure({ ...w.s().settings, alwaysAllow: [] });
+        // The retained clipboard history, or the call's own result, asks
+        // again.
+        const before = server.requests.length;
+        server.replies.push(calls({ id: "call_removed", name: "clipboard_read", arguments: {} }), text(""));
+        await say(w, utterance("Read my clipboard."));
+        await until(() => w.s().approval.kind === "held" || w.s().turn.kind === "none" && server.requests.length > before,
+            "the removed key's request settles");
+        assert.equal(w.s().approval.kind, "held", "a removed key asks again");
     }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
 
     await run("history-resume-release", async w => {
@@ -1709,9 +1676,9 @@ async function cases(kit, server, only = null, mutation = false) {
     // Talk while a reply waits behind a line: the line is cut and the reply
     // was heard not at all, which the brain's next request says.
     await run("line-held-reply-interrupt", async w => {
-        const first = await say(w, utterance("Hello."));
+        const first = await say(w, utterance("Show me the windows."));
         await requested(w, first + 1, "the request starts");
-        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement speaks");
+        await w.observed(() => control.spoken.includes("Showing the windows."), "the acknowledgement speaks");
         await feeding(w, 2 * Fixture.WORD_FRAMES);
         await advance(w, 6);
         server.replies.push(text("Hello there."));
@@ -1722,7 +1689,7 @@ async function cases(kit, server, only = null, mutation = false) {
         release(w);
         server.replies.push(text(""));
         const body = await requested(w, first + 2, "the request after the interruption");
-        assert.deepEqual(user(body), ["Hello.", INTERRUPTED + "\n\nEnough."], "the held reply was heard not at all");
+        assert.deepEqual(user(body), ["Show me the windows.", INTERRUPTED + "\n\nEnough."], "the held reply was heard not at all");
         assert.deepEqual(w.faults, []);
     });
 
@@ -1731,28 +1698,25 @@ async function cases(kit, server, only = null, mutation = false) {
         const first = await say(w, utterance("Check sk-abcdefghijklmnopqrstu."));
         server.replies.push(text({ wait: held.wait }, "<step>Reading sk-abcdefghijklmnopqrstu</step>", "Done."));
         await requested(w, first + 1, "the secret request reaches the brain");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
-        await playOut(w);
         w.advanceRunner(4000);
         held.open();
         await until(() => w.s().turn.kind === "none", "the secret-line turn completes");
-        assert.equal(control.spoken.includes("Reading sk-abcdefghijklmnopqrstu"), false, "a secret progress line is dropped");
-        assert.equal(control.spoken.includes("On it."), true, "a secret transcript uses the acknowledgement fallback");
+        await playOut(w);
+        assert.deepEqual(control.spoken, ["Done."], "a secret transcript and its progress line are never said");
     });
 
-    await run("feedback-interrupt-working", async w => {
-        const first = await say(w, utterance("Hello."));
+    await run("line-interrupt", async w => {
+        const first = await say(w, utterance("Show me the windows."));
         await requested(w, first + 1, "the first request starts");
-        w.advanceRunner(1200);
-        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement line enters Audio");
+        await w.observed(() => control.spoken.includes("Showing the windows."), "the acknowledgement line enters Audio");
         control.utterances.push(utterance("Enough."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "interruption flushes cue playback before capture");
         release(w);
         server.replies.push(text(""));
         const body = await requested(w, first + 2, "the interrupted cue's next request");
-        assert.deepEqual(user(body), ["Hello.", INTERRUPTED + "\n\nEnough."], "no cue becomes assistant heard context");
-        assert.deepEqual(control.spoken, ["On it.", "On it."]);
+        assert.deepEqual(user(body), ["Show me the windows.", INTERRUPTED + "\n\nEnough."], "no line becomes assistant heard context");
+        assert.deepEqual(control.spoken, ["Showing the windows."]);
         assert.deepEqual(w.faults, []);
     }, { sounds: true });
 
@@ -1823,7 +1787,7 @@ async function cases(kit, server, only = null, mutation = false) {
         server.replies.push(text("It is **noon**. ", "Anything else?"));
         await until(() => w.s().turn.kind === "none", "the reply reaches speech");
         await playOut(w);
-        assert.deepEqual(withoutAcks(control.spoken), ["It is noon.", "Anything else?"], "only Speakable sentences reach speech");
+        assert.deepEqual(control.spoken, ["It is noon.", "Anything else?"], "only Speakable sentences reach speech");
         assert.equal(w.audio.lastPlayback.writtenFrames, (3 + 2) * Fixture.WORD_FRAMES, "every sentence's PCM played");
         const second = await say(w, utterance("Thanks."));
         server.replies.push(text(""));
@@ -1836,12 +1800,10 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(w.captions.filter(row => row[1] === "user").map(row => [row[2], row[4]]),
             [["final", "What time is it?"], ["final", "Thanks."]], "user finals replace the drafts and reach the shell");
         assert.ok(control.detections.length > 0 && control.detections.every(value => value === false), "hold does not detect a turn end");
-        assert.deepEqual(assistantCaptions(w), [[gen, "assistant", "partial", 1, "Let me check."],
-            [gen, "assistant", "partial", 2, "Let me check. It is noon."],
-            [gen, "assistant", "partial", 3, "Let me check. It is noon. Anything else?"],
-            [gen, "assistant", "final", 4, "Let me check. It is noon. Anything else?"],
-            [gen, "assistant", "partial", 5, "On it."], [gen, "assistant", "final", 6, "On it."]],
-        "each released sentence grows the reply's caption, acknowledgements included, final at its end");
+        assert.deepEqual(assistantCaptions(w), [[gen, "assistant", "partial", 1, "It is noon."],
+            [gen, "assistant", "partial", 2, "It is noon. Anything else?"],
+            [gen, "assistant", "final", 3, "It is noon. Anything else?"]],
+        "each released sentence grows the reply's caption, final at its end");
         const releases = w.rows().filter(row => row.kind === "release");
         assert.ok(releases.length >= 5 && releases.every(row => row.decision === "send" && row.outcome === "pending"
             && row.effect === "external"), "each utterance, request and sentence is audited before transfer");
@@ -1879,8 +1841,6 @@ async function cases(kit, server, only = null, mutation = false) {
     for (const closed of [false, true]) await run(closed ? "barge-in-close" : "barge-in", async w => {
         const first = await say(w, utterance("What time is it?"));
         await requested(w, first + 1, "first request");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
-        await playOut(w);
         server.replies.push(text("Hello there. ", "The time is noon."));
         await until(() => w.s().turn.kind === "none", "the reply completes before the interruption");
         await feeding(w, 2 * Fixture.WORD_FRAMES);
@@ -1901,7 +1861,7 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(body.messages.slice(1).map(message => [message.role, message.content]), [
             ["user", "What time is it?"], ["assistant", "Hello there. The time is noon."],
             ["user", heardOnly("Hello") + "\n\nStop there."]], "the brain is told exactly the heard prefix");
-        assert.deepEqual(withoutAcks(control.spoken).slice(0, 2), ["Hello there.", "The time is noon."]);
+        assert.deepEqual(control.spoken.slice(0, 2), ["Hello there.", "The time is noon."]);
         await until(() => w.s().turn.kind === "none" && w.s().playback.kind !== "idle", "the answer speaks");
         await playOut(w);
         const third = await say(w, utterance("Next."));
@@ -1915,8 +1875,6 @@ async function cases(kit, server, only = null, mutation = false) {
     await run("barge-in-streaming", async w => {
         const first = await say(w, utterance("Tell me a story."));
         await requested(w, first + 1, "first request");
-        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
-        await playOut(w);
         const held = gate();
         server.replies.push(text("First part. ", { wait: held.wait }, "Second part."));
         await feeding(w, 2 * Fixture.WORD_FRAMES);
@@ -1983,9 +1941,8 @@ async function cases(kit, server, only = null, mutation = false) {
         await replyPlays(w, "the final reply speaks");
         await playOut(w);
         assert.deepEqual(control.spoken.slice(-1), ["Focused it."]);
-        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "On it."],
-            ["partial", 2, "On it. Focused it."], ["final", 3, "On it. Focused it."]],
-        "a tool round's acknowledgement and reply are captioned once, at their end");
+        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "Focused it."], ["final", 2, "Focused it."]],
+        "a tool round's reply is captioned once, at its end");
         assert.deepEqual(w.faults, []);
     });
 
@@ -2022,8 +1979,8 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.equal(body.messages.find(message => message.role === "tool").content, result.content, "the row id stays in the result");
         await until(() => w.s().turn.kind === "none", "the turn completes");
         await playOut(w);
-        assert.deepEqual(withoutAcks(control.spoken), spoken);
-        const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
+        assert.deepEqual(control.spoken, spoken);
+        const said = assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u);
         assert.deepEqual(said, spoken, "the transcript shows what was spoken");
         assert.deepEqual(w.faults, []);
     }, route === "forward" ? { forward: result } : { fleet: result });
@@ -2076,8 +2033,8 @@ async function cases(kit, server, only = null, mutation = false) {
             streaming.open();
             await until(() => w.s().turn.kind === "none", "the turn completes");
             await playOut(w);
-            assert.deepEqual(withoutAcks(control.spoken), [ASKING]);
-            const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
+            assert.deepEqual(control.spoken, [ASKING]);
+            const said = assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u);
             assert.deepEqual(said, [ASKING], "the transcript shows what was spoken");
             assert.deepEqual(w.faults, []);
         } finally {
@@ -2099,7 +2056,7 @@ async function cases(kit, server, only = null, mutation = false) {
         await until(() => w.s().turn.kind === "none", "the fast turn ends");
         assert.equal(w.server.requests.length, first, "no brain request: no model call");
         assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["workspaces.focus", { workspace: 3 }]]);
-        assert.deepEqual(withoutAcks(control.spoken), ["Done."]);
+        assert.deepEqual(control.spoken, ["Done."]);
         assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "Done."], ["final", 2, "Done."]]);
         assert.deepEqual(w.rows().filter(row => row.kind === "action").map(row => [row.tool, row.decision, row.outcome, row.proposer]),
             [["workspaces.focus", "allow", "pending", "matcher"], ["workspaces.focus", "allow", "completed", "matcher"]],
@@ -2189,14 +2146,12 @@ async function cases(kit, server, only = null, mutation = false) {
         await requested(w, second + 1, "second request");
         server.replies.push(text("Bye, now. Go. More").slice(0, 2));
         await until(() => w.failed.length === 1, "the cut reply fails");
-        // The acknowledgement opens each reply's caption, so it shares the
-        // reply's segments.
+        // A segment closes once it reaches the 12-character bound, a longer
+        // sentence splits at it, and the failed reply closes its words.
         assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [
-            ["partial", 1, "Let me check"], ["final", 2, "Let me check"], ["partial", 3, "."], ["partial", 4, ". It is noon"],
-            ["final", 5, ". It is noon"], ["partial", 6, "."], ["partial", 7, ". Anything e"], ["final", 8, ". Anything e"],
-            ["partial", 9, "lse?"], ["final", 10, "lse?"], ["partial", 11, "Let me check"], ["final", 12, "Let me check"],
-            ["partial", 13, "."], ["partial", 14, ". Bye, now."], ["final", 15, ". Bye, now."], ["partial", 16, "Go."],
-            ["final", 17, "Go."]], "segments split at the bound");
+            ["partial", 1, "It is noon."], ["final", 2, "It is noon."], ["partial", 3, "Anything els"], ["final", 4, "Anything els"],
+            ["partial", 5, "e?"], ["final", 6, "e?"], ["partial", 7, "Bye, now."], ["partial", 8, "Bye, now. Go"],
+            ["final", 9, "Bye, now. Go"], ["partial", 10, "."], ["final", 11, "."]], "segments split at the bound");
     }, { captionLimit: 12 });
 
     // An interrupted call that runs on is answered "running" and its real
@@ -2372,7 +2327,7 @@ async function cases(kit, server, only = null, mutation = false) {
         // speech a tick later; nothing advances the playback clock, so a turn
         // still open then waits on speech.
         await settled(() => w.s().turn.kind === "none",
-            () => withoutAcks(control.spoken).length === 3 || w.audio.playbackFeed?.readableLength > 0 && w.s().turn.kind === "thinking",
+            () => control.spoken.length === 3 || w.audio.playbackFeed?.readableLength > 0 && w.s().turn.kind === "thinking",
             "the brain finishes while speech still waits on playback");
         assert.equal(w.s().playback.kind, "playing");
         w.advanceRunner(120000);
@@ -2514,7 +2469,8 @@ async function cases(kit, server, only = null, mutation = false) {
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1000);
-        await w.observed(() => w.s().playback.kind === "idle", "the held approval flushes the acknowledgement");
+        // The acknowledgement plays to its end beside the card.
+        await playOut(w);
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
         await w.observed(() => w.s().approval.kind === "none", "the clipboard hold releases before progress timing");
         const held = gate();
@@ -2563,7 +2519,8 @@ async function cases(kit, server, only = null, mutation = false) {
         await w.observed(() => w.s().approval.kind === "held", "the release question is held");
         const h = w.s().approval;
         w.runner.dispatch({type: "shown", gen: h.gen, op: h.op, id: h.id});
-        await until(() => w.s().playback.kind === "idle", "the acknowledgement line is flushed before voice confirmation");
+        // The acknowledgement plays to its end before the voice answers.
+        await playOut(w);
         w.advanceRunner(1100);
         control.utterances.push(utterance("Yes."));
         const finals = control.finals;
@@ -2735,8 +2692,8 @@ async function cases(kit, server, only = null, mutation = false) {
         held.open();
         await until(() => w.s().fault.kind === "error", "the turn fails");
         assert.equal(w.s().fault.reason, "engine=audit-write");
-        assert.deepEqual(withoutAcks(control.spoken), [], "no text reaches speech without its audit record");
-        assert.deepEqual(assistantCaptions(w).filter(row => !["On it.", "Let me check."].includes(row[4])), [],
+        assert.deepEqual(control.spoken, [], "no text reaches speech without its audit record");
+        assert.deepEqual(assistantCaptions(w), [],
             "no reply text is captioned without its release");
     });
 
@@ -3007,6 +2964,22 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.equal(server.requests.length, before, "no words reach the brain");
     }, dictating);
 
+    // An open conversation that sat idle past voxtype's length limit holds
+    // no recording when the user speaks: the core ended it, and the stop
+    // answers idle. Talking again still reaches the brain, in the words the
+    // sidecar captioned, with no fault.
+    await run("dictation-idle-then-talk", async w => {
+        w.dictation.stop = "refused: dictation=idle";
+        const before = server.requests.length;
+        await say(w, utterance("Open the sidecar browser.", ["Open the", "Open the sidecar browser."]));
+        const body = await requested(w, before + 1, "the captioned words reach the brain");
+        assert.deepEqual(user(body), ["Open the sidecar browser."], "the captions are the user's turn");
+        assert.equal(w.s().fault.kind, "none", "no Dictation did not record card");
+        assert.deepEqual(w.rows().filter(row => row.kind === "fault"), []);
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the turn completes");
+    }, dictating);
+
     // Toggle reopens the capture while Jarvis thinks; no turn takes it, so it
     // records nothing, and the next turn's capture records again.
     await run("dictation-toggle-second-turn", async w => {
@@ -3118,10 +3091,13 @@ async function cases(kit, server, only = null, mutation = false) {
             const references = load(path.join(tree, "shell/Commons/PageReference.js"));
             const view = load(path.join(tree, "shell/plugins/vgs.jarvis/WidgetView.js"),
                 { "qs.Commons 1.0": { PageReference: references } });
-            assert.equal(view.faultKind(w.s().fault), "dictation", "the terminal refusal shows its dictation message");
+            assert.equal(view.faultKind(w.s().fault), "dictationFailed", "the terminal refusal shows its dictation message");
             const targets = references.references(view.faultText(w.s().fault, w.s().engine.kind, null).action).links;
-            assert.deepEqual(Array.from(targets, target => [target.page, target.tab]), [["vgs.voice", "Setup"]],
-                "the failure offers the dictation device's settings");
+            // Voice's Setup shows no problem for a recording voxtype failed
+            // to stop, so the card links to none; its View log and Send to
+            // agent take the error further.
+            assert.deepEqual(Array.from(targets, target => [target.page, target.tab]), [],
+                "the failure links to no page that shows no problem");
         }
         assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(row => [row.category, row.action]), [[category, "stopped"]]);
         assert.deepEqual(w.executions, [], "no held action runs or repeats");
@@ -3155,7 +3131,7 @@ async function cases(kit, server, only = null, mutation = false) {
         const h = w.s().approval;
         assert.equal(h.physical, true, "a destructive action holds for a physical confirmation");
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
-        await until(() => w.s().playback.kind === "idle", "the acknowledgement is flushed");
+        await playOut(w);
         w.advanceRunner(1100);
         w.dictation.text = "Yes.";
         control.utterances.push(utterance("Maybe."));
@@ -4013,7 +3989,6 @@ async function groupSelection(root, server) {
     const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
     await conversationCues(stock);
     for (const [name, needle, replacement] of [
-        ["conversation-cue-high-beep", "earcon(s.playback.cue)", 'earcon("working")'],
         ["conversation-cue-muted", 'if (cue?.source === op) return { readable: cue.readable, spoken: false };',
             'if (cue?.source === op) return { readable: cue.readable, spoken: true };']]) {
         const { Engine } = Fixture.copy(root, [[needle, replacement]]);
@@ -4172,7 +4147,7 @@ async function groupSelection(root, server) {
         controls++;
     }
     await cases(Fixture.copy(root), server);
-    for (const scenario of ["feedback-silenced-text", "feedback-delayed-flush", "spoken-lines", "progress-one-waits",
+    for (const scenario of ["feedback-silenced-text", "spoken-lines", "progress-one-waits",
         "progress-after-refused-line", "progress-line-labels-timer", "progress-line-labels-late", "voice-preview"]) {
         await slowSpeech(() => cases(Fixture.copy(root), server, scenario));
         console.log("control=slow-speech scenario=" + scenario + " delay_ms=100 observed");
@@ -4291,15 +4266,8 @@ async function groupPlants(root, server) {
     const plants = [
         ["deadline-restart-answer", '            return restart;', '            return unrestarted(reason);', "restart-deadline-clean"],
         ["deadline-routed-facts", 'return c.turn ?? (pending ? c.last : null);', 'return pending ? c.last : null;', "restart-deadline-routed"],
-        ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);',
+        ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(2600 * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
-        ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
-            'c.turn.speech.readable.push({ pcm: Buffer.alloc(5760), tone: true });', "feedback-working"],
-        ["working-earcon-unmarked", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
-            'c.turn.speech.readable.push({ pcm: earcon("working") });', "voice-mute-spoken-only"],
-        ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
-        ["feedback-tool-suppression", 'answered.add(answering);\n                    quiet(turn);',
-            'answered.add(answering);\n                    void turn;', "feedback-suppressed-tool"],
         ["acknowledgement", 'line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);',
             '', "spoken-lines"],
         ["step-drain", "for (const step of stream.steps()) {",
@@ -4318,6 +4286,11 @@ async function groupPlants(root, server) {
         ["line-feedback", 'turn.done("feedback", { cue: "line" });',
             'turn.done("feedback");', "spoken-lines"],
         ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
+        ["dictation-idle-fault", 'if (result.cause === "speech=dictation-idle" && utterance.state === "ending" && captioned.trim() !== "") {',
+            "if (false) {", "dictation-idle-then-talk"],
+        ["release-always-unsaved", "allow(pending.keys[label], Policy.grantLine(releaseLabel(c, [label])));", "void label;", "release-always-allow"],
+        ["release-standing-ignored", "const { keys, standing } = Policy.releaseGrants(c.recipients, needed, allowed());",
+            "const { keys, standing } = Policy.releaseGrants(c.recipients, needed, []);", "release-always-allow"],
         ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
         ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
             'dispatch({ type: "confirm", ...answer, source: "model" });', "voice-release"],
@@ -4331,7 +4304,7 @@ async function groupPlants(root, server) {
         ["retained-heard-omitted", "c.heard = c.prior.heard;", "c.heard = null;", "barge-in-close"],
         ["heard-once", "                    c.heard = null;\n                    items.push(...c.results);",
             "                    items.push(...c.results);", "barge-in"],
-        ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
+        ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : report.heardText);',
             'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
         ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
         ["queued-heard", ' || turn.labels.size === 0) return;', ') return;', "cancel-queued"],
@@ -4399,20 +4372,11 @@ async function groupPlants(root, server) {
         ["caption-separator", "        if (turn.caption.length + 1 >= captionLimit) concluded(c, turn);\n", "", "caption-segments"],
         ["caption-bound", "const room = captionLimit - turn.caption.length;", "const room = Infinity;", "caption-segments"],
         ["caption-failure-final", "        concluded(c, turn);\n        const reason = keyed(error);", "        const reason = keyed(error);", "caption-segments"],
-        ["speakable-bypass", "for (const sentence of sentences) {\n                        quiet(turn);\n                        say(c, turn, sentence);\n                    }",
+        ["speakable-bypass", "for (const sentence of sentences) say(c, turn, sentence);",
             "say(c, turn, event.text);", "turn-loop"],
-        ["feedback-silenced-text-cancels", "for (const sentence of sentences) {\n                        quiet(turn);",
-            "quiet(turn);\n                    for (const sentence of sentences) {", "feedback-silenced-text"],
-        ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
-            'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
-        ...["action", "release"].map(purpose => ["feedback-approval-stream-" + purpose,
-            's.settings.sounds !== true || s.approval.kind === "held"', 's.settings.sounds !== true',
-            "feedback-voice-" + purpose]),
-        ["feedback-flush-heard-context", "const speaking = turn?.speaking === true;",
-            "const speaking = c !== null && c !== undefined;", "feedback-delayed-flush"],
         ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
             "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
-        ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
+        ["line-flush-heard", 'report === null || flushedLine ? "" : report.heardText', 'report === null ? "" : report.heardText', "line-held-reply-interrupt"],
         ["preview-speaker", ".speak(sentenceInput, speaker ?? c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
         ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
         ["voice-mute-preview", "spoken: turn.preview !== true }", "spoken: true }", "voice-mute-spoken-only"],
@@ -4515,12 +4479,10 @@ async function groupTasks(root, server) {
     console.log("control=voice-toggle-reopened detected");
     controls++;
     for (const [name, needle, replacement, scenario] of [
-        ["feedback-pending-play", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
-            'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-delayed-flush"],
-        ...["action", "release"].map(purpose => ["feedback-approval-flush-" + purpose,
-            '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) flushPlayback(s, effects);',
-            '                || s.playback.cue === "line" && s.playback.reply.kind === "none")) void effects;',
-            "feedback-voice-" + purpose])
+        // A card that cuts the line it arrives over, as before.
+        ["approval-cuts-line", 'var purpose = e.purpose === "release" ? "release" : "action";',
+            'var purpose = e.purpose === "release" ? "release" : "action";\n        if (s.playback.kind === "feedback") flushPlayback(s, effects);',
+            "progress-after-refused-line"]
     ]) {
         const kit = Fixture.copy(root);
         const file = path.join(kit.folder, "Session.js");
@@ -4957,7 +4919,7 @@ async function elevenCases(kit, server, eleven, only = null) {
     // at once.
     await run("elevenlabs-barge-in", async w => {
         await voiced(w);
-        const first = await say(w, utterance("What time is it?"));
+        const first = await say(w, utterance("Check the time."));
         await requested(w, first + 1, "first request");
         await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
         await playOut(w);
@@ -4983,7 +4945,7 @@ async function elevenCases(kit, server, eleven, only = null) {
     // The conversation's end ends the request in flight.
     await run("elevenlabs-end", async w => {
         await voiced(w);
-        const first = await say(w, utterance("Say something."));
+        const first = await say(w, utterance("Show me something."));
         await requested(w, first + 1, "first request");
         await until(() => spoken().length !== 0, "the acknowledgement speaks through ElevenLabs");
         await playOut(w);
@@ -5006,7 +4968,7 @@ async function elevenCases(kit, server, eleven, only = null) {
         try {
             const gate = { open: null };
             eleven.state.gate = new Promise(resolve => { gate.open = resolve; });
-            const before = await say(w, utterance("Try the backup."));
+            const before = await say(w, utterance("Check the backup."));
             await until(() => spoken().length !== 0, "the acknowledgement is requested");
             const acknowledgement = eleven.posts()[0];
             server.replies.push(text("Backup answered."));

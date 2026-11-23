@@ -25,6 +25,8 @@ function core() {
         const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
         loaded = Object.freeze({
             accounts: load(path.join(tree, "shell/Commons/AccountDirectories.js")),
+            tuiArguments: load(path.join(tree, "shell/Commons/TuiArguments.js")),
+            settingValues: load(path.join(tree, "shell/Commons/SettingValues.js")),
             folders: require(path.join(tree, "bin/lib/account-folders.js")),
             anchored: require(path.join(tree, "bin/lib/anchored.js"))
         });
@@ -34,6 +36,10 @@ function core() {
 
 /** shell/Commons/AccountDirectories.js: the harness table and the name rule. */
 function accounts() { return core().accounts; }
+/** shell/Commons/TuiArguments.js: the TUI argument judge a row id meets. */
+function tuiArguments() { return core().tuiArguments; }
+/** shell/Commons/SettingValues.js: CONTROL_OR_SEPARATOR, which a row label refuses. */
+function settingValues() { return core().settingValues; }
 /** bin/lib/account-folders.js: accountFolders. */
 function folders() { return core().folders; }
 /** bin/lib/anchored.js: child and directory. */
@@ -57,4 +63,4 @@ function diagnoseSkill() {
     return path.join(tree, "shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md");
 }
 
-module.exports = { use, accounts, folders, anchored, codexAccount, diagnoseSkill };
+module.exports = { use, accounts, tuiArguments, settingValues, folders, anchored, codexAccount, diagnoseSkill };

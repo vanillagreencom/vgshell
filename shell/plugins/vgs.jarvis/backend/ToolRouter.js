@@ -63,8 +63,10 @@ function sentence(call, scope, grant) {
  * line the executor's name for the fixed line Jarvis says (ChainedEngine CALL_LINES);
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
+ * context's allowed lists the saved Always allow keys; allow(grant, label)
+ * saves a new one once the user's Yes with Always allow is audited.
  */
-function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null, forwarding = () => null }) {
+function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null, forwarding = () => null, allow = () => {} }) {
     const registry = new Map();
     let pending = null;
     let grants = new Set();
@@ -111,6 +113,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         return audit.record({ kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: value.decision?.effect ?? null,
             decision, confirmed: value.confirmed ?? "none", outcome, ...proposer(value),
+            ...(value.standing === undefined ? {} : { standing: [value.standing] }),
             ...(failure === undefined ? {} : { failure }),
             ...(capture === undefined ? {} : { capture }) });
     }
@@ -168,7 +171,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         const facts = context();
         return Policy.decide(value.call, { profile: facts.profile, locked: facts.locked,
             // A getter, so the snapshot is built only when Policy reads it.
-            get denied() { return facts.denied; }, taint, grants: [...grants], input,
+            get denied() { return facts.denied; }, taint, grants: [...grants], allowed: facts.allowed, input,
             forwardGranted: forwardGrant !== null && forwardGrant.binding === value.binding });
     }
 
@@ -330,7 +333,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             if (Buffer.byteLength(text) > RESULT_BYTES) { pending = null; return refuse(value, "approval-size"); }
             const written = record(value, "confirm", "pending");
             if (written.kind === "refuse") { pending = null; return refuse(value, written.reason); }
-            dispatch({ type: "approval", ...proposal, digest, text, physical: decision.physical });
+            dispatch({ type: "approval", ...proposal, digest, text, physical: decision.physical,
+                grantable: decision.grant !== undefined, label: decision.grant === undefined ? "" : decision.line });
             return { kind: "held", id, digest };
         }
         default: throw new Error("jarvis: router=decision");
@@ -383,11 +387,19 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         const accepted = e.confirmed !== undefined;
         value.confirmed = !accepted ? "none" : e.confirmed === "voice" ? "voice" : "physical";
         value.action = { gen: e.gen, op: e.op };
+        // The standing grant this action goes under: a saved key that allowed
+        // it, or the key the user's Yes with Always allow saves.
+        const saves = accepted && e.always === true && prior.grant !== undefined;
+        // The audit names only the key's kind, never its target or paths.
+        if (fresh.kind === "allow" && fresh.grant !== undefined) value.standing = Policy.grantKind(fresh.grant);
+        else if (saves) value.standing = Policy.grantKind(prior.grant);
         const action = { kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: fresh.effect, decision: prior.kind,
+            ...(value.standing === undefined ? {} : { standing: [value.standing] }),
             confirmed: value.confirmed, outcome: "pending", ...proposer(value) };
         const launch = recorded => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
+            if (saves) allow(prior.grant, prior.line);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
                     ? Object.freeze({ labels: Policy.labels([...conversationLabels]),

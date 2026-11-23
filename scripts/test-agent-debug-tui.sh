@@ -86,6 +86,12 @@ work="$runtime/vgshell/agent-debug"
 crash_facts=(crash "ad 'x;\$(id)" 4242 SIGSEGV "2026-11-03T13:40:00-08:00" "/tmp/ad bin")
 task_facts=(task vgs.printers install pacman "cups, gum" "2026-11-03T13:40:00-08:00" "$record")
 sync_facts=(sync scribd-brain-backup.service "Scribd brain" rsync "/home/u/brain \$(id)" /mnt/backup/brain "rsync error: some files could not be transferred (code 23)" "2026-11-03T13:40:00-08:00")
+jarvis_facts=(jarvis "speech=dictation-idle" "Jarvis did not hear your words" "2026-11-22T14:01:52-08:00")
+jarvis_prompt() { # SKILL
+  printf '%s\n' "Jarvis Voice stopped with an error on this computer and I want to know why." "- Error: Jarvis did not hear your words" \
+    "- Cause: speech=dictation-idle" "- Time: 2026-11-22T14:01:52-08:00" "Jarvis writes its lines to the VGS shell log." \
+    "Use the vgs-diagnose skill. If you cannot load skills, read $1 and follow it." "Diagnose only: change nothing on this computer." | python3 -c 'import sys; sys.stdout.write(sys.stdin.read()[:-1])'
+}
 crash_prompt() { # SKILL
   printf '%s\n' "A program crashed on this computer and I want to know why." "What systemd-coredump recorded:" \
     "- Program: ad 'x;\$(id)" "- Process ID: 4242" "- Binary: /tmp/ad bin" "- Signal: SIGSEGV" "- Time: 2026-11-03T13:40:00-08:00" \
@@ -135,6 +141,12 @@ case_the_sync_prompt_holds_every_fact() {
   fresh_home
   run "$1" claude "${sync_facts[@]}"
   [[ $status == 0 && $calls == "$(words claude --permission-mode default "$(sync_prompt "$home/.claude/skills/vgs-diagnose/SKILL.md")")" ]]
+}
+# A Jarvis error's prompt holds its error, its cause and its time.
+case_the_jarvis_prompt_holds_every_fact() {
+  fresh_home
+  run "$1" claude "${jarvis_facts[@]}"
+  [[ $status == 0 && $calls == "$(words claude --permission-mode default "$(jarvis_prompt "$home/.claude/skills/vgs-diagnose/SKILL.md")")" ]]
 }
 # A sync run missing its time starts no agent.
 case_a_short_sync_run_is_refused() {
@@ -190,10 +202,10 @@ case_unmute_refused_fails_plainly() {
   [[ $status == 1 && $(cat "$TMP_ROOT/err") != *"user-config"* ]]
 }
 CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_the_task_prompt_names_the_record_never_its_lines
-  case_the_sync_prompt_holds_every_fact case_a_short_sync_run_is_refused case_an_older_vgs_copy_is_replaced
+  case_the_sync_prompt_holds_every_fact case_the_jarvis_prompt_holds_every_fact case_a_short_sync_run_is_refused case_an_older_vgs_copy_is_replaced
   case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
   case_unmute_yes_asks_the_service case_unmute_of_an_unmuted_program_is_done case_unmute_refused_fails_plainly)
-SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
+SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
 for i in "${!CASES[@]}"; do
   case="${CASES[i]}"
   detail="" status="" calls=""

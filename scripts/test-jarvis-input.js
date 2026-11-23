@@ -157,7 +157,9 @@ async function main() {
     }
     const terminal = make(); const terminalRecord = await terminal.owner.ready(); terminal.target({ kind: "terminal", id: "fixture.terminal" });
     const text = refined("input.text", { text: "literal" });
-    assert.deepEqual(Policy.decide(text, { ...context, input: await terminalRecord.observe(text) }), { kind: "confirm", effect: "destructive", physical: true }); terminal.owner.close();
+    assert.deepEqual(Policy.decide(text, { ...context, input: await terminalRecord.observe(text) }), { kind: "confirm", effect: "destructive", physical: true,
+        grant: "input.text:destructive:terminal=fixture.terminal",
+        line: "Type any text in fixture.terminal" }); terminal.owner.close();
 
     async function moved(module, options, reason) {
         const h = make(module, options);

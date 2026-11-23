@@ -5563,7 +5563,7 @@ print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if 
     jarvis_capture_menu bar "Hide Jarvis"
     jarvis_capture_hidden
     expect_poll "the hidden fault remains active" error jarvis_capture_state phase
-    expect_poll "the hidden fault keeps its recovery link" 1 ipc smoke layerItemsWith vgs.jarvis LinkText visible true
+    expect_poll "the hidden fault keeps its recovery link, View log and Send to agent" 3 ipc smoke layerItemsWith vgs.jarvis LinkText visible true
     jarvis_capture_tip "$1-hidden-fault"
     jarvis_capture_menu bar "Show Jarvis"
     jarvis_capture_shown

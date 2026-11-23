@@ -41,10 +41,10 @@ function diagnosticPayload(stderr) {
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
+    cloudVision: "ask", memoryNotes: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [] }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+keys: { talk: "SUPER+code:44", deny: null, "confirm-always": null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 // The rows of a file another process appends to. Every writer ends a row
 // with a newline, so the text after the last one is a row still being
 // written: a poll skips it rather than parse half a row.
@@ -1713,9 +1713,8 @@ async function inside() {
         await w.wait(m => m.phase === "speaking" && m.state.turn.kind === "none");
         assert.deepEqual(w.messages.filter(m => m.type === "transcript").map(m => [m.gen, m.role, m.stage, m.rev, m.text]),
             [[thinking.gen, "user", "final", listening.state.turn.op, "scripted utterance"],
-                [thinking.gen, "assistant", "partial", 1, "On it."],
-                [thinking.gen, "assistant", "partial", 2, "On it. " + scriptedReply],
-                [thinking.gen, "assistant", "final", 3, "On it. " + scriptedReply]],
+                [thinking.gen, "assistant", "partial", 1, scriptedReply],
+                [thinking.gen, "assistant", "final", 2, scriptedReply]],
             "the bubble fixture's words come from the chained engine");
         await w.closeTalk(chainedGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
@@ -2195,7 +2194,7 @@ async function inside() {
                 await w.holdUp();
                 await w.wait(m => m.phase === "idle" && m.state.turn.kind === "none"
                     && w.messages.some(frame => frame.type === "transcript" && frame.role === "assistant"
-                        && frame.stage === "final" && frame.text.endsWith(" Answered.")));
+                        && frame.stage === "final" && frame.text.endsWith("Answered.")));
                 assert.equal(w.last().state.settings.model, saved, "the daemon retains the exact saved choice");
                 const notices = w.messages.filter(frame => frame.type === "model-fallback");
                 assert.deepEqual(notices, [{ v: 1, type: "model-fallback", gen: w.last().gen,
@@ -2412,16 +2411,11 @@ async function inside() {
             assert.equal(userCaption?.text, caption, "the user final caption keeps the sanitized tail");
             assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(userCaption), "daemon")), JSON.stringify(userCaption),
                 "the user final is accepted by the shell transcript judge");
-            // The acknowledgement opens the reply's caption; its words come
-            // from the transcript, so the row names it by its place.
-            const ack = captions[1]?.text ?? "";
-            assert.ok(ack !== "" && !ack.includes("noon"), "the acknowledgement is captioned first");
             assert.deepEqual(captions.map(m => [m.gen, m.role, m.stage, m.rev, m.text]), [
                 [gen, "user", "final", collectionOp, caption],
-                [gen, "assistant", "partial", 1, ack],
-                [gen, "assistant", "partial", 2, ack + " It is noon."],
-                [gen, "assistant", "partial", 3, ack + " It is noon. The sun is high."],
-                [gen, "assistant", "final", 4, ack + " It is noon. The sun is high."]], "the chained reply's words reach the wire in order, final last");
+                [gen, "assistant", "partial", 1, "It is noon."],
+                [gen, "assistant", "partial", 2, "It is noon. The sun is high."],
+                [gen, "assistant", "final", 3, "It is noon. The sun is high."]], "the chained reply's words reach the wire in order, final last");
             if (identicalHello) {
                 loopback.replies.push(Engine.text("The follow-up is complete."));
                 send({ ...intent("say"), text: "Follow up." });

@@ -42,6 +42,12 @@ Item {
         function shownApproval(item, hold) { acknowledged = acknowledged.concat([{ item: item, hold: hold }]); }
         function cancelApproval(hold) {}
         function confirmApproval(hold, how) { confirmed = hold; }
+        property var always: null
+        function alwaysApproval(hold, checked) { always = { hold: hold, checked: checked }; }
+        property int logs: 0
+        function viewLog() { logs++; }
+        property var sent: null
+        function sendFault(fault, title) { sent = { reason: fault.reason, title: title }; }
     }
 
     Bubble { id: bubble; width: root.width; height: root.height; screen: ({ name: "unit" }); service: service }
@@ -108,6 +114,9 @@ Item {
             service.sessionState = null;
             service.acknowledged = [];
             service.confirmed = null;
+            service.always = null;
+            service.logs = 0;
+            service.sent = null;
             service.microphoneMute = { kind: "ready", muted: false };
             mouseMove(root, root.width - 1, 0);
         }
@@ -133,6 +142,47 @@ Item {
         }
         function linesOf(layer, text) {
             return displayedTextItems(layer).filter(item => item.role !== undefined && displayedText(item) === text && layer.drawn(item));
+        }
+
+        // Always allow stands over the answers only on a card a saved key
+        // can cover, unchecked; a click sends the box for that hold, the
+        // hold's state checks it, and the answers stay on the layer.
+        function test_always_allow_shows_where_a_key_can_cover() {
+            const grantable = hold => Object.assign({}, hold, { approval: Object.assign({}, hold.approval,
+                { grantable: true, always: false, label: "Send the summary to Dana" }) });
+            put(root.held);
+            const box = findChild(bubble, "alwaysAllow");
+            verify(box !== null, "the box is built");
+            verify(!box.visible, "a request no key can cover shows no box");
+            put(grantable(root.asked));
+            verify(box.visible, "a request a key can cover shows the box");
+            verify(!box.checked, "it starts unchecked");
+            verify(displayedTextItems(bubble).some(item => displayedText(item).indexOf("Send the summary to Dana") !== -1 && bubble.drawn(item)),
+                "the box names what the key covers");
+            mouseClick(box);
+            verify(service.always !== null && service.always.checked === true, "a click checks the box for this hold");
+            const checked = grantable(root.asked);
+            checked.approval.always = true;
+            put(checked);
+            verify(box.checked, "the hold's state draws the box checked");
+            const layer = presentedOn(root.width, root.height, grantable(root.asked));
+            tryVerify(() => acknowledgedOn(layer, "q"), 2000, "the card with its box is acknowledged");
+            verify(findChild(layer, "alwaysAllow").visible, "the sized overlay shows the box");
+            for (const name of ["alwaysAllow"]) verify(inside(layer, findChild(layer, name)), name + " stays on the layer");
+            verify(layer.inputItems.indexOf(findChild(layer, "alwaysAllow")) !== -1, "the box takes the pointer");
+        }
+
+        // An error card offers View log and Send to agent, which reach the
+        // service with the fault the card shows.
+        function test_an_error_card_offers_its_log_and_an_agent() {
+            put(root.session({ fault: { kind: "error", reason: "speech=dictation-idle", category: "other" } }));
+            const log = labelOf("View log");
+            const agent = labelOf("Send to agent");
+            mouseClick(log);
+            compare(service.logs, 1);
+            mouseClick(agent);
+            compare(service.sent.reason, "speech=dictation-idle");
+            compare(service.sent.title, bubble.fault.title);
         }
 
         function test_main_text_is_body_strong_data() {

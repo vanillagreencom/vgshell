@@ -177,7 +177,8 @@ world(async () => {
             input: owner.record.observe(request) }); } finally { owner.close(); }
     }
     const clean = { kind: "clean" };
-    assert.deepEqual(decision(Browser, "fill", {}, [], clean), { kind: "confirm", effect: "input", physical: false, scope: "site:https://first.test" });
+    assert.deepEqual(decision(Browser, "fill", {}, [], clean), { kind: "confirm", effect: "input", physical: false, scope: "site:https://first.test",
+        grant: "site:https%3A//first.test", line: "Click and type anything on https://first.test" });
     assert.equal(decision(Browser, "fill", {}, ["site:https://first.test"], clean).kind, "allow");
     assert.equal(decision(Browser, "fill", { site: "https://second.test/" }, ["site:https://first.test"], clean).kind, "confirm");
     assert.equal(decision(Browser, "fill", {}, ["site:https://first.test"], Policy.observe(clean, "web")).kind, "confirm");

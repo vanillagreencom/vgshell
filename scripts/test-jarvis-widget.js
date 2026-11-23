@@ -89,7 +89,7 @@ function verify(view) {
         ["cancelling", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), "working", "info", "info", "Thinking", 0],
         ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "speaking", "accent", "success", "Speaking", 0],
         ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
-            physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), "working", "info", "info", "Waiting for confirmation", 0],
+            physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4, grantable: false, always: false, label: "" } }), "working", "info", "info", "Waiting for confirmation", 0],
         ["acting", up({ action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } }), "working", "info", "info", "Running a task", 0],
         ["fault", up({ fault: { kind: "error", reason: "brain=stream-error", category: "other" } }), "problem", "danger", "danger", "Problem", 1],
         ["audio fault", up({}, { audio: { tone: "danger", text: "capture-overflow" } }), "problem", "danger", "danger", "Problem", 1],
@@ -198,7 +198,11 @@ function verify(view) {
         ["brain=unauthorized status=401", "account", "account"], ["brain=http status=429", "account", "account"],
         ["brain=no-key", "setup", "setup"], ["net=key-origin", "setup", "setup"], ["jarvis-keys: secret-tool=locked", "setup", "setup"],
         ["speech=local-ready-timeout", "localVoice"], ["speech=dictation-busy", "dictationBusy"],
-        ["speech=dictation-failed", "dictation"], ["speech=local-not-ready", "voice"],
+        // Each dictation fault names its own cause: a recording that ended
+        // at its limit, a missing microphone, dictation not running.
+        ["speech=dictation-failed", "dictationFailed"], ["speech=dictation-idle", "dictationEnded"],
+        ["speech=dictation-audio-unavailable", "defaultDevice"], ["speech=dictation-daemon-failed", "dictation"],
+        ["speech=local-not-ready", "voice"],
         ["playback-source: jarvis: speech=elevenlabs-http status=401", "elevenlabs", "account"],
         ["capture-overflow", "audio"], ["home=link", "home"], ["guidance=home-skills-too-large", "home"],
         ["brain=harness-model-refused model=fixture-model", "model"], ["live=key-refused", "keyRefused"],
@@ -252,7 +256,7 @@ function verifyReplyCard(view) {
     const speaking = { playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } };
     const tool = { ...THINKING, action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } };
     const held = { ...THINKING, approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
-        physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } };
+        physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4, grantable: false, always: false, label: "" } };
     const fault = { fault: { kind: "error", reason: "brain=stream-error", category: "other" } };
     const spoken = { gen: 1, role: "assistant", text: "assistant 20" };
     // The judge runs in its library's own context; compare plain copies.

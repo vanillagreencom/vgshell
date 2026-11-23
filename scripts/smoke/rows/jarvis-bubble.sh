@@ -151,7 +151,7 @@ jarvis_bubble_geometry() {
   local box window margin
   box="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     window="$(surface_box vgs:layer)" &&
-    margin="$(jarvis_bubble_look_value layout.margin)" || return 1
+    margin="$(jarvis_bubble_look_value layout.bottom)" || return 1
   [[ $box == \[* && $window == \[* ]] || { echo absent; return; }
   python3 -c '
 import json,sys
@@ -413,7 +413,7 @@ jarvis_bubble_user_caption() {
 jarvis_bubble_user_cleared() { expect "a caption of the user's words clears Jarvis's words" empty jarvis_bubble_handed; }
 # What the scripted voice was asked to say since record FROM, each sentence
 # named: the long request's two stated steps, its answer, and any other line,
-# which in that turn is the acknowledgement.
+# an acknowledgement, which these words make none of.
 jarvis_bubble_said() { # FROM|count
   python3 - "$jarvis_key_gates/effects.jsonl" "$1" <<'PY'
 import json,sys
@@ -946,9 +946,9 @@ geometry expect_poll "a held request leaves the console's message field whole" c
 jarvis_bubble_console_close
 expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", "Other window"]' active_window
 
-# The chained engine speaks its acknowledgement of "scripted utterance"
-# before the reply, and the caption carries both.
-jarvis_bubble_reply="On it. $("$node_bin" -e 'process.stdout.write(require(process.argv[1]).REPLY)' "$source_repo/scripts/fixtures/jarvis/scripted.js")" ||
+# The chained engine says no filler before "scripted utterance"'s reply, so
+# the caption carries the reply alone.
+jarvis_bubble_reply="$("$node_bin" -e 'process.stdout.write(require(process.argv[1]).REPLY)' "$source_repo/scripts/fixtures/jarvis/scripted.js")" ||
   fail "the scripted reply is readable"
 jarvis_bubble_begin
 jarvis_key_gate partial
@@ -956,13 +956,14 @@ expect_poll "a partial leaves the utterance collecting" collecting jarvis_key_st
 expect "the user's partial words are not drawn" absent jarvis_bubble_handed 'scripted draft'
 jarvis_bubble_think
 expect "the user's committed words are not drawn while the brain thinks" absent jarvis_bubble_handed 'scripted utterance'
-expect_poll "Jarvis's acknowledgement draws while the brain thinks" "On it." jarvis_bubble_shown
 jarvis_bubble_look_drawn thinking
-jarvis_bubble_user_caption
-jarvis_bubble_user_cleared
+expect "nothing draws as Jarvis's words before the reply" none jarvis_bubble_shown
 jarvis_key_gate reply
 expect_poll "the reply draws the latest lines of Jarvis's words" latest-lines jarvis_bubble_words
 jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
+jarvis_bubble_user_caption
+jarvis_bubble_user_cleared
+expect "Jarvis's caption returns to the status" ok ipc smoke heldStatusSet transcript "$jarvis_bubble_earlier"
 # Jarvis's words draw only while its voice is muted: the button turns the
 # voice on and the words go, the key mutes it again and they return.
 jarvis_bubble_click "Unmute Jarvis's voice"
@@ -1057,15 +1058,13 @@ jarvis_bubble_begin
 said_from="$(jarvis_bubble_said count)"
 touch "$jarvis_key_gates/long-request"
 jarvis_bubble_think
-expect_poll "a long Jarvis request speaks its acknowledgement at once" ack jarvis_bubble_said "$said_from"
-jarvis_key_gate played
-expect_poll "past the threshold the long request speaks its stated step" ack,step1 jarvis_bubble_said "$said_from"
+expect_poll "past the threshold the long request speaks its stated step" step1 jarvis_bubble_said "$said_from"
 jarvis_key_gate second-step
 jarvis_key_gate played
-expect_poll "a changed step is spoken once" ack,step1,step2 jarvis_bubble_said "$said_from"
+expect_poll "a changed step is spoken once" step1,step2 jarvis_bubble_said "$said_from"
 jarvis_key_gate reply
 jarvis_key_gate played
-expect_poll "the answer follows the progress lines with no line repeated" ack,step1,step2,answer jarvis_bubble_said "$said_from"
+expect_poll "the answer follows the progress lines with no line repeated" step1,step2,answer jarvis_bubble_said "$said_from"
 rm -f -- "${jarvis_key_gates:?}/long-request"
 jarvis_key_stop
 jarvis_key_stop_assertion
@@ -1299,7 +1298,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
-    "geometry": ("anchors.bottomMargin: root.look.layout.margin", "anchors.bottomMargin: root.look.layout.margin + root.look.layout.gap"),
+    "geometry": ("anchors.bottomMargin: root.look.layout.bottom", "anchors.bottomMargin: root.look.layout.bottom + root.look.layout.gap"),
     "console": ("when: root.overConsole", "when: false"),
     "console-close": ('event.name === "closewindow" || ', ""),
     "focus": ("screen.name === service.focusedOutput", "true"),
@@ -1405,8 +1404,7 @@ PY
       jarvis_bubble_think caption
       expect "control: dropping the consumer fails the same words reader" absent jarvis_bubble_words ;;
     role)
-      jarvis_bubble_think
-      expect_poll "control: the acknowledgement draws" "On it." jarvis_bubble_shown
+      jarvis_bubble_think caption
       jarvis_bubble_user_caption
       jarvis_bubble_failures="$(
         failures=0 behaviour_failures=0

@@ -2311,8 +2311,8 @@ world(async () => {
         try {
             send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: !["unheard", "aggregate", "noisy-tail"].includes(only), microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
-                keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
+                cloudVision: "ask", memoryNotes: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, alwaysAllow: [], voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null, "confirm-always": null,
                     console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } });
             if (only === "wrong-key") {
                 const looked = lookups(), connected = main.conns.length;
@@ -2572,8 +2572,8 @@ world(async () => {
                     server.requests[1].closed.then(() => { ended = true; });
                     if (voiceStage === "active") assert.equal(last().turn.kind, "thinking");
                     else {
-                        await wait(() => conn.count(P.SPEAK) > 0 && last()?.speech.reply.kind === "none" && last()?.playback.kind === "idle",
-                            "the acknowledgement plays before the held brain result");
+                        await wait(() => last()?.speech.reply.kind === "none" && last()?.playback.kind === "idle",
+                            "the voice is quiet before the held brain result");
                         conn.auto = 0;
                         const beforeReply = conn.count(P.SPEAK);
                         releaseReply();
@@ -2619,7 +2619,7 @@ world(async () => {
                 // count is the barrier; the assertions below read the frames.
                 const speakable = require(path.join(kit.folder, "Speakable.js")).create("", { tools: [] });
                 const sentences = [...speakable.push(answer), ...speakable.finish()].length;
-                await wait(() => conn.count(P.SPEAK) >= sentences + 1 && last()?.turn.kind === "none", "every sentence of the result is spoken");
+                await wait(() => conn.count(P.SPEAK) >= sentences && last()?.turn.kind === "none", "every sentence of the result is spoken");
                 const observed = sent().filter(value => P.kind(value.frame) === P.SPEAK);
                 const commentary = conn.events.filter(value => P.kind(value) === P.SPEAK);
                 assert.deepEqual(commentary.map(P.words).slice(-2), ["Completed.", "Visit example."], "the voice reads the brain's sentences and nothing else of its result text");
@@ -2687,7 +2687,7 @@ world(async () => {
                 await wait(() => last().capture.kind === "open", "capture opens for the second turn");
                 server.replies.push(BrainFixture.text("First part. Second part. Third part."));
                 // 0.1 s of speech, then 20 s that the interruption cuts.
-                conn.voice = [4800, 4800, 960000];
+                conn.voice = [4800, 960000];
                 const second = messages.length;
                 await release();
                 P.turn(conn, "And now?");

@@ -125,8 +125,11 @@ function ports(root, engine, state, input = () => {}) {
                     record("approval-call", { gen: e.gen, op: e.op, id, purpose, call });
                     // Transcript is a single-line wire value; the held summary keeps its detail lines.
                     done("transcript", { role: "assistant", text: text.replaceAll("\n", " "), stage: "final", rev: 1 });
+                    // The router offers Always allow on a keyed confirm with Policy's
+                    // card line; the delete's line names its path.
+                    const grant = call === null ? {} : { grantable: true, label: "Delete " + call.args.path };
                     done("approval", { purpose, id, digest, physical: purpose === "action",
-                        text, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false });
+                        text, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false, ...grant });
                 });
                 if (chained) { engine.brain.send(e, done); return; }
                 // A reply-text file names the reply's words, and a fail-brain

@@ -78,16 +78,16 @@ const acknowledgements = [
     ["Hey Jarvis, find me a calendar", "Finding a calendar."],
     ["Show me the windows", "Showing the windows."],
     ["Find us a cafe", "Finding a cafe."],
-    ["Tell me the time", "On it."],
-    ["Explain the window layout", "On it."],
-    ["Delete the draft file", "On it."],
-    ["Send the report to Anna", "On it."],
-    ["Turn up the volume", "On it."],
-    ["What is the balance?", "Let me check."],
-    ["Can you help?", "Let me check."],
-    ["hello there", "On it."],
-    ["check one two three four five six", "On it."],
-    ["check sk-abcdefghijklmnopqrstu", "On it."]
+    ["Tell me the time", ""],
+    ["Explain the window layout", ""],
+    ["Delete the draft file", ""],
+    ["Send the report to Anna", ""],
+    ["Turn up the volume", ""],
+    ["What is the balance?", ""],
+    ["Can you help?", ""],
+    ["hello there", ""],
+    ["check one two three four five six", ""],
+    ["check sk-abcdefghijklmnopqrstu", ""]
 ];
 for (const [input, expected] of acknowledgements)
     assert.equal(Speakable.acknowledgement(input), expected, "acknowledgement: " + input);
@@ -205,12 +205,12 @@ world("js", root => {
                 stream.steps();
                 assert.deepEqual(stream.steps(), []);
             }],
-            ["ack-secret", "if (cleaned === \"\" || Redact.secret(cleaned)) return fallback(cleaned);", "if (cleaned === \"\") return fallback(cleaned);", logic =>
-                assert.equal(logic.acknowledgement("check sk-abcdefghijklmnopqrstu"), "On it.")],
+            ["ack-secret", "if (cleaned === \"\" || Redact.secret(cleaned)) return \"\";", "if (cleaned === \"\") return \"\";", logic =>
+                assert.equal(logic.acknowledgement("check sk-abcdefghijklmnopqrstu"), "")],
             ["ack-pronoun", "const mapped = { my: \"your\", me: \"you\", mine: \"yours\", i: \"you\" }[lower];",
                 "const mapped = undefined;", logic => assert.equal(logic.acknowledgement("open my settings"), "Opening your settings.")],
-            ["ack-bound", "if (object.length > 5) return fallback(cleaned);", "if (false) return fallback(cleaned);", logic =>
-                assert.equal(logic.acknowledgement("check one two three four five six"), "On it.")]
+            ["ack-bound", "if (object.length > 5) return \"\";", "if (false) return \"\";", logic =>
+                assert.equal(logic.acknowledgement("check one two three four five six"), "")]
     ];
     for (const [name, needle, replacement, check] of rows) {
         control(root, name, "Speakable.js", needle, replacement, check); controls++;

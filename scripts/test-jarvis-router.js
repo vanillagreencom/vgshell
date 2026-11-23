@@ -58,10 +58,14 @@ world(async () => {
         let builds = 0;
         const denied = () => { builds++; return Denied.create(fixtures.roots); };
         let target = { kind: "application", id: "editor" };
+        // The saved Always allow keys, and those a Yes with the box saved.
+        let allowed = [];
+        const saved = [];
         const router = implementation.create({ session, state: () => runner.state,
             dispatch: e => runner.dispatch(e), context: () => ({
-                profile: options.profile ?? "standard", locked, get denied() { return denied(); } }),
-            audit, result: value => results.push(value), release: options.release, forwarding: options.forwarding });
+                profile: options.profile ?? "standard", locked, allowed, get denied() { return denied(); } }),
+            audit, result: value => results.push(value), release: options.release, forwarding: options.forwarding,
+            allow: (grant, label) => saved.push({ grant, label, rows: rows().length }) });
         Object.assign(ports, router.ports);
         for (const executor of ["windows", "compositor", "files", "input", "sandbox", "browser", "harness", "vision"]) {
             if (executor === "browser" && options.browser) continue;
@@ -106,6 +110,7 @@ world(async () => {
                 due[1].fn();
             },
             time: value => { at = value; }, lock: value => { locked = value; }, target: value => { target = value; },
+            allow: value => { allowed = value; }, saved,
             builds: () => builds };
     }
     // A Jarvis home holding a stand-in for the kendex mail tool at its
@@ -194,6 +199,7 @@ esac
         // The call, then the user's Confirm key once the draw guard has passed.
         const ask = text => {
             assert.equal(w.call("fleet.request", { text }).kind, "held", "a request for the Jarvis session waits for the user");
+            assert.equal(w.runner.state.approval.label, "Put any request in your Jarvis session mailbox", "its card names any request");
             w.show(); w.time(at += 700);
         };
         const confirmed = async () => {
@@ -338,7 +344,77 @@ esac
     const shell = { argv: ["fixture"], cwd: fixtures.project, network: false };
     const text = { text: "fixture text" };
     const held = w => { assert.equal(w.call("shell.argv", shell).kind, "held"); w.show(); w.time(700); };
+    // A card's line is FULL, or under a long scratch folder FULL's start cut
+    // to the status row's 60 units with an ellipsis (Policy owns the cut).
+    const names = (label, full) => label === full
+        || (label.length <= 60 && label.endsWith("\u2026") && full.startsWith(label.slice(0, -1)));
     const cases = [
+        // Always allow on an action: a Yes with the box saves the call's
+        // key once the action's row is written; the same kind then starts
+        // with no card and its rows name the key; removing the key asks
+        // again. An early answer saves nothing.
+        ["always-allow-action", implementation => {
+            const w = make(implementation);
+            const key = "shell.argv:exec:cwd=" + fixtures.project;
+            held(w);
+            assert.equal(w.runner.state.approval.grantable, true, "the card offers Always allow");
+            const label = w.runner.state.approval.label;
+            assert.ok(names(label, "Run any command in " + fixtures.project), "the card names what the key covers");
+            w.dispatch({ type: "always", gen: w.runner.state.gen, id: w.runner.state.approval.id,
+                digest: w.runner.state.approval.digest, always: true });
+            w.confirm();
+            assert.equal(w.starts.length, 1, "the confirmed action starts");
+            assert.deepEqual(w.saved.map(row => row.grant), [key], "the Yes with the box saves the call's key");
+            assert.ok(w.saved[0].rows >= 1 && w.rows().at(-1).decision === "confirm"
+                && JSON.stringify(w.rows().at(-1).standing) === JSON.stringify(["shell.argv:exec"]), "after its audited row, which names the key's kind");
+            assert.equal(w.saved[0].label, label, "one Settings line names the kind");
+            w.answers[0]({ outcome: "completed", content: "done" });
+            w.newTurn();
+            w.allow([key]);
+            assert.equal(w.call("shell.argv", shell).kind, "proposed", "the saved key starts the same kind with no card");
+            assert.ok(JSON.stringify(w.rows().at(-1).standing) === JSON.stringify(["shell.argv:exec"]), "its row names the key's kind");
+            w.answers[1]({ outcome: "completed", content: "done" });
+            w.newTurn();
+            // The audit names no request value: the key's folder is nowhere
+            // in the day file.
+            const day = fs.readFileSync(path.join(w.directory, "audit/2026-10-01.jsonl"), "utf8");
+            assert.equal(day.includes(fixtures.project), false, "the audit day file holds no key's folder");
+            w.allow([]);
+            assert.equal(w.call("shell.argv", shell).kind, "held", "a removed key asks again");
+            w.dispatch({ type: "approval-cancel", gen: w.runner.state.gen, id: w.runner.state.approval.id });
+            // A physical step takes a key too.
+            w.newTurn();
+            w.call("files.delete", { path: path.join(fixtures.project, "existing") });
+            assert.deepEqual([w.runner.state.approval.physical, w.runner.state.approval.grantable], [true, true],
+                "a destructive step's card offers Always allow");
+            w.dispatch({ type: "approval-cancel", gen: w.runner.state.gen, id: w.runner.state.approval.id });
+            // A folder named with a line separator keeps its key; the label
+            // drops the separator, so Settings can publish the row.
+            const odd = path.join(fixtures.project, "a\u2028b");
+            fs.mkdirSync(odd, { recursive: true });
+            w.newTurn();
+            assert.equal(w.call("shell.argv", { ...shell, cwd: odd }).kind, "held");
+            assert.equal(w.runner.state.approval.grantable, true, "a folder named with a line separator keeps its key");
+            assert.equal(/[\u2028\u2029\u0080-\u009f]/.test(w.runner.state.approval.label), false, "the card's line holds no separator");
+        }],
+        // The card's line names what the key it would save covers: an
+        // application's whole input in a tainted turn, any text in a
+        // cautious profile's target, any submit on a site.
+        ["always-allow-lines", implementation => {
+            const w = make(implementation);
+            w.call("files.read", { path: path.join(fixtures.project, "existing") });
+            w.answers[0]({ outcome: "completed", content: "untrusted file" });
+            assert.equal(w.call("input.text", { text: "literal" }).kind, "held");
+            assert.deepEqual([w.runner.state.approval.grantable, w.runner.state.approval.label], [true, "Any input anywhere in editor"],
+                "a tainted turn's input card names the application its key covers");
+            const cautious = make(implementation, Session, { profile: "cautious" });
+            assert.equal(cautious.call("input.text", { text: "literal" }).kind, "held");
+            assert.equal(cautious.runner.state.approval.label, "Type any text in editor", "a cautious input card names any text in its target");
+            const site = make(implementation);
+            site.target({ kind: "site", id: "https://example.test", password: false, submit: true });
+            assert.equal(site.call("browser", { command: "submit", args: { ref: "@e1" } }).kind, "held");
+            assert.equal(site.runner.state.approval.label, "Submit anything on https://example.test", "a submit card names its site");
+        }],
         ["search-failure-source", async implementation => {
             const w = make(implementation, Session, { release: () => true });
             w.router.register("web", { commands: [], timeoutMs: 1000, cancellable: false,

@@ -95,11 +95,13 @@ function lineReply(logic) {
     s = step(logic, s, callback("feedback", s.turn, 40, { cue: "line" })).state;
     return step(logic, s, callback("play", s.turn, 41, { interruptible: true })).state;
 }
+// A typed request over a playing voice preview flushes the preview, and the
+// new turn's reply waits behind that flush.
 function pendingReply(logic) {
-    let s = thinking(logic);
-    s = step(logic, s, snapshot({ at: 35, settings: { ...s.settings, sounds: true } })).state;
-    s = step(logic, s, callback("feedback", s.turn, 40)).state;
-    s = step(logic, s, snapshot({ at: 41, settings: { ...s.settings, sounds: false } })).state;
+    let s = ready(logic);
+    s = step(logic, s, event("preview", 30, { voice: "fixture" })).state;
+    s = step(logic, s, callback("play", s.turn, 31, { interruptible: true })).state;
+    s = step(logic, s, event("say", 32, { text: "hello" })).state;
     return step(logic, s, callback("play", s.turn, 42, { interruptible: true })).state;
 }
 
@@ -838,6 +840,76 @@ const table = [
         assert.equal(step(logic, h, callback("approval-cancel", h.approval, 50, { id: "wrong" })).state.approval.kind, "held");
         assert.equal(step(logic, h, callback("approval-cancel", h.approval, 50, { id: h.approval.id })).state.approval.kind, "none");
     }],
+    // A card that arrives while Jarvis speaks a line does not cut it: the
+    // line plays to its end beside the card, and only then is playback idle.
+    ["card-waits-for-line", logic => {
+        let s = thinking(logic);
+        s = step(logic, s, callback("feedback", s.turn, 40, { cue: "line" })).state;
+        assert.equal(s.playback.admission.kind, "started", "the line plays");
+        const line = s.playback;
+        const asked = step(logic, s, callback("approval", s.turn, 41, { id: "held", digest: "a".repeat(64), purpose: "release",
+            physical: false, text: "Send screen content to Codex?", tool: "release", timeoutMs: 100, cancellable: false, grantable: true }));
+        assert.equal(asked.state.approval.kind, "held", "the card shows");
+        assert.equal(has(asked, "playback-flush"), false, "the card does not cut the line");
+        assert.deepEqual([asked.state.playback.kind, asked.state.playback.op], ["feedback", line.op]);
+        const played = step(logic, asked.state, callback("played", line, 42));
+        assert.equal(played.state.playback.kind, "idle", "the line played to its end");
+        assert.equal(played.state.approval.kind, "held", "the card waits beside it");
+        const talked = step(logic, asked.state, event("talk-down", 42));
+        assert.equal(has(talked, "playback-flush"), true, "a Talk press to answer cuts a line that holds no reply");
+        assert.equal(talked.state.approval.kind, "held", "and keeps the card");
+        // A reply that plays as the card arrives, or a line a reply waits
+        // behind, plays on through a Talk press: cutting it would leave the
+        // turn's later words with no player.
+        const card = (s, at) => step(logic, s, callback("approval", s.turn, at, { id: "held", digest: "a".repeat(64), purpose: "action",
+            physical: false, text: "Fixture", tool: "fixture", timeoutMs: 100, cancellable: true })).state;
+        for (const [name, playing] of [["reply", speaking(logic)], ["line holding a reply", lineReply(logic)]]) {
+            const before = card(playing, 50);
+            const pressed = step(logic, before, event("talk-down", 60));
+            assert.equal(has(pressed, "playback-flush"), false, "Talk keeps the playing " + name);
+            assert.deepEqual([pressed.state.playback.kind, pressed.state.playback.op], [before.playback.kind, before.playback.op],
+                "the " + name + " keeps playing");
+        }
+    }],
+    // Always allow: the card's box is the hold's alone, and every accepted
+    // answer, a key, a button or the voice, carries it to the owner that
+    // saves the key after its audit. A refused answer starts nothing.
+    // Always allow: the card's box is the hold's alone, with the line that
+    // names what its key covers. Every accepted answer, a key, a button or
+    // the voice, carries it to the owner that saves the key after its audit.
+    // A box set before the card was drawn for APPROVAL_DRAW_MS, or before
+    // a refused answer, carries nothing.
+    ["always-allow", logic => {
+        const ask = (purpose, grantable, physical = false) => {
+            const t = thinking(logic);
+            const h = step(logic, t, callback("approval", t.turn, 40, { id: "held", digest: "a".repeat(64), purpose,
+                physical, text: "Fixture", tool: purpose === "release" ? "release" : "fixture", timeoutMs: 100,
+                cancellable: true, grantable, label: grantable ? "Run commands in /fixture" : "" })).state;
+            return step(logic, h, callback("shown", h.approval, 50, { id: h.approval.id })).state;
+        };
+        const box = (s, always, at = 800, extra = {}) => step(logic, s, callback("always", s.approval, at,
+            { id: s.approval.id, digest: s.approval.digest, always, ...extra })).state;
+        const started = r => r.effects.find(e => e.kind === "tool-start" || e.kind === "release-confirmed");
+        assert.deepEqual([ask("action", true).approval.label, ask("action", false).approval.label], ["Run commands in /fixture", ""],
+            "the card names what Always allow covers");
+        for (const [purpose, source, extra, physical] of [["action", "button", {}, false], ["action", "voice", { beganAt: 1500, idleAt: 0 }, false],
+            ["release", "key", {}, false], ["action", "key", {}, true]]) {
+            const checked = box(ask(purpose, true, physical), true);
+            assert.equal(checked.approval.always, true, purpose + ": the box is checked");
+            assert.equal(started(confirm(logic, checked, 2000, { source, ...extra })).always, true, purpose + " " + source + " carries Always allow");
+            assert.equal(started(confirm(logic, box(checked, false), 2000, { source, ...extra })).always, false, "an unchecked box saves nothing");
+        }
+        assert.equal(box(ask("action", false), true).approval.always, false, "a hold no key covers takes no box");
+        const other = box(ask("action", true), true, 800, { digest: "b".repeat(64) });
+        assert.equal(other.approval.always, false, "another hold's box changes nothing");
+        const inside = box(ask("action", true), true, 60);
+        assert.equal(inside.approval.always, false, "a box set before the card is drawn is not taken");
+        assert.equal(started(confirm(logic, inside, 2000)).always, false, "and a later Yes saves nothing");
+        const refused = confirm(logic, box(ask("action", true), true), 51);
+        assert.equal(started(refused), undefined, "an early answer starts nothing");
+        assert.equal(refused.state.approval.always, false, "a refused answer clears the box");
+        assert.equal(started(confirm(logic, refused.state, 2000)).always, false, "so a later Yes saves nothing");
+    }],
     ["approval-timing", logic => {
         let s = held(logic, false);
         s = step(logic, s, callback("shown", s.approval, 2500, { id: s.approval.id })).state;
@@ -1284,12 +1356,6 @@ const table = [
         assert.equal(has(noCue, "playback-start"), false);
     }],
     ["feedback-reply-ownership", logic => {
-        let working = thinking(logic);
-        working = step(logic, working, snapshot({ at: 35, settings: { ...working.settings, sounds: true } })).state;
-        working = step(logic, working, callback("feedback", working.turn, 40)).state;
-        const speech = step(logic, working, callback("play", working.turn, 41, { interruptible: true }));
-        assert.equal(speech.state.playback.op, working.playback.op, "working tone hands its player to reply");
-        assert.equal(has(speech, "playback-start"), false);
         const line = lineReply(logic);
         assert.equal(line.playback.reply.kind, "waiting");
         assert.equal(logic.phaseOf(line), "speaking");
@@ -1604,7 +1670,7 @@ function fixture(type, s, at) {
         locked: false, configured: true, engine: s.engine.kind, echoCancel: s.duplex.kind === "full", settings: s.settings, shown: true, bar: "gone",
         text: "fixture", reason: type === "conversation-reset" ? "turn-limit" : "fixture", restart: RESTART, outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
         interruptible: true, id: s.approval.id || "fixture", digest: s.approval.digest || "a".repeat(64), physical: true,
-        source: "key", role: "user", stage: "partial", rev: 1, ask: null, due: true,
+        source: "key", cue: "line", always: true, grantable: true, label: "Fixture kind", role: "user", stage: "partial", rev: 1, ask: null, due: true,
         result: "ready", device: "fixture.mic", capture: s.input.source || s.capture.op || 1, empty: false, speech: true, voice: "VoiceA" });
 }
 function invariants(before, e, r) {

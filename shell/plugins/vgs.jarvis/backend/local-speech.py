@@ -166,7 +166,10 @@ class Utterance:
     """One capture: cached CPU captions and a semantic end after VAD silence.
 
     Nemotron's partial result can change any word and is only a caption; the
-    utterance's words are the core's dictation recording's.
+    utterance's words are the core's dictation recording's, except when the
+    recording's stop answers dictation=idle (the core ended it at voxtype's
+    length limit): ChainedEngine's transcription then takes the latest
+    caption as the words.
     """
 
     def __init__(self, speech, detect_turn):

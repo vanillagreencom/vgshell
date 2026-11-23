@@ -36,6 +36,14 @@ function prompt(args, skill) {
             "- Last error line: " + args[6],
             "- Time: " + args[7]
         ];
+    } else if (args[0] === "jarvis" && args.length === 4) {
+        lines = [
+            "Jarvis Voice stopped with an error on this computer and I want to know why.",
+            "- Error: " + args[2],
+            "- Cause: " + args[1],
+            "- Time: " + args[3],
+            "Jarvis writes its lines to the VGS shell log."
+        ];
     } else {
         throw new Error("diagnose: facts=shape");
     }

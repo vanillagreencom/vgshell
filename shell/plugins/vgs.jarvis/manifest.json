@@ -17,7 +17,7 @@
     "voiceProvider": "local", "voiceAccount": "", "voice": "", "localTier": "auto", "clonedVoice": false,
     "home": "", "startAtBoot": false, "bootSession": "",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito",
-    "mainHost": "", "weeklyOpenaiCap": 25, "orbStyle": "glass-bead" },
+    "mainHost": "", "weeklyOpenaiCap": 25, "orbStyle": "glass-bead", "alwaysAllow": [] },
   "schema": {
     "holdToTalk": {"type": "boolean", "label": "Hold to talk", "group": "Voice", "info": "With Hold to talk on, hold Talk while you speak. Release it to close the microphone and hear the reply.\nTap Talk without speaking to close the conversation.\nWith Hold to talk off, press Talk to open or close the conversation.\nThe conversation closes after 30 quiet minutes."},
     "voiceProvider": {"type": "enum", "label": "Voice provider", "group": "Voice", "options": [{"value": "local", "label": "Local"}, {"value": "realtime", "label": "OpenAI Realtime"}, {"value": "gemini", "label": "Gemini Live"}, {"value": "elevenlabs", "label": "ElevenLabs"}], "info": "Local keeps your speech on this computer.\nOpenAI Realtime sends your voice to OpenAI. Gemini Live sends it to Google. Both use your key.\nElevenLabs hears you on this computer and speaks in your ElevenLabs voices.\nChanging the provider ends the conversation."},
@@ -44,7 +44,7 @@
   },
   "sounds": {
     "feedback": { "label": "Feedback sounds", "own": "Jarvis tones", "default": "own",
-      "description": "Soft tones mark conversation start, stop and work in progress. Local recordings also play the dictation tones set in [Voice](page:vgs.voice)." }
+      "description": "Soft tones mark conversation start and stop. Local recordings also play the dictation tones set in [Voice](page:vgs.voice)." }
   },
   "hyprland": {
     "binds": [
@@ -52,6 +52,7 @@
       { "shortcut": "voice-mute", "key": "SUPER+CTRL+M", "info": "Jarvis shows replies on screen while its voice is muted.\nVoice mute stays on after a restart." },
       { "shortcut": "stop", "key": "SUPER+CTRL+X", "info": "Stops the reply or task and keeps the conversation open." },
       { "shortcut": "confirm", "key": "SUPER+CTRL+Y" },
+      { "shortcut": "confirm-always", "key": "SUPER+CTRL+SHIFT+Y" },
       { "shortcut": "deny", "key": null },
       { "shortcut": "console", "key": "SUPER+ALT+C", "info": "Type to Jarvis in the console.\nIt also shows coding tasks and refused requests." }
     ],
@@ -147,6 +148,7 @@
     "tasks": {"type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running"},
     "taskList": {"type": "data", "label": "Coding task list"},
     "auditFailures": {"type": "data", "label": "Recent audit failures"},
+    "alwaysAllow": {"type": "rows", "label": "Always allowed", "settings": true, "icon": "shield-check", "hint": "Jarvis does these without asking you first", "rowActions": {"remove": {"label": "Remove", "tui": "remove-grant", "tone": "danger"}}},
     "ownerAsks": {"type": "data", "label": "Owner asks"},
     "ownerAskAnswer": {"type": "data", "label": "Owner ask answer"},
     "input": {"type": "state", "label": "Desktop input", "hint": "Jarvis does not click or type on VGS panels, the lock screen or password prompts, including the empty space around them, and it acts only in apps that the app launcher lists", "action": {"label": "Check input", "tui": "setup-input"}, "setup": "optional"},
@@ -177,6 +179,8 @@
       "requires": ["gum", "uv", "curl", "unshare", "python3", "pw-record"] },
     "clone-voice-remove": { "script": "tui/clone-voice-remove.sh", "title": "Remove Jarvis cloned voice recording",
       "requires": ["gum", "python3"] },
+    "remove-grant": { "script": "tui/remove-grant.sh", "title": "Remove an allowed Jarvis request", "requires": ["gum"] },
+    "log": { "script": "tui/log.sh", "title": "Jarvis log", "size": "wide" },
     "accounts": { "script": "tui/accounts.sh", "title": "Jarvis accounts", "requires": ["gum", "node", "secret-tool", "busctl", "setpriv", "ss"],
       "entry": { "label": "Accounts", "icon": "users", "group": "Jarvis" } },
     "start-session": { "script": "tui/start-session.sh", "title": "Start Jarvis", "presentation": "plain" },

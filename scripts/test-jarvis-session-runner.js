@@ -103,13 +103,13 @@ const tests = [
         assert.equal(w.calls.some(call => call.name === "open" || call.name === "send" || call.name === "play"), false);
         w.runner.close();
     }],
-    ...["start", "working"].map(cue => ["feedback-deadline-" + cue, (impl, session = Session) => {
+    ...["start", "line"].map(cue => ["feedback-deadline-" + cue, (impl, session = Session) => {
         const w = world(impl, false, session);
-        if (cue === "working") thinking(w);
+        if (cue === "line") thinking(w);
         w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { holdToTalk: true, sounds: true } });
         if (cue === "start") w.dispatch("talk-down");
         else {
-            w.dispatch("feedback", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op });
+            w.dispatch("feedback", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, cue: "line" });
             w.pending.send("brain-done");
         }
         assert.equal(w.runner.state.playback.kind, "feedback");
@@ -589,7 +589,7 @@ try {
     assert.equal(sessionSource.split(feedbackNeedle).length - 1, 1, "feedback deadline control match");
     const feedbackMutant = path.join(root, "feedback-deadline.js");
     fs.writeFileSync(feedbackMutant, sessionSource.replace(feedbackNeedle, '|| live(s, e, "playback", ["playing"])'));
-    for (const cue of ["start", "working"])
+    for (const cue of ["start", "line"])
         assert.throws(() => tests.find(item => item[0] === "feedback-deadline-" + cue)[1](Owner, load(feedbackMutant)),
             assert.AssertionError, cue + " must reject the feedback deadline defect");
     controls++;
