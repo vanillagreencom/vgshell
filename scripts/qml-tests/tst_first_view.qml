@@ -220,7 +220,10 @@ Item {
             compare(view.settled, false);
             tryCompare(view, "settled", true, 5000, "the rest builds after the first frame");
             compare(count(builtBlocks(view)), 12);
-            compare(view.height, 1200);
+            // `settled` answers what is built, not where it stands: a block
+            // a step loads is laid out by the Column's next polish
+            // (https://doc.qt.io/qt-6/qml-qtquick-column.html#forceLayout-method).
+            tryCompare(view, "height", 1200, 5000, "every block lands in the column");
         }
 
         function test_a_target_builds_with_one_cap_after_it() {
