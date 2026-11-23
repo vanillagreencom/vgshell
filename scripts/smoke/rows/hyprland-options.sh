@@ -39,6 +39,11 @@
 # asks" and "the user's files, their modes and the symlink are as they
 # were".
 #
+# The workspace rules: the harness's two, then a numbered rule on a monitor
+# and a special one the user's lines add, read again on the reload alone,
+# then the two again once those lines go. The layer's own rules, such as
+# its no-gaps rule for every workspace, are left out of the reading.
+#
 # A broken bind of the user's: Hyprland's configuration error names the
 # user's file and line, read through the harness's hypr_reload_errors, which
 # this planted bind holds to a non-empty list. Control run on 2026-10-06, host cachy, through this row
@@ -46,7 +51,7 @@
 # HyprlandLayer.js calls Hyprland's hl.bind from the layer's own wrapper:
 # it failed "the broken bind's configuration error names the user's file
 # and line", reading the layer's vgs.lua at line 142.
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/foundation/ShortcutLabels.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell bin/vgshell-hypr-judge bin/lib/xkb-keys.py scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/plugins/vgs.workspaces/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/foundation/ShortcutLabels.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell bin/vgshell-hypr-judge bin/lib/xkb-keys.py scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
@@ -68,6 +73,8 @@ option_value() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load
 # Each keymap a keyboard of the nested instance is on, once, sorted.
 keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted({k["active_keymap"] for k in json.load(sys.stdin)["keyboards"]})))'; }
 user_value_named() { read_options userValues | py_reply 'import json,sys; print(any(v["path"] == sys.argv[1] for v in json.load(sys.stdin)))' "$1"; }
+# The workspace rules the harness and this row write, in Hyprland's order.
+row_workspace_rules() { read_options workspaceRules | py_reply 'import json,sys; mine=("2", "100", "7", "special:smoke"); print(json.dumps([r for r in json.load(sys.stdin) if r["workspace"] in mine], separators=(",", ":")))'; }
 foreign_has() { read_options foreignBinds | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 # Where the user binds the fixture's key, as the capture answers it:
 # [place, line, removable] per user line.
@@ -133,7 +140,8 @@ expect "enabling the options fixture is allowed" ok ipc shell setPluginEnabled a
 expect "enabling the second options fixture is allowed" ok ipc shell setPluginEnabled acme.hyprland-other true
 expect_poll "the options fixture builds" True record_exists acme.hyprland
 expect_poll "the second options fixture builds" True record_exists acme.hyprland-other
-expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,displayWake,foreignBinds,layerGlass,overridden,permissions,refreshLayerGlass,resolveKeys,switchKeyboardLayout,userValues,values"' read_options members
+expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,displayWake,foreignBinds,layerGlass,overridden,permissions,refreshLayerGlass,resolveKeys,switchKeyboardLayout,userValues,values,workspaceRules"' read_options members
+expect_poll "the fixture reads the harness's workspace rules, which name no monitor" '[{"workspace":"2","id":2,"monitor":""},{"workspace":"100","id":100,"monitor":""}]' row_workspace_rules
 expect_poll "the core reads Hyprland while a plugin holds hyprland" true reads_active
 # The same predicate must reject the real enabled fixture holds.
 expect "control: enabled fixture holders fail the publisher-only predicate" False publisher_holds_alone
@@ -173,9 +181,12 @@ mv -T -- "$home/.config/hypr" "$user_hypr"
 ln -s -- "$user_hypr" "$home/.config/hypr"
 printf '%s\n' 'hl.config({' '    input = {' '        accel_profile = "flat",' '        sensitivity = -0.5,' '        repeat_delay = 700,' '    },' '})' >"$user_hypr/input.lua"
 chmod 640 -- "$user_hypr/input.lua"
+# The user's bind stays the file's last line, which bind_line reads below.
+printf '%s\n' 'hl.workspace_rule({ workspace = "7", monitor = "SMOKE-RULES" })' 'hl.workspace_rule({ workspace = "special:smoke", monitor = "SMOKE-RULES" })' >>"$hypr_lua"
 printf '%s\n' "dofile(\"$home/.config/hypr/input.lua\")" 'hl.bind("SUPER + F7", hl.dsp.exec_cmd("true"))' >>"$hypr_lua"
 user_before="$(user_files)" || fail "the user's files are readable before the reload"
 expect "the nested instance reloads with the user's lines" ok hypr reload config-only
+expect_poll "the reload reads the user's workspace rules, each with its monitor" '[{"workspace":"2","id":2,"monitor":""},{"workspace":"100","id":100,"monitor":""},{"workspace":"7","id":7,"monitor":"SMOKE-RULES"},{"workspace":"special:smoke","id":null,"monitor":"SMOKE-RULES"}]' row_workspace_rules
 expect_poll "the set sensitivity holds over the user's later table" '[0.35, true]' option_value input:sensitivity float
 expect_poll "the user's other key of that table keeps the user's value" '["flat", true]' option_value input:accel_profile str
 expect_poll "the second fixture's repeat delay holds over the user's" '[900, true]' option_value input:repeat_delay int
@@ -245,6 +256,7 @@ unlink -- "$user_hypr/input.lua"
 mv -T -- "$user_hypr" "$home/.config/hypr"
 cp -- "$sandbox/hyprland-before-options.lua" "$hypr_lua.next" && mv -T -- "$hypr_lua.next" "$hypr_lua"
 expect "the nested instance reloads without the user's lines" ok hypr reload config-only
+expect_poll "the reload without the user's lines drops their workspace rules" '[{"workspace":"2","id":2,"monitor":""},{"workspace":"100","id":100,"monitor":""}]' row_workspace_rules
 cp -- "$sandbox/shell-before-options.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling the options fixture is allowed" ok ipc shell setPluginEnabled acme.hyprland false
 expect "disabling the second options fixture is allowed" ok ipc shell setPluginEnabled acme.hyprland-other false
@@ -253,8 +265,13 @@ expect_poll "the second options fixture is disabled" False plugin_enabled acme.h
 expect_poll "the disabled fixture's options leave the layer" no layer_mentions "acme.hyprland"
 expect_poll "the layer's sensitivity leaves Hyprland" '[0.0, false]' option_value input:sensitivity float
 expect_poll "the layouts are Hyprland's own again" '["us", false]' option_value input:kb_layout str
-expect_poll "only the layer publisher holds hyprland after the fixtures stop" True publisher_holds_alone
-expect_poll "the layer publisher keeps reading Hyprland after the fixtures stop" true reads_active
+# vgs.workspaces, on every bar in the harness world, holds hyprland too:
+# it is off while the publisher's own hold is read alone.
+expect "Workspaces can be disabled while the publisher's hold is read" ok ipc shell setPluginEnabled vgs.workspaces false
+expect_poll "only the layer publisher holds hyprland after the fixtures and Workspaces stop" True publisher_holds_alone
+expect_poll "the layer publisher keeps reading Hyprland with no plugin holding hyprland" true reads_active
+expect "Workspaces can be enabled again" ok ipc shell setPluginEnabled vgs.workspaces true
+expect_poll "Workspaces is enabled again" True plugin_enabled vgs.workspaces
 expect "the configuration after the options rows holds no error" '[]' hypr_reload_errors
 
 rm -rf -- "${fixture_dir:?}" "${other_fixture_dir:?}"

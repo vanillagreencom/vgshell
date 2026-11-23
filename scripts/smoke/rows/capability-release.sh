@@ -21,7 +21,7 @@ expect "disabling the fixture is allowed" ok ipc shell setPluginEnabled acme.pro
 expect_poll "the second lock plugin builds once the holder is disabled" True record_exists acme.locker
 expect_poll "the lock moved to the second plugin" '["acme.locker"]' lent holders.lock
 expect "disabling the second lock plugin is allowed" ok ipc shell setPluginEnabled acme.locker false
-expect_widgets "the fixture widget left the bar" '["acme.tick"]'
+expect_widgets "the fixture widget left the bar" '["acme.tick","vgs.workspaces"]'
 got=""
 for _ in $(seq 1 25); do if got="$(service_built)" && [[ $got == False ]]; then break; fi; sleep 0.2; done
 if [[ $got == False ]]; then ok "the service host destroyed the disabled service"; else fail "service still built: $got"; fi

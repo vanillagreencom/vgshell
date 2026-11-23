@@ -91,7 +91,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Agent Warden](shell/plugins/vgs.agent-warden/README.md) | Keep your AI agents within their memory and process limits. |
 | [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show your Claude Code, Codex and Copilot plan use. |
 | [Automations](shell/plugins/vgs.automations/README.md) | Run your commands on a schedule. |
-| [Bar](shell/plugins/vgs.bar/README.md) | Workspaces, clock and plugin buttons on each screen. |
+| [Bar](shell/plugins/vgs.bar/README.md) | The clock and plugin buttons on each screen. |
 | [Bluetooth](shell/plugins/vgs.bluetooth/README.md) | Pair and connect your Bluetooth devices. |
 | [Capture](shell/plugins/vgs.capture/README.md) | Save screenshots, record the screen and copy text from an area. |
 | [Clipboard](shell/plugins/vgs.clipboard/README.md) | Find and paste anything you copied earlier. Your history is saved on disk, and Shift+Delete in the Clipboard list clears it. |
@@ -134,6 +134,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect your saved VPN and WireGuard profiles. |
 | [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
 | [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts, and VGlass. |
+| [Workspaces](shell/plugins/vgs.workspaces/README.md) | Workspace numbers on the bar. A click goes to that workspace. |
 
 ## Setup
 

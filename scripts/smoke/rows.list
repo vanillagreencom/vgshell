@@ -15,6 +15,9 @@ hyprland-consent
 # The bar's chooser uses the wired application-window rules, and restores
 # its private fixture and configuration before plugin lifecycle rows.
 add-widget
+# Workspaces opens Manage widgets as add-widget does, adds and removes a
+# monitor of its own and restores the harness's workspaces and user file.
+workspaces
 plugins
 sources
 capabilities

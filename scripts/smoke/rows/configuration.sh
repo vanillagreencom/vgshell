@@ -42,7 +42,7 @@ expect_poll "a write to the writable user file answers ok" ok ipc shell setPlugi
 expect "the user file holds the write" True file_disables acme.tick
 expect "enabling the plugin again answers ok" ok ipc shell setPluginEnabled acme.tick true
 expect "the user file holds the plugin enabled again" False file_disables acme.tick
-expect_widgets "the widget is back after the unwritable rows" '["acme.tick"]'
+expect_widgets "the widget is back after the unwritable rows" '["acme.tick","vgs.workspaces"]'
 
 # A user file that parses but fails ConfigLogic.configError is malformed: the
 # defect is logged, the last good value keeps the bar, and writes are refused
@@ -54,7 +54,7 @@ expect_poll "a user file with a malformed plugins row reads as malformed" malfor
 expect_log "the malformed row is logged with its path in the file" 1 'config: .*/shell\.json malformed: plugins\.0 must be an object with a string id'
 expect "a write to a malformed user file is refused" "refused: user-config=malformed path=$home/.config/vgshell/shell.json" ipc shell setPluginEnabled acme.tick false
 expect "the bar stays with a malformed user file" "$monitors" bar_count
-expect_widgets "the placed widget stays with a malformed user file" '["acme.tick"]'
+expect_widgets "the placed widget stays with a malformed user file" '["acme.tick","vgs.workspaces"]'
 printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 expect_poll "the user file reads as loaded once the row is fixed" loaded config_user_state
 
@@ -178,7 +178,7 @@ if copy_tree configuration-renamed; then
   if start_shell "$sandbox/tree-configuration-renamed" "$sandbox/configuration-renamed-qs.log"; then
     expect_log "the shell's first scan publishes the renamed plugin" 1 'plugins: scan complete changed=true'
     expect_poll "the user file names the renamed plugin by its new id alone" '[["vgs.fixture-renamed"], ["vgs.fixture-renamed"]]' config_renamed_read
-    expect_widgets "the bar shows no widget for the renamed plugin its user disabled" '["acme.tick"]'
+    expect_widgets "the bar shows no widget for the renamed plugin its user disabled" '["acme.tick","vgs.workspaces"]'
     expect "the renamed plugin its user disabled is never built" 0 log_lines 'renamed-fixture: built'
   fi
   config_renamed_restore

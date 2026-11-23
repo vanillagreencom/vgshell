@@ -361,7 +361,6 @@ f share/vgshell/shell/plugins/vgs.bar/Builtin.qml
 f share/vgshell/shell/plugins/vgs.bar/Calendar.qml
 f share/vgshell/shell/plugins/vgs.bar/Clock.qml
 f share/vgshell/shell/plugins/vgs.bar/Service.qml
-f share/vgshell/shell/plugins/vgs.bar/Workspaces.qml
 f share/vgshell/shell/plugins/vgs.bar/manifest.json
 f share/vgshell/shell/plugins/vgs.bluetooth/BluetoothLogic.js
 f share/vgshell/shell/plugins/vgs.bluetooth/DeviceSections.qml
@@ -887,6 +886,9 @@ f share/vgshell/shell/plugins/vgs.windows/Pane.qml
 f share/vgshell/shell/plugins/vgs.windows/Service.qml
 f share/vgshell/shell/plugins/vgs.windows/manifest.json
 f share/vgshell/shell/plugins/vgs.windows/tui/layer-glass.sh
+f share/vgshell/shell/plugins/vgs.workspaces/Widget.qml
+f share/vgshell/shell/plugins/vgs.workspaces/WorkspacesLogic.js
+f share/vgshell/shell/plugins/vgs.workspaces/manifest.json
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md

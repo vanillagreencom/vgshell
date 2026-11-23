@@ -477,7 +477,7 @@ helpers=(
   'placement_drag_escape|scripts/smoke/rows/placement.sh|fn:placement_drag_escape|"${shell_env[@]}" "$sandbox/click"|placement_drag_escape acme.probe 1 2 vgs:passthrough|@sandbox/click|nonzero'
   'placement_drag_path|scripts/smoke/rows/placement.sh|fn:placement_drag_path|"${shell_env[@]}" "$sandbox/click"|placement_drag_path acme.probe 1 2|@sandbox/click|nonzero'
   'placement_held_far|scripts/smoke/rows/placement.sh|fn:placement_held_far|"${shell_env[@]}" "$sandbox/click"|placement_held_far label want|@sandbox/click|nonzero'
-  'placement_held_builtin|scripts/smoke/rows/placement.sh|fn:placement_held_builtin|"${shell_env[@]}" "$sandbox/click"|placement_held_builtin stepped want slot label|@sandbox/click|nonzero'
+  'placement_held_workspaces|scripts/smoke/rows/placement.sh|fn:placement_held_workspaces|"${shell_env[@]}" "$sandbox/click"|placement_held_workspaces stepped want slot label|@sandbox/click|nonzero'
   'placement_same_slot|scripts/smoke/rows/placement.sh|fn:placement_same_slot|"${shell_env[@]}" "$sandbox/click"|placement_file=@sandbox/shell.json; echo {\"bar\":{\"layout\":{\"right\":[0]}}} >"$placement_file"; placement_same_slot|@sandbox/click|nonzero'
   'placement_held_preview|scripts/smoke/rows/placement.sh|fn:placement_held_preview|"${shell_env[@]}" "$sandbox/click"|placement_held_preview moving|@sandbox/click|nonzero'
   'placement_edge_hold|scripts/smoke/rows/placement.sh|fn:placement_edge_hold|"${shell_env[@]}" "$sandbox/click"|placement_edge_tip_file=@sandbox/tips; placement_edge_hold 50|@sandbox/click|nonzero'

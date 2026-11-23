@@ -2,8 +2,8 @@ import QtQuick
 
 // Reads the `hyprland` capability back for rows/hyprland-options.sh: its
 // member names, the paths reported overridden, the values the user's own
-// configuration gave its options, Hyprland's value of its unwritten ones, the foreign keys and the keymaps the
-// keyboards are on; `switch` sends a layout switch. `conflict` is the key
+// configuration gave its options, Hyprland's value of its unwritten ones, the foreign keys, the workspace rules and the
+// keymaps the keyboards are on; `switch` sends a layout switch. `conflict` is the key
 // capture's answer for its own bind's key.
 Item {
     id: root
@@ -14,6 +14,7 @@ Item {
     readonly property var userValues: shell === null ? [] : shell.hyprland.userValues
     readonly property var values: shell === null ? null : shell.hyprland.values
     readonly property var foreignBinds: shell === null ? [] : shell.hyprland.foreignBinds
+    readonly property var workspaceRules: shell === null ? null : shell.hyprland.workspaceRules
     readonly property var conflict: shell === null ? null : shell.shortcut.capture.conflicts("SUPER+F7", "acme.hyprland", "ping")
     // Each keymap a keyboard is on, once, sorted; null before the first read.
     readonly property var keymaps: {

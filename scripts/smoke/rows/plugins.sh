@@ -80,7 +80,7 @@ read_service() { ipc smoke readInstance service acme.probe "$1"; }
 read_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock "$1"; }
 read_tick() { ipc smoke readInstance "$(bar_key)" acme.tick "$1"; }
 expect_poll "the service host built the fixture service" True service_built
-expect_widgets "the fixture widget joined the right section" '["acme.tick","acme.probe"]'
+expect_widgets "the fixture widget joined the right section" '["acme.probe","acme.tick","vgs.workspaces"]'
 expect "the fixture widget can call its compositor capability" true read_widget hasCompositor
 expect "the fixture widget's settings array stayed an array" true read_widget tagsAreArray
 all_caps='"compositor,configure,cover,idle,ipc,lock,manifest,notifications,notify,polkit,run,screens,settings,shortcut,theme,tui"'
@@ -109,17 +109,6 @@ expect "the fixture service reads the manifest default" '"probe"' read_service l
 expect "a placed widget reads its plugins row" '"ddd d MMM  HH:mm"' read_tick format
 expect "the built-in clock reads the bar's clock format" '"ddd d MMM  HH:mm"' read_clock format
 
-# The built-in receives the bar's capability, independently of fixture grants.
-expect "the built-in workspaces receive a callable compositor action" true ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
-if copy_tree workspaces-action \
-  && edit_tree workspaces-action shell/plugins/vgs.bar/Builtin.qml 'Workspaces { bar: root.barItem }' 'Workspaces { bar: Item { property var shell: ({ compositor: {} }) } }'; then
-  stop_shell
-  start_shell "$sandbox/tree-workspaces-action" "$sandbox/workspaces-action.log" || fail "the Workspaces action control starts"
-  expect "control: Workspaces content with no compositor action reads false" false ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
-  stop_shell
-  start_shell "$repo" "$sandbox/workspaces-action-restored.log" || fail "the shell returns after the Workspaces action control"
-  expect "the restored Workspaces content receives its compositor action" true ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
-fi
 active_ws() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
 
 # A settings change reaches the running instance and builds nothing: the
@@ -169,7 +158,7 @@ PY
   done
   if ((clock_changes >= 2)); then ok "the shared clock ticks seconds for a seconds format"; else fail "clock text changed $clock_changes times before the deadline: first=$clock_first last=$clock_last"; fi
   expect "a bar settings change rebuilds nothing" "$before" builds
-  expect_builtins "the built-ins stay registered across a bar settings change" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  expect_builtins "the built-in clock stays registered across a bar settings change" '["vgs.bar/center-clock"]'
 else
   fail "buildCount unreadable before the settings rows"
 fi

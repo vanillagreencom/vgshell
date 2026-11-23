@@ -12,4 +12,4 @@
 
 **Rejected**: A `requires` list by plugin id with the manager refusing to disable a required plugin, and a `kind` value of its own for built-ins. The first brings an order and refusals; the second puts a word outside the closed list into the field every host switches on.
 
-**Revisit when**: A plugin cannot work without another plugin's service and no core capability can carry that contract, or a built-in needs its own settings or enablement.
+**Revisit when**: A plugin cannot work without another plugin's service and no core capability can carry that contract, or a built-in needs settings while its owner must keep drawing it; a built-in that can leave its owner becomes its own plugin under [D140](D140-widget-with-own-settings-is-a-plugin.md).

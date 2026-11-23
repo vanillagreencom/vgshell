@@ -191,7 +191,7 @@ function verifyUserBindLifecycle() {
         bindsFailure: "", bindsPending: false, userBindsPending: false, layerBinds: [], State: state, console: { error: error => calls.push(error) },
         bindsReader: { read: (...args) => calls.push(["binds", ...args]) },
         userBindsReader: { read: (...args) => calls.push(["user", ...args]) },
-        readDevices: () => {}, readOptions: () => {}, readUserValues: () => {}, readPermissions: () => {}
+        readDevices: () => {}, readOptions: () => {}, readUserValues: () => {}, readPermissions: () => {}, readWorkspaceRules: () => {}
     });
     context.root = context;
     vm.runInContext(method(stateSource, "same") + "\n" + method(stateSource, "readBinds"), context);

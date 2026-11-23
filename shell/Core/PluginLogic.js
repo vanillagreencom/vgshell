@@ -4064,11 +4064,11 @@ function tuiCore(core, coreBin, runner, name, args, owner) {
 // tuiRunFor does, so every route that opens a listed script raises the same
 // notice.
 function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, missing, key) {
-    var slash = typeof key === "string" ? key.indexOf("/") : -1;
-    if (slash === -1)
+    var scoped = scopedName(key);
+    if (scoped === null)
         return tuiRefusal(key, "undeclared");
-    var owner = key.slice(0, slash);
-    var name = key.slice(slash + 1);
+    var owner = scoped.owner;
+    var name = scoped.name;
     if (owner === "core") {
         if (!hasOwn(core, name) || core[name].entry === null)
             return tuiRefusal(key, "undeclared");
@@ -4250,15 +4250,21 @@ function tuiLaunchDone(completion) {
     return { code: null, reason: "launcher-failed", package: null };
 }
 
+// KEY split at its first slash as { owner, name }, NAME a
+// ConfigLogic.NAME_PATTERN name, or null for any other value. The caller
+// judges the owner: a launch key takes `core` or a plugin id, a former id
+// a plugin id.
+function scopedName(key) {
+    var slash = typeof key === "string" ? key.indexOf("/") : -1;
+    if (slash === -1 || !ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1)))
+        return null;
+    return { owner: key.slice(0, slash), name: key.slice(slash + 1) };
+}
+
 // Whether KEY is a launch key: `core/<name>` or `<plugin id>/<name>`.
 function tuiKeyValid(key) {
-    if (typeof key !== "string")
-        return false;
-    var slash = key.indexOf("/");
-    if (slash === -1)
-        return false;
-    var owner = key.slice(0, slash);
-    return (owner === "core" || ID_PATTERN.test(owner)) && ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1));
+    var scoped = scopedName(key);
+    return scoped !== null && (scoped.owner === "core" || ID_PATTERN.test(scoped.owner));
 }
 
 // One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record,
@@ -5142,14 +5148,18 @@ function validateManifest(raw, sourceDir) {
     if (typeof raw.id !== "string" || !ID_PATTERN.test(raw.id))
         return { ok: false, error: "id must be dotted and author-namespaced, got " + JSON.stringify(raw.id) };
     // The ids the plugin shipped under before, each a converter step a
-    // user file is renamed by (formerIdClaims, ConfigLogic.renamePlugins).
+    // user file is renamed by (formerIdClaims, ConfigLogic.renamePlugins):
+    // a plugin id, or a built-in's registration id `<plugin id>/<name>`
+    // (shell.builtins.register) for a plugin that was drawn as one.
     if (raw.formerIds !== undefined) {
         if (!Array.isArray(raw.formerIds) || raw.formerIds.length === 0)
             return { ok: false, error: "formerIds must be a non-empty list of plugin ids" };
         for (var f = 0; f < raw.formerIds.length; f++) {
             var former = raw.formerIds[f];
-            if (typeof former !== "string" || !ID_PATTERN.test(former))
-                return { ok: false, error: "formerIds." + f + " must be dotted and author-namespaced, got " + JSON.stringify(former) };
+            var builtin = scopedName(former);
+            var formerValid = builtin !== null ? ID_PATTERN.test(builtin.owner) : typeof former === "string" && ID_PATTERN.test(former);
+            if (!formerValid)
+                return { ok: false, error: "formerIds." + f + " must be dotted and author-namespaced, or a built-in's <plugin id>/<name>, got " + JSON.stringify(former) };
             if (former === raw.id)
                 return { ok: false, error: "formerIds." + f + " is the plugin's own id" };
             if (raw.formerIds.indexOf(former) !== f)
@@ -5993,16 +6003,27 @@ function landsShown(manifest) {
     return manifest.kinds.indexOf("bar-widget") !== -1;
 }
 
+// Whether MANIFEST's formerIds name a built-in's registration id
+// `<plugin id>/<name>`: the plugin was drawn as that built-in.
+function leftBuiltin(manifest) {
+    return (manifest.formerIds || []).some(function (former) { return scopedName(former) !== null; });
+}
+
 // The ids of the plugins in MANIFESTS whose widget takes its first presence
 // under EFFECTIVE, sorted: each lands shown (landsShown), is not in
-// disabledPlugins, is placed in no section and has no plugins[] row. A plugin the user disabled or hid (withPlaced leaves its row) keeps
-// its state. So every widget a plugin brings shows in the bar when the
-// plugin is installed or first discovered, with no step in Settings.
+// disabledPlugins, is placed in no section, has no plugins[] row and was
+// no built-in (leftBuiltin). A plugin the user disabled or hid (withPlaced
+// leaves its row) keeps its state. A built-in keeps no row: it shows only
+// where a layout entry places it, and the rename carries that entry to the
+// plugin (formerIdClaims), so a former built-in no section places is one
+// the user hid, and it stays hidden. So every other widget a plugin brings
+// shows in the bar when the plugin is installed or first discovered, with
+// no step in Settings.
 function firstPresence(manifests, effective) {
     var disabled = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins : [];
     return Object.keys(manifests).sort().filter(function (id) {
         var m = manifests[id];
-        if (!landsShown(m) || disabled.indexOf(id) !== -1)
+        if (!landsShown(m) || disabled.indexOf(id) !== -1 || leftBuiltin(m))
             return false;
         return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;
     });

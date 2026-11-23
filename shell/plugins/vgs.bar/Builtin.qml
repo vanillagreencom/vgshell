@@ -28,10 +28,8 @@ Loader {
             anchors.fill: parent
             sourceComponent: root.name === "center-clock" ? clock
                 : root.family === "gap" ? gap
-                : root.family === "separator" ? separator
-                : workspaces
+                : separator
             Component { id: clock; Clock { bar: root.barItem } }
-            Component { id: workspaces; Workspaces { bar: root.barItem } }
             // Empty room the width of the spacer's gap token.
             Component {
                 id: gap

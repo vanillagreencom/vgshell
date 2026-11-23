@@ -262,8 +262,16 @@
 # control, its Enable plugin link, which turns it on and puts its widget
 # on the bar, the row then showing its Switch on, or Settings in an older
 # tree, which opens the Plugins window; the chooser dragged taller than it
-# opened; and the empty bar's right-click
-# menu, the saved configuration restored after the shots;
+# opened; that taller list after End, scrolled to its last row; and the
+# empty bar's right-click menu, the saved configuration restored after the
+# shots;
+# workspaces, taken only when named, is the bar on each of two monitors,
+# the first holding workspace 1 and SMOKE-WS-SHOT holding 2 and 3, each
+# with a window: where the tree ships vgs.workspaces with Split by display
+# on, then its Settings page; in a --rev tree from before it, where the Bar
+# draws its left-workspaces built-in, both bars and the Bar's Settings page
+# with its Workspaces field; the harness's workspaces, monitor and saved
+# configuration restored after the shots;
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
@@ -695,6 +703,7 @@ while [[ $# -gt 0 ]]; do
     vpn-nord) scenes+=("$1"); shift ;;
     notification-limits) scenes+=("$1"); shift ;;
     notice-banners) scenes+=("$1"); shift ;;
+    workspaces) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|updates-flyout|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -906,6 +915,7 @@ scene_ships() {
     ai-usage|ai-usage-states|ai-usage-hide) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     add-widget) ships_plugin vgs.bar && [[ -f $tree/shell/plugins/vgs.bar/AddWidget.qml ]] ;;
+    workspaces) ships_plugin vgs.workspaces || { ships_plugin vgs.bar && tree_has shell/plugins/vgs.bar/Bar.qml '"left-workspaces"'; } ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     displays-primary|displays-override) ships_plugin vgs.system vgs.displays ;;
@@ -1123,6 +1133,7 @@ if ! SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"; then
 fi
 ok "grim captures only $SHOT_SOCKET"
 source "$checkout/scripts/smoke/webapps-browsers.sh"
+source "$checkout/scripts/smoke/workspaces-world.sh"
 # Hyprland's own notice that it was not started through start-hyprland
 # would sit over the top right of every shot.
 expect "the nested compositor's notices are dismissed" ok hypr dismissnotify
@@ -4755,6 +4766,20 @@ PY
   else
     fail "the chooser's window is unreadable for the stretch"
   fi
+  # The list at its end, where the rows the open shots leave below the
+  # fold show. End moves to the last row's control, as a keyboard user
+  # reaches it; the plain shot clears the ring that draws. The stretched
+  # shot parked the pointer off the window, so the title click gives the
+  # keyboard back first.
+  if read -r x y < <(window_point window:Bar window vgs.bar Label "$title") && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the stretched chooser holds the keyboard" true ipc smoke activeFocusIn window vgs.bar
+    type_keys -k End || fail "End in the chooser failed"
+    expect_poll "End brings the chooser's last row into view" true add_widget_shot_pane lastRowVisible
+    expect_poll "the chooser's list holds still" same nl_settled add_widget_shot_pane contentY
+    take "add-widget-$1-end"
+  else
+    fail "the click on the stretched chooser's title failed"
+  fi
   expect "the chooser hides" ok ipc shell hide window vgs.bar
   expect_poll "the chooser is gone" 0 window_count Bar
   # The empty bar's menu, opened as add-widget.sh opens it: a right click
@@ -4774,12 +4799,85 @@ print("%d %d" % (x,b[1]+b[3]/2) if b[0]<x<b[0]+b[2]/3 else "crowded")' "$bar" <<
   cp -- "$saved" "$home/.config/vgshell/shell.json"
   expect "the saved configuration reloads after the chooser" ok ipc shell reloadConfig
 }
+# add_widget_shot_pane FIELD: FIELD of the chooser's one titled pane
+# (Probe titledPaneContent), as JSON, or panes=<n> while another number
+# shows.
+add_widget_shot_pane() {
+  ipc smoke titledPaneContent window vgs.bar | py_reply 'import json,sys
+panes=json.load(sys.stdin)
+print(json.dumps(panes[0][sys.argv[1]]) if len(panes)==1 else "panes=%d" % len(panes))' "$1"
+}
 # add_widget_shot_action ID: plugin ID's row action in the chooser (Probe
 # chooserRows), "absent" while no row shows it.
 add_widget_shot_action() {
   ipc smoke chooserRows | py_reply 'import json,sys
 rows=[r for r in json.load(sys.stdin) if r["id"]==sys.argv[1]]
 print(json.dumps(rows[0]["action"]) if len(rows)==1 else "absent")' "$1"
+}
+
+# The Bar page's Workspaces placement field type, in a tree from before
+# vgs.workspaces.
+workspaces_shot_bar_field() { ipc smoke invokeInstance window vgs.settings fieldBoolean '{"id":"vgs.bar/left-workspaces","key":""}' | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("type")))'; }
+
+scene_workspaces() { # MODE
+  local saved="$sandbox/workspaces-scene-$1.json" config="$home/.config/vgshell/shell.json" lua="$home/.config/hypr/hyprland.lua"
+  local second=SMOKE-WS-SHOT saved_output="$SHOT_OUTPUT" id=vgs.bar/left-workspaces split=false n pid pids=() made=false
+  if ships_plugin vgs.workspaces; then id=vgs.workspaces; split=true; fi
+  cp -- "$config" "$saved"
+  hypr_lua_save "workspaces-scene-$1"
+  # The rules load before the second monitor exists, since a reload would
+  # drop the mode create_output gives it.
+  if ws_rules "$lua" "$main_name" "$second"; then
+    expect "the workspaces shot loads its workspace rules" ok hypr reload config-only
+    expect_poll "the workspaces shot starts with 1 alone on the first monitor" "{\"1\":\"$main_name\"}" ws_placed
+    if create_output "$second" >/dev/null; then
+      made=true
+      ok "the workspaces shot adds $second"
+      expect_poll "$second gets a bar" 2 layer_count vgs:bar
+      for n in 2 3 1; do
+        expect "the workspaces shot focuses workspace $n" ok hypr dispatch "hl.dsp.focus({ workspace = \"$n\" })"
+        expect_poll "workspace $n is focused for its window" "$n" ws_focused
+        if open_toplevel "$sandbox/workspaces-shot-$1-$n.log" smoke.workspaces "Workspace $n"; then pids+=("$toplevel_pid"); else fail "the workspace $n window maps"; fi
+      done
+      expect_poll "the first monitor holds 1 and $second holds 2 and 3" "{\"1\":\"$main_name\",\"2\":\"$second\",\"3\":\"$second\"}" ws_placed
+      if [[ $split == true ]]; then
+        ws_set '{"thisDisplayOnly": true}' || fail "Split by display could not be turned on"
+        expect_poll "the first bar shows the 1 it holds" '[[1,true]]' ws_pills "$main_name" "$id"
+        expect_poll "$second's bar shows the 2 and 3 it holds and lights the 3 it shows" '[[2,false],[3,true]]' ws_pills "$second" "$id"
+      else
+        expect_poll "the first bar shows 1, 2 and 3" '[[1,true],[2,false],[3,false]]' ws_pills "$main_name" "$id"
+        expect_poll "$second's bar shows 1, 2 and 3" '[[1,true],[2,false],[3,false]]' ws_pills "$second" "$id"
+      fi
+      take "workspaces-$1-bar-first"
+      SHOT_OUTPUT="$second"
+      take "workspaces-$1-bar-second"
+      SHOT_OUTPUT="$saved_output"
+      if [[ $split == true ]]; then
+        settings_page_open vgs.workspaces
+        take "workspaces-$1-settings"
+        settings_page_close vgs.workspaces
+      else
+        settings_page_open vgs.bar
+        expect_poll "the Bar's page draws its Workspaces field" '"boolean"' workspaces_shot_bar_field
+        take "workspaces-$1-bar-settings"
+        settings_page_close vgs.bar
+      fi
+    else
+      fail "the workspaces shot could not add $second"
+    fi
+  else
+    fail "the workspaces shot could not write its workspace rules"
+  fi
+  for pid in "${pids[@]}"; do close_toplevel "$pid" "the workspaces shot closes its window"; done
+  if [[ $made == true ]]; then
+    expect "the workspaces shot removes $second" ok hypr output remove "$second"
+    expect_poll "one bar is left after $second goes" 1 layer_count vgs:bar
+  fi
+  hypr_lua_restore "workspaces-scene-$1"
+  expect "the harness's configuration reloads after the workspaces shot" ok hypr reload config-only
+  expect_poll "the harness's workspaces return after the workspaces shot" "{\"1\":\"$main_name\",\"100\":\"$main_name\",\"2\":\"$main_name\"}" ws_placed
+  cp -- "$saved" "$config.next" && mv -T -- "$config.next" "$config" || fail "the user file is put back after the workspaces shot"
+  expect "the saved configuration reloads after the workspaces shot" ok ipc shell reloadConfig
 }
 
 # The production traffic views over a fixture service in the sandbox copy.

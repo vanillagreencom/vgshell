@@ -1235,7 +1235,7 @@ PYREAD
 expect "a foreign builtin ID cannot move" "unknown: other.bar/center-clock" ipc shell movePluginWidget other.bar/center-clock left 0
 expect "an unadvertised builtin ID cannot move" "unknown: vgs.bar/unknown" ipc shell movePluginWidget vgs.bar/unknown left 0
 expect "the clock can move through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
-expect_builtins "moving the clock keeps its registration ID" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+expect_builtins "moving the clock keeps its registration ID" '["vgs.bar/center-clock"]'
 read_moved_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock format; }
 expect "the moved clock still receives the bar format" '"HH:mm:ss"' read_moved_clock
 expect "the clock returns to center through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
@@ -1248,10 +1248,10 @@ bar_cleanup_balanced() {
 builtin_builds_before="$(builds)"
 for builtin_cycle in {1..12}; do
   bar_builtin_present vgs.bar/center-clock false center
-  expect_builtins "built-in cleanup cycle $builtin_cycle removes the clock" '["vgs.bar/left-workspaces"]'
+  expect_builtins "built-in cleanup cycle $builtin_cycle removes the clock" '[]'
   expect_poll "built-in cleanup cycle $builtin_cycle keeps only live callbacks" True bar_cleanup_balanced
   bar_builtin_present vgs.bar/center-clock true center
-  expect_builtins "built-in cleanup cycle $builtin_cycle restores the clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  expect_builtins "built-in cleanup cycle $builtin_cycle restores the clock" '["vgs.bar/center-clock"]'
   expect_poll "built-in cleanup cycle $builtin_cycle forgets released callbacks" True bar_cleanup_balanced
   expect "built-in cleanup cycle $builtin_cycle preserves the bar lifetime" "$builtin_builds_before" builds
 done

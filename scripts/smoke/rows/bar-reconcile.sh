@@ -38,12 +38,12 @@ if [[ $disable_reply == ok ]]; then ok "disabling a widget is allowed"; else fai
 tick_entry() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d["bar"]["layout"]["center"] if e["id"]=="acme.tick"]))'; }
 tick_row() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d.get("plugins",[]) if e["id"]=="acme.tick"]))'; }
 user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgshell/shell.json"; }
-expect_widgets "the bar dropped the disabled widget" '[]'
-expect_builtins "the built-ins stay while a plugin widget leaves" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+expect_widgets "the bar dropped the disabled widget" '["vgs.workspaces"]'
+expect_builtins "the built-in clock stays while a plugin widget leaves" '["vgs.bar/center-clock"]'
 expect "widget reads disabled after the user file changed" False plugin_enabled acme.tick
 expect "the disabled widget keeps its layout entry" '[{"id": "acme.tick"}]' tick_entry
 expect "the disabled widget keeps its settings row" '[{"id": "acme.tick", "format": "ddd d MMM  HH:mm"}]' tick_row
 expect "disable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys
 expect "re-enabling the widget is allowed" ok ipc shell setPluginEnabled acme.tick true
-expect_widgets "the bar rebuilt the re-enabled widget" '["acme.tick"]'
+expect_widgets "the bar rebuilt the re-enabled widget" '["acme.tick","vgs.workspaces"]'
 expect "re-enable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys

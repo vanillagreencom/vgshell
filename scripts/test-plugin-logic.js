@@ -706,6 +706,10 @@ function suite(ctx, configLogic, check) {
         ["formerIds holding a non-string", { formerIds: ["vgs.old-bar", 3] }, "formerIds.1 must be dotted"],
         ["formerIds holding the plugin's own id", { formerIds: ["vgs.bar"] }, "formerIds.0 is the plugin's own id"],
         ["formerIds naming one id twice", { formerIds: ["vgs.old-bar", "vgs.old-bar"] }, "formerIds lists vgs.old-bar twice"],
+        ["formerIds naming a built-in's registration id", { formerIds: ["vgs.old-bar/left-workspaces"] }, null],
+        ...[["a bad name", "vgs.old-bar/Left"], ["an empty name", "vgs.old-bar/"], ["a slash with no plugin id", "/left-workspaces"],
+            ["an undotted plugin id", "bar/left-workspaces"], ["two slashes", "vgs.old-bar/left/workspaces"]].map(([what, value]) =>
+            ["formerIds holding a built-in id with " + what, { formerIds: [value] }, "formerIds.0 must be dotted"]),
         ["missing description", { description: "" }, "description must be"],
         ["empty kinds", { kinds: [] }, "kinds must be a non-empty array"],
         ["unknown kind", { kinds: ["widget"] }, "unknown kind"],
@@ -2193,9 +2197,9 @@ function suite(ctx, configLogic, check) {
     }
     check("effectiveLayout does not alias the configuration", (() => { const c = configLogic.effectiveConfig(shipped, null); ctx.effectiveLayout(c, manifests, "vgs.bar").left[0].x = 1; return c.bar.layout.left[0].x; })(), undefined);
 
-    const builtinNames = ["left-workspaces", "center-clock"];
+    const builtinNames = ["left-pager", "center-clock"];
     const builtinConfig = { bar: { id: "vgs.bar", layout: {
-        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }],
+        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-pager" }],
         center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
     for (const [name, config, names, want] of [
         ["registered builtin shares plugin order", builtinConfig, builtinNames, builtinConfig.bar.layout],
@@ -2229,7 +2233,7 @@ function suite(ctx, configLogic, check) {
     // Builtin families: one registration per placed `<family>-<n>`.
     const families = ["gap", "separator"];
     const familyConfig = { bar: { id: "vgs.bar", layout: {
-        left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/separator-1" }],
+        left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-pager" }, { id: "vgs.bar/separator-1" }],
         center: [{ id: "vgs.bar/gap-7" }, { id: "alt.bar/gap-9" }, { id: "vgs.bar/gap-02" }, { id: "vgs.bar/rule-1" }, { id: "vgs.bar/gap-0" }],
         right: [{ id: "vgs.bar/gap-2" }] } } };
     for (const [name, member, want] of [
@@ -2248,15 +2252,15 @@ function suite(ctx, configLogic, check) {
     check("nextFamilyName: another bar's members do not count", ctx.nextFamilyName({ bar: { id: "vgs.bar", layout: { left: [{ id: "alt.bar/gap-4" }] } } }, "vgs.bar", "gap"), "gap-1");
     const familyNames = builtinNames.concat(ctx.placedFamilyNames(familyConfig, "vgs.bar", families));
     check("effectiveLayout builtin: placed family members share plugin order", ctx.effectiveLayout(familyConfig, manifests, "vgs.bar", familyNames),
-        { left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/separator-1" }], center: [{ id: "vgs.bar/gap-7" }], right: [] });
+        { left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-pager" }, { id: "vgs.bar/separator-1" }], center: [{ id: "vgs.bar/gap-7" }], right: [] });
     check("placedRefusal builtin: a placed family member can be removed", ctx.placedRefusal(familyConfig, manifests["vgs.bar"], "vgs.bar", familyNames, "vgs.bar/separator-1"), "");
     check("moveRefusal builtin: a placed family member moves", ctx.moveRefusal(familyConfig, manifests["vgs.bar"], "right", 0, "vgs.bar", familyNames, "vgs.bar/gap-7"), "");
     const removedGap = ctx.withPlaced({}, manifests["vgs.bar"], false, familyConfig, "vgs.bar/gap-7");
     check("withPlaced: removing one member leaves the others", removedGap.bar.layout.center, familyConfig.bar.layout.center.slice(1));
     check("withPlaced: removing a member writes no plugins row", removedGap.plugins, undefined);
     for (const [name, user, section, index, want] of [
-        ["inserts at the index", builtinConfig, "left", 1, [{ id: "acme.widget" }, { id: "vgs.bar/gap-1" }, { id: "vgs.bar/left-workspaces" }]],
-        ["an index past the end appends", builtinConfig, "left", 9, [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/gap-1" }]],
+        ["inserts at the index", builtinConfig, "left", 1, [{ id: "acme.widget" }, { id: "vgs.bar/gap-1" }, { id: "vgs.bar/left-pager" }]],
+        ["an index past the end appends", builtinConfig, "left", 9, [{ id: "acme.widget" }, { id: "vgs.bar/left-pager" }, { id: "vgs.bar/gap-1" }]],
         ["a missing section is created", { bar: { id: "vgs.bar", layout: { left: [] } } }, "right", 0, [{ id: "vgs.bar/gap-1" }]],
     ]) check("withBuiltinAt: " + name, ctx.withBuiltinAt(user, "vgs.bar/gap-1", section, index, user).bar.layout[section], want);
     check("withBuiltinAt: seeds the user bar from the effective bar", ctx.withBuiltinAt(null, "vgs.bar/gap-1", "center", 0, builtinConfig).bar.layout,
@@ -2273,17 +2277,17 @@ function suite(ctx, configLogic, check) {
         check("withBuiltinAt plugin insertion leaves its user input unchanged in " + section, JSON.stringify(user), original);
     }
     const builtinDefaults = { bar: { id: "vgs.bar", layout: {
-        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }],
+        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-pager" }, { id: "acme.tick" }],
         center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
     for (const [name, id, layout, expected] of [
-        ["restores between declared neighbours", "vgs.bar/left-workspaces", { left: [{ id: "acme.widget" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] },
-            { left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] }],
-        ["restores before a remaining next neighbour", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "acme.tick" }], center: [], right: [] },
-            { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }], center: [], right: [] }],
-        ["restores after a remaining previous neighbour", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "acme.other" }], center: [], right: [] },
-            { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.other" }], center: [], right: [] }],
-        ["restores at declared position without neighbours", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.other" }], center: [], right: [] },
-            { left: [{ id: "acme.extra" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.other" }], center: [], right: [] }],
+        ["restores between declared neighbours", "vgs.bar/left-pager", { left: [{ id: "acme.widget" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] },
+            { left: [{ id: "acme.widget" }, { id: "vgs.bar/left-pager" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] }],
+        ["restores before a remaining next neighbour", "vgs.bar/left-pager", { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "acme.tick" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "vgs.bar/left-pager" }, { id: "acme.tick" }], center: [], right: [] }],
+        ["restores after a remaining previous neighbour", "vgs.bar/left-pager", { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "acme.other" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "vgs.bar/left-pager" }, { id: "acme.other" }], center: [], right: [] }],
+        ["restores at declared position without neighbours", "vgs.bar/left-pager", { left: [{ id: "acme.extra" }, { id: "acme.other" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "vgs.bar/left-pager" }, { id: "acme.other" }], center: [], right: [] }],
         ["restores clock at its default before automatic widgets", "vgs.bar/center-clock", { left: [], center: [{ id: "acme.extra" }], right: [] },
             { left: [], center: [{ id: "vgs.bar/center-clock" }, { id: "acme.extra" }], right: [] }],
     ]) {
@@ -2292,10 +2296,10 @@ function suite(ctx, configLogic, check) {
         check("builtin default restore: " + name, restored, Object.assign({}, user, { bar: { id: "vgs.bar", layout: expected } }));
         check("builtin restore twice is once: " + name, ctx.withPlaced(restored, manifests["vgs.bar"], true, restored, id, builtinDefaults), restored);
     }
-    const relocatedDefault = { bar: { layout: { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] } } };
+    const relocatedDefault = { bar: { layout: { left: [], center: [], right: [{ id: "vgs.bar/left-pager" }] } } };
     check("builtin default restoration never infers section from its ID", ctx.withPlaced({}, manifests["vgs.bar"], true,
-        { bar: { layout: { left: [], center: [], right: [] } } }, "vgs.bar/left-workspaces", relocatedDefault).bar.layout,
-        { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] });
+        { bar: { layout: { left: [], center: [], right: [] } } }, "vgs.bar/left-pager", relocatedDefault).bar.layout,
+        { left: [], center: [], right: [{ id: "vgs.bar/left-pager" }] });
 
     // settingsFor: manifest defaults under the plugins row, for every kind.
     check("settingsFor merges the plugins row over defaults", ctx.settingsFor(configLogic.effectiveConfig(shipped, { plugins: [{ id: "acme.widget", size: 9 }] }), manifests["acme.widget"]), { size: 9, tags: ["a"] });
@@ -2528,6 +2532,10 @@ function suite(ctx, configLogic, check) {
     ];
     for (const [name, config, want] of presenceRows) check("firstPresence: " + name, ctx.firstPresence(manifests, config), want);
     check("firstPresence: a plugin with no widget is never placed", ctx.firstPresence({ "vgs.svc": manifests["vgs.svc"] }, shipped), []);
+    // A plugin that was a built-in keeps the built-in's absence: no section
+    // places either widget, and only the ordinary one is named.
+    const formerBuiltin = ctx.validateManifest(Object.assign({}, clock, { id: "acme.pills", formerIds: ["vgs.bar/left-pills"] }), "/p").manifest;
+    check("firstPresence: a former built-in no section places stays hidden", ctx.firstPresence({ "acme.pills": formerBuiltin, "acme.widget": manifests["acme.widget"] }, shipped), ["acme.widget"]);
     // landsShown rows: [id, want]. What `vgshell plugin add` tells the user.
     for (const [id, want] of [["acme.both", true], ["acme.widget", true], ["vgs.widgetpanel", true], ["acme.svc", false], ["vgs.bar", false]])
         check("landsShown: " + id, ctx.landsShown(manifests[id]), want);
@@ -3407,6 +3415,40 @@ const bundled = Object.create(null);
     const sourceOf = m => m.__sourceDir.indexOf(PLUGINS_DIR + "/") === 0 ? "bundled" : "installed";
     const claims = logic.formerIdClaims(bundled, sourceOf);
     report("renamePlugins: the bundled manifests rename vgs.cloud-sync to vgs.google-drive", configLogic.renamePlugins(user, claims.renames), { config: want, renamed: true });
+    // The Bar plugin drew the workspaces as its built-in vgs.bar/left-workspaces;
+    // a saved layout that holds it names vgs.workspaces in its place, in
+    // the same section at the same index, its neighbours unchanged. Rows:
+    // [name, saved left, saved center, want left, want center].
+    const sides = (left, center) => ({ id: "vgs.bar", layout: { left: left, center: center, right: [{ id: "vgs.sound" }] } });
+    const savedFile = (left, center) => ({ version: 6, bar: sides(left, center), plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }] });
+    const launcher = { id: "vgs.launcher" }, tray = { id: "vgs.tray" }, clockBuiltin = { id: "vgs.bar/center-clock" };
+    const oldWorkspaces = { id: "vgs.bar/left-workspaces" }, workspaces = { id: "vgs.workspaces" };
+    const builtinRenames = [
+        ["where it shipped, between the launcher and the tray", [launcher, oldWorkspaces, tray], [clockBuiltin], [launcher, workspaces, tray], [clockBuiltin]],
+        ["moved to the centre, after the clock", [launcher, tray], [clockBuiltin, oldWorkspaces], [launcher, tray], [clockBuiltin, workspaces]],
+    ];
+    for (const [name, left, center, wantLeft, wantCenter] of builtinRenames)
+        report("renamePlugins: the bundled manifests move the Bar's workspaces built-in to vgs.workspaces in its place, " + name,
+            configLogic.renamePlugins(savedFile(left, center), claims.renames), { config: savedFile(wantLeft, wantCenter), renamed: true });
+    // The first start after the update over the shipped configuration: the
+    // rename, then the first presence Plugins.giveFirstPresence writes.
+    // Workspaces shows where a saved bar held the built-in, and, with no
+    // saved bar, where the shipped layout places it. The Bar's Workspaces
+    // field and its Hide removed the built-in's entry and left no other
+    // record, so a saved bar without it keeps Workspaces off. Rows: [name,
+    // user file, Workspaces placed and enabled after the start].
+    const shippedConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "shell.json"), "utf8"));
+    const firstStarts = [
+        ["a saved bar that holds the built-in shows Workspaces", savedFile([launcher, oldWorkspaces, tray], [clockBuiltin]), true],
+        ["a saved bar without the built-in keeps Workspaces off", savedFile([launcher, tray], [clockBuiltin]), false],
+        ["a user file with no bar shows Workspaces where the shipped layout places it", { version: 6 }, true],
+    ];
+    for (const [name, user, want] of firstStarts) {
+        const renamed = configLogic.renamePlugins(user, claims.renames).config;
+        const started = configLogic.effectiveConfig(shippedConfig, logic.withFirstPresence(renamed, bundled, configLogic.effectiveConfig(shippedConfig, renamed)));
+        report("first start after the update: " + name,
+            [logic.isPlaced(started, bundled["vgs.workspaces"]), logic.isEnabled(started, bundled["vgs.workspaces"], "vgs.bar")], [want, want]);
+    }
     // An installed plugin that claims the bundled former id and the bundled
     // live id takes neither.
     const thief = logic.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: ["vgs.cloud-sync", "vgs.google-drive"] }, "/home/u/.config/vgshell/plugins/acme.drive").manifest;
@@ -3828,8 +3870,9 @@ const CONTROLS = [
     ["an unnamed widget takes its first presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return false;"],
     ["a widget with a plugins row keeps no presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return !isPlaced(effective, m);"],
     ["a placed widget takes no second presence", "return !isPlaced(effective, m) && pluginRow(effective, id) === undefined;", "return pluginRow(effective, id) === undefined;"],
-    ["a disabled widget keeps no presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (!landsShown(m))"],
-    ["a widget that lands shown takes its first presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1)", "if (disabled.indexOf(id) !== -1)"],
+    ["a disabled widget keeps no presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1 || leftBuiltin(m))", "if (!landsShown(m) || leftBuiltin(m))"],
+    ["a widget that lands shown takes its first presence", "if (!landsShown(m) || disabled.indexOf(id) !== -1 || leftBuiltin(m))", "if (disabled.indexOf(id) !== -1 || leftBuiltin(m))"],
+    ["a former built-in no section places stays hidden", "if (!landsShown(m) || disabled.indexOf(id) !== -1 || leftBuiltin(m))", "if (!landsShown(m) || disabled.indexOf(id) !== -1)"],
     ["a plugin with no widget lands disabled", "return manifest.kinds.indexOf(\"bar-widget\") !== -1;", "return true;"],
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],

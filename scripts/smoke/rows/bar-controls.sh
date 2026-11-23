@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/Service.qml shell/plugins/vgs.ai-usage/backend/usage.js bin/lib/anchored.js bin/lib/codex-account.js bin/lib/account-folders.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/manifest.json shell/plugins/vgs.updates/Service.qml shell/plugins/vgs.updates/Widget.qml shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml scripts/smoke/rows/bar.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/Service.qml shell/plugins/vgs.ai-usage/backend/usage.js bin/lib/anchored.js bin/lib/codex-account.js bin/lib/account-folders.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/manifest.json shell/plugins/vgs.updates/Service.qml shell/plugins/vgs.updates/Widget.qml shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml scripts/smoke/rows/bar.sh shell/plugins/vgs.jarvis/backend/skills/*.md shell/plugins/vgs.workspaces/*
 # The service starts the AI Usage backend; its Node imports need explicit inputs.
 # The first-start welcome must remain unanswered for hyprland-consent.
 set -euo pipefail
@@ -234,7 +234,7 @@ cp -- "$calendar_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 geometry expect_poll "the clock returns to the centre" center clock_third
 
-expect "disabling the bar names the widgets it hides" "ok hidden=acme.tick" ipc shell setPluginEnabled vgs.bar false
+expect "disabling the bar names the widgets it hides" "ok hidden=acme.tick,vgs.workspaces" ipc shell setPluginEnabled vgs.bar false
 expect_widgets "the bar host unloaded the disabled bar" '[]'
 expect_builtins "the disabled bar's built-ins left the build records" '[]'
 bars_now=-1
@@ -245,8 +245,8 @@ done
 if [[ $bars_now == 0 ]]; then ok "the bar host destroyed its surface with no bar"; else fail "bar surfaces with the bar disabled: $bars_now"; fi
 expect "no bar reserves no screen space" 0 reserved_total
 expect "re-enabling the bar is allowed" ok ipc shell setPluginEnabled vgs.bar true
-expect_widgets "the bar host rebuilt the re-enabled bar" '["acme.tick"]'
-expect_builtins "the re-enabled bar registered its built-ins again" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+expect_widgets "the bar host rebuilt the re-enabled bar" '["acme.tick","vgs.workspaces"]'
+expect_builtins "the re-enabled bar registered its built-in clock again" '["vgs.bar/center-clock"]'
 for _ in $(seq 1 50); do
   if bars_now="$(bar_count)" && [[ $bars_now == "$monitors" ]]; then break; fi
   sleep 0.2
@@ -302,7 +302,7 @@ fi
 
 # Declaration and effective placement use one independent expected contract.
 # Runtime reads permit first-presence additions outside the requested group.
-fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray","vgs.local-sync"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
+fresh_want='{"left":["vgs.launcher","vgs.workspaces","vgs.tray","vgs.local-sync"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
 fresh_bar_declared() {
   py_reply 'import json,sys
 config=json.load(sys.stdin); want=json.loads(sys.argv[1])
@@ -469,17 +469,17 @@ if [[ $bar_devices_ready == true ]]; then
   geometry expect_poll "control: rendered placement rejects Launcher after workspaces" False fresh_bar_drawn
   fresh_restore
   fresh_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "the fresh identity snapshot is unreadable"
-  expect "the fresh snapshot includes builtin identities" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.bar/left-workspaces","vgs.bar/center-clock"} <= set(ids))' <<<"$fresh_snapshot"
+  expect "the fresh snapshot includes the clock's builtin identity" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.workspaces","vgs.bar/center-clock"} <= set(ids))' <<<"$fresh_snapshot"
   python3 - "$home/.config/vgshell/shell.json" <<'PYREAD'
 import json,os,sys
 path=sys.argv[1]; config=json.load(open(path)); layout=config["bar"]["layout"]
-entry=next(e for e in layout["left"] if e["id"]=="vgs.bar/left-workspaces")
-layout["left"]=[e for e in layout["left"] if e["id"]!="vgs.bar/left-workspaces"]
+entry=next(e for e in layout["center"] if e["id"]=="vgs.bar/center-clock")
+layout["center"]=[e for e in layout["center"] if e["id"]!="vgs.bar/center-clock"]
 layout["right"].insert(0,entry)
 with open(path+".tmp","w") as out: json.dump(config,out)
 os.replace(path+".tmp",path)
 PYREAD
-  expect_poll "control: placement rejects workspaces in another section" False fresh_bar_complete
+  expect_poll "control: placement rejects the clock in another section" False fresh_bar_complete
   expect "builtin section transfer keeps every object" '[]' ipc smoke barWidgetIdentities
   expect "the fresh identity snapshot is released" ok ipc smoke forgetBarWidgets
   fresh_restore
@@ -813,7 +813,7 @@ for pid, values in (("vgs.sysmon", {"cpuTemperature": True, "gpuTemperature": Tr
         row = {"id": pid}
         rows.append(row)
     row.update(values)
-config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.bar/left-workspaces"}, {"id": "vgs.tray"}],
+config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.workspaces"}, {"id": "vgs.tray"}],
                                              "center": [{"id": "vgs.bar/center-clock"}], "right": entries}}
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
@@ -1243,8 +1243,8 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
   zone_drop "a drop left of the last third into the clipped right zone" vgs.launcher before
   expect_poll "the drop left of the last third lands the Launcher in the right section between the neighbours under the pointer" "[\"$zone_a\", \"vgs.launcher\", \"$zone_b\"]" zone_layout vgs.launcher
   geometry expect_poll "the dropped Launcher shows and the zone still clips, over nothing" '[true, true, []]' zone_pick "json.dumps(['vgs.launcher' in d['right']['shown'], d['right']['clips'], d['right']['over']])"
-  zone_drop "a drop past the last third into the clipped right zone" vgs.bar/left-workspaces past
-  expect_poll "the drop past the last third lands the workspaces between the neighbours under the pointer" "[\"$zone_a\", \"vgs.bar/left-workspaces\", \"$zone_b\"]" zone_layout vgs.bar/left-workspaces
+  zone_drop "a drop past the last third into the clipped right zone" vgs.workspaces past
+  expect_poll "the drop past the last third lands the workspaces between the neighbours under the pointer" "[\"$zone_a\", \"vgs.workspaces\", \"$zone_b\"]" zone_layout vgs.workspaces
   wheel "$zone_wx" "$zone_wy" 20 || fail "the wheel over the right zone failed"
   geometry expect_poll "the zone returns to its end after the drops" '[true, true, false, []]' zone_ends right
   # Last, since the widget keeps its focus for the next time the bar
@@ -1345,7 +1345,7 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
   cp -- "$fresh_saved" "$home/.config/vgshell/shell.json.tmp"
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
-  expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick"]'
+  expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick","vgs.workspaces"]'
 fi
 
 # Exercise the shipped positive-width Network hide route and a private
@@ -1376,7 +1376,7 @@ sections=data.get("sections",[])
 center=next((s for s in sections if s["section"]=="center"),None)
 if center is None: print("missing-center"); sys.exit()
 rows=center["entries"]; ids=[r["id"] for r in rows]
-want=["vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock"]
+want=["vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock"]
 if ids!=want or any(not r["present"] or r["box"] is None for r in rows):
     print("membership"); sys.exit()
 by={r["id"]:r for r in rows}; network=by["vgs.network"]; tick=by["acme.tick"]
@@ -1417,10 +1417,10 @@ cp -- "$bar_participation_tick" "$sandbox/bar-participation-tick.qml"
 stop_shell
 python3 - "$bar_participation_saved" "$bar_participation_profile" "$bar_participation_tick" <<'PY'
 import json,pathlib,sys
-config=json.load(open(sys.argv[1])); owned={"vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock"}
+config=json.load(open(sys.argv[1])); owned={"vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock"}
 for section in config["bar"]["layout"]:
     config["bar"]["layout"][section]=[e for e in config["bar"]["layout"][section] if e["id"] not in owned]
-config["bar"]["layout"]["center"]=[{"id":i} for i in ("vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock")]
+config["bar"]["layout"]["center"]=[{"id":i} for i in ("vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock")]
 config["disabledPlugins"]=[i for i in config["disabledPlugins"] if i!="vgs.network"]
 with open(sys.argv[2],"w") as out: json.dump(config,out)
 path=pathlib.Path(sys.argv[3]); source=path.read_text()
@@ -1434,7 +1434,7 @@ bar_participation_state shown
 start_shell "$repo" "$sandbox/bar-participation.log" || fail "the participation shell starts"
 geometry expect_poll "all shown entries occupy their exact width and gaps" '[]' bar_participation shown
 bar_participation_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "participation cannot read mounted objects"
-expect "participation remembers every test object" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.network"}<=set(ids) and len(ids)==len(set(ids)))' <<<"$bar_participation_snapshot"
+expect "participation remembers every test object" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"acme.tick","vgs.bar/center-clock","vgs.workspaces","vgs.network"}<=set(ids) and len(ids)==len(set(ids)))' <<<"$bar_participation_snapshot"
 for bar_participation_case in hidden zero-width zero-height; do
   bar_participation_state "$bar_participation_case"
   geometry expect_poll "$bar_participation_case leaves no width, neighbour gap or drop target" '[]' bar_participation "$bar_participation_case"
@@ -1496,7 +1496,7 @@ cp -- "$sandbox/bar-participation-tick.qml" "$bar_participation_tick"
 cp -- "$bar_participation_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
-expect_widgets "participation restores the original mounted fixture" '["acme.tick"]'
+expect_widgets "participation restores the original mounted fixture" '["acme.tick","vgs.workspaces"]'
 
 # Hide and reveal change only the bar's current visibility, on every
 # screen: shell.json keeps its bytes, a bar the saved `hidden` setting hides
@@ -1621,7 +1621,7 @@ if copy_tree bar-motion-control \
   start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
   expect_poll "control: the cold Row builds its bar surface" "$monitors" bar_count
   printf "  cold_control_log=%s\n" "$sandbox/bar-motion-control.log"
-  expect_builtins "control: the Row motion bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  expect_builtins "control: the Row motion bar still registers its built-in clock" '["vgs.bar/center-clock"]'
   printf '  cold_control_alignment=%s\n' "$(bar_alignment)"
   geometry expect "control: the alignment reader rejects Row's cold transition writes" True bar_alignment_misplaced
   stop_shell
@@ -1764,7 +1764,7 @@ done
 spacer_added='{"left": ["vgs.bar/separator-1", "vgs.bar/gap-1"], "center": ["vgs.bar/gap-2", "vgs.bar/separator-2"], "right": ["vgs.bar/gap-3", "vgs.bar/separator-3"]}'
 expect_poll "each kind lands in each section where it was added" "$spacer_added" spacer_layout
 expect "the user file holds the added spacers" "$spacer_added" spacer_user
-expect_builtins "every bar registers each spacer once beside the fixed builtins" '["vgs.bar/center-clock","vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/left-workspaces","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
+expect_builtins "every bar registers each spacer once beside the fixed clock" '["vgs.bar/center-clock","vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
 # The drawn order holds the same members; every section draws a spacer,
 # within left the spacers end the section, within centre and right they
 # start it.
@@ -1818,7 +1818,7 @@ for spacer_id in vgs.bar/separator-1 vgs.bar/gap-2 vgs.bar/separator-2 vgs.bar/g
 done
 expect_poll "removing every spacer leaves none in the layout" "$spacer_none" spacer_layout
 expect "the user file holds no spacer" "$spacer_none" spacer_user
-expect_builtins "removed spacers release their registrations" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+expect_builtins "removed spacers release their registrations" '["vgs.bar/center-clock"]'
 stop_shell
 if copy_tree bar-spacer-control \
   && edit_tree bar-spacer-control shell/Core/Plugins.qml 'return bar.builtinNames.concat(Logic.placedFamilyNames(Config.effective, row.id, families));' 'return bar.builtinNames;'; then

@@ -95,7 +95,7 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
 expect_log "the core logged the refused widget build on every bar" "$monitors" 'plugins: acme\.nowidget bar-widget not built: '
-expect_widgets "the section shows the widget after the one that failed" '["acme.tick"]'
+expect_widgets "the section shows the widget after the one that failed" '["acme.tick","vgs.workspaces"]'
 python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -113,7 +113,7 @@ d["bar"]["layout"]["center"] = [e for e in d["bar"]["layout"]["center"] if e["id
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
-expect_widgets "removing the failed entry leaves the widget in place" '["acme.tick"]'
+expect_widgets "removing the failed entry leaves the widget in place" '["acme.tick","vgs.workspaces"]'
 
 failed_builds_control_restore() {
   stop_shell || :

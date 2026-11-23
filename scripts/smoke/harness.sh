@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/pkg/aur-curl.js scripts/fixtures/pkg/aur-any.SRCINFO scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.workspaces/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/pkg/aur-curl.js scripts/fixtures/pkg/aur-any.SRCINFO scripts/lib/jarvis-env.sh
 set -euo pipefail
 smoke_harness_started_us="${EPOCHREALTIME/./}"
 # Reports must not become a reader's stdout or stderr inside $() or a
@@ -1022,9 +1022,11 @@ except (ValueError, KeyError, TypeError):
   fi
 }
 nested_xwayland_check
-# The shipped bar carries its clock and workspaces as built-ins, so the
-# widget rows use a third-party widget placed in the user file before the
-# shell starts. The launcher and the notifications, first-party and so
+# The shipped bar carries its clock as a built-in, so the widget rows use a
+# third-party widget placed in the user file before the shell starts. The
+# file places the workspaces in their old form, the Bar's built-in
+# vgs.bar/left-workspaces, which the shell renames to vgs.workspaces at its
+# first read (formerIds, D108); rows/bar.sh reads the renamed file. The launcher and the notifications, first-party and so
 # enabled by default, start disabled here: their shortcuts, IPC targets,
 # notification subscriber and server would sit in every lending record the
 # capability rows read back. rows/launcher.sh and rows/notifications.sh
@@ -3644,12 +3646,12 @@ click_scoped_in() {
   click "$x" "$y"
 }
 
-# Widget ids every bar host built, left to right, from the core's own
-# build records. Polls up to smoke_poll_bound_ms: a config write travels through the
+# Widget ids every bar host built, sorted, from the core's own build
+# records, which keep build order alone. Polls up to smoke_poll_bound_ms: a config write travels through the
 # watcher, the merge and a rebuild before the record changes.
 # A screen whose bar is unloaded has no record; it reads as an empty list.
 bar_widget_ids() {
-  ipc shell built | python3 -c 'import json,sys; d=json.load(sys.stdin); bars={k:[r["id"] for r in v if r["kind"]=="bar-widget"] for k,v in d.items() if k.startswith("bar:")}; out=sorted(bars.values()); out+= [[]]*(int(sys.argv[1])-len(out)); print(json.dumps(out))' "$monitors"
+  ipc shell built | python3 -c 'import json,sys; d=json.load(sys.stdin); bars={k:sorted(r["id"] for r in v if r["kind"]=="bar-widget") for k,v in d.items() if k.startswith("bar:")}; out=sorted(bars.values()); out+= [[]]*(int(sys.argv[1])-len(out)); print(json.dumps(out))' "$monitors"
 }
 expect_widgets() { # LABEL EXPECTED_JSON_LIST
   local want got=""

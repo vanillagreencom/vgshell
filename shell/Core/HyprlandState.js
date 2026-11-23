@@ -6,7 +6,8 @@
 // Pure readings behind the `hyprland` capability: Hyprland's input devices,
 // the options the layer wrote that read back otherwise, the values the
 // user's configuration gave them, the keys bound by something other than
-// the layer, the file and line where the user's configuration binds each,
+// the layer, the user's workspace rules, the file and line where the
+// user's configuration binds each key,
 // and the edit that takes such a line out of its file and puts it back,
 // which bin/vgshell-hypr-judge runs. HyprlandState.qml runs each request
 // and holds what these answer; scripts/test-hyprland-state.js runs this file
@@ -348,6 +349,37 @@ function foreignBinds(text, descriptions) {
         if (key !== null) rows.push({ key: key, description: bind.description });
     }
     return { ok: true, keys: keys.sort(), binds: rows };
+}
+
+var WORKSPACE_RULES_REQUEST = ["hyprctl", "-j", "workspacerules"];
+
+// The reply to WORKSPACE_RULES_REQUEST: { ok: true, rules: [{ workspace,
+// id, monitor }] } for each enabled rule in Hyprland's order, or { ok:
+// false, error } with a keyed line. Hyprland 0.57.0 through 0.57.2 prints
+// a list of objects, each with the rule's `workspaceString` and `enabled`
+// and with `monitor` only when the rule names one (src/ipc/s1/Commands.cpp,
+// getWorkspaceRuleData). `workspace` is that string, `monitor` the rule's
+// monitor, "" for none, as Hyprland names it: an output name or
+// `desc:<description start>`. `id` is the numbered workspace a rule of a
+// whole number names, null for a `name:`, `special:` or selector rule; a
+// rule for 0 binds no workspace. Hyprland applies no disabled rule
+// (src/config/shared/workspace/WorkspaceRuleManager.cpp), so none is
+// listed.
+function workspaceRules(text) {
+    var read = parsed(text);
+    if (!read.ok) return { ok: false, error: "refused: workspace-rules=unparsed " + read.error };
+    if (!Array.isArray(read.value)) return { ok: false, error: "refused: workspace-rules=shape want=list" };
+    var out = [];
+    for (var i = 0; i < read.value.length; i++) {
+        var rule = read.value[i];
+        if (rule === null || typeof rule !== "object" || typeof rule.workspaceString !== "string" || typeof rule.enabled !== "boolean"
+            || (rule.monitor !== undefined && typeof rule.monitor !== "string"))
+            return { ok: false, error: "refused: workspace-rules=shape rule=" + i };
+        if (!rule.enabled) continue;
+        var numbered = /^[0-9]+$/.test(rule.workspaceString) ? Number(rule.workspaceString) : 0;
+        out.push({ workspace: rule.workspaceString, id: numbered > 0 && Number.isSafeInteger(numbered) ? numbered : null, monitor: rule.monitor === undefined ? "" : rule.monitor });
+    }
+    return { ok: true, rules: out };
 }
 
 // The one `hyprctl eval` argv that asks the layer where the user's

@@ -243,6 +243,41 @@ function suite(lib, check) {
         const got = lib.userPermissions(text);
         check("user permissions: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
+    // `hyprctl -j workspacerules` as Hyprland 0.57.2 prints it
+    // (src/ipc/s1/Commands.cpp, getWorkspaceRuleData): `monitor` only when
+    // the rule names one, `persistent` only when it sets it. The owner's
+    // home holds 1 on DP-2, 2 to 9 on DP-1 and three special workspaces on
+    // DP-1.
+    const workspaceRule = (workspace, extra) => "{\n    \"workspaceString\": " + JSON.stringify(workspace) + ",\n    \"enabled\": " + (extra && extra.enabled === false ? "false" : "true")
+        + (extra && extra.monitor !== undefined ? ",\n    \"monitor\": " + JSON.stringify(extra.monitor) : "")
+        + (extra && extra.persistent !== undefined ? ",\n    \"persistent\": " + extra.persistent : "") + "\n}";
+    const workspaceRulesText = rules => "[" + rules.join(",") + "]";
+    const ownerRules = [workspaceRule("1", { monitor: "DP-2", persistent: true })]
+        .concat([2, 3, 4, 5, 6, 7, 8, 9].map(n => workspaceRule(String(n), { monitor: "DP-1", persistent: true })))
+        .concat(["special:scratch", "special:music", "special:notes"].map(name => workspaceRule(name, { monitor: "DP-1" })));
+    check("workspace rules request: one hyprctl read", lib.WORKSPACE_RULES_REQUEST, ["hyprctl", "-j", "workspacerules"]);
+    // rows: [name, reply, want]
+    const workspaceRuleRows = [
+        ["the owner's rules, numbered and special, each on its monitor", workspaceRulesText(ownerRules), { ok: true, rules:
+            [{ workspace: "1", id: 1, monitor: "DP-2" }].concat([2, 3, 4, 5, 6, 7, 8, 9].map(n => ({ workspace: String(n), id: n, monitor: "DP-1" })))
+                .concat(["special:scratch", "special:music", "special:notes"].map(name => ({ workspace: name, id: null, monitor: "DP-1" }))) }],
+        ["no rule", "[]", { ok: true, rules: [] }],
+        ["a rule with no monitor, a named one, a description and a selector",
+            workspaceRulesText([workspaceRule("100", { persistent: true }), workspaceRule("name:web", { monitor: "desc:Dell Inc. U2720Q" }), workspaceRule("r[1-5]", { monitor: "DP-1" })]),
+            { ok: true, rules: [{ workspace: "100", id: 100, monitor: "" }, { workspace: "name:web", id: null, monitor: "desc:Dell Inc. U2720Q" }, { workspace: "r[1-5]", id: null, monitor: "DP-1" }] }],
+        ["a disabled rule is left out", workspaceRulesText([workspaceRule("4", { monitor: "DP-1", enabled: false }), workspaceRule("5", { monitor: "DP-1" })]),
+            { ok: true, rules: [{ workspace: "5", id: 5, monitor: "DP-1" }] }],
+        ["a rule for 0 names no workspace", workspaceRulesText([workspaceRule("0", { monitor: "DP-1" })]), { ok: true, rules: [{ workspace: "0", id: null, monitor: "DP-1" }] }],
+        ["no JSON", "[{", { ok: false, error: "refused: workspace-rules=unparsed " }],
+        ["no list", "{}", { ok: false, error: "refused: workspace-rules=shape want=list" }],
+        ["a rule with no workspace string", "[{\"enabled\": true}]", { ok: false, error: "refused: workspace-rules=shape rule=0" }],
+        ["a rule with no enabled", "[{\"workspaceString\": \"1\"}]", { ok: false, error: "refused: workspace-rules=shape rule=0" }],
+        ["a rule whose monitor is no string", "[{\"workspaceString\": \"1\", \"enabled\": true, \"monitor\": 1}]", { ok: false, error: "refused: workspace-rules=shape rule=0" }]
+    ];
+    for (const [name, text, want] of workspaceRuleRows) {
+        const got = lib.workspaceRules(text);
+        check("workspace rules: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    }
     const symbolicRows = lib.userBinds(recorded([record("/h/.config/hypr/binds.lua", 12,
         'hl.bind("SUPER + J", f)', 64, "J", 0)]), "/h/.config/hypr").binds;
     const aliasFacts = { "SUPER+code:44": "SUPER+code:44", "SUPER+J": "SUPER+code:44" };
@@ -482,6 +517,8 @@ const CONTROLS = [
     ["an absent record holds nothing", 'if (read.value === "absent") return { ok: true, present: false };', ""],
     ["a user permission rule's line is a positive whole number", "Number.isInteger(row.line) && row.line > 0; };", "true; };"],
     ["a user permission option is a watched one", " || Layer.PERMISSION_OPTIONS.indexOf(value.options[o].path) === -1", ""],
+    ["Hyprland's disabled workspace rule is left out", "if (!rule.enabled) continue;", ""],
+    ["a workspace rule with no monitor reads as none", 'monitor: rule.monitor === undefined ? "" : rule.monitor', "monitor: rule.monitor"],
     ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"],
     ["effective wake never substitutes generated true defaults", 'return value === true ? "enabled" : value === false ? "disabled" : "unreadable";', 'return value === true ? "enabled" : value === false ? "enabled" : "enabled";', wakeSuite]
 ];

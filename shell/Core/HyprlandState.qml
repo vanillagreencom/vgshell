@@ -11,8 +11,9 @@ import "PluginLogic.js" as Logic
 // devices, its value of each option a manifest may map a setting to, the
 // options the layer wrote that read back otherwise, the values the user's
 // configuration gave them, the keys something other than the
-// layer binds and where the user's configuration binds each, and the
-// permission rules and options the user's configuration sets. It also runs
+// layer binds and where the user's configuration binds each, the
+// permission rules and options the user's configuration sets, and the
+// user's workspace rules. It also runs
 // the edit that takes such a bind line out of the user's file or puts it
 // back, then reloads Hyprland. HyprlandState.js judges every
 // reply; this runs the reads while `active` and holds the last answers.
@@ -42,6 +43,16 @@ Scope {
     // records (HyprlandLayer.USER_PERMISSIONS); null until the first read
     // answers. Read on activation and after each reload.
     property var userPermissions: null
+    // State.workspaceRules' rules: the enabled workspace rules Hyprland
+    // last loaded, null until the first read answers and after a failed
+    // read. Read on activation and after each reload. A reload that
+    // parses clears the rules and runs the configuration again before it
+    // posts configreloaded; one that fails to parse keeps them. A rule
+    // added at runtime, such as a pad's fit or a `hyprctl eval`, raises
+    // no event, so no read follows it, and a reload that parses drops it
+    // unless the configuration adds it again.
+    // https://github.com/hyprwm/Hyprland/blob/v0.57.2/src/config/lua/ConfigManager.cpp#L668-L730
+    property var workspaceRules: null
 
     // devicesState's devices, null until read while active.
     property var devices: null
@@ -96,6 +107,7 @@ Scope {
             readUserValues();
             readBinds();
             readPermissions();
+            readWorkspaceRules();
             return;
         }
         const token = keyResolution === null ? null : keyResolution.token;
@@ -115,6 +127,7 @@ Scope {
         bindsPending = false;
         userBindsPending = false;
         userPermissions = null;
+        workspaceRules = null;
     }
 
     // The capability for one instance; it holds nothing to release.
@@ -129,6 +142,7 @@ Scope {
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             get permissions() { return root.permissionState !== null && root.permissionState.id === ctx.id ? root.permissionState.state : null; },
+            get workspaceRules() { return root.workspaceRules === null ? null : Logic.frozenJson(root.workspaceRules); },
             resolveKeys: (keys, done) => {
                 if (!ctx.active) return;
                 root.resolveKeys(keys, value => { if (ctx.active) done(State.pluginKeys(value)); });
@@ -440,6 +454,11 @@ Scope {
         userPermissionsReader.read(State.USER_PERMISSIONS_REQUEST, null);
     }
 
+    function readWorkspaceRules() {
+        if (!active) return;
+        workspaceRulesReader.read(State.WORKSPACE_RULES_REQUEST, null);
+    }
+
     // The user's binds of KEY, as hyprlandKey writes it: [{ file, line,
     // text, removable, place, config }], `place` the file as a notice names
     // it and `config` its path under the configuration directory, which
@@ -505,6 +524,7 @@ Scope {
                 root.readUserValues();
                 root.readBinds();
                 root.readPermissions();
+                root.readWorkspaceRules();
             } else if (event.name === "activelayout") {
                 root.readDevices();
             }
@@ -595,6 +615,21 @@ Scope {
             }
             root.optionsPending = false;
             root.advanceLayerGlass();
+        }
+    }
+
+    HyprctlReader {
+        id: workspaceRulesReader
+        label: "workspace-rules"
+        onReadDone: (request, text, failure) => {
+            if (!root.active) return;
+            const read = failure === "" ? State.workspaceRules(text) : { ok: false, error: failure };
+            if (!read.ok) {
+                root.workspaceRules = null;
+                console.error("hyprland: " + read.error);
+            } else if (!root.same(read.rules, root.workspaceRules)) {
+                root.workspaceRules = read.rules;
+            }
         }
     }
 

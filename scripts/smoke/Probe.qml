@@ -3338,13 +3338,6 @@ Scope {
             if (item === null || !item.screen) return "absent";
             return root.json([item.screen.width, item.screen.height, item.screen.devicePixelRatio]);
         }
-        function hasWorkspaceAction(hostKey: string, id: string): bool {
-            const item = root.instance(hostKey, id);
-            const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Workspaces");
-            if (content === undefined || !content.bar || !content.bar.shell) return false;
-            const compositor = content.bar.shell.compositor;
-            return compositor !== undefined && compositor !== null && typeof compositor.focusWorkspace === "function";
-        }
         function textOf(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             const labels = item === null ? [] : root.displayedTextItems(item);

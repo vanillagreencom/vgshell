@@ -20,7 +20,7 @@ var VALUE = \"$1\";
 # The build records list a rebuilt widget last; the drawn order is the
 # order of the section's children, read from each widget's own index.
 widget_index() { ipc smoke childIndex "$(bar_key)" "$1"; }
-source_widgets_present() { bar_widget_ids | py_reply 'import json,sys; bars=json.load(sys.stdin); print(bool(bars) and all(sorted(ids)==["acme.probe","acme.tick"] for ids in bars))'; }
+source_widgets_present() { bar_widget_ids | py_reply 'import json,sys; bars=json.load(sys.stdin); print(bool(bars) and all(sorted(ids)==["acme.probe","acme.tick","vgs.workspaces"] for ids in bars))'; }
 probe_at_right_edge() {
   local probe bar padding
   probe="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return
@@ -110,7 +110,7 @@ BarWidget { broken
 '
 rescan "a rescan after breaking the widget answers ok"
 expect_log "the core logged the failed load on every bar" "$((loads_before + monitors))" 'plugins: acme\.tick failed to load: '
-expect_widgets "the broken widget leaves the bar" '["acme.probe"]'
+expect_widgets "the broken widget leaves the bar" '["acme.probe","vgs.workspaces"]'
 if before="$(builds)"; then
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
@@ -129,7 +129,7 @@ else
 fi
 write_tick Widget.qml "$widget_good"
 rescan "a rescan after repairing the widget answers ok"
-expect_widgets "the repaired widget returns to the bar" '["acme.probe","acme.tick"]'
+expect_widgets "the repaired widget returns to the bar" '["acme.probe","acme.tick","vgs.workspaces"]'
 expect_poll "the repaired widget reads its plugins row" '"retry-check"' read_tick format
 
 # Two rescans asked for back to back: the second is queued while the first

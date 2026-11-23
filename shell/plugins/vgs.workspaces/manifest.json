@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.workspaces",
+  "formerIds": ["vgs.bar/left-workspaces"],
+  "name": "Workspaces",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Workspace numbers on the bar. A click goes to that workspace.",
+  "license": "MIT",
+  "icon": "layout-grid",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "bar-widget": "Widget.qml" },
+  "capabilities": ["compositor", "hyprland", "screens"],
+  "defaultSection": "left",
+  "settings": {
+    "thisDisplayOnly": false,
+    "showEmpty": false
+  },
+  "schema": {
+    "thisDisplayOnly": { "type": "boolean", "label": "Split by display", "description": "Each display's bar shows only the workspaces on that display", "group": "Bar" },
+    "showEmpty": { "type": "boolean", "label": "Show empty workspaces", "description": "Adds the workspaces in your Hyprland workspace rules that have no windows", "group": "Bar" }
+  }
+}

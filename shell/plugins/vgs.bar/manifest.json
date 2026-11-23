@@ -4,7 +4,7 @@
   "name": "Bar",
   "version": "0.3.0",
   "author": "VanillaGreen",
-  "description": "Workspaces, clock and plugin buttons on each screen.",
+  "description": "The clock and plugin buttons on each screen.",
   "license": "MIT",
   "icon": "panel-top",
   "kinds": [
@@ -21,7 +21,6 @@
   },
   "capabilities": [
     "builtins",
-    "compositor",
     "configure",
     "ipc",
     "manager",

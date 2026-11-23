@@ -25,7 +25,7 @@ A small core limits the effect of feature changes. Hosts and capabilities let pl
 ### Core
 
 - Name no plugin id in the core and import no plugin directory. `config/shell.json` names the default bar. `scripts/check-plugin-boundary.py` catches first-party id literals and plugin imports; review holds other ids.
-- Add no kind for a widget drawn inside a plugin's existing surface. Register a built-in through capability `builtins`. Review holds this choice.
+- Add no kind for a widget. A widget a plugin draws inside its own surface, with no settings or Manage widgets row of its own, is a built-in registered through capability `builtins`. A widget that needs its own settings or its own Manage widgets row is its own plugin of kind `bar-widget` ([D140](../decisions/D140-widget-with-own-settings-is-a-plugin.md)). Review holds this choice.
 - Add a capability as a general core API, with a fixture consumer, before adding its product consumer. Review holds this order.
 - Judge manifests only in `shell/Core/PluginLogic.js` ([D009](../decisions/D009-one-manifest-judge-under-node.md)). Add a refusal test with each manifest key. CLI and shell readers use the same judge; review catches a second validator.
 - Keep the plugin manager's mechanism in core and its interface in a plugin using capability `manager` ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)).

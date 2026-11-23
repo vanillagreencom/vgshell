@@ -26,7 +26,7 @@ Item {
     readonly property Item centerSection: center
     readonly property Item rightSection: rightZone.content
 
-    readonly property var builtinLabels: ({ "left-workspaces": "Workspaces", "center-clock": "Clock" })
+    readonly property var builtinLabels: ({ "center-clock": "Clock" })
     readonly property var builtinNames: Object.keys(builtinLabels)
     // Gaps and separators the user adds from the bar's right-click menu:
     // one builtin per layout entry, `gap-<n>` or `separator-<n>`.
