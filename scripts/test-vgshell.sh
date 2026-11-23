@@ -716,8 +716,12 @@ nix_host_rows() { # BIN [restart-reset]: refuse before engine or session discove
     if [[ $mode == direct ]]; then engine_path="$nix_store/engine/bin"; else engine_path="$tmp/nix-link"; fi
     rm -f -- "$tmp/nix-calls" "$tmp/nix-hypr-calls"
     status=0
+    # reset's shell_pid writes /dev/null before the Nix refusal, which a
+    # read-only root forbids. bwrap applies filesystem options in the order
+    # given (bwrap(1), bubblewrap 0.13.1), so the later --dev-bind gives
+    # /dev back its devices over the read-only root.
     got="$("${base_env[@]}" PATH="$engine_path:$tmp/nix-managers:$base_path" XDG_RUNTIME_DIR="$rt" STUB_QS_CALLS="$tmp/nix-calls" STUB_HYPR_CALLS="$tmp/nix-hypr-calls" \
-      bwrap --ro-bind / / --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "${args[@]}" 2>&1)" || status=$?
+      bwrap --ro-bind / / --dev-bind /dev /dev --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "${args[@]}" 2>&1)" || status=$?
     first="${got%%$'\n'*}"
     # A failed case names what it read, so a red row shows which verb and
     # which reading broke.
