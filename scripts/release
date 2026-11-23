@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Make the GitHub release of VGS X.Y.Z from its pushed tag.
+# Make the GitHub release of VGS X.Y.Z from its pushed tag, or add the
+# engine built from this tree to that published release.
 #
 #   scripts/release [--dry-run] X.Y.Z
+#   scripts/release --add-engine [--dry-run] X.Y.Z
 #
-# Run it from a clean checkout whose HEAD is the tag vX.Y.Z; DEVELOPMENT.md § Release
-# holds the whole flow. Before it writes anything it refuses:
+# Run it from a clean checkout; DEVELOPMENT.md § Release holds the whole
+# flow. Before it writes anything, either form refuses:
 #   - X.Y.Z that is not VERSION's line;
 #   - a tree with changes or untracked files git does not ignore;
-#   - a missing tag vX.Y.Z, or one that names a commit other than HEAD;
 #   - install.sh's release_key empty or not a fingerprint: the release
 #     signs with the key the curl installer verifies SHA256SUMS against;
-#   - gpg without that key's secret key;
+#   - gpg without that key's secret key.
+#
+# A new release is made from a checkout whose HEAD is the tag vX.Y.Z.
+# Before it writes anything it also refuses:
+#   - a missing tag vX.Y.Z, or one that names a commit other than HEAD;
 #   - GitHub's refs/tags/vX.Y.Z missing or naming another object than the
 #     local tag, since `gh release create --verify-tag` publishes GitHub's.
 # Then it writes six files into dist/:
@@ -28,11 +33,42 @@
 # --dry-run makes every check and the first five files, then prints the
 # signing key and the gh command instead of running them.
 #
+# --add-engine adds the engine built from this tree to the published
+# release vX.Y.Z, whatever commit HEAD is. It needs sqv, the verifier the
+# release's Debian consumers run. Before it writes anything it also refuses:
+#   - a HEAD that no ref of GitHub's repository has at its tip;
+#   - a release gh cannot download, or one without SHA256SUMS,
+#     SHA256SUMS.asc or release-key.asc;
+#   - a SHA256SUMS.asc that the release's own release-key.asc does not
+#     validate as release_key's signature of SHA256SUMS;
+#   - a listed sum that its downloaded asset does not match;
+#   - a SHA256SUMS that does not list vgshell-X.Y.Z.tar.gz exactly once;
+#   - a SHA256SUMS that already lists the engine asset's name. The name is
+#     one Debian version whose sum consumers may hold; a new engine build
+#     takes a new DEBIAN_VERSION in bin/lib/engine.js and a new name.
+# Then it builds the engine in an empty directory and writes three
+# files into dist/: the engine, SHA256SUMS as the release's list byte for
+# byte with the engine's line appended, and SHA256SUMS.asc, the new list's
+# signature. It refuses unless the release's release-key.asc validates that
+# signature and every listed sum holds. Then it runs `gh release upload
+# --clobber vX.Y.Z` twice, first with the engine, whose name is new, then
+# with SHA256SUMS and SHA256SUMS.asc. gh deletes each clobbered asset just
+# before its own upload, so a failed second upload can leave the release
+# without them, or with one of the pair replaced: the refusal prints the gh
+# command to run again from dist/. It downloads the release again and refuses unless the
+# signature and every listed sum hold there and its SHA256SUMS is the one
+# uploaded. After any repair by hand, run --add-engine again: it checks the
+# release. --dry-run makes every check, the engine and SHA256SUMS, then
+# prints the signing key and the gh commands.
+#
 # Output, on stdout: `release: sha256 name=vgshell-X.Y.Z.tar.gz value=<hex>`,
 # the sum the vgshell AUR recipe pins, then `release: ok tag=vX.Y.Z
-# dry-run=<true|false>`. A refusal is one line on stderr, `release: refused:
-# <key>=<value> ...`, then English. Exit 0 on success, 1 for a refusal, 2 for
-# an argument.
+# dry-run=<true|false>`. --add-engine prints only `release: ok tag=vX.Y.Z
+# engine=<name> dry-run=<true|false>`. A refusal is one line on stderr,
+# `release: refused: <key>=<value> ...`, then English; a signature refusal
+# adds sqv's own words. A refusal that reads the release names it: source=release before any change, source=built before
+# the upload, source=published after it. Exit 0 on success, 1 for a
+# refusal, 2 for an argument.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -49,12 +85,16 @@ refuse() { # STATUS KEY [DETAIL...]
 }
 
 dry_run=false
+add_engine=false
 version=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run)
       [[ $dry_run == false ]] || refuse 2 "argument=$arg" "--dry-run is given once"
       dry_run=true ;;
+    --add-engine)
+      [[ $add_engine == false ]] || refuse 2 "argument=$arg" "--add-engine is given once"
+      add_engine=true ;;
     -h|--help) sed -n '2,/^[^#]/{/^#/{s/^# \{0,1\}//;p}}' "$self"; exit 0 ;;
     -*) refuse 2 "argument=$arg" ;;
     *)
@@ -62,7 +102,7 @@ for arg in "$@"; do
       version="$arg" ;;
   esac
 done
-[[ -n $version ]] || refuse 2 "argument=missing" "usage: scripts/release [--dry-run] X.Y.Z"
+[[ -n $version ]] || refuse 2 "argument=missing" "usage: scripts/release [--add-engine] [--dry-run] X.Y.Z"
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || refuse 2 "version=$version reason=not-a-version"
 tag="v$version"
 
@@ -72,11 +112,13 @@ IFS= read -r want <"$repo/VERSION" || refuse 1 "version-file=unreadable path=$re
 changes="$(git -C "$repo" status --porcelain --untracked-files=normal)" || refuse 1 "git=status path=$repo"
 [[ -z $changes ]] || refuse 1 "tree=dirty path=$repo" "$changes"
 
-tag_object="$(git -C "$repo" rev-parse --verify --quiet "refs/tags/$tag")" ||
-  refuse 1 "tag=missing name=$tag" "tag the release commit: git tag -s $tag -m \"VGS $version\""
-tag_commit="$(git -C "$repo" rev-parse --verify --quiet "refs/tags/$tag^{commit}")" || refuse 1 "tag=not-a-commit name=$tag"
 head="$(git -C "$repo" rev-parse --verify HEAD)" || refuse 1 "git=rev-parse path=$repo"
-[[ $tag_commit == "$head" ]] || refuse 1 "tag=not-head name=$tag commit=$tag_commit head=$head" "check out $tag and run the release again"
+if [[ $add_engine == false ]]; then
+  tag_object="$(git -C "$repo" rev-parse --verify --quiet "refs/tags/$tag")" ||
+    refuse 1 "tag=missing name=$tag" "tag the release commit: git tag -s $tag -m \"VGS $version\""
+  tag_commit="$(git -C "$repo" rev-parse --verify --quiet "refs/tags/$tag^{commit}")" || refuse 1 "tag=not-a-commit name=$tag"
+  [[ $tag_commit == "$head" ]] || refuse 1 "tag=not-head name=$tag commit=$tag_commit head=$head" "check out $tag and run the release again"
+fi
 
 # install.sh owns the fingerprint: the curl installer is fetched alone and
 # reads no other file, so the release reads its one assignment.
@@ -91,47 +133,144 @@ key="${BASH_REMATCH[1]}"
 [[ $key =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ]] || refuse 1 "release-key=malformed value=$key path=install.sh" "release_key is the full upper-case fingerprint gpg prints"
 
 command -v gpg >/dev/null || refuse 1 "tool=missing name=gpg"
-[[ $dry_run == true ]] || command -v gh >/dev/null || refuse 1 "tool=missing name=gh"
+[[ $dry_run == true && $add_engine == false ]] || command -v gh >/dev/null || refuse 1 "tool=missing name=gh"
+[[ $add_engine == false ]] || command -v sqv >/dev/null || refuse 1 "tool=missing name=sqv"
 gpg --batch --list-secret-keys -- "$key" >/dev/null 2>&1 ||
   refuse 1 "release-key=no-secret-key key=$key" "gpg holds no secret key for the fingerprint install.sh names"
 
-remote="$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote -- "$remote_url" "refs/tags/$tag")" ||
+archive="vgshell-$version.tar.gz"
+engine_asset="$(node -e 'console.log(require(process.argv[1]).debianAsset("amd64"))' "$repo/bin/lib/engine.js")" || refuse 1 "engine=identity"
+dist="$repo/dist"
+recheck="after any repair of the release by hand, run scripts/release --add-engine $version again to check it"
+relist="if an earlier --add-engine upload stopped partway, upload both list files from $dist again with gh release upload --repo $repository --clobber -- $tag SHA256SUMS SHA256SUMS.asc"
+
+stage_dir() {
+  mkdir -p -- "$dist" || refuse 1 "dist=unwritable path=$dist"
+  stage="$(mktemp -d -- "$dist/.release.XXXXXX")" || refuse 1 "dist=unwritable path=$dist"
+  trap 'rm -rf -- "${stage:?}"' EXIT
+}
+
+# build_engine DIR: the engine, built in an empty directory, joins DIR
+# alone.
+build_engine() {
+  local out="$stage/engine"
+  mkdir -- "$out" || refuse 1 "dist=unwritable path=$out"
+  "$repo/scripts/debian-packages.sh" --output "$out" || refuse 1 "engine=build-failed"
+  [[ -s $out/$engine_asset ]] || refuse 1 "engine=asset-missing name=$engine_asset"
+  mv -f -- "$out/$engine_asset" "$1/$engine_asset" || refuse 1 "dist=unwritable path=$1/$engine_asset"
+}
+
+sign() { # DIR: DIR/SHA256SUMS.asc signs DIR/SHA256SUMS with release_key
+  gpg --local-user "$key" --armor --detach-sign --output "$1/SHA256SUMS.asc" -- "$1/SHA256SUMS" ||
+    refuse 1 "gpg=sign-failed key=$key"
+}
+
+# verify DIR SOURCE: the check the release's Debian consumers make
+# (install.sh's signature_check, bin/lib/self.js verifyEngine). sqv, given
+# DIR/release-key.asc alone, validates DIR/SHA256SUMS.asc and prints
+# release_key, and every file the list names in DIR has its sum.
+verify() {
+  local name signer sums
+  for name in SHA256SUMS SHA256SUMS.asc release-key.asc; do
+    [[ -f $1/$name ]] || refuse 1 "asset=missing name=$name source=$2" "$recheck"
+  done
+  if ! signer="$(sqv --keyring "$1/release-key.asc" "$1/SHA256SUMS.asc" "$1/SHA256SUMS" 2>"$stage/sqv.err")"; then
+    [[ $2 != built ]] || refuse 1 "signature=release-key-cannot-verify source=built key=$key" "$(<"$stage/sqv.err")" "one cause: the release's release-key.asc lacks the key gpg signed with"
+    refuse 1 "signature=bad source=$2 key=$key" "$(<"$stage/sqv.err")" "$relist" "$recheck"
+  fi
+  [[ $signer == "$key" ]] || refuse 1 "signature=wrong-key source=$2 key=$key" "SHA256SUMS is signed, but not by release_key"
+  sums="$(cd -- "$1" && sha256sum --check --strict --quiet -- SHA256SUMS 2>&1)" || refuse 1 "sums=mismatch source=$2" "$sums"
+}
+
+# to_dist DIR NAME...: dist/ keeps no asset of an earlier run under these
+# names: a SHA256SUMS.asc that signs other sums would be uploaded beside
+# them.
+to_dist() {
+  local from="$1" name
+  shift
+  for name in "$@"; do
+    rm -f -- "${dist:?}/$name" || refuse 1 "dist=unwritable path=$dist/$name"
+    [[ ! -e $from/$name ]] || mv -f -- "$from/$name" "$dist/$name" || refuse 1 "dist=unwritable path=$dist/$name"
+  done
+}
+
+upload() { # NAME...: dist/'s files, by relative name: gh reads `#` in an asset path as a label
+  local -a command=(gh release upload --repo "$repository" --clobber -- "$tag" "$@")
+  if [[ $dry_run == true ]]; then
+    printf 'release: would-run cwd=%s %s\n' "$dist" "${command[*]}"
+  else
+    (cd -- "$dist" && "${command[@]}") ||
+      refuse 1 "gh=release-upload tag=$tag name=$1" "gh deletes each clobbered asset before its own upload; from $dist run: ${command[*]}" "$recheck"
+  fi
+}
+
+add_engine_release() {
+  local list line archives=0 published
+  stage_dir
+  list="$stage/release"
+  mkdir -- "$list" || refuse 1 "dist=unwritable path=$list"
+  gh release download --repo "$repository" --dir "$list" -- "$tag" || refuse 1 "gh=release-download tag=$tag source=release"
+  verify "$list" release
+  # Each line the release's sha256sum wrote is 64 hex digits, a space and a
+  # mode character, then the name.
+  while IFS= read -r line; do
+    if [[ ${line:66} == "$archive" ]]; then archives=$((archives + 1)); fi
+    [[ ${line:66} != "$engine_asset" ]] || refuse 1 "engine=listed name=$engine_asset tag=$tag" \
+      "the release's signature and every listed sum hold. If an earlier --add-engine run of this candidate uploaded it, the release carries this engine; otherwise move DEBIAN_VERSION in bin/lib/engine.js"
+  done <"$list/SHA256SUMS"
+  [[ $archives == 1 ]] || refuse 1 "sums=not-version name=$archive count=$archives source=release" "the list of $tag names that release's archive once"
+  build_engine "$list"
+  (cd -- "$list" && sha256sum -- "$engine_asset" >>SHA256SUMS) || refuse 1 "sha256sum=failed path=$list"
+  # The downloaded signature signs the list without the engine.
+  rm -f -- "${list:?}/SHA256SUMS.asc"
+  if [[ $dry_run == false ]]; then sign "$list"; verify "$list" built; fi
+  to_dist "$list" "$engine_asset" SHA256SUMS SHA256SUMS.asc
+
+  if [[ $dry_run == true ]]; then printf 'release: would-sign key=%s name=SHA256SUMS\n' "$key"; fi
+  # The engine goes first: a failed upload of its new name leaves the list whole.
+  upload "$engine_asset"; upload SHA256SUMS SHA256SUMS.asc
+  if [[ $dry_run == false ]]; then
+    published="$stage/published"
+    mkdir -- "$published" || refuse 1 "dist=unwritable path=$published"
+    gh release download --repo "$repository" --dir "$published" -- "$tag" ||
+      refuse 1 "gh=release-download tag=$tag source=published" "the upload completed and is unchecked" "$recheck"
+    verify "$published" published
+    cmp -s -- "$dist/SHA256SUMS" "$published/SHA256SUMS" || refuse 1 "published=differs name=SHA256SUMS tag=$tag" "$recheck"
+  fi
+  printf 'release: ok tag=%s engine=%s dry-run=%s\n' "$tag" "$engine_asset" "$dry_run"
+}
+
+# GitHub's refs: the object, a tab and the name, one line each; an
+# annotated tag also lists its commit under NAME^{}.
+remote="$(GIT_TERMINAL_PROMPT=0 git -C "$repo" ls-remote -- "$remote_url")" ||
   refuse 1 "git=ls-remote url=$remote_url"
 remote_object=""
+head_public=false
 while IFS=$'\t' read -r object ref; do
-  [[ $ref == "refs/tags/$tag" ]] && remote_object="$object"
+  if [[ $ref == "refs/tags/$tag" ]]; then remote_object="$object"; fi
+  if [[ $object == "$head" ]]; then head_public=true; fi
 done <<<"$remote"
+
+if [[ $add_engine == true ]]; then
+  [[ $head_public == true ]] || refuse 1 "engine=not-pushed head=$head url=$remote_url" "no GitHub ref names HEAD; push the candidate to a ref or check out a ref's tip"
+  add_engine_release
+  exit 0
+fi
+
 [[ -n $remote_object ]] || refuse 1 "tag=not-pushed name=$tag url=$remote_url" "git push origin $tag"
 [[ $remote_object == "$tag_object" ]] || refuse 1 "tag=differs name=$tag local=$tag_object remote=$remote_object"
 
-archive="vgshell-$version.tar.gz"
-engine_asset="$(node -e 'console.log(require(process.argv[1]).debianAsset("amd64"))' "$repo/bin/lib/engine.js")" || refuse 1 "engine=identity"
 assets=("$archive" install.sh "$engine_asset" release-key.asc SHA256SUMS SHA256SUMS.asc)
-dist="$repo/dist"
-mkdir -p -- "$dist" || refuse 1 "dist=unwritable path=$dist"
-stage="$(mktemp -d -- "$dist/.release.XXXXXX")" || refuse 1 "dist=unwritable path=$dist"
-trap 'rm -rf -- "${stage:?}"' EXIT
-
+stage_dir
 sum="$("$repo/scripts/lib/release-tarball.sh" "$tag_commit" "$version" "$stage/$archive")" ||
   refuse 1 "archive=failed tag=$tag"
 git -C "$repo" show "refs/tags/$tag:install.sh" >"$stage/install.sh" || refuse 1 "archive=failed name=install.sh tag=$tag"
-"$repo/scripts/debian-packages.sh" --output "$stage" || refuse 1 "engine=build-failed"
-[[ -s $stage/$engine_asset ]] || refuse 1 "engine=asset-missing name=$engine_asset"
+build_engine "$stage"
 gpg --batch --armor --export -- "$key" >"$stage/release-key.asc" || refuse 1 "gpg=export-failed key=$key"
 [[ -s $stage/release-key.asc ]] || refuse 1 "gpg=export-empty key=$key"
 (cd -- "$stage" && sha256sum -- "$archive" install.sh "$engine_asset" release-key.asc >SHA256SUMS) || refuse 1 "sha256sum=failed path=$stage"
-
-if [[ $dry_run == false ]]; then
-  gpg --local-user "$key" --armor --detach-sign --output "$stage/SHA256SUMS.asc" -- "$stage/SHA256SUMS" ||
-    refuse 1 "gpg=sign-failed key=$key"
-fi
-
-# dist/ keeps no asset of an earlier run: a SHA256SUMS.asc that signs other
-# sums would be uploaded beside them.
-for name in "${assets[@]}"; do
-  rm -f -- "${dist:?}/$name" || refuse 1 "dist=unwritable path=$dist/$name"
-  [[ ! -e $stage/$name ]] || mv -f -- "$stage/$name" "$dist/$name" || refuse 1 "dist=unwritable path=$dist/$name"
-done
+if [[ $dry_run == false ]]; then sign "$stage"; fi
+to_dist "$stage" "${assets[@]}"
 rm -rf -- "${stage:?}"
 
 create=(gh release create --repo "$repository" --verify-tag --title "VGS $version" --generate-notes -- "$tag" "${assets[@]}")

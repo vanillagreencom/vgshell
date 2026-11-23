@@ -6,7 +6,12 @@
 # stand-in. Stub gpg and gh first on PATH record their arguments: the stub
 # gpg holds the secret keys STUB_GPG_SECRET names and writes a signature
 # naming the sha256 of the file it signed; the stub gh records its working
-# directory and the files there.
+# directory and the files there. For --add-engine a stub sqv validates
+# such a signature only when the keyring file it is given lists the signing
+# key, and the stub gh downloads from and uploads to a release folder beside
+# the fixture repository, the release's GitHub stand-in. STUB_GPG_SUBKEY
+# makes the stub gpg sign with a subkey of the key, as gpg does after the
+# maintainer adds one.
 #
 # The real-tree row runs the dry run on this repository's working tree, as
 # `git add -A` would commit it, with a fixture fingerprint in its
@@ -54,22 +59,69 @@ signed="${*: -1}"
 case " $* " in
   *" --list-secret-keys "*)
     [[ -n ${STUB_GPG_SECRET:-} && $signed == "$STUB_GPG_SECRET" ]] ;;
-  *" --export "*) printf "public-only fixture key\n" ;;
+  *" --export "*) printf 'public key %s\n' "$signed" ;;
   *" --detach-sign "*)
     [[ -z ${STUB_GPG_FAIL:-} ]] || exit 2
-    out=""
-    while [[ $# -gt 0 ]]; do [[ $1 == --output ]] && out="$2"; shift; done
+    out="" by=""
+    while [[ $# -gt 0 ]]; do
+      case $1 in --output) out="$2" ;; --local-user) by="$2" ;; esac
+      shift
+    done
     sum="$(sha256sum -- "$signed")" || exit 2
-    printf 'stub signature of %s\n' "${sum%% *}" >"$out" ;;
+    printf 'stub signature of %s by %s%s\n' "${sum%% *}" "$by" "${STUB_GPG_SUBKEY:+/$STUB_GPG_SUBKEY}" >"$out" ;;
+  *" --verify "*)
+    # The local keyring holds the secret key and all its subkeys.
+    sum="$(sha256sum -- "$signed")" || exit 2
+    signature="$(cat -- "${@: -2:1}")" || exit 2
+    [[ -n ${STUB_GPG_SECRET:-} && $signature == "stub signature of ${sum%% *} by $STUB_GPG_SECRET"* ]] ;;
   *) exit 64 ;;
 esac
+EOF
+cat >"$stubs/sqv" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_RECORD/sqv"
+[[ $# == 4 && $1 == --keyring ]] || exit 64
+sum="$(sha256sum -- "$4")" || exit 1
+signature="$(cat -- "$3")" || exit 1
+[[ $signature == "stub signature of ${sum%% *} by "* ]] || exit 1
+by="${signature##* by }"
+grep -qxF -- "public key $by" "$2" || exit 1
+printf '%s\n' "${by%%/*}"
 EOF
 cat >"$stubs/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$STUB_RECORD/gh"
 printf '%s\n' "$(pwd -P)" >"$STUB_RECORD/gh.cwd"
 ls -A >"$STUB_RECORD/gh.ls"
-exit "${STUB_GH_EXIT:-0}"
+# release download --repo R --dir DIR -- TAG
+# release upload --repo R --clobber -- TAG FILE...: asset by asset, as
+# gh 2.105.0's pkg/cmd/release/shared/upload.go uploadWithDelete does, it
+# deletes an existing asset just before that asset's upload. STUB_GH_FAIL
+# names assets whose step fails: an existing one's delete, which keeps it
+# and skips its upload, or else its upload; the call then exits 1.
+# STUB_GH_DROP names assets it reports uploaded and leaves as they were.
+action="$2"; shift 2
+dir="" clobber=false
+while [[ $# -gt 0 && $1 != -- ]]; do
+  case $1 in --dir) dir="$2"; shift ;; --clobber) clobber=true ;; esac
+  shift
+done
+tag="$2"; shift 2
+release="$STUB_RELEASE/$tag"
+case $action in
+  download) [[ -d $release ]] && cp -- "$release"/* "$dir/" ;;
+  upload)
+    [[ -d $release ]] || exit 1
+    result=0
+    for file in "$@"; do
+      [[ " ${STUB_GH_DROP:-} " != *" $file "* ]] || continue
+      [[ ! -e $release/$file || $clobber == true ]] || exit 1
+      if [[ " ${STUB_GH_FAIL:-} " == *" $file "* ]]; then result=1; continue; fi
+      rm -f -- "${release:?}/$file" && cp -- "$file" "$release/$file" || exit 1
+    done
+    exit "$result" ;;
+  *) exit "${STUB_GH_EXIT:-0}" ;;
+esac
 EOF
 cat >"$stubs/podman" <<'EOF'
 #!/usr/bin/env bash
@@ -89,7 +141,7 @@ while [[ $# -gt 0 ]]; do
 done
 exit 64
 EOF
-chmod +x "$stubs/gpg" "$stubs/gh" "$stubs/podman"
+chmod +x "$stubs/gpg" "$stubs/sqv" "$stubs/gh" "$stubs/podman"
 
 # fixture NAME SCRIPT: sets r to a new scratch repository holding SCRIPT as
 # scripts/release, the builder as an ignored scripts/lib/release-tarball.sh
@@ -133,7 +185,7 @@ run_file() {
   status=0
   env -i PATH="$stubs:$base_path" HOME="$h" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="$gnupg" TMPDIR="$scratch" \
     STUB_RECORD="$record" STUB_GPG_SECRET="${RUN_SECRET-$fpr}" STUB_GPG_FAIL="${RUN_GPG_FAIL:-}" STUB_GH_EXIT="${RUN_GH_EXIT:-0}" \
-    "${run_git_env[@]}" bash "$@" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
+    STUB_RELEASE="$r.release" STUB_GH_DROP="${RUN_GH_DROP:-}" STUB_GH_FAIL="${RUN_GH_FAIL:-}" STUB_GPG_SUBKEY="${RUN_GPG_SUBKEY:-}" "${run_git_env[@]}" bash "$@" >"$tmp/out" 2>"$tmp/err" </dev/null || status=$?
 }
 run() { run_file "$r/scripts/release" "$@"; }
 first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err"; printf '%s' "$line"; }
@@ -172,7 +224,7 @@ sign_row() { # SCRIPT: gpg signs the published SHA256SUMS with the release key
   run 3.4.5
   [[ $status == 0 ]] &&
     grep -qE -- "^--local-user $fpr --armor --detach-sign --output $r/dist/\.release\.[A-Za-z0-9]+/SHA256SUMS\.asc -- $r/dist/\.release\.[A-Za-z0-9]+/SHA256SUMS\$" "$record/gpg" &&
-    [[ $(cat -- "$r/dist/SHA256SUMS.asc") == "stub signature of $(sha_of "$r/dist/SHA256SUMS")" ]]
+    [[ $(cat -- "$r/dist/SHA256SUMS.asc") == "stub signature of $(sha_of "$r/dist/SHA256SUMS") by $fpr" ]]
 }
 upload_row() { # SCRIPT: gh creates the release from the verified tag with the four assets alone
   fixture upload "$1"
@@ -438,6 +490,107 @@ refusal_row() { # SCRIPT NAME
   [[ $status == "$want_status" && $err == $want_err && ! -e $r/dist && ! -e $record/gh ]]
 }
 
+# The --add-engine rows run on a fixture whose HEAD is one pushed commit
+# past v3.4.5, VERSION unchanged, and whose release folder holds v3.4.5 as a
+# release made before it carried the engine: the tarball, install.sh,
+# release-key.asc, their SHA256SUMS and its stub signature by $fpr.
+stub_sign() { # DIR KEY
+  local sum
+  sum="$(sha_of "$1/SHA256SUMS")" && printf 'stub signature of %s by %s\n' "$sum" "$2" >"$1/SHA256SUMS.asc"
+}
+engine_fixture() { # NAME SCRIPT: sets release to the release folder
+  fixture "$1" "$2"
+  release="$r.release/v3.4.5"
+  { mkdir -p "$release" && printf 'fixture archive\n' >"$release/vgshell-3.4.5.tar.gz" &&
+    cp -- "$r/install.sh" "$release/install.sh" && printf 'public key %s\n' "$fpr" >"$release/release-key.asc" &&
+    (cd -- "$release" && sha256sum -- vgshell-3.4.5.tar.gz install.sh release-key.asc >SHA256SUMS) &&
+    stub_sign "$release" "$fpr" && printf 'candidate\n' >>"$r/docs/README.md" && g -C "$r" commit -q -am candidate &&
+    g -C "$r" push -q "$r.git" main; } ||
+    { echo "$suite: fixture=$1" >&2; exit 1; }
+}
+release_state() { [[ ! -d $release ]] || (cd -- "$release" && sha256sum -- *); }
+
+engine_row() { # SCRIPT: --add-engine appends the engine's line to the release's SHA256SUMS, signs it and uploads the three files
+  engine_fixture engine "$1"
+  cp -- "$release/SHA256SUMS" "$tmp/sums-before" && cp -- "$release/release-key.asc" "$tmp/key-before" || return 1
+  run --add-engine 3.4.5
+  [[ $status == 0 && $(last_out) == "release: ok tag=v3.4.5 engine=$engine_asset dry-run=false" ]] &&
+    [[ $(cat -- "$release/$engine_asset") == "fixture Debian asset" ]] &&
+    cmp -s -- "$release/SHA256SUMS" <(cat -- "$tmp/sums-before" && printf '%s  %s\n' "$(sha_of "$release/$engine_asset")" "$engine_asset") &&
+    [[ $(cat -- "$release/SHA256SUMS.asc") == "stub signature of $(sha_of "$release/SHA256SUMS") by $fpr" ]] &&
+    cmp -s -- "$release/release-key.asc" "$tmp/key-before" &&
+    [[ $(grep '^release upload ' "$record/gh") == "release upload --repo vanillagreencom/vgshell --clobber -- v3.4.5 $engine_asset
+release upload --repo vanillagreencom/vgshell --clobber -- v3.4.5 SHA256SUMS SHA256SUMS.asc" ]]
+}
+engine_dry_row() { # SCRIPT: --add-engine --dry-run checks the release and builds, and neither signs nor uploads
+  local before
+  engine_fixture engine-dry "$1"
+  before="$(release_state)" || return 1
+  run --add-engine --dry-run 3.4.5
+  [[ $status == 0 && $(last_out) == "release: ok tag=v3.4.5 engine=$engine_asset dry-run=true" ]] &&
+    [[ $(release_state) == "$before" ]] && ! grep -q -- --detach-sign "$record/gpg" && ! grep -q '^release upload ' "$record/gh" &&
+    grep -qxF -- "release: would-sign key=$fpr name=SHA256SUMS" "$tmp/out" &&
+    grep -qxF -- "release: would-run cwd=$r/dist gh release upload --repo vanillagreencom/vgshell --clobber -- v3.4.5 $engine_asset" "$tmp/out" &&
+    grep -qxF -- "release: would-run cwd=$r/dist gh release upload --repo vanillagreencom/vgshell --clobber -- v3.4.5 SHA256SUMS SHA256SUMS.asc" "$tmp/out" &&
+    [[ ! -e $r/dist/SHA256SUMS.asc ]] &&
+    cmp -s -- "$r/dist/SHA256SUMS" <(cat -- "$release/SHA256SUMS" && printf '%s  %s\n' "$(sha_of "$r/dist/$engine_asset")" "$engine_asset")
+}
+
+# --add-engine refusals: name | the fixture change | one NAME=VALUE run
+# setting | what the refusal leaves | the first stderr line, %r the
+# repository and %h its HEAD. untouched: the release as it was, no file in
+# dist/ and no upload; whole: the release as it was; any: no claim.
+tweak_unpushed_head() { printf 'local\n' >>"$r/docs/README.md" && g -C "$r" commit -q -am local; }
+tweak_unreleased() { mv -- "$release" "$release.gone"; }
+tweak_no_list() { mv -- "$release/SHA256SUMS" "$r.SHA256SUMS"; }
+tweak_forged() { printf 'forged\n' >"$release/SHA256SUMS.asc"; }
+tweak_other_key() {
+  printf 'public key %s\n' "$other_fpr" >"$release/release-key.asc" &&
+    (cd -- "$release" && sha256sum -- vgshell-3.4.5.tar.gz install.sh release-key.asc >SHA256SUMS) && stub_sign "$release" "$other_fpr"
+}
+tweak_altered() { printf 'altered\n' >>"$release/install.sh"; }
+tweak_other_version() {
+  (cd -- "$release" && sha256sum -- install.sh release-key.asc >SHA256SUMS) && stub_sign "$release" "$fpr"
+}
+tweak_listed() {
+  printf 'earlier engine\n' >"$release/$engine_asset" &&
+    (cd -- "$release" && sha256sum -- "$engine_asset" >>SHA256SUMS) && stub_sign "$release" "$fpr"
+}
+other_fpr=FEDCBA9876543210FEDCBA9876543210FEDCBA98
+declare -A engine_refusals=(
+  [dirty]="tweak_dirty||untouched|release: refused: tree=dirty path=%r"
+  [no-secret-key]="tweak_none|RUN_SECRET=|untouched|release: refused: release-key=no-secret-key key=$fpr"
+  [not-pushed]="tweak_unpushed_head||untouched|release: refused: engine=not-pushed head=%h url=$github"
+  [unreleased]="tweak_unreleased||untouched|release: refused: gh=release-download tag=v3.4.5 source=release"
+  [list-missing]="tweak_no_list||untouched|release: refused: asset=missing name=SHA256SUMS source=release"
+  [signature-bad]="tweak_forged||untouched|release: refused: signature=bad source=release key=$fpr"
+  [signature-other-key]="tweak_other_key||untouched|release: refused: signature=wrong-key source=release key=$fpr"
+  [sum-mismatch]="tweak_altered||untouched|release: refused: sums=mismatch source=release"
+  [not-version]="tweak_other_version||untouched|release: refused: sums=not-version name=vgshell-3.4.5.tar.gz count=0 source=release"
+  [engine-listed]="tweak_listed||untouched|release: refused: engine=listed name=$engine_asset tag=v3.4.5"
+  [key-cannot-verify]="tweak_none|RUN_GPG_SUBKEY=0123456789ABCDEF|untouched|release: refused: signature=release-key-cannot-verify source=built key=$fpr"
+  [upload-failed]="tweak_none|RUN_GH_FAIL=$engine_asset|whole|release: refused: gh=release-upload tag=v3.4.5 name=$engine_asset"
+  [engine-not-published]="tweak_none|RUN_GH_DROP=$engine_asset|any|release: refused: sums=mismatch source=published"
+  [upload-lost]="tweak_none|RUN_GH_DROP=$engine_asset SHA256SUMS SHA256SUMS.asc|any|release: refused: published=differs name=SHA256SUMS tag=v3.4.5"
+)
+engine_refusal_row() { # SCRIPT NAME
+  local tweak setting leaves want_err before
+  IFS='|' read -r tweak setting leaves want_err <<<"${engine_refusals[$2]}"
+  engine_fixture "engine-refuse-$2" "$1"
+  "$tweak" || { echo "$suite: fixture=$tweak" >&2; exit 1; }
+  before="$(release_state)" || return 1
+  want_err="${want_err//%r/$r}"
+  want_err="${want_err//%h/$(g -C "$r" rev-parse HEAD)}"
+  if [[ -n $setting ]]; then local "$setting"; fi
+  run --add-engine 3.4.5
+  [[ $status == 1 && $(first_err) == "$want_err" ]] || return 1
+  [[ $leaves != any ]] || return 0
+  [[ $(release_state) == "$before" ]] || return 1
+  [[ $leaves == untouched ]] || return 0
+  [[ -z $(find "$r/dist" -mindepth 1 -print -quit 2>/dev/null) ]] &&
+    { [[ ! -e $record/gh ]] || ! grep -q '^release upload ' "$record/gh"; }
+}
+
 # Execute the package consumer's assertions against setup's machine-read lines.
 # Other targets' wiring rows must not hide the chromium state or reject it.
 arch_setup_row() { # SCRIPT
@@ -570,6 +723,11 @@ check "Arch doctor accepts only an installed package-owned system bus provider" 
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
   check "refusal: $name" refusal_row "$script" "$name"
 done
+check "--add-engine appends the engine's line to the release's SHA256SUMS and uploads it signed" engine_row "$script"
+check "--add-engine --dry-run neither signs nor uploads" engine_dry_row "$script"
+for name in $(printf '%s\n' "${!engine_refusals[@]}" | LC_ALL=C sort); do
+  check "add-engine refusal: $name" engine_refusal_row "$script" "$name"
+done
 
 # The dry run on this repository's working tree, with a fixture release
 # key pinned in its install.sh and its tag pushed to a stand-in.
@@ -660,10 +818,22 @@ rule archive-version archive_row '"$tag_commit" "$version" "$stage/$archive"' '"
 rule sums-cover-installer sums_row 'sha256sum -- "$archive" install.sh "$engine_asset" release-key.asc >SHA256SUMS' 'sha256sum -- "$archive" >SHA256SUMS'
 rule signing-key sign_row '--local-user "$key" ' ''
 rule verify-tag upload_row '--repo "$repository" --verify-tag' '--repo "$repository"'
-rule dry-run-signs-nothing dry_row 'if [[ $dry_run == false ]]; then' 'if true; then'
+rule dry-run-signs-nothing dry_row 'if [[ $dry_run == false ]]; then sign "$stage"; fi' 'sign "$stage"'
 rule stale-assets stale_row 'rm -f -- "${dist:?}/$name" ||' 'true ||'
-rule sign-failure sign_failure_row '"$stage/SHA256SUMS" ||' '"$stage/SHA256SUMS" || true ||'
+rule sign-failure sign_failure_row '"$1/SHA256SUMS" ||' '"$1/SHA256SUMS" || true ||'
 rule gh-failure gh_failure_row '(cd -- "$dist" && "${create[@]}") ||' '(cd -- "$dist" && "${create[@]}") || true ||'
+rule existing-signature engine_refusal_row 'verify "$list" release' 'true' signature-bad
+rule release-key-alone engine_refusal_row 'signer="$(sqv --keyring "$1/release-key.asc" "$1/SHA256SUMS.asc" "$1/SHA256SUMS" 2>"$stage/sqv.err")"' 'signer="$(gpg --batch --verify -- "$1/SHA256SUMS.asc" "$1/SHA256SUMS" >/dev/null 2>&1 && echo "$key")"' key-cannot-verify
+rule list-present engine_refusal_row '[[ -f $1/$name ]] ||' 'true ||' list-missing
+rule listed-sums engine_refusal_row 'sha256sum --check --strict --quiet -- SHA256SUMS' 'true' sum-mismatch
+rule version-list engine_refusal_row '[[ $archives == 1 ]] ||' 'true ||' not-version
+rule head-public engine_refusal_row '[[ $head_public == true ]] ||' 'true ||' not-pushed
+rule engine-unlisted engine_refusal_row '[[ ${line:66} != "$engine_asset" ]] ||' 'true ||' engine-listed
+rule engine-first engine_refusal_row 'upload "$engine_asset"; upload SHA256SUMS SHA256SUMS.asc' 'upload "$engine_asset" SHA256SUMS SHA256SUMS.asc' upload-failed
+rule published-verified engine_refusal_row 'verify "$published" published' 'true' engine-not-published
+rule published-list engine_refusal_row 'cmp -s -- "$dist/SHA256SUMS" "$published/SHA256SUMS" ||' 'true ||' upload-lost
+rule lines-kept engine_row 'sha256sum -- "$engine_asset" >>SHA256SUMS' 'sha256sum -- "$engine_asset" >SHA256SUMS'
+rule engine-dry-run-signs-nothing engine_dry_row 'if [[ $dry_run == false ]]; then sign "$list"; verify' 'if true; then sign "$list"; verify'
 # builder_rule NAME NEEDLE REPLACEMENT: a builder copy that packs another
 # way, NEEDLE replaced, handed to each channel alone; every channel's parity
 # row must fail on it.
