@@ -501,8 +501,29 @@ Item {
             mouseMove(entry, entry.width / 2, entry.height / 2);
             const tip = collect(entry, n => n.objectName === "disabledReasonTip", [])[0];
             verify(tip !== undefined, "the locked box holds its reason");
+            // The scroll area the box's text lies in, which the reason's
+            // anchor tracker reads the text's view from.
+            let scroll = entry.parent;
+            while (scroll !== null && scroll.contentY === undefined) scroll = scroll.parent;
+            verify(scroll !== null, "the box's text lies in a scroll area");
+            const state = () => JSON.stringify({
+                shown: tip.shown, resting: tip.resting, opened: tip.opened,
+                tracker: tip.tracker === null ? "no-popup" : tip.tracker.anchorInView() ? "in-view" : "hidden",
+                contentY: scroll.contentY, overlaysOpen: OverlayState.open
+            });
+            // tryVerify builds its message before it waits; this reads the
+            // state when the wait gives up.
+            const waitFor = (holds, timeout) => {
+                for (let left = timeout; left > 0 && !holds(); left -= 50) wait(50);
+                return holds();
+            };
             try {
-                tryCompare(tip, "opened", true);
+                verify(waitFor(() => tip.resting, 1000), "the pointer rests on the box: " + state());
+                verify(waitFor(() => tip.opened, 5000), "the reason opens: " + state());
+                // Long enough for another tooltip's delay or the tracker's
+                // next follow to close it.
+                wait(2 * Theme.tooltip.delay);
+                verify(tip.opened, "opened then closed: " + state());
                 const sees = tip.scene.anchor;
                 compare(Qt.rect(sees.x, sees.y, sees.width, sees.height), box(frame), "the reason measures from the frame");
                 const at = entry.mapToItem(root, tip.placed.x, tip.placed.y);
