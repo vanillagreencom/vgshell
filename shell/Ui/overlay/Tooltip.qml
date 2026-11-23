@@ -565,7 +565,11 @@ Item {
             // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
             mask: root.reachable ? null : passiveMask
             readonly property Region passiveMask: Region {}
-            visible: root.shown
+            // Its paddings take the content's ink at the inset's first
+            // settle and its corner inset through Qt.callLater
+            // (ClearingInset.settle), so a window shown before then shows
+            // at a size and a place it leaves a turn later.
+            visible: root.shown && sideInset.settledOnce
             // The tooltip closes itself, so its window keeps `visible`
             // bound to `shown` and opens again on the next rest.
             readonly property AnchorTracker tracker: AnchorTracker {

@@ -58,6 +58,8 @@ Item {
         property Item contentItem: root
     }
 
+    // An anchor the pointer never rests on.
+    Item { id: sizeless }
     Item { id: host; width: 60; height: 26
         Popover { id: popover; width: 120; Item { width: 100; height: 40 } }
         Menu { id: menu
@@ -95,9 +97,12 @@ Item {
             MenuItem { text: "Chosen" }
         }
         Tooltip { id: tip; text: "hint" }
-        Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
+        // One tooltip shows at a time, so the pointer on `host` rests on
+        // `tip` alone; these two open only as a case sets them shown.
+        Tooltip { id: longTip; anchorItem: sizeless; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
         Tooltip {
             id: detailsTip
+            anchorItem: sizeless
             text: "17 updates"
             details: [
                 { label: "System", value: 14 },
@@ -1744,17 +1749,19 @@ Item {
         // A short tip is its text's width; a long one stops at
         // `tooltip.maxWidth` and wraps inside the padding.
         function test_tooltip_wraps_past_its_maximum_width() {
-            const short = tipWindow(tip);
+            // Opening the short tip closes the long one, so the long one is
+            // read first.
             const long = tipWindow(longTip);
-            const shortContent = firstDescendant(short.contentItem, child => child.objectName === "tooltipContent");
             const longContent = firstDescendant(long.contentItem, child => child.objectName === "tooltipContent");
-            const shortLabel = firstDescendant(short.contentItem, child => child.objectName === "tooltipTitle");
             const longLabel = firstDescendant(long.contentItem, child => child.objectName === "tooltipTitle");
-            compare(short.width, Math.ceil(shortLabel.implicitWidth) + 2 * Theme.tooltip.padding);
             compare(long.width, Theme.tooltip.maxWidth + 2 * Theme.tooltip.padding);
             verify(longLabel.lineCount > 1, "the long tip wraps: " + longLabel.lineCount);
             fuzzyCompare(long.height, longContent.y + longContent.height - Theme.inkBelow(longContent) + Theme.tooltip.padding, 1);
             compare(longContent.x, Theme.tooltip.padding);
+            const short = tipWindow(tip);
+            const shortContent = firstDescendant(short.contentItem, child => child.objectName === "tooltipContent");
+            const shortLabel = firstDescendant(short.contentItem, child => child.objectName === "tooltipTitle");
+            compare(short.width, Math.ceil(shortLabel.implicitWidth) + 2 * Theme.tooltip.padding);
             // Under a pill theme with a small pad the text moves in until it
             // clears the round end.
             compare(UnitTheme.override({ tooltip: { radius: 4096, padding: 2 } }), "ok");
