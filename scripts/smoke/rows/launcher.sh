@@ -8,14 +8,14 @@
 # Packages holds Install, Update and Remove while vgs.updates is enabled.
 # Install and Remove open floating TUIs; Update uses the service's gated
 # shortcut to open its full-update TUI, read back from the stand-in terminal
-# scripts/smoke/rows/tui.sh left. The Settings category
+# harness.sh's terminal_stand_in wrote. The Settings category
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
 # The Update run's end starts the service's check. Where an earlier row left
 # the world's NetworkManager stand-in reading online, it runs bin/check,
 # which loads NormalizeCheck.js and UpdatesLogic.js under node.
-# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/manifest.json shell/plugins/vgs.updates/Service.qml shell/plugins/vgs.updates/bin/check shell/plugins/vgs.updates/NormalizeCheck.js shell/plugins/vgs.updates/UpdatesLogic.js shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/manifest.json shell/plugins/vgs.updates/Service.qml shell/plugins/vgs.updates/bin/check shell/plugins/vgs.updates/NormalizeCheck.js shell/plugins/vgs.updates/UpdatesLogic.js shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -45,8 +45,6 @@ file_search_children() { ps -e -o ppid=,args= | python3 -c 'import sys; print(su
 look_at() { read_launcher look | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v[k]
 print(json.dumps(v))' "$1"; }
-theme="$home/.config/vgshell/theme.json"
-write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 user_menu="$home/.config/vgshell/launcher/menu.json"
 write_menu() { mkdir -p -- "${user_menu%/*}" && printf '%s\n' "$1" >"$user_menu.tmp" && mv -T -- "$user_menu.tmp" "$user_menu"; }
 launcher_shell_config="$home/.config/vgshell/shell.json"
@@ -624,6 +622,11 @@ launcher_restore_shell_config packages "after Packages"
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Packages" 0 layer_count vgs:overlay
 
+tui_dir="$home/.config/vgshell/plugins/acme.tui"
+mkdir -p "$tui_dir"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tui/." "$tui_dir/"
+rescan "rescan after adding the tui fixture answers ok"
+expect_poll "the tui fixture is discovered" True plugin_known acme.tui
 write_menu '{ "schemaVersion": 1, "items": { "tools.smoke-update": { "label": "Smoke update", "icon": "refresh-cw", "tuiGroup": "Update" } } }'
 leak_plugin_setup acme.tui false || { fail "launcher: fixture precondition failed"; return 1; }
 expect "the Update fixture starts disabled" False plugin_enabled acme.tui
@@ -665,8 +668,8 @@ expect_poll "disabling the provider fixture removes the category" False launcher
 type_keys -k Escape || fail "sending Escape after provider disable failed"
 expect_poll "Escape closes the launcher after provider disable" 0 layer_count vgs:overlay
 
-# A refusal other than busy stays in the list as a notice. tui.sh's
-# stand-in bin/vgshell-tui, which finds no terminal, makes the core's launcher
+# A refusal other than busy stays in the list as a notice. A stand-in
+# bin/vgshell-tui that finds no terminal makes the core's launcher
 # state missing through one launch that answered ok; the next pick answers
 # launcher-missing at once. The real one returns, and the probe a direct
 # request starts finds the terminal again.
@@ -675,6 +678,9 @@ launcher_save_shell_config launcher-missing
 updates_cache_fresh
 expect "enabling vgs.updates for launcher-missing is allowed" ok ipc shell setPluginEnabled vgs.updates true
 expect_poll "vgs.updates is built for launcher-missing" True record_exists vgs.updates
+cp -- "$repo/bin/vgshell-tui" "$sandbox/vgshell-tui.real"
+printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/vgshell-tui.missing"
+chmod 755 "$sandbox/vgshell-tui.missing"
 cp -- "$sandbox/vgshell-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expected_errors+=('tui: refused: tui=core/pkg-install reason=launcher-missing' 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=launcher-missing')
 packages_menu "Install without a terminal"

@@ -9,7 +9,6 @@ import Quickshell.Hyprland
 import qs.Core
 import qs.Commons
 import qs.Ui as Ui
-import "Commons/Tokens.js" as Tokens
 import "Commons/ThemeLogic.js" as ThemeLogic
 
 // Loaded only into the sandbox copy. It observes the shipped objects and
@@ -803,16 +802,16 @@ Scope {
         return IpcPages.answer(text === undefined ? "undefined" : text);
     }
 
-    // Call the copy's member VERB with ARGS, then `done`, then any EXTRA,
-    // its answers kept by verb; the member's reply, `ok` for none.
-    function callRunner(verb, args, ...extra) {
+    // Call the copy's member VERB with ARGS, then `done`, its answers kept
+    // by verb; the member's reply, `ok` for none.
+    function callRunner(verb, args) {
         if (root.runnerCopy === null) return "absent";
         const done = result => {
             const next = Object.assign({}, root.runnerAnswers);
             next[verb] = { count: (verb in root.runnerAnswers ? root.runnerAnswers[verb].count : 0) + 1, result: result };
             root.runnerAnswers = next;
         };
-        const reply = root.runnerCopy[verb](root.runnerContext, ...args, done, ...extra);
+        const reply = root.runnerCopy[verb](root.runnerContext, ...args, done);
         return reply === undefined ? "ok" : IpcPages.answer(String(reply));
     }
 
@@ -1813,16 +1812,6 @@ Scope {
         return node === undefined ? "absent" : root.json(node);
     }
 
-    // Write into a published group the way a careless plugin would; answers
-    // the value read back after the write, so the row proves nothing moved.
-    function themeWrite(path, value) {
-        const keys = path.split(".");
-        let node = Theme;
-        for (const key of keys.slice(0, -1)) node = node[key];
-        try { node[keys[keys.length - 1]] = value; } catch (e) {}
-        return themeValue(path);
-    }
-
     IpcHandler {
         target: "smoke"
         // inputSurfaces is the hosts' existing raw-window registry; lock
@@ -1961,11 +1950,6 @@ Scope {
         // pragmas, "" when unset: Quickshell.env reads the process
         // environment, which an Env pragma sets before the engine starts.
         function environment(name: string): string { return Quickshell.env(name) ?? ""; }
-        // Every top-level group of the token table that Theme does not
-        // publish as a frozen object, so an empty list is the pass.
-        function themeUnpublished(): string {
-            return root.json(Object.keys(Tokens.TOKENS).filter(group => typeof Theme[group] !== "object" || Theme[group] === null || !Object.isFrozen(Theme[group])));
-        }
         function themeValue(path: string): string { return root.themeValue(path); }
         // Each surface the layer host built for a plugin, sorted by screen:
         // [screen, takes no keyboard, on the overlay layer, clear of
@@ -2591,9 +2575,7 @@ Scope {
             }
             return "no-example";
         }
-        function themeWrite(path: string, value: string): string { return root.themeWrite(path, value); }
         function themeName(): string { return IpcPages.answer(Theme.name); }
-        function themeRevision(): int { return Theme.revision; }
         function fontAvailable(family: string): bool { return Qt.fontFamilies().indexOf(family) !== -1; }
         function buildCount(): int { return root.builds; }
         // Disable and enable plugin `id` inside this one call, so no turn
@@ -3354,13 +3336,6 @@ Scope {
                 if (root.typeName(field) === "SettingField" && root.visibleInTree(field)
                     && typeof field.apply === "function" && field.pluginId !== undefined) counts[field.pluginId] += 1;
             return root.json(counts);
-        }
-        function childIndex(hostKey: string, id: string): int {
-            const item = root.instance(hostKey, id);
-            if (item === null || item.parent === null) return -1;
-            for (let i = 0; i < item.parent.children.length; i++)
-                if (item.parent.children[i] === item) return i;
-            return -1;
         }
         function invokeInstance(hostKey: string, id: string, name: string, arg: string): string { return root.invoke(hostKey, id, name, arg); }
         function chooserCount(begin: bool): string {
@@ -4376,11 +4351,6 @@ Scope {
         // its answers kept by verb; the member's reply, `ok` for none.
         function runnerCall(verb: string, arg: string): string {
             return root.callRunner(verb, [arg]);
-        }
-        // runnerCall with OPTIONS, a JSON value, after `done`, as
-        // `wallpapers(name, done, options)` takes it.
-        function runnerCallWith(verb: string, arg: string, options: string): string {
-            return root.callRunner(verb, [arg], JSON.parse(options));
         }
         // How many times the copy answered VERB.
         function runnerAnswered(verb: string): int {

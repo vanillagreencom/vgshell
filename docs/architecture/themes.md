@@ -73,7 +73,7 @@ Shared themes must not execute code. One judge prevents shell and CLI disagreeme
 
 ### Runner boundary
 
-- Run plugin changes through capability `theme`; judge no package in the shell. Keep results in core ThemeRunner so view disposal loses nothing. Run wallpaper downloads outside the serialized command queue. `scripts/smoke/rows/themes.sh` and `theme-browse.sh` check the runner; review holds judge ownership.
+- Run plugin changes through capability `theme`; judge no package in the shell. Keep results in core ThemeRunner so view disposal loses nothing. Run wallpaper downloads outside the serialized command queue. `scripts/smoke/rows/themes.sh` checks the runner's apply, list and background members; review holds the download lane and judge ownership.
 - Keep view decisions in pure logic without QML objects or I/O, as `BrowserLogic.js` does. `scripts/test-themes-browser.js` checks it.
 - Read browser data at service start and view opening, and coalesce watched changes while a view is open. Read no browser data on a timer or for hidden views; the next opening refreshes it. `scripts/qml-tests/tst_themes_service.qml` checks admission.
 - Watch browser sources through one helper, `vgs.themes/helper/watch.py`, with one inotify instance and no per-package instances. Tie it to service registration, log failures with stderr and bound restarts per registration. `scripts/test-theme-watch.py`, `scripts/qml-tests/tst_themes_service.qml` and `scripts/smoke/rows/themes.sh` check the resource boundary. Its qualified measurement evidence is attached to [VGS-2218](https://linear.app/vanillagreen/issue/VGS-2218/theme-watches-use-a-bounded-number-of-inotify-instances).

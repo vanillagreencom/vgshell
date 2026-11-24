@@ -15,7 +15,7 @@
 # the next press stops it, after which the wtype stand-in holds the
 # stand-in's words; F9 held starts on the press and stops on the release.
 # The key delivery uses physical code overrides for the row, so the helper
-# reaches the same generated bind path that hold-shortcuts.sh exercises.
+# reaches the same generated bind path as the Jarvis hold keys.
 # The tap shortcut keeps its default keys: a lone Right Alt tap and a lone
 # Right Ctrl tap each start a recording and the next tap stops it, and
 # Right Alt used as AltGr with W starts none: the toggle key typed after
@@ -131,7 +131,7 @@
 # and reads idle, and a second daemon beside that live one is refused. Its
 # control: a copy of the stand-in that judges the holder by signal 0
 # refuses the daemon beside the same planted holder.
-# inputs: scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/rows/capabilities.sh shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml shell/Ui/layout/NavigationRow.qml
+# inputs: scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml shell/Ui/layout/NavigationRow.qml
 set -euo pipefail
 
 voice_installed="$sandbox/voice-model-installed"
@@ -806,8 +806,11 @@ voice_sync "control: the Voice keyboard delivered the toggle keys after the unbo
 voice_stops "control: the toggle key after the unbound tap"
 
 # Another holder's recording: Voice shows none of it, and its keys, its
-# widget and its toggle start nothing during it. The fixture is the one
-# capabilities.sh installs.
+# widget and its toggle start nothing during it. The row installs the
+# fixture.
+mkdir -p "$dictation_fixture"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.dictation/." "$dictation_fixture/"
+rescan "rescan after adding the dictation fixture answers ok"
 voice_other() { ipc acme.dictation invoke "$1" "${2:-}"; } # VERB [ARG]
 voice_other_last() { ipc smoke readInstance service acme.dictation last | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 voice_other_hidden() { echo "$(voice_dictation) $(voice_osd)"; }

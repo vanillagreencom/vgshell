@@ -15,8 +15,6 @@ hyprland-consent
 # its private fixture and configuration before plugin lifecycle rows.
 add-widget
 plugins
-sources
-capabilities
 status
 manager
 updates
@@ -26,15 +24,12 @@ windows
 compositor-dispatchers
 compositor-reveal
 surfaces
-theme
 themes
 collector
-theme-browse
 theme-browser
 portal-accent
 theme-latency
 layers
-tui
 notices
 overlays
 launcher
@@ -57,8 +52,6 @@ hyprland
 # plugin itself and disables it again.
 clipboard
 displays-modes
-hold-shortcuts
-# After hold-shortcuts, over the same generated hold-bind path.
 voice
 jarvis-keys
 jarvis-console
@@ -93,8 +86,8 @@ scratchpads
 # runs with the tail rows that do the same.
 settings-unsaved
 # It installs its own fixtures and restarts the shell for its kill and its
-# controls, so it runs with the tail rows that do the same; it reads
-# capabilities.sh's helpers and no state another row leaves.
+# controls, so it runs with the tail rows that do the same; it reads no
+# state another row leaves.
 dictation
 # It installs its own fixture and restarts the shell for its stand-in owner
 # and its controls, so it runs with the tail rows that do the same; it

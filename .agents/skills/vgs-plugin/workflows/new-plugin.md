@@ -19,5 +19,5 @@ Steps, in order. Each step names the command or file and the check that proves i
    - a background: the surface on the bottom layer per screen and the `screen` it received;
    - a capability: a property proving the delivered API is callable;
    - plugin status: the value the service published read back from each other instance that shows it, and from the lending record, gone after disable;
-   - a `tui` script: the argv a stand-in xdg-terminal-exec records, as `scripts/smoke/rows/tui.sh` reads it.
+   - a `tui` script: the argv the stand-in xdg-terminal-exec records, read with `recorded` or `recorded_tail` in `scripts/smoke/harness.sh`.
 10. Never test against the live shell. `scripts/qml-smoke.sh` is the only place a second shell starts.

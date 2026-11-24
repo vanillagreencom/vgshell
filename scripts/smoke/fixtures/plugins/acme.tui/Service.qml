@@ -1,5 +1,5 @@
 import QtQuick
-// The tui capability's consumer for scripts/smoke/rows/tui.sh. Each IPC
+// The tui capability's consumer for scripts/smoke/rows/launcher.sh. Each IPC
 // function hands its argument to one member and answers what it returned:
 // `run` takes `<name>|<arg>|<arg>...`, a name alone passing no argument
 // list, since qs ipc reads a bracketed argument as a list; `run-done` takes

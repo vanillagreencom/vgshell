@@ -7,7 +7,7 @@
 # Content that stops showing while a popup holds the keyboard grab, the
 # Gallery's Select list or the bar's calendar, keeps its surface mapped,
 # undrawn, until the popup closes, so the popup's keys stay in it.
-# inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Layers.qml shell/Hosts/OverlaySurface.qml shell/Hosts/LayerHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/Ui/overlay/OverlayState.qml shell/Ui/overlay/DismissScope.qml shell/Ui/controls/Select.qml shell/plugins/vgs.gallery/* shell/Hosts/AppWindow.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonHost.qml shell/plugins/vgs.bar/*
+# inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Layers.qml shell/Hosts/OverlaySurface.qml shell/Hosts/LayerHost.qml scripts/smoke/toplevel/* shell/Ui/overlay/OverlayState.qml shell/Ui/overlay/DismissScope.qml shell/Ui/controls/Select.qml shell/plugins/vgs.gallery/* shell/Hosts/AppWindow.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonHost.qml shell/plugins/vgs.bar/*
 set -euo pipefail
 layers_dir="$home/.config/vgshell/plugins/acme.layers"
 mkdir -p "$layers_dir"

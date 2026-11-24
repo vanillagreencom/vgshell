@@ -2344,7 +2344,7 @@ for spec in \
         selected=",${smoke_plan#scripts/qml-smoke.sh --rows },"
         if [[ $presence == absent ]]; then
           [[ $selected == *,gallery,* ]] || fail "$name lost Gallery's direct PathField input"
-          for real_row in network picked-screen jarvis-console hold-shortcuts hyprland jarvis-keys overlay-capture theme-browse theme-browser; do
+          for real_row in network picked-screen jarvis-console hyprland jarvis-keys overlay-capture theme-browser; do
             [[ $selected != *,$real_row,* ]] || fail "$name selected unrelated $real_row: $smoke_plan"
           done
         else
@@ -3687,9 +3687,10 @@ if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $
 else
   fail "qml-smoke.sh --list-rows: the read listed under 60 rows, so the row list no longer reads as one name a line"
 fi
-# start-order reads capabilities, which reads plugins, and device-fakes.
-smoke_subset=$'bar\nhyprland-consent\nplugins\ncapabilities\ndevice-fakes\nstart-order\nauth-sentinel'
-for smoke_named in plugins,bar capabilities; do
+# notifications reads status, which reads plugins; start-order reads
+# device-fakes.
+smoke_subset=$'bar\nhyprland-consent\nplugins\nstatus\nnotifications\ndevice-fakes\nstart-order\nauth-sentinel'
+for smoke_named in notifications bar,notifications; do
   if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows "$smoke_named" --list-rows)" && [[ $out == "$smoke_subset" ]]; then
     ok "the runner lists the rows --rows $smoke_named names, the core rows and the rows those read, in run order"
   else
@@ -3705,15 +3706,15 @@ for dir in runner-control runner-reads-control runner-core-control; do
 done
 cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-reads-control/scripts/qml-smoke.sh"
 plant "$tmp/runner-reads-control/scripts/qml-smoke.sh" '        qml_smoke_queue+=("$qml_smoke_read")' '        :'
-if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'bar\nhyprland-consent\ncapabilities\nstart-order\nauth-sentinel' ]]; then
+if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows notifications --list-rows)" && [[ $out == $'bar\nhyprland-consent\nnotifications\nstart-order\nauth-sentinel' ]]; then
   ok "control: a runner that follows no input line lists the named row and the core rows alone"
 else
   fail "control: the runner that follows no input line listed: $out"
 fi
 cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-core-control/scripts/qml-smoke.sh"
 plant "$tmp/runner-core-control/scripts/qml-smoke.sh" '  qml_smoke_queue=("${qml_smoke_named[@]}" "${smoke_core[@]}")' '  qml_smoke_queue=("${qml_smoke_named[@]}")'
-if out="$("${base_env[@]}" bash "$tmp/runner-core-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'plugins\ncapabilities' ]]; then
-  ok "control: a runner that adds no core row lists the named row and the row it reads alone"
+if out="$("${base_env[@]}" bash "$tmp/runner-core-control/scripts/qml-smoke.sh" --rows notifications --list-rows)" && [[ $out == $'hyprland-consent\nplugins\nstatus\nnotifications' ]]; then
+  ok "control: a runner that adds no core row lists the named row and the rows it reads alone"
 else
   fail "control: the runner that adds no core row listed: $out"
 fi

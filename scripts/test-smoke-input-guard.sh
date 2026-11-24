@@ -424,7 +424,7 @@ fi
 # nested_input_check. Each runs with the host-socket
 # shell_env below.
 host_words="env -i PATH=@bin XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1"
-# loads: scripts/smoke/harness.sh scripts/smoke/rows/start.sh scripts/smoke/rows/greeter.sh scripts/smoke/rows/share-picker.sh scripts/smoke/rows/capture.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh scripts/shader/measure-scene.sh scripts/smoke/rows/scratchpads.sh scripts/smoke/rows/lock.sh scripts/smoke/app-window.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/traffic.sh scripts/smoke/rows/tui.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar-controls.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh -- the cases read each file the table lists and run what they extract
+# loads: scripts/smoke/harness.sh scripts/smoke/rows/start.sh scripts/smoke/rows/greeter.sh scripts/smoke/rows/share-picker.sh scripts/smoke/rows/capture.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh scripts/shader/measure-scene.sh scripts/smoke/rows/scratchpads.sh scripts/smoke/rows/lock.sh scripts/smoke/app-window.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/traffic.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar-controls.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh -- the cases read each file the table lists and run what they extract
 helpers=(
 
   'shell runner|scripts/smoke/harness.sh|fn:start_shell|spawn_display|start_shell @sandbox @sandbox/shell.log no-bar|@sandbox/bin/vgshell|nonzero|spawn_display'
@@ -454,14 +454,12 @@ helpers=(
   'application window|scripts/smoke/app-window.sh|fn:open_toplevel|spawn_display|open_toplevel @sandbox/app.log smoke.app App|@sandbox/toplevel|nonzero|spawn_display'
   'Hyprland window|scripts/smoke/rows/hyprland.sh|fn:open_tui|spawn_display|open_tui smoke.hyprland|@sandbox/toplevel|nonzero|spawn_display'
   'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'
   'inherited display boundary|scripts/smoke/harness.sh|fn:write_display_client|exec "${shell_env[@]}" "$@"|write_display_client; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$sandbox/display-client" "$sandbox/toplevel" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|nested_input_check "$1"'
   'terminal window|scripts/smoke/harness.sh|fn:terminal_stand_in|"$display_client" "$toplevel"|terminal_stand_in; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.terminal --title=Terminal -- @bin/vgshell-tui present -- true 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$display_client" '
   'type_keys|scripts/smoke/harness.sh|fn:type_keys|"${shell_env[@]}" wtype|type_keys -k Escape|wtype|nonzero'
   'pointer_dispatch|scripts/smoke/harness.sh|fn:pointer_dispatch|"$sandbox/click" "$x" "$y"|pointer_dispatch 10 20|@sandbox/click|nonzero'
-  'hold_start_keyboard keyboard|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard probe @sandbox/keyboard us ""|@sandbox/keyboard|nonzero'
-  'hold_start_keyboard keyboard-silent|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard silent @sandbox/keyboard-silent us ""|@sandbox/keyboard-silent|nonzero'
+  'hold_start_keyboard keyboard|scripts/smoke/harness.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard probe @sandbox/keyboard us ""|@sandbox/keyboard|nonzero'
   'voice_start_keyboard|scripts/smoke/rows/voice.sh|fn:voice_start_keyboard|"${shell_env[@]}" "$sandbox/keyboard"|voice_start_keyboard|@sandbox/keyboard|nonzero'
   'zone_hold_press|scripts/smoke/rows/bar-controls.sh|fn:zone_hold_press|"${shell_env[@]}" "$sandbox/click"|zone_hold_press acme.probe 0 12|@sandbox/click|nonzero'
   'tiplink_drag|scripts/smoke/rows/bar-controls.sh|fn:tiplink_drag|"${shell_env[@]}" "$sandbox/click"|tiplink_drag acme.tiplink far|@sandbox/click|nonzero'

@@ -434,6 +434,72 @@ sentinel_restore() { # FILE
 # shell_resolves NAME: the file NAME resolves to on the PATH every sandbox
 # shell starts with, and so every process it starts, a TUI included.
 shell_resolves() { PATH="$shell_start_path" command -v -- "$1" || echo none; }
+# The acme.dictation fixture's copy in the user plugin directory, which a
+# row that holds dictation through it installs.
+dictation_fixture="$home/.config/vgshell/plugins/acme.dictation"
+# dictation_stand_ins on|off: the voxtype and wtype stand-ins in the shell's
+# stand-in directory, swapped whole. `on` returns 1 unless the shell then
+# resolves voxtype to the stand-in, so no caller enables a holder over the
+# host's command.
+dictation_stand_ins() { # on|off
+  local name
+  if [[ $1 == off ]]; then
+    rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype"
+    rm -f -- "${sandbox:?}/voxtype-model-installed"
+    return 0
+  fi
+  for name in voxtype wtype; do
+    cp -- "$repo/scripts/smoke/fixtures/voxtype/$name" "$shim/$name.next" && chmod 755 "$shim/$name.next" && mv -T -- "$shim/$name.next" "$shim/$name" || return 1
+  done
+  touch -- "$sandbox/voxtype-model-installed"
+  [[ $(shell_resolves voxtype) == "$shim/voxtype" ]]
+}
+# The stand-in's processes by role: `all` includes foreign processes and
+# orphans; `owned` counts direct children and raw children of exactly one
+# direct dictation transport. Fixture forks are not another owned role.
+# With `pids` it prints all matching pids for cleanup.
+dictation_processes() { # all|owned|pids
+  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "$1" "$shell_tree/bin/lib/voxtype.py" <<'PY'
+import os, sys
+stand_in, shell, want, helper = sys.argv[1:]
+counts = {scope: {"daemon": 0, "follower": 0, "other": 0} for scope in ("all", "owned")}
+pids = []
+for pid in os.listdir("/proc"):
+    # This reader's own arguments name the stand-in too.
+    if not pid.isdigit() or int(pid) == os.getpid():
+        continue
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            args = f.read().decode(errors="replace").split("\0")
+        with open(f"/proc/{pid}/status") as f:
+            parent = next(line.split()[1] for line in f if line.startswith("PPid:"))
+    except (OSError, StopIteration, IndexError):
+        continue
+    if stand_in not in args:
+        continue
+    verb = args[args.index(stand_in) + 1:]
+    while len(verb) >= 2 and verb[0] in ("--config", "--audio-device"):
+        verb = verb[2:]
+    kind = "daemon" if verb[:1] == ["daemon"] else "follower" if verb[:2] == ["status", "--follow"] else "other"
+    counts["all"][kind] += 1
+    owned = parent == shell
+    if not owned:
+        try:
+            with open(f"/proc/{parent}/cmdline", "rb") as f:
+                owner_args = f.read().decode(errors="replace").split("\0")
+            with open(f"/proc/{parent}/status") as f:
+                owner_parent = next(line.split()[1] for line in f if line.startswith("PPid:"))
+            role = "daemon" if kind == "daemon" else "follow" if kind == "follower" else "run"
+            owned = owner_parent == shell and os.path.basename(owner_args[0]) == "python3" and owner_args[1:5] == [helper, "supervise", role, "voxtype"]
+        except (OSError, StopIteration, IndexError):
+            pass
+    if owned:
+        counts["owned"][kind] += 1
+    pids.append(pid)
+print(" ".join(pids) if want == "pids" else " ".join(f"{k}={v}" for k, v in counts[want].items()))
+PY
+}
+dictation_lent() { lent dictation | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["child"], ",".join(d["holders"]) or "-")'; }
 # The host PATH always hides the stand-in registry, so removing a stand-in
 # cannot expose its host command. Runners add only their own absent names.
 # The host PATH links no command from the invoking user's home, judged by
@@ -1869,6 +1935,48 @@ type_keys() {
   nested_input_check wtype || return 1
   "${shell_env[@]}" wtype "$@"
 }
+# Physical hold keys through one persistent virtual keyboard, so a row can
+# change configuration while a key stays down. hold_native PREFIX: the
+# compositor's global shortcuts whose line holds PREFIX.
+# hold_start_keyboard LABEL EXECUTABLE LAYOUT OPTIONS starts
+# EXECUTABLE, $sandbox/keyboard or a copy, reading commands from a FIFO,
+# and waits for its ready line; hold_send COMMAND... writes commands to it,
+# and hold_stop_keyboard sends quit and expects every key released. The
+# caller sets hold_markers to the observer's marker count and
+# hold_delayed_keyboard to "" or a stopped keyboard's pid. hold_barrier
+# taps the observer's marker key and polls until the shell has processed
+# it, so every key sent before it was processed too; hold_marker_count
+# resumes a stopped keyboard first.
+hold_native() { hypr globalshortcuts | count_lines "$1"; }
+hold_start_keyboard() { # LABEL EXECUTABLE LAYOUT OPTIONS
+  nested_input_check "$2" || return 1
+  hold_keyboard_log="$sandbox/hold-keyboard-$1.log"
+  hold_fifo="$sandbox/hold-keyboard-$1.fifo"
+  mkfifo "$hold_fifo"
+  exec {hold_fd}<>"$hold_fifo"
+  spawn "$hold_keyboard_log" "${shell_env[@]}" "$2" "$hold_fifo" "$3" "$4"
+  hold_keyboard_pid="$spawn_pid"
+  expect_poll "the $1 keyboard connects only to the nested seat" 1 log_lines '^ready$' "$hold_keyboard_log"
+  grep -qxF ready "$hold_keyboard_log" || return 1
+}
+hold_send() { printf '%s\n' "$@" >&"$hold_fd"; }
+hold_marker_count() {
+  # A delayed healthy control resumes only when the marker reader runs.
+  if [[ -n $hold_delayed_keyboard ]]; then kill -CONT -- "$hold_delayed_keyboard" || return; fi
+  ipc smoke holdMarkerCount
+}
+hold_barrier() {
+  hold_markers=$((hold_markers + 1))
+  hold_send "down 67" "up 67"
+  expect_poll "the shell processes the marker after the checked keys" "$hold_markers" hold_marker_count
+}
+hold_stop_keyboard() {
+  hold_send quit
+  exec {hold_fd}>&-
+  local status=0
+  wait "$hold_keyboard_pid" || status=$?
+  expect "the physical keyboard exits with all keys released" 0 printf '%s\n' "$status"
+}
 # Generated fixtures and real terminals inherit their producer's environment.
 # Copy its exported assignments into env -i, then check that exact environment.
 # Serialize the one owner check because these children cannot call a harness function.
@@ -2444,6 +2552,10 @@ theme_state() { # [IPC_FN]
 # answer and status 1. A row runs a `vgshell theme` command only once the shell
 # is idle: a command started under the shell's follow is refused
 # reason=busy, the product's answer, which a retry would hide.
+# The user theme file; write_theme JSON replaces it whole by a rename, so
+# the shell never reads half a document.
+theme="$home/.config/vgshell/theme.json"
+write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 theme_idle() { # [IPC_FN]
   local state=""
   for _ in $(seq 1 100); do
@@ -2867,6 +2979,8 @@ log_lines() {
   if [[ $status -gt 1 ]]; then return 1; fi
   printf '%s\n' "$count"
 }
+# count_lines TEXT: how many lines of stdin contain the fixed string TEXT.
+count_lines() { python3 -c 'import sys; print(sum(1 for line in sys.stdin if sys.argv[1] in line))' "$1"; }
 # smoke_poll_bound_ms: how long expect_log, expect_poll, summon_drawn,
 # view_at_rest, read_bar_settled, expect_widgets, expect_builtins,
 # point_item and expect_cursor keep reading before they fail. A read that
@@ -3229,8 +3343,10 @@ PY
 # background_image_on NAME: what the background on screen NAME draws, as
 # `<path> <status>`, `-` for no image. background_source_size NAME: the
 # sourceSize it requests, as WxH. Each prints `images=<n>` while the
-# background draws other than one image.
+# background draws other than one image. bg_screens: the state file's
+# `screens` map as JSON, {} for a file without it.
 bg_state="$home/.local/state/vgshell"
+bg_screens() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("screens", {})))' "$bg_state/backgrounds.json"; }
 bg_state_names() { printf '{"schemaVersion":1,"current":"%s","stamp":"row","themes":{}}\n' "$1" >"$bg_state/backgrounds.json.tmp" && mv -T -- "$bg_state/backgrounds.json.tmp" "$bg_state/backgrounds.json"; }
 background_image_on() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print(" ".join([r[0][0] or "-", r[0][1]]) if len(r)==1 else "images=%d" % len(r))'; }
 background_source_size() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print("%dx%d" % tuple(int(v) for v in r[0][4]) if len(r)==1 else "images=%d" % len(r))'; }
@@ -3597,6 +3713,19 @@ expect_widgets() { # LABEL EXPECTED_JSON_LIST
 
 # The first bar host's key, for reading a widget instance back.
 bar_key() { ipc shell built | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sorted(k for k in d if k.startswith("bar:"))[0])'; }
+# qs ipc reads a bracketed argument as a list, so no argument here is JSON
+# with brackets: `set` takes key=value with a JSON value, `dispatch` a
+# dispatcher and its arguments separated by spaces.
+probe() { ipc acme.probe invoke "$1" "${2:-}"; }
+# probe_at_right_edge: whether the acme.probe widget on the first bar ends
+# at the bar's right padding, within 1 px.
+probe_at_right_edge() {
+  local probe bar padding
+  probe="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return
+  bar="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar)" || return
+  padding="$(ipc smoke themeValue bar.padding)" || return
+  py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); bx,by,bw,bh=json.loads(sys.argv[1]); print(w>0 and abs(x+w+float(sys.argv[2])-bx-bw)<=1)' "$bar" "$padding" <<<"$probe"
+}
 
 # Built-in widget ids every bar registered, sorted: the records of origin
 # `plugin` under each bar host key.
@@ -4032,6 +4161,8 @@ at=w.index("--record") if "--record" in w else -1
 if at < 0 or at + 1 >= len(w) or "--" not in w[at + 1:]: print("partial"); sys.exit()
 print(json.dumps([w[at + 1]] + w[w.index("--", at) + 1:]))'; }
 forget_record() { rm -f -- "${tui_record:?}"; }
+# record_state: whether the stand-in terminal holds a record.
+record_state() { [[ -e $sandbox/tui-argv ]] && echo recorded || echo none; }
 # A core TUI's command is the core's bin/ beside the shell directory,
 # whatever the shell's PATH holds. core_words: the words the terminal is
 # handed for core TUI KEY titled TITLE in the window of APP_ID, running
@@ -4169,11 +4300,7 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # what the record directory holds for the key beside the core's view, so
 # a run whose ended record is on disk while the core still reports it
 # running reads as a listing the core missed, not a slow presenter.
-# scripts/smoke/rows/tui.sh holds the controls, each at a planted world
-# pressure: a run that never ends fails below the limit and above it, a run
-# that ends past the ceiling fails with its reading below the limit and
-# is not measured above it, and a run that ends in time passes through a
-# reader slower than the ceiling.
+# No row plants a world pressure for these branches; review holds them.
 # The ceiling is twice the highest of 108 poll readings, 248 ms, from six
 # runs of scripts/qml-smoke.sh on the owner's machine (host cachy, AMD
 # Ryzen 9 9950X) on 2026-09-29 at host load 4 to 9. On the same host, the

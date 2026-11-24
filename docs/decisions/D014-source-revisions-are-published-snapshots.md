@@ -8,7 +8,7 @@
 
 **Decision**: The scan hashes a plugin directory into a revision and publishes each revision's files once under the session runtime directory. The shell loads entry points from there, every slot keys on `<id>@<revision>`, and a rescan rebuilds only the plugins whose files changed. The engine's cache of old revisions is accepted as unbounded within a session.
 
-**Why**: QML caches every file by URL, so only a new directory makes a changed sibling file read again without a new engine, and a new engine drops every service's state. `scripts/test-vgshell-scan.py` and `scripts/smoke/rows/sources.sh` hold the rule.
+**Why**: QML caches every file by URL, so only a new directory makes a changed sibling file read again without a new engine, and a new engine drops every service's state. `scripts/test-vgshell-scan.py` holds the revisions and their published snapshots; review holds that a rescan rebuilds only the changed plugins.
 
 **Rejected**: Restarting the shell, or Quickshell's own reload, on a plugin edit. Both lose a lock screen's or a notification service's state for an unrelated widget's edit; `clearComponentCache` cannot run while old-type objects exist.
 

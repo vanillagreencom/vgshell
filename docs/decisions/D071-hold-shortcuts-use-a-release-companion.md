@@ -9,7 +9,7 @@
 
 **Decision**: A manifest bind with `hold: true` gets a modifier-independent, non-consuming, transparent `<name>.release` companion under the same disposer, and the owner completes only a hold its own key-down started.
 
-**Why**: A Lua global bind can miss the release when the key changes the modifier mask or the modifier lifts first, which would leave push-to-talk active. A release bind that ignores modifiers also sees unrelated releases, so the owner must guard. `scripts/smoke/rows/hold-shortcuts.sh` reads the pair back.
+**Why**: A Lua global bind can miss the release when the key changes the modifier mask or the modifier lifts first, which would leave push-to-talk active. A release bind that ignores modifiers also sees unrelated releases, so the owner must guard. `scripts/smoke/rows/jarvis-keys.sh` reads the pair back.
 
 **Rejected**: A consuming release bind. It can swallow a plain key before the plugin has started a hold.
 

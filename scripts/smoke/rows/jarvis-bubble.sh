@@ -22,7 +22,7 @@
 # Session observation at the scripted capture port's actual open call.
 # Widget removal, bar unmapping and a widget on only the unfocused output
 # must withdraw capture. These are state/order probes, not timing budgets.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 # shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_parent_tree="$jarvis_fixture_tree" jarvis_fixture_parent_shim="$jarvis_fixture_shim"

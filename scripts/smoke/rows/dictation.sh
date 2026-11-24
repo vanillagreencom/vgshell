@@ -54,7 +54,7 @@
 # the tree, both fixtures disabled and the stand-ins put away.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
-# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/vgshell-pkg bin/lib/voxtype.sh bin/lib/voxtype.py bin/lib/tui.sh config/runtime-libraries.json config/voxtype/* scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/vgshell-pkg bin/lib/voxtype.sh bin/lib/voxtype.py bin/lib/tui.sh config/runtime-libraries.json config/voxtype/*
 set -euo pipefail
 expected_errors+=('settings: acme[.]dictation-no-cap/setup unknown: acme[.]dictation-no-cap')
 dictation_other="$home/.config/vgshell/plugins/acme.dictation-other"

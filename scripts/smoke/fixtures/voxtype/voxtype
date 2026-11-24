@@ -54,7 +54,7 @@ override="$run/output_mode_override"
 POLL=0.05
 
 # The lock's holder, while it is a running stand-in daemon by its command
-# line, as dictation_processes of rows/capabilities.sh counts one. An ended
+# line, as harness.sh's dictation_processes counts one. An ended
 # daemon its parent has not reaped still takes signal 0 and has an empty
 # command line, so it holds nothing, as voxtype's lock ends with its
 # process.

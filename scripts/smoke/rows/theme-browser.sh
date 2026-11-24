@@ -42,7 +42,7 @@
 # Every search line and empty state starts on whole screen rows and
 # columns, in vgs and flexoki-light; a slot copy shifted by a fractional
 # row is that check's control.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 leak_plugin_setup vgs.themes false || { fail "theme-browser: fixture precondition failed"; return 1; }
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }

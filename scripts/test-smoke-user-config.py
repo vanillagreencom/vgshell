@@ -227,7 +227,7 @@ class RestoreTests(unittest.TestCase):
 
     def test_repaired_rows_use_restore_owner(self):
         # This establishes wiring, separately from the executed writer test.
-        required = {"hold-shortcuts", "jarvis-keys", "sound", "network", "vpn"}
+        required = {"jarvis-keys", "sound", "network", "vpn"}
         consumers = set()
         for name in required:
             path = REPO / "scripts/smoke/rows" / (name + ".sh")

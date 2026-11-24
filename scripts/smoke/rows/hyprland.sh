@@ -22,7 +22,7 @@
 # Hyprland v0.56.2 reads no layer rule back, so the rows hold the layer rules
 # through the written file and an empty configerrors, where Hyprland lists a
 # field it refuses.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell-hypr-judge bin/vgshell shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Theme.qml shell/Commons/ThemeSource.qml shell/Core/Config.qml scripts/smoke/fixtures/appearance-edit.py bin/vgshell-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh
+# inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell-hypr-judge bin/vgshell shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Theme.qml shell/Commons/ThemeSource.qml shell/Core/Config.qml scripts/smoke/fixtures/appearance-edit.py bin/vgshell-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"

@@ -13,7 +13,7 @@
 # request before it, and the harness's own Lua read agrees with it once.
 # A shim that holds each dispatch for a second shows that a read asked in
 # the lock's own turn waits for it.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/Capabilities.qml scripts/smoke/toplevel/*
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "compositor-dispatchers: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
