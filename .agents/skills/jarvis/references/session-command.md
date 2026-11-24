@@ -12,10 +12,11 @@ Read by section, only for the step that needs it: [Session command](#session-com
 - Before the first Start with Copilot CLI, follow [Copilot folder trust](home-layout.md#copilot-folder-trust) unless the home's `JARVIS_UNATTENDED_HARNESSES` names `copilot`.
 - Before the first Start with Claude Code in a home whose `JARVIS_UNATTENDED_HARNESSES` names `claude`, follow [Claude Code bypass consent](home-layout.md#claude-code-bypass-consent).
 - `JARVIS_UNATTENDED_HARNESSES`, in the home's `kendex.settings.toml` `[env]`, lists comma-separated the start harnesses whose managed session runs with nobody at its pane.
-  - The setting is read only when `jarvis-session start` builds a fresh launch. That launch gives each named harness the full-bypass permission words orch writes for overseers: `--dangerously-skip-permissions` on Claude Code, `--dangerously-bypass-approvals-and-sandbox` on Codex and `--allow-all` on Copilot CLI. Every other start keeps the recorded posture.
+  - The setting is read only when `jarvis-session start` builds a fresh launch or hands an adopted session over. That launch gives each named harness the full-bypass permission words orch writes for overseers: `--dangerously-skip-permissions` on Claude Code, `--dangerously-bypass-approvals-and-sandbox` on Codex and `--allow-all` on Copilot CLI. Every other start keeps the recorded posture.
   - Pi has no such word.
-  - Until KEN-5553, an adopted start, one with `--adopt-pane`, records no posture: its successor takes `AGENT_RUNTIME_LAUNCH_PERMISSION`, `bypass` when unset.
-  - Succession does not read the setting. A successor carries its predecessor's recorded posture.
+  - An adopted start, one with `--adopt-pane`, records the posture the adopted session was started under, read from its own launch words. Where those cannot be read, as on a host with no `/proc`, it keeps the posture already recorded for that same pane and process where that record names one, and records the harness's native defaults otherwise.
+  - Its successor launches under that posture, or under the full bypass where the setting names its harness. A `succeed` retry carries the adopted session's recorded posture.
+  - Succession does not read the setting. A `succeed` successor carries its predecessor's recorded posture.
   - After a bypass start, a successor on another harness launches under the full bypass. After a native start, succession's walk over `AGENT_RUNTIME_CONTROLLER_PREFERENCE` skips every entry of another harness.
   - After a bypass start, per-account setup, such as Claude Code bypass consent, applies to every account that preference's harnesses can pick.
   - The [settings example](../kendex.settings.toml.example) states its empty default.
@@ -71,6 +72,14 @@ Read by section, only for the step that needs it: [Session command](#session-com
   - `MODEL` accepts the model class or native model spelling; Pi uses its provider/model spelling.
   - Add `--effort LEVEL` unless high is the intended effort.
   - The lane selector chooses the account. Add `--account DIR` to ask that selector about a named account.
+  - A Pi model naming a provider no reader measures, such as an `openai/` model paid by its API key, takes `--account` naming the Pi root that holds the key.
+    - The key counts only where the root holds it: a key exported in the caller's environment never reaches the task window.
+    - The launch starts where `pi auth check` reads the key ready, and the task record's `reading` is `unmeasured`; on a measured account it is `measured`.
+    - The check reads the names `environment()` keeps for a task window, which hold no provider key, at the values the `task launch` process holds.
+    - The task window takes the values its tmux server held when the server started.
+    - Launched from the managed Jarvis session, which runs inside that server, the check's values match the window's.
+    - Launched from elsewhere, the values can differ, so a `!command` key that reads a kept name, such as the agent socket or the display, can resolve differently in the check than in the window. This gap is declined with its reasons in https://github.com/vanillagreencom/kendex/pull/6890#issuecomment-7123905390.
+    - Without the key it refuses `account-unmeasured`, and the printed record's `refusal` carries `cause` `provider-key` with Pi's `status` and `reason`.
 - Add `--short` for a task of a few minutes when every account of the harness is past the launch limit.
   - The selector then accepts an account with room left up to its wall (`agent-runtime accounts pick --max-pct 100`).
   - The projected wall still applies.
