@@ -1,8 +1,8 @@
 # Dependency inventory
 
-The dep-radar sweep reads this file: one row per pinned surface, as [sweep.md § Phase 0](../../.agents/skills/dep-radar/workflows/sweep.md#phase-0-inventory) sets out. Rule keys in the owner rules are the dep-radar [operating policy](../../.agents/skills/dep-radar/SKILL.md#operating-policy-the-contract-with-the-product-owner)'s.
+The dep-radar sweep reads this file: one row per pinned surface, as the dep-radar package's sweep sets out. Rule keys in the owner rules come from the dep-radar package's operating policy.
 
-The overseer starts the reading: once a day it runs each row's upstream check, by the dependency pin check in [orch § Project Instructions](../../.agents/skills/orch/SKILL.md#project-instructions), whose source is `kendex.toml` `[skill-instructions].orch`.
+The overseer starts the reading: once a day it runs each row's upstream check, by the dependency pin check in the orch package's project instructions, whose source is `kendex.toml` `[skill-instructions].orch`.
 
 This inventory holds the kendex release pin and the Quickshell engine pin. A later sweep adds the repository's other pinned surfaces under Phase 0's every-run rule, each with its upstream check.
 

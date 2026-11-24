@@ -12,7 +12,7 @@ A Hyprland desktop shell built on Quickshell 0.3.1. A small fixed core starts th
 
 - No shim, fallback, alias or compatibility path. Follow [D107](docs/decisions/D107-format-change-ships-its-migration.md) for automatic in-place migrations; keep no old-form reader.
 - Work targets `main`. PRs are optional and may merge immediately; direct pushes are welcome. There is no branch protection, merge queue or commit/push gate. Nightly validation reports only. Do not arm Kendex guards or wait for absent CI.
-- Follow the VGS risk-based review and screenshot policy in the [orch skill's Project Instructions](.agents/skills/orch/SKILL.md#project-instructions). The lane's done line names which applied and why.
+- Follow the VGS risk-based review and screenshot policy in the orch package's project instructions. The lane's done line names which applied and why.
 - Request no bot review. Keep `REVIEW_GATE_MODE` in `kendex.settings.toml` at `off`.
 - For validate-once, fix-round selection, result reuse and independent landings, follow [validation.md § Selection](docs/architecture/validation.md#selection) and [D100](docs/decisions/D100-validation-selects-by-inputs.md). Shared workflow gate requirements do not apply here.
 - Kill only a PID you started or whose `/proc` cwd is in your worktree. Follow [runtime.md § Process](docs/architecture/runtime.md#process) for live-session safety.

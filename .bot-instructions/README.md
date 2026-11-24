@@ -20,4 +20,4 @@ Copilot content exclusions and organization runner settings require administrato
 
 `coderabbit-schema.json` comes from [CodeRabbit's published schema](https://coderabbit.ai/integrations/schema.v2.json). Retrieval and JSON parsing succeeded. The disabled CodeRabbit capability renders no vendor file, so its configuration validation has no input.
 
-Use the [installed checklist](../.agents/skills/bot-instructions/references/checklist.md) before enabling another capability. The package cannot preserve the old CodeRabbit chat restrictions, tracker integrations or tool switches through its manifest. Resolve that upstream before enabling CodeRabbit.
+Use the bot-instructions package's checklist before enabling another capability. The package cannot preserve the old CodeRabbit chat restrictions, tracker integrations or tool switches through its manifest. Resolve that upstream before enabling CodeRabbit.
