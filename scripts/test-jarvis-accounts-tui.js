@@ -316,6 +316,7 @@ if(outcome==="failure-signed-in") process.exit(7);
     // before any sign-in and the model a signed-in setup lists into
     // PI_CODING_AGENT_DIR. Its RPC runs answer from pi-stub.js, each with a
     // state folder of its own whose scenario lists that folder's models.
+    // loads: scripts/fixtures/jarvis-pi/recorded.ndjson scripts/fixtures/jarvis-pi/pi-stub.js -- the generated Pi stand-in copies the recording and runs the stub
     const piRecorded = path.join(tree, "scripts/fixtures/jarvis-pi/recorded.ndjson");
     fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/pi"), `#!/usr/bin/env node
 const fs=require("node:fs"), path=require("node:path");

@@ -16,6 +16,7 @@
 // of 262,144 entries is not exercised: reaching it takes that many files.
 // Its URL prefix is not observable through a caller, since slack-emoji.js
 // matches every URL it is handed against its own rule.
+// loads: shell/plugins/vgs.notifications/* -- the controls copy the plugin files they list
 "use strict";
 
 const assert = require("node:assert/strict");

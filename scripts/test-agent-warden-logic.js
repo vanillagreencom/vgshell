@@ -9,6 +9,7 @@
 //
 // The controls at the end edit a copy of the logic, one rule at a time,
 // and require this suite to fail on each copy.
+// loads: scripts/smoke/fixtures/agent-warden/* -- the cases name their status fixtures
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

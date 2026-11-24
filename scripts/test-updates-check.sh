@@ -2,6 +2,7 @@
 # Controls for vgs.updates/bin/check: required argv, concurrent probes, the
 # lock's place beside the review root it never makes, and signal cleanup of
 # probe process groups.
+# loads: shell/plugins/vgs.updates/* -- the world links the plugin files it lists
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 check="$repo/shell/plugins/vgs.updates/bin/check"

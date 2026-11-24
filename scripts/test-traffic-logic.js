@@ -2,6 +2,7 @@
 // Production TrafficLogic over kernel text fixtures. Controls mutate a
 // source copy in a fresh VM; each must break its own contract assertion.
 // inputs: shell/plugins/vgs.traffic/TrafficLogic.js scripts/fixtures/traffic/* bin/lib/qml-library.js
+// loads: scripts/fixtures/traffic/* -- the cases name their fixtures
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

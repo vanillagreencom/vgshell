@@ -54,6 +54,7 @@ cases=(
 check_cases() { # LIB
   (
     # shellcheck source=../bin/lib/ipc-reply.sh
+    # loads: bin/lib/ipc-reply.sh -- the case sources the reply judge or a disposable copy of it
     source "$1" || { echo "load-failed: $1"; exit 3; }
     declare -F vgs_ipc_reply_failure >/dev/null || { echo "no-judge: $1"; exit 3; }
     bad=0
@@ -137,6 +138,7 @@ detect_cases=(
 check_detect() { # LIB
   (
     # shellcheck source=../bin/lib/ipc-reply.sh
+    # loads: bin/lib/ipc-reply.sh -- the case sources the reply judge or a disposable copy of it
     source "$1" || { echo "load-failed: $1"; exit 3; }
     declare -F vgs_ipc_paged_id >/dev/null || { echo "no-detector: $1"; exit 3; }
     bad=0
@@ -211,6 +213,7 @@ page_cases=(
 check_pages() { # LIB
   (
     # shellcheck source=../bin/lib/ipc-reply.sh
+    # loads: bin/lib/ipc-reply.sh -- the case sources the reply judge or a disposable copy of it
     source "$1" || { echo "load-failed: $1"; exit 3; }
     declare -F vgs_ipc_pages >/dev/null || { echo "no-page-loop: $1"; exit 3; }
     bad=0
@@ -271,6 +274,7 @@ last_cases=(
 check_last() { # LIB
   (
     # shellcheck source=../bin/lib/ipc-reply.sh
+    # loads: bin/lib/ipc-reply.sh -- the case sources the reply judge or a disposable copy of it
     source "$1" || { echo "load-failed: $1"; exit 3; }
     declare -F vgs_ipc_last_line_into >/dev/null || { echo "no-reader: $1"; exit 3; }
     bad=0
@@ -309,6 +313,7 @@ last_bound_s=3
 # last_bound_s, 124 when the bound ended it, 1 for a wrong answer.
 big_last() { # LIB
   timeout "$last_bound_s" bash -c '
+    # loads: bin/lib/ipc-reply.sh -- the case sources the reply judge or a disposable copy of it
     source "$1" || exit 3
     printf -v big "%262144s" ""
     vgs_ipc_last_line_into "$big"

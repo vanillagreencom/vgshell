@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: shell/* -- the check reads every shell source it finds there
 """Refuse smoke edit needles that overlap QML/JavaScript comments.
 
 Usage: check-smoke-needles.py [--unresolved-inputs] [ROOT]
@@ -439,6 +440,7 @@ def main():
     count = 0
     unresolved = set()
     try:
+        # loads: scripts/smoke/rows/*.sh -- every row file
         rows = sorted((root / 'scripts/smoke/rows').glob('*.sh'))
         if not rows and not dependencies:
             raise Unreadable('no-smoke-rows')
@@ -471,6 +473,7 @@ def main():
             if row.sites - row.covered:
                 missing = sorted(row.text.count('\n', 0, offset) + 1 for offset in row.sites - row.covered)
                 raise Unreadable(f'{path}: edit-calls-unresolved lines={missing}')
+        # loads: scripts/smoke/harness.sh scripts/smoke/tree.sh -- the shared harness and tree helper the loop names
         for path in [*rows, *(root / 'scripts/smoke' / name for name in ('harness.sh', 'tree.sh') if (root / 'scripts/smoke' / name).exists())]:
             row = Row(path)
             producer = str(path.relative_to(root))

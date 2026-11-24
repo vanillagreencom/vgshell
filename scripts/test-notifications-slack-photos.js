@@ -10,6 +10,7 @@
 // not own, no token reaches argv,
 // a file or a log line, and without --photos, the Slack photos extra off,
 // no token is looked up, Slack is asked nothing and the photos are swept.
+// loads: shell/plugins/vgs.notifications/* -- the controls copy the plugin files they list
 "use strict";
 
 const assert = require("node:assert/strict");

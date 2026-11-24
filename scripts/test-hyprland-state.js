@@ -6,6 +6,7 @@
 //
 // The controls at the end edit a copy of the file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
+// loads: shell/Core/* -- the world links the core files it lists
 "use strict";
 const fs = require("fs");
 const path = require("path");

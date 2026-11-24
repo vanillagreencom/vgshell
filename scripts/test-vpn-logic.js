@@ -11,6 +11,7 @@
 // ends in No valid secrets with no warning line. Every name, address, key,
 // path and password is a stand-in. Every control changes production
 // behavior and must redden this suite.
+// loads: scripts/fixtures/vpn/* -- the cases name their fixtures
 "use strict";
 const fs = require("fs");
 const os = require("os");

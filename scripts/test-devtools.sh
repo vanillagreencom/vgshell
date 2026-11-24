@@ -18,6 +18,7 @@
 #
 # Controls run a row against a copy of the plugin with one rule removed
 # from the engine or CatalogLogic.js, and that row must fail.
+# loads: shell/plugins/vgs.devtools/* -- the cases run the plugin scripts they name
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"

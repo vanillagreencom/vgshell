@@ -80,6 +80,7 @@ try {
     fs.mkdirSync(path.join(controlRoot, "bin/lib"), { recursive: true });
     fs.mkdirSync(path.join(controlRoot, "shell/Core"), { recursive: true });
     for (const relative of ["bin/lib/qml-library.js", "bin/lib/judge-files.js", "shell/Core/MonitorLogic.js"])
+        // loads: bin/lib/* bin/lib/judge-files.js bin/lib/qml-library.js shell/Core/* shell/Core/MonitorLogic.js -- the controls copy the files they list
         fs.copyFileSync(path.join(repo, relative), path.join(controlRoot, relative));
     const source = fs.readFileSync(file, "utf8");
     const directoryDeclaration = 'const DIRECTORY = "/var/lib/vgshell/greeter/theme/vgshell";';

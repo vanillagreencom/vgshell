@@ -15,6 +15,7 @@
 #
 # The controls at the end edit a copy of a script, one rule at a time, and
 # require a case to fail on each copy.
+# loads: shell/plugins/vgs.agent-debug/tui/* -- the cases run each TUI script they list
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

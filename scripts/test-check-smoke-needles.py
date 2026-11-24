@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: scripts/check-smoke-needles.py scripts/qml_source.py scripts/shell_source.py shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js scripts/smoke/rows/stay-awake.sh -- the controls run the check and copy the core files they list into a disposable tree
 """Exercise the production needle reader on disposable smoke rows and sources.
 
 The planted comment needles are must-fail controls, including values assembled
@@ -67,6 +68,7 @@ class SmokeNeedles(unittest.TestCase):
                 for name in ('shell/Hosts/OverlaySurface.qml', 'shell/Ui/feedback/VoiceOrb.qml'):
                     path = root / name
                     path.parent.mkdir(parents=True, exist_ok=True)
+                    # loads: scripts/smoke/harness.sh scripts/smoke/rows/* shell/Hosts/OverlaySurface.qml shell/Ui/feedback/VoiceOrb.qml -- the controls copy the files they list
                     shutil.copyfile(repo / name, path)
                 path = root / 'shell/Hosts/OverlaySurface.qml'
                 if quote:

@@ -181,7 +181,9 @@ run_world() {
     # Exercise the real session spawn. The exit trap reaps it before the
     # outer case reads the stub record. Only controls use the bypass.
     pgids=()
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$3"
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$4"
     unguarded_display_spawn() {
       local log="$1"; shift
@@ -228,10 +230,13 @@ run_world() {
     read -r -a shell_env <<<"$CASE_WORDS"
     source "$UNITS/greeter-env.sh"
     source "$UNITS/share-env.sh"
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$1"
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$5"
     write_display_client
     eval "$CASE_PREP"
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$2"
     eval "$CASE_CALL"' _ "$2" "$3" "$units/spawn.sh" "$units/spawn-display.sh" "$units/display-client.sh" </dev/null >"$dir/output" 2>&1 || status=$?
   printf '%s\n' "$status"
@@ -424,6 +429,7 @@ fi
 # nested_input_check. Each runs with the host-socket
 # shell_env below.
 host_words="env -i PATH=@bin XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1"
+# loads: scripts/smoke/harness.sh scripts/smoke/rows/start.sh scripts/smoke/rows/instance-guard.sh scripts/smoke/rows/plugin-pages.sh scripts/smoke/rows/greeter.sh scripts/smoke/rows/share-picker.sh scripts/smoke/rows/capture.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh scripts/shader/measure-scene.sh scripts/smoke/rows/scratchpads.sh scripts/smoke/rows/lock.sh scripts/smoke/app-window.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/leak-check.sh scripts/smoke/rows/traffic.sh scripts/smoke/rows/tui.sh scripts/smoke/rows/webapps.sh scripts/smoke/rows/jarvis-desktop.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/reset.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar-controls.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh -- the cases read each file the table lists and run what they extract
 helpers=(
 
   'shell runner|scripts/smoke/harness.sh|fn:start_shell|spawn_display|start_shell @sandbox @sandbox/shell.log no-bar|@sandbox/bin/vgshell|nonzero|spawn_display'

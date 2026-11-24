@@ -67,6 +67,7 @@ function rpmPackage(target, floor = engine.PACKAGE_FLOORS.dnf) {
 function world(name) {
     const root = path.join(tmp, name), tools = path.join(root, "tools");
     fs.mkdirSync(tools, { recursive: true });
+    // loads: VERSION bin/lib/engine.js bin/lib/judge-files.js flake.lock flake.nix packaging/fedora/copr-project -- the controls copy the files they list
     for (const file of ["bin/lib/engine.js", "bin/lib/judge-files.js", "VERSION", "flake.nix", "flake.lock", "packaging/fedora/copr-project", ...new Set(patches)]) write(path.join(root, file), fs.readFileSync(path.join(repo, file)));
     const responses = {
         [aur]: record({ version: 5, type: "multiinfo", resultcount: 1, results: [{ Name: "vgshell-quickshell", Version: engine.PACKAGE_FLOORS.pacman }] }),
@@ -74,6 +75,7 @@ function world(name) {
         [assetList]: record(assets()),
         [api + "commits/main"]: record({ sha }),
     };
+    // loads: VERSION bin/lib/engine.js bin/lib/judge-files.js flake.lock flake.nix packaging/fedora/copr-project -- the case reads the files it lists
     for (const file of ["flake.nix", "flake.lock", ...new Set(patches)]) responses[`${api}contents/${file}?ref=${sha}`] = record(sourceFile(fs.readFileSync(path.join(repo, file))));
     for (const asset of assets()) responses[asset.browser_download_url] = record("");
     targets.forEach(target => rpmRecords(responses, target, [rpmPackage(target)]));
@@ -115,6 +117,7 @@ function run(world, args, checker = path.join(repo, "scripts/check-packaging.js"
 }
 function runSelected(world) {
     for (const file of ["scripts/check-packaging.js", "scripts/preflight-floor.js", "scripts/lib/engine-availability.js", "scripts/smoke/gpu-fence.sh", "scripts/smoke/reap.sh", "scripts/smoke/row-inputs.sh"])
+        // loads: scripts/check-packaging.js scripts/lib/engine-availability.js scripts/preflight-floor.js scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/row-inputs.sh scripts/validate -- the controls copy the files they list
         write(path.join(world.root, file), fs.readFileSync(path.join(repo, file)), fs.statSync(path.join(repo, file)).mode);
     const source = fs.readFileSync(path.join(repo, "scripts/validate"), "utf8");
     const rows = source.split("\n").filter(line => line.startsWith('  "cli|engine publication availability|'));
@@ -211,6 +214,7 @@ for (const [name, old] of [["explicit-current", false], ["explicit-old", true]])
 if (only) { assert.equal(matched, true, "unknown case: " + only); process.exit(0); }
 // Removing the new instrument's refusal must make its own refusing case red.
 const control = path.join(tmp, "control");
+// loads: scripts/check-packaging.js scripts/lib/engine-availability.js scripts/preflight-floor.js -- the controls copy the files they list
 for (const file of ["scripts/check-packaging.js", "scripts/preflight-floor.js", "scripts/lib/engine-availability.js"]) write(path.join(control, file), fs.readFileSync(path.join(repo, file)));
 const instrument = path.join(control, "scripts/lib/engine-availability.js");
 const before = fs.readFileSync(instrument, "utf8"), needle = 'throw outcome("refuse", channel, need, reason, step);';

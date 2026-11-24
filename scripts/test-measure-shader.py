@@ -764,6 +764,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         if readings is not None:
             (scripts / "shader/readings.py").write_text(readings)
         for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/Ui/foundation/shaders/glasslens.frag", "shell/plugins/vgs.voice/shaders/plasma.frag"):
+            # loads: scripts/check-voiceorb-shader.py scripts/shader/Scene.qml scripts/shader/measure-scene.sh scripts/shader/readings.py shell/Ui/feedback/shaders/radialbackdrop.frag shell/Ui/feedback/shaders/voiceorb.frag shell/Ui/foundation/shaders/glasslens.frag shell/plugins/vgs.jarvis/shaders/* shell/plugins/vgs.voice/shaders/plasma.frag -- the controls copy the files they list
             shutil.copyfile(ROOT.parent / shader, root / shader)
         for source in (*(JARVIS / "shaders").glob("*.frag"), JARVIS / "shaders/orb.glsl"):
             shutil.copyfile(source, root / "shell/plugins/vgs.jarvis/shaders" / source.name)
@@ -1290,6 +1291,7 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
             for shader, source, seed in rows:
                 with self.subTest(shader=shader):
                     costly = (root / f"home/sandbox/costly-{shader}.frag").read_text()
+                    # loads: shell/Ui/feedback/shaders/radialbackdrop.frag shell/Ui/foundation/shaders/glasslens.frag shell/plugins/vgs.jarvis/shaders/* shell/plugins/vgs.voice/shaders/plasma.frag -- the case reads the files it lists
                     original = (ROOT.parent / source).read_text()
                     self.assertIn(seed, costly)
                     self.assertIn("for (int i = 0; i < 256; ++i)", costly)

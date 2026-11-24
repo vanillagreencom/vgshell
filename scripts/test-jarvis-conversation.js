@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Pure conversation log contract for the Jarvis console. No daemon runs.
+// loads: shell/plugins/vgs.jarvis/* -- the controls copy the plugin files they list
 "use strict";
 const assert = require("node:assert");
 const fs = require("node:fs");

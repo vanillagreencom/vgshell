@@ -716,6 +716,7 @@ PY
     local status=0 out
     out="$(timeout -k 2 "$2" env -i PATH="$PATH" HOME="$take_dir" TMPDIR="$take_dir" LC_ALL=C "$BASH" -c '
       set -u
+      # loads: scripts/qml-smoke.sh scripts/smoke/harness.sh -- the case sources functions it extracts from the runner and the harness
       source "$1"
       sandbox=$2 smoke_hold_dir=$2/locks qml_smoke_idle_secs=20
       status=0

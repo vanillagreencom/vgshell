@@ -161,6 +161,7 @@ function verifyServiceRow(logic) {
     // systemUnknown reasons of the core's SystemSteps owner.
     const system = fs.readFileSync(path.join(__dirname, "..", "bin", "vgshell-system"), "utf8");
     const body = name => { const found = system.match(new RegExp("^" + name + "\\(\\) \\{[\\s\\S]*?^\\}", "m")); assert.notEqual(found, null, "bin/vgshell-system defines " + name); return found[0]; };
+    // loads: bin/vgshell-system shell/Core/PluginLogic.js shell/Core/SystemSteps.qml -- the case reads the files it lists
     const core = ["shell/Core/PluginLogic.js", "shell/Core/SystemSteps.qml"].map(rel => fs.readFileSync(path.join(__dirname, "..", rel), "utf8")).join("\n");
     const reasons = new Set([
         ...[...body("probe_service").matchAll(/set_probe unknown ([a-z-]+)/g)].map(m => m[1]),

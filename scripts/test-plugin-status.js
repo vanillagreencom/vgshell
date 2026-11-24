@@ -6,6 +6,7 @@
 // is validateManifest's and scripts/test-plugin-logic.js pins it. The
 // controls at the end edit a copy of the judge, one rule at a time, and the
 // suite must fail on every copy. Exit 1 when any row or control fails.
+// loads: shell/plugins/vgs.jarvis/* -- the cases read the plugin files they list
 "use strict";
 const fs = require("fs");
 const os = require("node:os");

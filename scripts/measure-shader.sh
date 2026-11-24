@@ -43,6 +43,7 @@
 # device, unread or loaded window as judged above, or sandbox fault.
 # Exit 1: missing samples, failed scene, ceiling exceeded, or accepted control.
 # The result names the machine, UTC date, backend, GPU, and separate readings.
+# loads: shell/costly-*.frag.qsb -- the measurement compiles the shader the caller names
 set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")" || exit 1
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)" || exit 1

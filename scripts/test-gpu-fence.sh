@@ -62,6 +62,7 @@
 # bubblewrap cannot make a namespace here, since the namespace cases then
 # measured nothing:
 #   test-gpu-fence: status=not-measured missing=bwrap-namespace
+# loads: scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh -- the entry cases run each runner entry_points lists
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -1758,7 +1759,9 @@ goes_on() {
   [[ "$(<"$TMP_ROOT/fence.log")" == check ]]
 }
 for name in "${entry_points[@]}"; do
+  # loads: scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh -- each runner entry_points lists
   if enters "$repo/scripts/$name" "$name"; then ok "$name hands itself and its arguments to the fence before it makes anything"; else fail "$name hands itself and its arguments to the fence before it makes anything"; show; sed 's/^/        /' -- "$TMP_ROOT/fence.log"; fi
+  # loads: scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh -- each runner entry_points lists
   if goes_on "$repo/scripts/$name" "$name"; then ok "$name goes on by itself where the check passes"; else fail "$name goes on by itself where the check passes"; sed 's/^/        /' -- "$TMP_ROOT/fence.log"; fi
   mutant="$TMP_ROOT/mutant-$name"
   entry_test='--check || exec ' skip_entry='--check || : ' force_entry='--check; exec '
@@ -1767,8 +1770,10 @@ for name in "${entry_points[@]}"; do
     skip_entry='if false; then'
     force_entry='if true; then'
   fi
+  # loads: scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh -- each runner entry_points lists
   if ! mutate "$repo/scripts/$name" "$entry_test" "$skip_entry" "$mutant"; then fail "control: $name without its fence line"; continue; fi
   if enters "$mutant" "$name"; then fail "control: $name that never enters the fence stayed green"; else ok "control: $name that never enters the fence"; fi
+  # loads: scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh -- each runner entry_points lists
   if ! mutate "$repo/scripts/$name" "$entry_test" "$force_entry" "$mutant"; then fail "control: $name that always enters"; continue; fi
   if goes_on "$mutant" "$name"; then fail "control: $name that always enters the fence stayed green"; else ok "control: $name that always enters the fence"; fi
 done

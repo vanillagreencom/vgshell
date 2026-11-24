@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: scripts/smoke/rows/* -- the check reads every row file it lists
 """Enforce the smoke reader rule docs/architecture/validation.md
 § Nested sandbox states.
 

@@ -90,6 +90,7 @@ function verifyUserReadability(check, root, verb) {
         fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
         fs.mkdirSync(path.join(tree, "themes"));
         for (const dir of ["shell", "config", "bin/lib", "themes/vgs"])
+            // loads: bin/lib/* themes/* -- the world links the checkout folders it lists
             fs.symlinkSync(path.join(repo, dir), path.join(tree, dir));
         const check = path.join(tree, "bin", "vgshell-theme-judge");
         const source = fs.readFileSync(path.join(repo, "bin", "vgshell-theme-judge"), "utf8");
@@ -242,6 +243,7 @@ function judgeCopy(dir, needle, replacement) {
     const source = fs.readFileSync(CHECK, "utf8");
     assert.equal(source.split(needle).length, 2, `control needle must occur once: ${needle}`);
     fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
+    // loads: bin/lib/* scripts/smoke/harness.sh scripts/validate scripts/vgshell-rows.sh scripts/theme-preview-wallpaper.js shell/* themes/* -- the world links the checkout folders it lists, and the judge reads these files of scripts/
     for (const link of ["bin/lib", "scripts", "shell", "themes"]) fs.symlinkSync(path.join(repo, link), path.join(dir, link));
     const copy = path.join(dir, "bin", "vgshell-theme-judge");
     fs.writeFileSync(copy, source.replace(needle, () => replacement));
@@ -277,6 +279,7 @@ const CATALOG_CONTROLS = [
 function applyRows(root, mutation) {
     const tree = path.join(root, "tree");
     fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
+    // loads: bin/lib/* shell/* config/* -- the world links the checkout folders it lists
     for (const link of ["bin/lib", "shell", "config"]) fs.symlinkSync(path.join(repo, link), path.join(tree, link));
     let source = fs.readFileSync(CHECK, "utf8");
     if (mutation !== undefined) {

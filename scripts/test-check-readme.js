@@ -40,6 +40,7 @@ for (const dir of plugins) {
 }
 for (const rel of files) {
     fs.mkdirSync(path.dirname(path.join(pristine, rel)), { recursive: true });
+    // loads: README.md VERSION bin/vgshell docs/architecture/runtime.md install.sh packaging/arch/vgshell-git/PKGBUILD packaging/arch/vgshell/PKGBUILD packaging/fedora/copr-project packaging/fedora/vgshell-git.spec packaging/fedora/vgshell.spec shell/Core/PackageManagers.js shell/plugins/* -- the controls copy the files they list
     fs.copyFileSync(path.join(repo, rel), path.join(pristine, rel));
 }
 
@@ -349,6 +350,7 @@ for (const [name, old, replacement, setup, reason] of [
     setup(tree);
     for (const rel of ["scripts/check-readme.js", "bin/lib/qml-library.js", "bin/vgshell-scan", "bin/lib/dbus_wire.py"]) {
         fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
+        // loads: README.md bin/lib/dbus_wire.py bin/lib/qml-library.js bin/vgshell-scan scripts/check-readme.js -- the controls copy the files they list
         fs.copyFileSync(path.join(repo, rel), path.join(tree, rel));
     }
     replaceIn(tree, "scripts/check-readme.js", old, replacement);

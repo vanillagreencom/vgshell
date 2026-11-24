@@ -213,6 +213,7 @@
 # cpu_some_pct 33.7 (130 ms), is unmeasured. The inbox default is twice the
 # highest reading of the summoned-panel image-count reader on the same
 # machine on 2026-10-01, at load average 5.58 to 8.80: 651 to 688 ms.
+# loads: scripts/smoke/rows/*.sh -- the row list names the rows it reads
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

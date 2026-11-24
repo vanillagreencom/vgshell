@@ -7,6 +7,7 @@
 // and require this suite to fail on each copy.
 // Inputs also include themes/vgs/* and themes/catalog/*: application
 // colours are rendered from every shipped and catalog package below.
+// loads: themes/* -- the cases read the theme packages and targets they name
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

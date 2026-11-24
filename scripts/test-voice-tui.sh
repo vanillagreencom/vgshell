@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# loads: shell/plugins/vgs.voice/tui/*.sh -- the cases run each screen they list
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

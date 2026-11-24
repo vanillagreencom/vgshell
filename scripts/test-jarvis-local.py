@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: shell/plugins/vgs.jarvis/fixtures/* -- the controls copy the fixtures they list
 """Consumer contract controls, not model feasibility or speech quality.
 
 All child processes run in the shared Jarvis world. Neutral local bytes test

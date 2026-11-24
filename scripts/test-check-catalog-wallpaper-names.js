@@ -36,6 +36,7 @@ function tree(edit) {
     const root = path.join(temp, "tree-" + trees++);
     for (const file of COPIED) {
         fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        // loads: scripts/check-catalog-wallpaper-names.js themes/* -- the controls copy the checker and the catalog they list
         fs.copyFileSync(path.join(repo, file), path.join(root, file));
     }
     if (edit !== undefined) fs.writeFileSync(path.join(root, edit[0]), edited(fs.readFileSync(path.join(root, edit[0]), "utf8"), edit));
@@ -157,6 +158,7 @@ function main() {
     for (const [index, edit] of CONTROLS.entries()) {
         // Checked outside the try, so an edit that no longer applies fails
         // the suite instead of passing as a control.
+        // loads: scripts/check-catalog-wallpaper-names.js themes/* -- the controls edit copies of the files they list
         edited(fs.readFileSync(path.join(repo, edit[0]), "utf8"), edit);
         let failed = false;
         try {

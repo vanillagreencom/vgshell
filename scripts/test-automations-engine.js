@@ -26,6 +26,7 @@
 //
 // The controls at the end edit a copy of the engine, one rule at a time,
 // and require the case that rule serves to fail on the copy.
+// loads: shell/plugins/vgs.automations/* -- the controls read the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");

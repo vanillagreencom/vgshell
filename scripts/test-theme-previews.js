@@ -45,6 +45,7 @@ function tree(...edits) {
     const root = path.join(temp, "tree-" + trees++);
     for (const file of COPIED) {
         fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        // loads: themes/vgs/* -- the controls copy the files they list
         fs.copyFileSync(path.join(repo, file), path.join(root, file));
     }
     for (const dir of ["themes/vgs", "themes/catalog/moor"]) {
@@ -167,6 +168,7 @@ function main() {
     for (const [index, [rows, edit]] of CONTROLS.entries()) {
         // Checked outside the try, so an edit that no longer applies fails
         // the suite instead of passing as a control.
+        // loads: scripts/theme-previews.sh -- the case reads the files it lists
         edited(fs.readFileSync(path.join(repo, edit[0]), "utf8"), edit);
         let failed = false;
         try {

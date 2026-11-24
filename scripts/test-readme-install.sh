@@ -51,6 +51,7 @@ for dir in "$repo"/shell/plugins/*/; do
 done
 for rel in "${files[@]}"; do
   mkdir -p -- "$tree/$(dirname -- "$rel")"
+  # loads: README.md VERSION bin/lib/dbus_wire.py bin/lib/qml-library.js bin/vgshell bin/vgshell-scan docs/architecture/runtime.md install.sh packaging/arch/vgshell-git/PKGBUILD packaging/arch/vgshell/PKGBUILD packaging/fedora/copr-project packaging/fedora/vgshell-git.spec packaging/fedora/vgshell.spec scripts/check-readme.js scripts/readme-install.sh shell/Core/PackageManagers.js shell/plugins/* -- the controls copy the files they list
   cp -p -- "$repo/$rel" "$tree/$rel"
 done
 python3 - "$tree/scripts/check-readme.js" <<'PY'

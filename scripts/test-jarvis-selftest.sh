@@ -1418,6 +1418,7 @@ else:
 PY
   selftest_node="$node_bin" bash -c '
     set -euo pipefail
+    # loads: scripts/jarvis-selftest.sh -- the case sources functions it extracts from the self-test
     source "$1"
     fixture_reply_file=$2 fixture_answer_file=$3
     trap '\''rm -f -- "$fixture_reply_file" "$fixture_answer_file"'\'' EXIT
@@ -2000,6 +2001,7 @@ leaked_children() {
   teardown_status=0
   { timeout -s KILL 10 "$BASH" -c '
 set -euo pipefail
+# loads: scripts/jarvis-selftest.sh -- the case sources functions it extracts from the self-test
 source "$1"
 tmp="$2" dir="$3" bus_pids=()
 trap teardown EXIT

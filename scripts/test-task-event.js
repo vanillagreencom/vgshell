@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Synthetic Tasks.js producer cases, 2026-09-30. Real flock is on J09's
 // explicit host-tool allow-list. No real agent, TUI, account or network.
+// loads: shell/plugins/vgs.jarvis/backend/* -- the controls copy the backend files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

@@ -162,6 +162,7 @@
 // bin/lib/theme-render.js, the background state bin/lib/theme-backgrounds.js,
 // and the edit a target's `select` keeps in its application's settings file
 // bin/lib/theme-select.js.
+// loads: themes/* -- the judge reads every theme package, catalog entry and target it lists
 "use strict";
 const crypto = require("crypto");
 const fs = require("fs");

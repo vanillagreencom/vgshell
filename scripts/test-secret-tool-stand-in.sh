@@ -82,6 +82,7 @@ install_stand_in() { # FUNCTIONS SHIM
     shim="$shim_dir"
     sentinel_stand_over() { cat >"$1" && chmod 755 "$1"; }
     # shellcheck disable=SC1090
+    # loads: scripts/smoke/*.sh -- the case sources functions it extracts from the harness helpers
     source "$functions"
     secret_tool_stand_in "slack:T0ACME absent"
   )

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: shell/plugins/vgs.jarvis/shaders/* -- the check reads the shader of each style the plugin declares
 """Compile each shipped shader's source with Qt qsb and compare its pack.
 
 qsb is a build/validation tool, not a runtime requirement. Find it on PATH

@@ -23,6 +23,7 @@
 //
 // Exit 0 when every label fits and the control fails, 1 otherwise, 77 when
 // scripts/qml-unit.sh could not run.
+// loads: shell/plugins/*/manifest.json shell/plugins/*/Service.qml -- the cases read each plugin's manifest and service
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");

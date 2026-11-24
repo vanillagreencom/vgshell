@@ -80,6 +80,7 @@ class Unreadable(Exception):
 
 def read(path):
     try:
+        # loads: docs/images/* shell/plugins/* -- the check reads each image a README links
         with open(os.path.join(ROOT, path), "rb") as handle:
             return handle.read()
     except OSError as error:
@@ -88,6 +89,7 @@ def read(path):
 
 def listdir(path):
     try:
+        # loads: docs/images/* shell/plugins/* -- the check lists the image folders the READMEs link
         return sorted(os.listdir(os.path.join(ROOT, path)))
     except OSError as error:
         raise Unreadable(path) from error

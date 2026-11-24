@@ -4,6 +4,7 @@
 // scripts/fixtures/jarvis/task-agent.py and tmux on a private -S socket, all
 // inside the J09 world. No vendor agent, account, terminal, network or live
 // session. Every signal targets a group this suite recorded, never a name.
+// loads: shell/plugins/vgs.jarvis/backend/* -- the controls read and run the backend files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

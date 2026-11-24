@@ -25,6 +25,7 @@
 // bold lines, must each fail the absent row. The judge's verb must
 // refuse a gum target without gum.env, planted in a copy of the themes
 // directory beside a copy of the judge.
+// loads: themes/* -- the cases read the theme packages and the gum target they name
 "use strict";
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");

@@ -10,6 +10,7 @@
 //
 // The controls at the end edit a copy of the logic, one rule at a time,
 // and require this suite to fail on each copy.
+// loads: shell/plugins/vgs.themes/* -- the controls copy the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -163,6 +164,7 @@ try {
             other: 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\n' }
     ];
     for (const name of ["bin", "shell/Commons", ...configurations.map(row => "themes/targets/" + row.name)])
+        // loads: shell/* config/* themes/* -- the controls copy the checkout folders they list
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
     const targets = new Map(configurations.map(row => [row.name,
@@ -291,6 +293,7 @@ try {
         fs.writeFileSync(path.join(tree, "themes/targets", row.name, "target.json"), JSON.stringify({ ...target, reload: null }));
         for (const command of target.detect) fs.writeFileSync(path.join(commands, command), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
     }
+    // loads: shell/Core/* config/* themes/vgs/* -- the controls copy the checkout folders they list
     for (const name of ["shell/Core", "config", "themes/vgs"]) fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     const light = JSON.parse(fs.readFileSync(path.join(setupRepo, "themes/catalog/flexoki-light/theme.json"), "utf8"));
     delete light.backgrounds;

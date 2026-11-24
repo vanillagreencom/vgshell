@@ -47,6 +47,7 @@
 # `arch-packages: status=not-measured reason=<key>`: podman-missing,
 # image-pull, container-start or container-setup (the system update or the
 # depends download failed); that is not a pass. Exit 2: an argument.
+# loads: packaging/arch/*/PKGBUILD packaging/arch/*/.SRCINFO packaging/arch/*/*.install -- each recipe the caller names is copied whole
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

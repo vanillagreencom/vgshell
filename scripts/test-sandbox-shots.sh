@@ -425,6 +425,7 @@ sed -n '/^at_centre() {/,/^}/p; /^click_in() {/,/^}/p' "$repo/scripts/smoke/harn
 click_case() {
   env -i PATH="$PATH" bash -c '
 set -euo pipefail
+# loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
 source "$1"
 ipc() { printf "%s\n" "[20, 30, 40, 20]"; }
 surface_box() { printf "%s\n" "[100, 200, 800, 600]"; }
@@ -454,6 +455,7 @@ bar_reveal_case() { # HELPER SIDE X BUTTON
   rm -f -- "$tmp/bar-clicks" "$tmp/bar-ready" "$tmp/bar-hovered" "$tmp/bar-target"
   env -i PATH="$tmp/bin:$PATH" T="$tmp" SIDE="$side" X="$x" "$BASH" -c '
 set -euo pipefail
+# loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
 source "$1"
 bar_key() { echo bar; }
 smoke_poll_tries() { smoke_poll_n=6; }
@@ -530,6 +532,7 @@ panel_case() { # HELPER
       status=0
       state="$(env -i PATH="$PATH" REPLY="$response" STATUS="$expected_status" "$BASH" -c '
 set -euo pipefail
+# loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
 source "$1"
 locked_id=vgs.tailscale
 ipc() { printf "%s\n" "$REPLY"; return "$STATUS"; }
@@ -562,6 +565,7 @@ sed -n '/^monitor_size() {/p; /^bar_settled_judge() {/,/^}/p' "$repo/scripts/smo
 size_case() {
   env -i PATH="$PATH" bash -c '
 set -euo pipefail
+# loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
 source "$1"
 py_reply() { python3 -c "$@"; }
 for scale in 1 2; do
@@ -2099,6 +2103,7 @@ PY
       fi
     }
     assert_geometry() {
+      # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
       python3 - "$@" <<PY
 import json, sys
 m, = json.load(open(sys.argv[1]))
@@ -2821,6 +2826,7 @@ harness_copy_case() { # LIB
   rm -rf -- "${dir:?}" "${target:?}"
   mkdir -p -- "$dir" "$target"
   out="$({
+    # loads: scripts/smoke/tree.sh -- the case sources the tree helper or a disposable copy of it
     source "$lib"
     tree_export "$helper_repo" "$product_rev" "$dir" || { echo "tree_export failed"; exit 1; }
     rm -- "$dir/README.md" "$dir/LICENSE"
@@ -2839,6 +2845,7 @@ harness_copy_case() { # LIB
     cmp -s -- "$helper_repo/packaging/jarvis-home/persona.md" "$target/packaging/jarvis-home/persona.md" || { echo "revision base package missing"; exit 1; }
     cmp -s -- "$helper_repo/VERSION" "$target/VERSION" || { echo "revision version missing"; exit 1; }
     for file in LICENSE README.md; do
+      # loads: README.md docs/* -- the case compares the checkout documentation it lists
       cmp -s -- "$repo/$file" "$target/$file" || { echo "checkout documentation missing: $file"; exit 1; }
     done
     echo ok
@@ -2956,6 +2963,7 @@ catalog_run() {
     mkdir -p -- "$home/.config/vgshell"
     expect_poll() { :; }
     theme_idle() { echo idle; }
+    # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
     source "$5"
     eval "$6"
   ' _ "$catalog_sandbox" "$catalog_repo" "$home" "$tmp/catalog-wallpaper.png" "$1" "$2"
@@ -3012,6 +3020,7 @@ observer_case() {
   cp -- "$repo/shell/Hosts/BackgroundHost.qml" "$target/shell/Hosts/BackgroundHost.qml" &&
   env -i PATH="/usr/bin:/bin" HOME="$tmp" "$BASH" -c '
     set -euo pipefail
+    # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
     source "$1"
     tree_smoke_observer "$2" "$3"
   ' _ "$tree_helper" "$repo" "$target" &&
@@ -3482,8 +3491,11 @@ power_scene_case() { # SCENE [WANT [TREE]]
   local want="${2:-$'power-dark-bar\npower-dark-panel\npower-dark-panel-charge-limit-off\npower-dark-panel-charge-limit-on\npower-dark-panel-charge-limit-refused\npower-dark-panel-charge-limit-unsupported\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery'}"
   env -i PATH="$PATH" tree="${3:-$power_tree}" "$BASH" -c '
     set -euo pipefail
+    # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
     source "$1"
+    # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
     source "$2"
+    # loads: scripts/sandbox-shots.sh scripts/smoke/*.sh -- the case sources functions it extracts from the shot runner and the harness
     source "$3"
     power_charge_battery=/org/freedesktop/UPower/devices/mock_BAT0
     expected_errors=()

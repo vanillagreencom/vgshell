@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: scripts/nested-slot.sh -- the controls read the slot script beside them
 """Exercise fleet admission with private load/cgroup files and a sleep barrier.
 
 No host load is generated and no real slot is taken. The copied production

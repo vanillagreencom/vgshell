@@ -65,6 +65,7 @@ PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
+# loads: scripts/smoke/harness.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh -- the case sources functions it extracts from the harness and its runners
 source "$2"
 # The extracted startup block reports elapsed setup of the whole harness.
 smoke_harness_started_us="${EPOCHREALTIME/./}"
@@ -352,6 +353,7 @@ scale_case() {
   got="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
+# loads: scripts/smoke/harness.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh -- the case sources functions it extracts from the harness and its runners
 source "$2"
 status=0
 out="$(whole_scale_mode "$3")" || status=$?
@@ -384,6 +386,7 @@ base_case() {
   got="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
+# loads: scripts/smoke/harness.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh -- the case sources functions it extracts from the harness and its runners
 source "$2"
 mode_scale_of() { printf "%s\n" "1755x933 scale=1.5"; }
 mode_hold=()
@@ -484,6 +487,7 @@ PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
+# loads: scripts/smoke/harness.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh -- the case sources functions it extracts from the harness and its runners
 source "$2"
 source "$3/operations.sh"
 stub_dir="$3" stub_phase="$4" stub_action="$5" stub_path="$6"
@@ -735,6 +739,7 @@ output_create_case() {
   dir="$(mktemp -d "$tmp/output.XXXXXX")" || return 1
   out="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
+# loads: scripts/smoke/harness.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh -- the case sources functions it extracts from the harness and its runners
 source "$1"
 stub_dir="$2"
 IFS="|" read -r label stub_reply plan want_status want_reads want_remove want_abort <<<"$3"

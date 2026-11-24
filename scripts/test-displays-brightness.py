@@ -1019,6 +1019,7 @@ class Controls(unittest.TestCase):
         for rel in ("scripts/smoke/fixtures/devices/hid-fake.py", "scripts/smoke/fixtures/devices/stand-in.py",
                     "scripts/smoke/fixtures/devices/hid-world.json"):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            # loads: scripts/smoke/fixtures/devices/hid-fake.py scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/stand-in.py scripts/test-displays-brightness.py shell/plugins/vgs.displays/helper/brightness.py -- the controls copy the files they list
             shutil.copy(REPO / rel, root / rel)
         shutil.copy(Path(__file__), root / "scripts/test-displays-brightness.py")
         copy = root / "shell/plugins/vgs.displays/helper/brightness.py"

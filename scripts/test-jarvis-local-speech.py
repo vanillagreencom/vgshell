@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: shell/plugins/vgs.jarvis/* -- the controls copy the plugin files they list
 """Local speech sidecar contract: captions, turn end, the end marker, wire, readiness.
 
 Voice activity, caption and voice doubles test the sidecar's own calls, not

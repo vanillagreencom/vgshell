@@ -8,6 +8,7 @@
 // read of a live tailnet gave; every name, address, key and account is
 // made up. Every mutation changes production behavior; the suite must
 // turn red on it.
+// loads: scripts/fixtures/tailscale/* -- the cases name their fixtures
 "use strict";
 const fs = require("fs");
 const os = require("os");

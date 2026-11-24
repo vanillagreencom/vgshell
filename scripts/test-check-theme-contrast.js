@@ -92,6 +92,7 @@ function copyCheck(copy) {
         "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js",
         "shell/plugins/vgs.jarvis/Appearance.js"]) {
         fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
+        // loads: bin/lib/qml-library.js scripts/check-theme-contrast.js shell/Commons/Glass.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.notifications/Appearance.js -- the controls copy the files they list
         fs.copyFileSync(path.join(repo, file), path.join(copy, file));
     }
 }

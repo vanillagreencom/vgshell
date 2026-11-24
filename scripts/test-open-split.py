@@ -67,6 +67,7 @@ class Instrument(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tree)
         for name in EDITED:
             (tree / name).parent.mkdir(parents=True, exist_ok=True)
+            # loads: shell/Core/* -- the controls copy the core files they list
             shutil.copyfile(ROOT / name, tree / name)
         return tree
 
@@ -74,6 +75,7 @@ class Instrument(unittest.TestCase):
         tree = self.copy()
         split.prepare(tree)
         for name in EDITED:
+            # loads: shell/Core/* -- the controls compare copies of the core files they list
             self.assertNotEqual((tree / name).read_text(), (ROOT / name).read_text(), name)
         plugins = (tree / "shell/Core/Plugins.qml").read_text()
         for event in ("attempt", "load", "loaded", "created", "attach", "attached", "built"):

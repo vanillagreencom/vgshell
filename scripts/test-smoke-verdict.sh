@@ -96,6 +96,7 @@ run_tally() {
   IFS='|' read -r label class hold state want_counts want_status want_word <<<"$2"
   out="$(env -i PATH="$PATH" bash -c '
 set -euo pipefail
+# loads: scripts/smoke/verdict.sh scripts/smoke/harness.sh -- the case sources functions it extracts from the verdict and the harness
 source "$1"
 stub_state="$4" asked_mark="$5.asked"
 held_mode_state() { : >"$asked_mark"; printf "%s\n" "$stub_state"; }
@@ -141,6 +142,7 @@ run_skip() {
   IFS='|' read -r label failed want_status want_line <<<"$2"
   out="$(env -i PATH="$PATH" bash -c '
 set -euo pipefail
+# loads: scripts/smoke/verdict.sh scripts/smoke/harness.sh -- the case sources functions it extracts from the verdict and the harness
 source "$1"
 not_measured device-fakes missing=python-dbusmock >/dev/null
 for ((i = 0; i < $2; i++)); do fail "a row" >/dev/null; done
@@ -171,6 +173,7 @@ run_count() {
   IFS='|' read -r label reply reader_status want <<<"$2"
   out="$(env -i PATH="$PATH" bash -c '
 set -euo pipefail
+# loads: scripts/smoke/verdict.sh scripts/smoke/harness.sh -- the case sources functions it extracts from the verdict and the harness
 source "$1"
 reader() { printf "%s\n" "$1"; return "$2"; }
 read_count presses "a reading" reader "$2" "$3" >/dev/null
@@ -215,6 +218,7 @@ out.write_text('\n'.join(parts)+'\n')
 PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
 set -euo pipefail
+# loads: scripts/smoke/verdict.sh scripts/smoke/harness.sh -- the case sources functions it extracts from the verdict and the harness
 source "$1"
 source "$2/scripts/smoke/mode-hold.sh"
 source "$3/operations.sh"

@@ -98,6 +98,7 @@
 # one failed, logged an unexpected line or could not load, 2 on a refusal,
 # 77 when no runner was found:
 #   qml-unit: status=not-measured missing=qmltestrunner
+# loads: scripts/qml-tests/stand-ins/* -- the runner copies every stand-in it lists
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"

@@ -21,6 +21,7 @@
 // reaches the actual Setup body: it proves that body declares no boxed
 // Button, not rendered behavior. Each control edits production source and
 // fails its named assertion.
+// loads: shell/Commons/* shell/Ui/* shell/Core/* -- the world links the shell folders and core files it lists
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -756,6 +757,7 @@ try {
     // stands in a tree of links to theirs.
     const core = path.join(temp, "shell", "Core");
     fs.mkdirSync(core, { recursive: true });
+    // loads: shell/Commons/* shell/Ui/* -- the world links the shell folders it lists
     for (const dir of ["Commons", "Ui"]) fs.symlinkSync(path.join(root, "shell", dir), path.join(temp, "shell", dir));
     for (const name of fs.readdirSync(path.join(root, "shell", "Core")).filter(name => name.endsWith(".js") && name !== "PluginLogic.js"))
         fs.symlinkSync(path.join(root, "shell", "Core", name), path.join(core, name));

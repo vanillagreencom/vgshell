@@ -30,6 +30,7 @@
 // ends, and SIGINT, SIGTERM or SIGHUP kills every server and removes the root
 // before exiting 128+signo. With no tmux or script on PATH the test exits 77,
 // not measured.
+// loads: themes/* -- the cases read the catalog themes and the tmux target they name
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, spawnSync } = require("node:child_process");

@@ -282,6 +282,7 @@ def build_repo(tmp, planted=None, theme=None, tokens=None, glass=None):
     root = os.path.join(tmp, "repo")
     for relative in SHIPPED:
         os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
+        # loads: scripts/check-design-tokens.py shell/* -- the controls copy the checker and the shell files they list
         shutil.copyfile(os.path.join(REPO, relative), os.path.join(root, relative))
     for tree in TREES:
         os.makedirs(os.path.join(root, tree), exist_ok=True)

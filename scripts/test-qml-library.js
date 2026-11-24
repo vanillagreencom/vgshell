@@ -8,6 +8,7 @@
 // runs the loader in a child node so the exit status is the one a caller
 // sees. Each mutation removes one rule from a copy of the loader and must
 // turn the named row red.
+// loads: shell/Core/* -- the cases load each core library they list
 "use strict";
 const fs = require("fs");
 const os = require("os");

@@ -43,4 +43,5 @@ def main(root):
 
 if __name__ == "__main__":
     root = pathlib.Path(sys.argv[1]) if len(sys.argv) == 2 else pathlib.Path(__file__).resolve().parent.parent
+    # loads: scripts/smoke/* scripts/qml-smoke.sh -- the check reads the harness and rows under the root it is given, the checkout by default
     sys.exit(main(root))

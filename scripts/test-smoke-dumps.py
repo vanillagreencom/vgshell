@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: scripts/smoke/* -- the controls run the smoke helpers they name
 """Control harness.sh IPC/page/poll transports, smoke_row timeout latching and
 check reports, and the extracted start-order restoration boundary."""
 import json

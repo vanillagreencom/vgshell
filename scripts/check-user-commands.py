@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: shell/* -- the check reads every plugin, page and TUI script it finds under the shell
 """Enforce the no-manual-commands rule of D061 on the text a user reads.
 
 A setup step is automatic or one click. The interface shows no command,

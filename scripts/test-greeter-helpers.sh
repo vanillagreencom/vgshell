@@ -5,6 +5,7 @@
 # tree under the suite's scratch directory and nothing else. Each control
 # runs the rows against a copy of one helper missing one rule, and the
 # rows must fail.
+# loads: shell/plugins/vgs.greeter/bin/* -- the cases run each helper they list
 set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh

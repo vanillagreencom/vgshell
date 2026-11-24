@@ -4,6 +4,7 @@
 // namespace. Its synthetic 192.0.2.1 listener is the outbound control:
 // removing the inner network namespace reaches it, never the real network.
 // Missing host tools or namespaces exit 77, including during a control.
+// loads: shell/plugins/vgs.jarvis/* -- the controls copy the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const cp = require("node:child_process");

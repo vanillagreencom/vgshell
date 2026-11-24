@@ -13,6 +13,7 @@
 // The permission recorder runs under `lua` with a stub `hl`: Hyprland
 // 0.57.0 on host cachy links Lua 5.5, the `lua` on PATH there. A missing
 // interpreter fails the suite.
+// loads: themes/catalog/*/theme.json -- the case reads every catalog theme
 "use strict";
 const assert = require("assert");
 const childProcess = require("child_process");

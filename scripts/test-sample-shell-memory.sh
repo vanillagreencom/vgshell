@@ -280,6 +280,7 @@ drive_sample_row() {
     # looking like the row builder refusing a row.
     extract_functions "$script" >"$row_builder" || exit 3
     # shellcheck source=/dev/null
+    # loads: scripts/sample-shell-memory.sh scripts/smoke/*.sh -- the case sources functions it extracts from the sampler and the harness
     source "$row_builder" || exit 3
     declare -F stat_fields >/dev/null || exit 3
     declare -F sample_row >/dev/null || exit 3
@@ -414,6 +415,7 @@ trap 'kill "$victim" 2>/dev/null || true; rm -rf "${tmp:?}"' EXIT INT TERM
 # under test, never a second parse of /proc/<pid>/stat.
 extract_functions "$sampler" >"$row_builder"
 # shellcheck source=/dev/null
+# loads: scripts/sample-shell-memory.sh scripts/smoke/*.sh -- the case sources functions it extracts from the sampler and the harness
 source "$row_builder"
 mapfile -t victim_fields < <(stat_fields "$victim")
 victim_session="${victim_fields[19]}"

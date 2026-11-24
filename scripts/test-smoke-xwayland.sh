@@ -73,7 +73,9 @@ run_case() {
     smoke_finish() { exit 1; }
     sandbox="$CASE_DIR/sandbox" signature=test-signature
     shell_env=(env -i PATH="$PATH" CASE_DIR="$CASE_DIR")
+    # loads: scripts/smoke/harness.sh -- the case sources functions it extracts from the harness
     source "$1"
+    # loads: scripts/smoke/harness.sh -- the case sources functions it extracts from the harness
     source "$2"
     nested_xwayland_check' _ "$repo/scripts/smoke/hypr-call.sh" "$function" </dev/null 2>&1)" || status=$?
   [[ $status -eq 0 ]] || problems+=("status=$status")

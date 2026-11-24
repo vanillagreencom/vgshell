@@ -16,6 +16,7 @@
 //
 // The controls at the end edit a copy of the logic, one rule at a time, and
 // require this suite to fail on each copy.
+// loads: shell/plugins/vgs.notifications/* -- the controls read the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

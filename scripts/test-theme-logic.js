@@ -5,6 +5,7 @@
 //
 // The controls at the end edit a copy of the judge, one rule at a time, and
 // require this suite to fail on each copy.
+// loads: themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* -- the cases read the theme packages and plugin views they name
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -1851,6 +1852,7 @@ for (const site of LED_LINES) {
     const binding = site.binding || `${site.label}.topForLeadingIcon(height)`;
     const ledIcon = source => (source.match(new RegExp(`\\b${site.item || "Icon"} \\{[^{}]*`, "g")) || []).filter(block => block.includes(site.icon));
     const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(binding) && !/anchors\.(?:centerIn|verticalCenter):/.test(ledIcon(source)[0]);
+    // loads: shell/Ui/overlay/MenuItem.qml shell/plugins/vgs.google-drive/Panel.qml shell/Ui/feedback/SaveBar.qml shell/Ui/controls/TitleButton.qml shell/Ui/controls/TextField.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Callout.qml shell/plugins/vgs.system/Window.qml shell/plugins/vgs.polkit/Prompt.qml shell/plugins/vgs.sysmon/Reading.qml -- the case reads each file LED_LINES lists
     const siteSource = fs.readFileSync(path.join(repo, site.file), "utf8");
     assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's leading icon centre`);
     const targetBlock = ledIcon(siteSource)[0];

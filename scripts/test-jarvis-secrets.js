@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// loads: shell/plugins/vgs.jarvis/* -- the controls read the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

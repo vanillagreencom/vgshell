@@ -16,6 +16,7 @@
 // this repository's current values: each reads them from the copy it
 // edits, and a checksum row sets its checksum state first. A channel added
 // to CHANNELS adds its rows to ROWS here.
+// loads: packaging/fedora/* -- the controls copy the Fedora files they list
 "use strict";
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
@@ -54,6 +55,7 @@ for (const plugin of fs.readdirSync(path.join(repo, "shell", "plugins"))) {
 }
 for (const rel of files) {
     fs.mkdirSync(path.dirname(path.join(pristine, rel)), { recursive: true });
+    // loads: VERSION bin/vgshell config/requirements.json config/runtime-libraries.json docs/architecture/distribution.md flake.lock flake.nix install.sh packaging/channel-gaps.json packaging/install-system.sh packaging/install-tree.manifest packaging/xdg-desktop-portal/hyprland-portals.conf scripts/debian-packages.sh shell/plugins/* -- the controls copy the files they list
     fs.copyFileSync(path.join(repo, rel), path.join(pristine, rel));
     fs.chmodSync(path.join(pristine, rel), fs.statSync(path.join(repo, rel)).mode);
 }

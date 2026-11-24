@@ -3855,6 +3855,7 @@ async function checkFailures(file) {
         const local = { row: { select: () => ({ kind: "ready", lifetime: "daemon", check: true,
             recipients: [], voices: [{ label: "Fixture", value: "fixture" }], open: () => owner }) } };
         const exported = { exports: {} };
+        // loads: shell/plugins/vgs.jarvis/backend/ChainedEngine.js -- the case runs the module it reads
         vm.runInNewContext(fs.readFileSync(file, "utf8"), { module: exported, Buffer, setTimeout, clearTimeout,
             require: name => name === "./LocalSpeech.js" ? local : actual(name) });
         const events = [];

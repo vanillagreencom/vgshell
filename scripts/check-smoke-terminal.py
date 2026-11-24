@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# loads: scripts/smoke/rows/* -- the check reads every row file it lists
 """Enforce the stand-in terminal rule docs/architecture/validation.md
 § Host safety states.
 

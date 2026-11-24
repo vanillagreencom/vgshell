@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Synthetic fixture from JarvisProtocol.js, 2026-09-30. All daemon
 // cases and controls run in J09's private network/PID world.
+// loads: shell/plugins/vgs.jarvis/* -- the controls copy the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const cp = require("node:child_process");

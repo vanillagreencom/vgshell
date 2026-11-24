@@ -4,6 +4,7 @@
 // bin/lib/qml-library.js. The controls at the end edit a copy of either
 // judge, one rule at a time, and the suite must fail on every copy. Exit 1 when any
 // row or control fails.
+// loads: shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/*/manifest.json -- the cases read the manifests of the plugins they name
 "use strict";
 const fs = require("fs");
 const os = require("os");
@@ -3405,6 +3406,7 @@ const bundled = Object.create(null);
     for (const entry of fs.readdirSync(PLUGINS_DIR, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
         if (!entry.isDirectory()) continue;
         const file = path.join(PLUGINS_DIR, entry.name, "manifest.json");
+        // loads: shell/plugins/*/manifest.json -- the case judges each shipped manifest
         const r = logic.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), path.dirname(file));
         if (!r.ok) throw new Error("bundled manifest refused: " + file + ": " + r.error);
         bundled[r.manifest.id] = r.manifest;

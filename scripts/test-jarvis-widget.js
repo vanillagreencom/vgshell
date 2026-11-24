@@ -7,6 +7,7 @@
 // The service callbacks below protect notice and approval-frame identity.
 // No process, network, audio or real clock is used.
 // --voice-fault-control runs only the duplex fault-presentation must-fail controls.
+// loads: shell/plugins/vgs.jarvis/* -- the controls copy the plugin files they list
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

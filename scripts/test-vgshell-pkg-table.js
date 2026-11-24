@@ -677,6 +677,7 @@ function verifyReleaseSource(tmp, edit = null) {
         const at = path.join(root, name);
         for (const file of ["bin/lib/pkg-file.js", "bin/lib/judge-files.js", "bin/lib/qml-library.js", "shell/Core/PackageManagers.js"]) {
             fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
+            // loads: bin/lib/judge-files.js bin/lib/pkg-file.js bin/lib/qml-library.js shell/Core/PackageManagers.js -- the controls copy the files they list
             fs.copyFileSync(path.join(__dirname, "..", file), path.join(at, file));
         }
         if (edit !== null) {
