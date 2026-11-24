@@ -31,8 +31,8 @@ The `jarvis-session` and `task` commands this workflow runs are in [Session comm
    - For another selected event source, use its supported registration and delivery interface.
 6. On a satellite, read `jarvis-session status --home HOME --main`.
    - Report each open forward that has a cause.
-   - A confirmation a crash left unforwarded is forwarded by running `forward` again with the same record.
-   - A console confirmation with no reply still shows in `owner-unanswered`.
+   - A request a crash left unforwarded is forwarded by running `forward` again with the same record.
+   - A console request or confirmation with no reply still shows in `owner-unanswered`.
 7. Check the user channel and each agent's channel for unread events.
    - Keep one communication channel per agent.
    - Use the source's delivery order rather than sorting event ids.
@@ -165,11 +165,14 @@ Load each named section with `jarvis-section` before the step that acts on it.
 
 ## Handoff replacement
 
-1. After the initial reads and first decision, read every section of the predecessor handoff and its progress log.
-   - Include records in Owed and open, Context, Agent contact, Verify and Open requests when those sections exist.
-2. For every record outside session state, write it to its home under [Homes](../references/long-session.md#homes), or confirm that its home already retains it.
+1. After the initial reads and first decision, read the predecessor's State checkpoint and the progress-log records after its covered range.
+   - For an ordinary transfer, reconcile only those later records. For a record inside the covered range, read its destination to confirm retention and write nothing again; a destination that lacks the record is a disagreement with a source.
+   - Run the full replay instead for a legacy import (a handoff from an earlier path or with no checkpoint), an interrupted write (a State entry for an unfinished operation with no receipt), missing coverage, or a record that disagrees with its source.
+   - The full replay reads every section of the predecessor handoff and its progress log, including records in Owed and open, Context, Agent contact, Verify and Open requests when those sections exist.
+2. For every record outside session state that step 1 selects, write it to its home under [Homes](../references/long-session.md#homes), or confirm that its home already retains it.
    - Preserve its contents, durable id and recorded time.
    - Read each destination to confirm retention before replacing the handoff or clearing the progress log.
+   - Advance the checkpoint's covered range only over records whose destination read confirmed retention.
    - A failed destination read or write leaves the predecessor handoff and progress log untouched and stops replacement.
 3. Archive the predecessor's handoff and progress log in the `archive/` directory beside the current handoff, `state/archive/` in the [home layout](../references/home-layout.md), before replacing them.
 4. Then index each archived file with `.agents/skills/jarvis/scripts/progress-log --archived FILE`, adding the `--handoff PATH` that selects the current handoff when it is not the default.
