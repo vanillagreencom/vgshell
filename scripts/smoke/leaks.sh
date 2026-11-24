@@ -39,9 +39,9 @@
 # Each row is read at its start and at its end, so a harness step between
 # two rows, such as qml-smoke.sh turning the compositor's logs on after
 # hyprland-consent, belongs to no row. A row run inside another row, as
-# rows/jarvis-keys.sh runs one and rows/updates.sh and rows/leak-check.sh
-# run planted rows in subshells, is judged against its own start, and the
-# outer row keeps its own. rows/leak-check.sh holds the controls.
+# rows/jarvis-keys.sh runs one and rows/updates.sh runs planted rows in
+# subshells, is judged against its own start, and the outer row keeps its
+# own.
 
 # The start variables: what start_shell starts every shell with, shell_env
 # and shell_start_words, and the PATH shell_resolves reads,

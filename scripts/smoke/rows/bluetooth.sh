@@ -1167,7 +1167,7 @@ bt_main
 unset bt_id
 # vgs.bluetooth as the row found it, whichever step the row returned from:
 # disabled in the smoke set, enabled after a row restarted over the default
-# set, such as rows/hidpi.sh.
+# set.
 case "$bt_was_bluetooth" in
   True)
     expect "vgs.bluetooth is enabled again as the row found it" ok ipc shell setPluginEnabled vgs.bluetooth true

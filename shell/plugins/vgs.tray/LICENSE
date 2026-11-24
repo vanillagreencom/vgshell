@@ -1,5 +1,5 @@
-The tray's behaviour and the stand-in tray app of its smoke row are adapted
-from Omarchy.
+The tray's behaviour and the smoke stand-in tray app are adapted from
+Omarchy.
 
 Source repository: https://github.com/basecamp/omarchy
 Version: release v4.0.4, and the behaviour of main at commit
@@ -13,7 +13,7 @@ Files:
     scripts/smoke/fixtures/tray/mock-sni.py, which carries this notice in
     its header.
   test/shell.d/tray-test.sh and test/shell.d/tray-menu-test.sh: the checks
-    scripts/smoke/rows/tray.sh and scripts/test-tray-logic.js follow.
+    scripts/test-tray-logic.js follows.
 Licence: MIT.
 
 Copyright (c) David Heinemeier Hansson

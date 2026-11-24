@@ -1,7 +1,6 @@
 # Sourced by harness.sh. The readings every application window passes, the
 # summon host's `window` kind (D044): rows/windows.sh runs them on
-# Settings, rows/devtools.sh on Dev Tools and rows/gallery.sh on the
-# Gallery. Every reading comes from the nested instance: `clients -j`,
+# Settings and rows/devtools.sh on Dev Tools. Every reading comes from the nested instance: `clients -j`,
 # `activewindow -j`, a pixel of its output and the toplevel helper's
 # keyboard log.
 

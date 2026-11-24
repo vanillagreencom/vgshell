@@ -256,157 +256,6 @@ row_re() {
   if [[ $status == "$want_exit" && -z $missing && -z $present ]]; then ok "$name"; else fail "$name: exit=$status want=$want_exit missing=$missing present=$present"; printf '%s\n' "$out" | sed 's/^/        /'; fi
 }
 
-plan_case() {
-  local name="$1" changed="$2" want_scope="$3" want_runs="$4" want_total="$5" out status=0 run_count skip_count
-  out="$(printf '%s\0' "$changed" >"$tmp/qml-plan.paths" && VGS_VALIDATE_CHANGED="$tmp/qml-plan.paths" "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
-  run_count="$(grep -c '^run ' <<<"$out" || true)"
-  skip_count="$(grep -c '^skip ' <<<"$out" || true)"
-  if [[ $status == 0 ]] &&
-     grep -qxF "test-qml-unit: scope=changed mutations=$want_scope" <<<"$out" &&
-     [[ $run_count == "$want_runs" && $((run_count + skip_count)) == "$want_total" ]]; then
-    ok "$name"
-  else
-    fail "$name: status=$status runs=$run_count total=$((run_count + skip_count))"
-    printf '%s\n' "$out" | sed 's/^/        /'
-  fi
-}
-
-# The mutation total, read from the table itself rather than from --plan:
-# every line of the `mutations=(...)` array is one quoted row, and a line of
-# another shape there means the read no longer matches the table. The floor
-# names a broken read, not a short table.
-qml_total="$(awk '/^mutations=\($/ { inside = 1; next } inside && /^\)$/ { inside = 0 } inside' "$repo/scripts/test-qml-unit.sh")" || qml_total=""
-qml_odd="$(grep -cv '^  "[^"].*"$' <<<"$qml_total" || true)"
-qml_radio_rows="$(awk -F'|' '$2 == "controls/Radio.qml" { sub(/^  "/, "", $1); print "run " $1 }' <<<"$qml_total")"
-qml_radio_total="$(grep -c '^run ' <<<"$qml_radio_rows" || true)"
-qml_total="$(grep -c '^  "' <<<"$qml_total" || true)"
-if [[ $qml_odd != 0 || $qml_total -lt 100 ]]; then
-  fail "qml mutation table read: rows=$qml_total other-lines=$qml_odd; the array read in test-validate.sh no longer matches scripts/test-qml-unit.sh"
-  qml_total=unread
-fi
-if out="$(env -u VGS_VALIDATE_CHANGED "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" &&
-   grep -qxF "test-qml-unit: scope=all mutations=$qml_total/$qml_total" <<<"$out" &&
-   [[ "$(grep -c '^run ' <<<"$out")" == "$qml_total" ]]; then
-  ok "qml mutation planning runs every row when the changed list is unset"
-else
-  fail "qml mutation planning with no changed list: table rows=$qml_total"
-  printf '%s\n' "$out" | sed 's/^/        /'
-fi
-plan_case "qml mutation planning narrows to a changed Radio target" "shell/Ui/controls/Radio.qml" "$qml_radio_total/$qml_total" "$qml_radio_total" "$qml_total"
-# The target set comes from the actual table, independently of --plan.
-# Keep a required Radio member so an empty extraction cannot pass.
-radio_plan="$(VGS_VALIDATE_CHANGED="$tmp/qml-plan.paths" "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" || radio_plan=""
-if grep -qxF 'run the radio dot ignores checked' <<<"$qml_radio_rows" &&
-   [[ "$(grep '^run ' <<<"$radio_plan" || true)" == "$qml_radio_rows" ]]; then
-  ok "qml mutation planning includes exactly the changed Radio target rows"
-else
-  fail "qml mutation planning selected the wrong Radio target set"
-fi
-plan_case "qml mutation planning runs every row for a harness change" "scripts/qml-unit.sh" "$qml_total/$qml_total" "$qml_total" "$qml_total"
-status=0
-out="$(VGS_VALIDATE_CHANGED="$tmp/missing-qml-plan.paths" "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
-if [[ $status == 1 && $out == "test-qml-unit: refused: changed-list=unreadable path=$tmp/missing-qml-plan.paths" ]]; then
-  ok "qml mutation planning refuses an unreadable changed list"
-else
-  fail "qml mutation planning unreadable list: status=$status output=$out"
-fi
-
-# A table edit runs the rows it adds or edits. A git copy of the script
-# holds the shipped table as its base, beside the shipped test files its
-# rows name; each case edits the copy as a lane would, and the plan must
-# run exactly the rows the case names.
-q="$tmp/qml-table"
-mkdir -p "$q/scripts"
-cp -- "$repo/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit.sh"
-ln -s -- "$repo/scripts/qml-tests" "$q/scripts/qml-tests"
-"${base_env[@]}" git -C "$q" init -q
-"${base_env[@]}" git -C "$q" add -A
-"${base_env[@]}" git -C "$q" commit -q -m base
-q_base="$("${base_env[@]}" git -C "$q" rev-parse HEAD)"
-printf '%s\0' scripts/test-qml-unit.sh >"$tmp/qml-table.paths"
-# table_case NAME EDIT BASE WANT-SCOPE WANT-RUNS [WANT-LINE]: EDIT names
-# one change to the copy; the edit prints the label of the row it adds or
-# edits, which must be the run line; BASE `-` leaves VGS_VALIDATE_BASE unset.
-table_case() {
-  local name="$1" edit="$2" base="$3" want_scope="$4" want_runs="$5" want_line="${6:-}" label out status=0 run_count
-  local -a base_arg=()
-  [[ $base == - ]] || base_arg=(VGS_VALIDATE_BASE="$base")
-  "${base_env[@]}" git -C "$q" checkout -q -- scripts/test-qml-unit.sh
-  label="$(python3 - "$q/scripts/test-qml-unit.sh" "$edit" <<'PY'
-import sys
-path, edit = sys.argv[1:]
-old = open(path, encoding="utf-8").read()
-lines = old.split("\n")
-start = lines.index("mutations=(") + 1
-label = ""
-if edit == "edit-row":
-    lines[start] = '  "edited ' + lines[start][3:]
-    label = lines[start][3:].split("|")[0]
-elif edit == "add-row":
-    lines.insert(start + 1, '  "an added row|foundation/QrMatrix.qml|planted|planted|tst_qrmatrix.qml"')
-    label = "an added row"
-elif edit == "remove-row":
-    del lines[start]
-elif edit == "move-row":
-    lines[start], lines[start + 1] = lines[start + 1], lines[start]
-elif edit == "outside-table":
-    lines.insert(start - 1, "# an edit outside the table")
-elif edit == "row-shape":
-    lines.insert(start + 1, "  # a line in the table that is no row")
-new = "\n".join(lines)
-if edit != "none" and new == old:
-    sys.exit("edit=unchanged " + edit)
-open(path, "w", encoding="utf-8").write(new)
-print(label)
-PY
-)" || { fail "$name: the edit did not apply"; return; }
-  out="$("${base_env[@]}" VGS_VALIDATE_CHANGED="$tmp/qml-table.paths" "${base_arg[@]}" "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
-  run_count="$(grep -c '^run ' <<<"$out" || true)"
-  if [[ $status == 0 && $run_count == "$want_runs" ]] &&
-     grep -qxF "test-qml-unit: scope=changed mutations=$want_scope" <<<"$out" &&
-     { [[ -z $label ]] || grep -qxF "run $label" <<<"$out"; } &&
-     { [[ -z $want_line ]] || grep -qF -e "$want_line" <<<"$out"; }; then
-    ok "$name"
-  else
-    fail "$name: status=$status runs=$run_count want=$want_runs label=$label"
-    printf '%s\n' "$out" | grep -v '^skip ' | sed 's/^/        /'
-  fi
-}
-if [[ $qml_total != unread ]]; then
-  table_case "qml mutation planning runs an edited table row alone" edit-row "$q_base" "1/$qml_total" 1
-  table_case "qml mutation planning runs an added table row alone" add-row "$q_base" "1/$((qml_total + 1))" 1
-  table_case "qml mutation planning runs nothing for a removed table row" remove-row "$q_base" "0/$((qml_total - 1))" 0
-  table_case "qml mutation planning runs nothing for a moved table row" move-row "$q_base" "0/$qml_total" 0
-  table_case "qml mutation planning runs every row for an edit outside the table" outside-table "$q_base" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=outside-table"
-  table_case "qml mutation planning runs every row for a table line that is no row" row-shape "$q_base" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=row-shape"
-  table_case "qml mutation planning runs every row for an unreadable base" edit-row "0000000000000000000000000000000000000000" "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unreadable"
-  table_case "qml mutation planning runs every row with no base" edit-row - "$qml_total/$qml_total" "$qml_total" "test-qml-unit: table=all reason=base-unset"
-fi
-# A `|` inside a needle shifts the test field onto the needle's text, which
-# names no test file: the plan refuses the table before any case runs, so
-# no baseline runs it.
-"${base_env[@]}" git -C "$q" checkout -q -- scripts/test-qml-unit.sh
-status=0
-if python3 - "$q/scripts/test-qml-unit.sh" <<'PY'
-import sys
-path = sys.argv[1]
-lines = open(path, encoding="utf-8").read().split("\n")
-lines.insert(lines.index("mutations=(") + 1, '  "a shifted row|foundation/QrMatrix.qml|a || b|a|tst_qrmatrix.qml"')
-open(path, "w", encoding="utf-8").write("\n".join(lines))
-PY
-then
-  out="$("${base_env[@]}" VGS_VALIDATE_CHANGED="$tmp/qml-table.paths" VGS_VALIDATE_BASE="$q_base" "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
-  if [[ $status == 1 ]] && grep -qxF 'test-qml-unit: refused: row-test=not-a-file test=[ b] row=a shifted row' <<<"$out" &&
-     ! grep -q '^test-qml-unit: scope=' <<<"$out"; then
-    ok "qml mutation planning refuses a row whose test field names no file"
-  else
-    fail "qml mutation planning shifted row: status=$status"
-    printf '%s\n' "$out" | grep -v '^skip ' | sed 's/^/        /'
-  fi
-else
-  fail "qml mutation planning shifted row: the edit did not apply"
-fi
-
 d="$tmp/clean"; fresh "$d"
 trunk="$("${base_env[@]}" git -C "$d" rev-parse refs/remotes/origin/trunk)"
 row "a clean tree passes against the base the settings file names" "$d" 0 "" \
@@ -636,8 +485,8 @@ test_args=()
 # plans name consumers independently of the dependency table under test.
 repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_monitor_rule_once\nprivate_keys_check\nmd_refs_check'
 text_plan=$'python3 scripts/check-user-commands.py\nwhitespace_check\nmd_refs_check\ndoc_limits_check'
-install_plan=$'scripts/test-install-tree.sh\n'"$repo_plan"
-installer_plan=$'scripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
+install_plan="$repo_plan"
+installer_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
 # The README check reads VERSION, bin/vgshell, install.sh, the Arch recipes,
 # the plugins, README.md and docs/architecture/runtime.md.
 readme_rows=$'node scripts/test-check-readme.js\nscripts/test-readme-install.sh\n'
@@ -654,28 +503,28 @@ jarvis_accounts_rows=$'node scripts/test-jarvis-accounts.js\nnode scripts/test-j
 jarvis_secrets_plan=$'node scripts/test-jarvis-net.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows$repo_plan"
 # The world helper also selects the local speech adapter beside the audio rows.
 jarvis_world_audio_rows="${jarvis_audio_rows/test-jarvis-engine.js$'\n'/test-jarvis-engine.js$'\n'node scripts/test-jarvis-local-speech.js$'\n'}"
-jarvis_owner_plan="$jarvis_policy_rows"$'node scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_world_audio_rows"$'node scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$jarvis_helper_plan"
+jarvis_owner_plan="$jarvis_policy_rows"$'node scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_world_audio_rows"$'node scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows""$jarvis_helper_plan"
 jarvis_daemon_plan=$'node scripts/test-jarvis-daemon.js\n'"$repo_plan"
 jarvis_live_plan=$'node scripts/test-jarvis-live.js\n'"$repo_plan"
-jarvis_rollover_consumers=$'node scripts/test-jarvis-live.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-jarvis_echo_consumers=$'node scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-local-speech.js\nnode scripts/test-jarvis-playback.js\nnode scripts/test-jarvis-playback-pipewire.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$jarvis_env_plan"
+jarvis_rollover_consumers=$'node scripts/test-jarvis-live.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+jarvis_echo_consumers=$'node scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-local-speech.js\nnode scripts/test-jarvis-playback.js\nnode scripts/test-jarvis-playback-pipewire.js\n'"$readme_rows_trimmed"
+jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\n'"$jarvis_env_plan"
 jarvis_guidance_plan=$'node scripts/test-jarvis-guidance.js\n'"$repo_plan"
 jarvis_speakable_plan=$'node scripts/test-jarvis-speakable.js\n'"$repo_plan"
 jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-jarvis-speakable.js\nnode scripts/test-jarvis-speech-language.js\n'"$repo_plan"
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
-dispatch_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
-session_plan=$'scripts/test-flake.sh\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/qml-smoke.sh'
+dispatch_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
+session_plan=$'scripts/test-flake.sh\nnode scripts/test-jarvis-engine.js\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-session-lock.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 jarvis_key_plan="${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-orb_shader_plan=$'scripts/test-flake.sh\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+orb_shader_plan=$'scripts/test-flake.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/qml-smoke.sh'
 orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\nscripts/test-gpu-fence.sh\n'"$repo_plan"
-shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
-keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"
+keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
 fedora_plan=$'scripts/test-fedora-srpm.sh\n'
-version_plan=$'scripts/test-vgshell-version.sh\nscripts/test-install-tree.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+version_plan=$'scripts/test-vgshell-version.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 # A recipe change runs the recipe check and its controls, never the product
 # smoke; the container build runs only where the area admits it, never
 # offline.
@@ -705,8 +554,8 @@ cases=(
   "vpn-fixture|scripts/fixtures/vpn/list.txt|logic|text:"
   "theme-led-site|shell/Ui/feedback/Callout.qml|logic|node scripts/test-theme-logic.js"
   "jarvis-pi-recording|scripts/fixtures/jarvis-pi/recorded.ndjson|cli|node scripts/test-jarvis-accounts-tui.js"
-  "vpn-import|shell/plugins/vgs.vpn/tui/import.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
-  "layer-glass-tui|shell/plugins/vgs.windows/tui/layer-glass.sh|cli|scripts/test-layer-glass-tui.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
+  "vpn-import|shell/plugins/vgs.vpn/tui/import.sh|cli|scripts/test-vpn-import.sh"$'\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
+  "layer-glass-tui|shell/plugins/vgs.windows/tui/layer-glass.sh|cli|scripts/test-layer-glass-tui.sh"$'\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|"$'node scripts/test-jarvis-setup-gate.js\nnode scripts/test-settings-reply.js'
   "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row"$'node scripts/test-google-drive-logic.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"$'\nnode scripts/test-voice-logic.js'
   "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
@@ -720,8 +569,8 @@ cases=(
   "shader-ceilings|scripts/shader/ceilings.json|all|$shader_measure_plan"
   "keyboard-source|scripts/smoke/keyboard/keyboard.c|all|$keyboard_plan"
   "keyboard-protocol|scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml|all|$keyboard_plan"
-  "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-sandbox-shots.sh\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
-  "device-fakes-fixture|scripts/smoke/fixtures/devices/stand-in.py|all|python3 scripts/test-displays-brightness.py"$'\n'"$fixture_plan"$'\nscripts/measure-shader.sh'
+  "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-sandbox-shots.sh\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
+  "device-fakes-fixture|scripts/smoke/fixtures/devices/stand-in.py|all|python3 scripts/test-displays-brightness.py"$'\n'"$fixture_plan"
   "docs|docs/architecture/overview.md|offline|text:$text_plan"
   "runtime-doc|docs/architecture/runtime.md|offline|text:$text_plan"
   "docs-html|docs/guide.html|offline|$repo_plan"$'\ndoc_limits_check'
@@ -743,94 +592,93 @@ cases=(
   "debian-package|packaging/debian/vgshell-quickshell/rules|package|scripts/debian-packages.sh"
   # The plugin logic table holds the core's sound table to the files.
   "sound-file|shell/assets/sounds/pop.wav|logic|node scripts/test-plugin-logic.js"
-  "requirements|config/requirements.json|offline|node scripts/test-plugin-logic.js"$'\nscripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\npython3 scripts/check-user-commands.py\npython3 scripts/test-check-user-commands.py\n'"$repo_plan"
-  "install-manifest|packaging/install-tree.manifest|offline|scripts/test-install-tree.sh"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
+  "requirements|config/requirements.json|offline|node scripts/test-plugin-logic.js"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\npython3 scripts/check-user-commands.py\npython3 scripts/test-check-user-commands.py\n'"$repo_plan"
+  "install-manifest|packaging/install-tree.manifest|offline|"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
   "fedora-recipe|packaging/fedora/vgshell.spec|all|$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
-  # test-validate.sh runs the mutation planner of the QML unit controls.
+  # test-validate.sh copies the real Dispatch.js into its capability provider fixtures.
   "copied-shell-core|shell/Core/Dispatch.js|tools|scripts/test-sandbox-shots.sh"$'\nscripts/test-validate.sh'
   "copied-shell-ui|shell/Ui/controls/Label.qml|tools|"
   "jarvis-env|scripts/lib/jarvis-env.sh|all|$jarvis_owner_plan"$'\nscripts/qml-smoke.sh'
   "jarvis-key-tui-fixture|scripts/fixtures/jarvis/key-tui.py|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$install_plan"
-  "jarvis-key-fixture|scripts/fixtures/jarvis/keys-world.js|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nscripts/test-install-tree.sh\n'"$jarvis_env_plan"
-  "jarvis-audio-task-input|shell/plugins/vgs.jarvis/backend/Tasks.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-key-fixture|scripts/fixtures/jarvis/keys-world.js|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_env_plan"
+  "jarvis-audio-task-input|shell/plugins/vgs.jarvis/backend/Tasks.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\n'"$readme_rows_trimmed"
   "task-event-prefix|scripts/test-task-event.js|all|node scripts/test-task-event.js"$'\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
-  "jarvis-engine-input|shell/plugins/vgs.jarvis/backend/ChainedEngine.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-engine-input|shell/plugins/vgs.jarvis/backend/ChainedEngine.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
   "jarvis-engine-fixture|scripts/fixtures/jarvis/engine.js|offline|node scripts/test-jarvis-claude.js"$'\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$install_plan"
   "jarvis-brain-frames|scripts/fixtures/jarvis-brain/openai-chat-frames.js|offline|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$repo_plan"
   "jarvis-playback-fixture|scripts/fixtures/jarvis/playback.js|offline|node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-playback.js\nnode scripts/test-jarvis-playback-pipewire.js\n'"$install_plan"
   "jarvis-playback-config|scripts/fixtures/jarvis/playback.conf|offline|node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-playback-pipewire.js\n'"$install_plan"
   "jarvis-audio-fixture|scripts/fixtures/jarvis/audio-tool.py|offline|node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_audio_rows$install_plan"
-  "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
-  "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$jarvis_env_plan"
+  "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
+  "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows""$jarvis_env_plan"
   "jarvis-accounts-terminal-fixture|scripts/fixtures/jarvis/accounts-tui.py|offline|node scripts/test-jarvis-browser-setup.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-accounts-tui.js\n'"$install_plan"
   "jarvis-fixture|scripts/fixtures/jarvis/prepare.js|offline|$jarvis_fixture_plan"
   "jarvis-scripted-fixture|scripts/fixtures/jarvis/scripted.js|offline|node scripts/test-jarvis-protocol.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\n'"$install_plan"
   "jarvis-bubble-input|shell/plugins/vgs.jarvis/Bubble.qml|qml|scripts/qml-smoke.sh"
   "jarvis-fixture-all|scripts/fixtures/jarvis/prepare.js|all|$jarvis_fixture_plan"$'\nscripts/qml-smoke.sh'
-  "install-tree-suite|scripts/test-install-tree.sh|all|node scripts/test-jarvis-browser-setup.js"$'\nscripts/test-install-tree.sh'$'\npython3 scripts/test-jarvis-setup.py\n'"$repo_plan"
   "jarvis-setup-status-fixture|scripts/fixtures/jarvis-setup/status.py|all|python3 scripts/test-jarvis-setup.py"$'\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
-  "jarvis-setup-installed-fixture|scripts/fixtures/jarvis-setup/installed.py|all|scripts/test-install-tree.sh"$'\npython3 scripts/test-jarvis-setup.py\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
+  "jarvis-setup-installed-fixture|scripts/fixtures/jarvis-setup/installed.py|all|"$'python3 scripts/test-jarvis-setup.py\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
   "jarvis-artifacts|shell/plugins/vgs.jarvis/artifacts.json|tools|$jarvis_local_tools_plan"
-  "jarvis-artifacts-engine|shell/plugins/vgs.jarvis/artifacts.json|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-local-speech.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-artifacts-engine|shell/plugins/vgs.jarvis/artifacts.json|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-local-speech.js\n'"$readme_rows_trimmed"
   "jarvis-measure|shell/plugins/vgs.jarvis/measure-local|tools|$jarvis_local_tools_plan"
   "jarvis-clip|shell/plugins/vgs.jarvis/fixtures/probe.wav|tools|$jarvis_local_tools_plan"
   "jarvis-daemon-not-local-models|shell/plugins/vgs.jarvis/backend/jarvisd.js|tools|python3 scripts/check-readme-images.py"$'\npython3 scripts/test-jarvis-local.py\nscripts/test-jarvis-selftest.sh\nscripts/test-validate.sh'
   "jarvis-mailbox-library|.agents/skills/mailbox/scripts/lib/lane-mail-store.py|tools|scripts/test-jarvis-selftest.sh"
   "jarvis-workflow-state|.agents/skills/orch/scripts/workflow-state|tools|scripts/test-jarvis-selftest.sh"
-  "jarvis-browser-daemon-input|shell/plugins/vgs.jarvis/backend/jarvisd.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-input-owner|shell/plugins/vgs.jarvis/backend/Input.js|cli|node scripts/test-jarvis-input.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-computer-help|shell/plugins/vgs.jarvis/backend/ComputerHelp.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-browser-daemon-input|shell/plugins/vgs.jarvis/backend/jarvisd.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-input-owner|shell/plugins/vgs.jarvis/backend/Input.js|cli|node scripts/test-jarvis-input.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-computer-help|shell/plugins/vgs.jarvis/backend/ComputerHelp.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
   "jarvis-input-help|shell/plugins/vgs.jarvis/backend/skills/computer/input.md|cli|text:"
-  "jarvis-browser-input|shell/plugins/vgs.jarvis/backend/Browser.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-browser-setup-input|shell/plugins/vgs.jarvis/backend/browser-setup.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-browser-input|shell/plugins/vgs.jarvis/backend/Browser.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-browser-setup-input|shell/plugins/vgs.jarvis/backend/browser-setup.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\nnode scripts/test-jarvis-daemon.js\n'"$readme_rows_trimmed"
   "jarvis-browser-fixture|scripts/fixtures/jarvis/browser.py|offline|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-daemon.js\n'"$install_plan"
   "jarvis-architecture-doc|docs/architecture/jarvis.md|logic|text:"
   "jarvis-brain-scripts|scripts/fixtures/jarvis-brain/openai-chat-scripts.json|offline|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$repo_plan"
   "jarvis-brain-schema|scripts/fixtures/jarvis-brain/openai-chat.schema.json|offline|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-schema-check.js\n'"$repo_plan"
   "jarvis-rollover-import-closure|shell/plugins/vgs.jarvis/backend/VoiceRollover.js|cli|$jarvis_rollover_consumers"
   "jarvis-echo-import-closure|shell/plugins/vgs.jarvis/backend/EchoCancel.js|cli|$jarvis_echo_consumers"
-  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/Realtime.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-session-control.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/Realtime.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-session-control.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
   "jarvis-websocket-fixture|scripts/fixtures/jarvis/websocket.js|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\n'"$install_plan"
-  "jarvis-session-cli|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows"$'node scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-session-cli|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows""$readme_rows_trimmed"
   "schema-check|scripts/fixtures/schema-check.js|offline|node scripts/test-jarvis-release.js"$'\nnode scripts/test-jarvis-net.js\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-mcp.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex-protocol.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot-protocol.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-schema-check.js\n'"$repo_plan"
   "jarvis-sse-input|shell/plugins/vgs.jarvis/backend/Sse.js|logic|node scripts/test-jarvis-sse.js"$'\nnode scripts/test-jarvis-providers.js'
-  "jarvis-sse-cli-input|shell/plugins/vgs.jarvis/backend/Sse.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-sse-cli-input|shell/plugins/vgs.jarvis/backend/Sse.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
   "jarvis-providers-input|shell/plugins/vgs.jarvis/backend/Providers.js|logic|node scripts/test-jarvis-providers.js"
-  "jarvis-brain-input|shell/plugins/vgs.jarvis/backend/OpenAIChat.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-wire-input|shell/plugins/vgs.jarvis/backend/WireBrain.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-anthropic-input|shell/plugins/vgs.jarvis/backend/AnthropicMessages.js|cli|node scripts/test-jarvis-brain-anthropic.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-shell-input|shell/plugins/vgs.jarvis/backend/Shell.js|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js'$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-brain-input|shell/plugins/vgs.jarvis/backend/OpenAIChat.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-wire-input|shell/plugins/vgs.jarvis/backend/WireBrain.js|cli|node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-anthropic-input|shell/plugins/vgs.jarvis/backend/AnthropicMessages.js|cli|node scripts/test-jarvis-brain-anthropic.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-shell-input|shell/plugins/vgs.jarvis/backend/Shell.js|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js'$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
   "jarvis-computer-reference|shell/plugins/vgs.jarvis/backend/skills/computer/shell.md|cli|text:"
-  "jarvis-router-input|shell/plugins/vgs.jarvis/backend/ToolRouter.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js'$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-router-input|shell/plugins/vgs.jarvis/backend/ToolRouter.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js'$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\n'"$readme_rows_trimmed"
   "jarvis-policy-fixture|scripts/fixtures/jarvis/policy.js|offline|$jarvis_policy_rows"$'node scripts/test-jarvis-daemon.js\n'"$install_plan"
   "jarvis-tools-input|shell/plugins/vgs.jarvis/backend/Tools.js|logic|node scripts/test-jarvis-setup-gate.js"$'\nnode scripts/test-jarvis-tools.js\nnode scripts/test-jarvis-policy.js\nnode scripts/test-jarvis-redact.js\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-providers.js\nnode scripts/test-jarvis-mcp.js\nnode scripts/test-jarvis-guidance.js'
-  "jarvis-audit-input|shell/plugins/vgs.jarvis/backend/Audit.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js'$'\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\n'$'node scripts/test-jarvis-shell.js\n'"${jarvis_daemon_plan%$repo_plan}"$'node scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-audit-input|shell/plugins/vgs.jarvis/backend/Audit.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js'$'\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\n'$'node scripts/test-jarvis-shell.js\n'"${jarvis_daemon_plan%$repo_plan}"$'node scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
   "jarvis-redact-input|shell/plugins/vgs.jarvis/backend/Redact.js|logic|node scripts/test-jarvis-redact.js"$'\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-providers.js'
-  "jarvis-redact-router-input|shell/plugins/vgs.jarvis/backend/Redact.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js'$'\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-claude-task.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-redact-router-input|shell/plugins/vgs.jarvis/backend/Redact.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js'$'\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
   "jarvis-policy-input|shell/plugins/vgs.jarvis/backend/Policy.js|logic|node scripts/test-jarvis-policy.js"$'\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-providers.js'
-  "jarvis-policy-net-input|shell/plugins/vgs.jarvis/backend/Policy.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-policy-net-input|shell/plugins/vgs.jarvis/backend/Policy.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
   "jarvis-net-input|shell/plugins/vgs.jarvis/backend/net.js|logic|node scripts/test-jarvis-release.js"$'\nnode scripts/test-jarvis-providers.js'
-  "jarvis-net-cli-input|shell/plugins/vgs.jarvis/backend/net.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-add-key-input|shell/plugins/vgs.jarvis/backend/keys.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-net-cli-input|shell/plugins/vgs.jarvis/backend/net.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
+  "jarvis-add-key-input|shell/plugins/vgs.jarvis/backend/keys.js|cli|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$readme_rows_trimmed"
   "jarvis-denied-input|shell/plugins/vgs.jarvis/backend/Denied.js|logic|node scripts/test-jarvis-policy.js"$'\nnode scripts/test-jarvis-providers.js'
-  "jarvis-denied-cli-input|shell/plugins/vgs.jarvis/backend/Denied.js|cli|node scripts/test-jarvis-denied.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-sandbox-input|shell/plugins/vgs.jarvis/backend/Sandbox.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-sandbox.js'$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-child-input|shell/plugins/vgs.jarvis/backend/Child.js|cli|node scripts/test-jarvis-audit.js"$'\n'"node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-child.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-desktop-input|shell/plugins/vgs.jarvis/backend/Desktop.js|cli|node scripts/test-jarvis-audit.js"$'\n'"node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-desktop-session-input|shell/plugins/vgs.jarvis/backend/DesktopSession.js|cli|node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-executors-input|shell/plugins/vgs.jarvis/backend/Executors.js|cli|node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-desktop-fixture|scripts/fixtures/jarvis/desktop-tool.py|cli|node scripts/test-jarvis-desktop-tools.js"$'\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh'
+  "jarvis-denied-cli-input|shell/plugins/vgs.jarvis/backend/Denied.js|cli|node scripts/test-jarvis-denied.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-sandbox-input|shell/plugins/vgs.jarvis/backend/Sandbox.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-sandbox.js'$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-child-input|shell/plugins/vgs.jarvis/backend/Child.js|cli|node scripts/test-jarvis-audit.js"$'\n'"node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-child.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-desktop-input|shell/plugins/vgs.jarvis/backend/Desktop.js|cli|node scripts/test-jarvis-audit.js"$'\n'"node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-desktop-session-input|shell/plugins/vgs.jarvis/backend/DesktopSession.js|cli|node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-executors-input|shell/plugins/vgs.jarvis/backend/Executors.js|cli|node scripts/test-jarvis-desktop.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows_trimmed"
+  "jarvis-desktop-fixture|scripts/fixtures/jarvis/desktop-tool.py|cli|node scripts/test-jarvis-desktop-tools.js"$'\nnode scripts/test-jarvis-daemon.js'
   "jarvis-forbidden-input|scripts/fixtures/jarvis/forbidden.js|logic|"
-  "jarvis-forbidden-cli-input|scripts/fixtures/jarvis/forbidden.js|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh'
-  "jarvis-sandbox-datagram-input|scripts/fixtures/jarvis/sandbox-datagram.py|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh'
+  "jarvis-forbidden-cli-input|scripts/fixtures/jarvis/forbidden.js|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js'
+  "jarvis-sandbox-datagram-input|scripts/fixtures/jarvis/sandbox-datagram.py|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-daemon.js'
   "jarvis-setup-conversation|shell/plugins/vgs.jarvis/Conversation.js|logic|"$'node scripts/test-plugin-status.js\nnode scripts/test-jarvis-setup-gate.js\nnode scripts/test-jarvis-conversation.js'
   "jarvis-session|shell/plugins/vgs.jarvis/Session.js|logic|"$'node scripts/test-plugin-status.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-jarvis-session.js\nnode scripts/test-jarvis-session-runner.js\nnode scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\nnode scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-conversation.js\nnode scripts/test-jarvis-requests.js\nnode scripts/test-jarvis-release.js'
-  "jarvis-session-router|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows"$'node scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-session-router|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows""$readme_rows_trimmed"
   "jarvis-owner|shell/plugins/vgs.jarvis/backend/session-runner.js|logic|node scripts/test-jarvis-session-runner.js"$'\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-providers.js'
-  "jarvis-owner-router|shell/plugins/vgs.jarvis/backend/session-runner.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-playback.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-tools-router|shell/plugins/vgs.jarvis/backend/Tools.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-denied.js\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-home-repair.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-copilot-input|shell/plugins/vgs.jarvis/backend/CopilotHarness.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-claude.js"$'\n'"node scripts/test-jarvis-codex.js"$'\n'"node scripts/test-jarvis-copilot.js"$'\n'"node scripts/test-jarvis-pi.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"node scripts/test-jarvis-audio-daemon.js"$'\n'"node scripts/test-jarvis-engine.js"$'\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-claude-input|shell/plugins/vgs.jarvis/backend/ClaudeCode.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-owner-router|shell/plugins/vgs.jarvis/backend/session-runner.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-playback.js\n'"$readme_rows_trimmed"
+  "jarvis-tools-router|shell/plugins/vgs.jarvis/backend/Tools.js|cli|node scripts/test-jarvis-net.js"$'\n'"node scripts/test-jarvis-brain-openai.js"$'\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-denied.js\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-home-repair.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
+  "jarvis-copilot-input|shell/plugins/vgs.jarvis/backend/CopilotHarness.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-claude.js"$'\n'"node scripts/test-jarvis-codex.js"$'\n'"node scripts/test-jarvis-copilot.js"$'\n'"node scripts/test-jarvis-pi.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"node scripts/test-jarvis-audio-daemon.js"$'\n'"node scripts/test-jarvis-engine.js"$'\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
+  "jarvis-claude-input|shell/plugins/vgs.jarvis/backend/ClaudeCode.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$jarvis_accounts_rows""$readme_rows_trimmed"
   "jarvis-voice-installed|scripts/fixtures/jarvis-voice/installed.js|all|$install_plan"$'\nscripts/qml-smoke.sh'
   "dispatch|shell/Core/Dispatch.js|offline|$dispatch_plan"
   "session|shell/Core/SessionLock.qml|all|$session_plan"
@@ -838,15 +686,15 @@ cases=(
   "smoke-row|scripts/smoke/rows/example.sh|all|$smoke_plan"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/test-jarvis-daemon.js"$'\n'"${jarvis_key_plan%$'\nscripts/qml-smoke.sh'}"$'\nscripts/qml-smoke.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-smoke-verdict.sh"$'\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
-  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-hold.py\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-hold.py\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
   "smoke-persisted-input-owner|scripts/smoke/persisted-inputs.py|tools|python3 scripts/test-smoke-dumps.py"$'\nsmoke_reads_named\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\npython3 scripts/test-smoke-anr.py'
-  "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
-  "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
-  "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
-  "displays-pane|shell/plugins/vgs.displays/Pane.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
-  "power-stay-awake-view|shell/plugins/vgs.power/StayAwake.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
-  "power-battery-view|shell/plugins/vgs.power/PowerLogic.js|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
-  "vpn-view|shell/plugins/vgs.vpn/VpnBody.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh'
+  "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh'
+  "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"
+  "displays-pane|shell/plugins/vgs.displays/Pane.qml|unit|scripts/qml-unit.sh"
+  "power-stay-awake-view|shell/plugins/vgs.power/StayAwake.qml|unit|scripts/qml-unit.sh"
+  "power-battery-view|shell/plugins/vgs.power/PowerLogic.js|unit|scripts/qml-unit.sh"
+  "vpn-view|shell/plugins/vgs.vpn/VpnBody.qml|unit|scripts/qml-unit.sh"
   "shell-gc-mode|shell/shell.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-session-lock.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"
   "harness-hook|.claude/hooks/example.sh|all|$repo_plan"
@@ -883,8 +731,7 @@ if area in ["cli", "offline", "all"] and command not in lines and any(fnmatch.fn
     earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "tools", "requests",
                "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic"}
     for at, line in enumerate(lines):
-        if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
-                or line == "scripts/test-install-tree.sh"):
+        if line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier:
             lines.insert(at, command)
             break
     else:
@@ -901,8 +748,7 @@ if area in ["cli", "offline", "all"] and home not in lines and home_input:
     earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "conversation", "tools", "requests",
                "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic", "live", "elevenlabs", "denied"}
     for at, line in enumerate(lines):
-        if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
-                or line == "scripts/test-install-tree.sh"):
+        if line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier:
             lines.insert(at, home)
             break
     else:
@@ -948,8 +794,7 @@ if area in ["cli", "offline", "all"] and asks not in lines and asks_input:
                    "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic",
                    "live", "elevenlabs", "denied", "home", "home-repair", "session-control"}
         for at,line in enumerate(lines):
-            if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
-                    or line == "scripts/test-install-tree.sh"):
+            if line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier:
                 lines.insert(at, asks)
                 break
         else:
@@ -1141,7 +986,7 @@ for variant in text mixed control full unreadable loaded markdown-control; do
     text)
       row "a displayed README selects only text checks" "$d" 0 "" \
         'python3 scripts/check-user-commands.py' whitespace_check md_refs_check doc_limits_check \
-        '!scripts/test-keyboard-ui.sh' '!scripts/qml-unit.sh' '!scripts/qml-smoke.sh' '!scripts/measure-shader.sh'
+        '!scripts/test-keyboard-ui.sh' '!scripts/qml-unit.sh' '!scripts/qml-smoke.sh'
       test_area=qml
       row "a README-only diff selects no nested row in the explicit qml area" "$d" 0 "" '!scripts/' ;;
     control)
@@ -1155,7 +1000,7 @@ for variant in text mixed control full unreadable loaded markdown-control; do
       fi ;;
     mixed|unreadable)
       row "$variant README selection retains the folder's readers and starts no shell" "$d" 0 "" \
-        'scripts/test-keyboard-ui.sh' '!scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh' '!scripts/measure-shader.sh' ;;
+        'scripts/test-keyboard-ui.sh' '!scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh' ;;
     full)
       row "full README selection retains product coverage" "$d" 0 "" \
         'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
@@ -1730,7 +1575,6 @@ test_args=()
 # The runner replaces these product rows with fixtures. A shared harness
 # input remains an input of its table control, even outside smoke/.
 for spec in \
-  'reconcile|scripts/smoke/rows/bar-reconcile.sh|absent' \
   'updates|scripts/smoke/rows/updates.sh|absent' \
   'launcher|scripts/smoke/rows/launcher.sh|absent' \
   'bluetooth|scripts/smoke/rows/bluetooth.sh|present' \
@@ -1776,7 +1620,7 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 "${base_env[@]}" git -C "$d" mv shell/Core/Dispatch.js README.md
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
-rename_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$engine_check$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
+rename_plan=$'node scripts/test-tui-logic.js\nscripts/test-layer-glass-tui.sh\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$engine_check$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
 if ! rename_plan="$(with_daemon_consumers shell/Core/Dispatch.js offline "$rename_plan")"; then
   fail "the rename's expected consumer plan could not be built"
 fi
@@ -1785,7 +1629,7 @@ if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed
 d="$tmp/plan-shared"; fresh "$d"
 mkdir -p "$d/bin/lib"; printf 'changed\n' >"$d/bin/lib/qml-library.js"
 out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")"
-for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgshell.sh' 'scripts/test-install-tree.sh' 'python3 scripts/test-vgs-plugin.py' 'node scripts/test-check-readme.js' 'scripts/test-readme-install.sh' 'scripts/test-validate.sh'; do
+for consumer in 'node scripts/test-plugin-logic.js' 'node scripts/test-dispatch.js' 'node scripts/test-lifetime.js' 'node scripts/test-qml-library.js' 'node scripts/test-key-nav-logic.js' 'node scripts/test-clipboard-history.js' 'node bin/lib/check-manifests.js' 'node scripts/test-check-manifests.js' 'node scripts/test-jarvis-audio-daemon.js' 'scripts/test-vgshell.sh' 'python3 scripts/test-vgs-plugin.py' 'node scripts/test-check-readme.js' 'scripts/test-readme-install.sh' 'scripts/test-validate.sh'; do
   if grep -qxF "$consumer" <<<"$out"; then ok "shared loader selects $consumer"; else fail "shared loader omitted $consumer"; fi
 done
 if grep -qxF 'node scripts/test-inset.js' <<<"$out"; then ok "shared loader selects node scripts/test-inset.js"; else fail "shared loader omitted node scripts/test-inset.js"; fi
@@ -1824,7 +1668,7 @@ for file in scripts/lib/engine-availability.js scripts/check-packaging.js script
   printf 'changed\n' >>"$d/$file"
   test_area=qml; test_args=(--changed HEAD --list)
   row "installed prerequisite input $file selects each graphical entry" "$d" 0 "" \
-    'scripts/qml-smoke.sh' 'scripts/measure-shader.sh' '!validate: selection=full'
+    'scripts/qml-smoke.sh' '!validate: selection=full'
 done
 test_area=offline; test_args=()
 
@@ -1906,9 +1750,9 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # twice leaves a heredoc open. Variants: no-harness-line
 # carries no harness line, no-list has an empty row list, no-core one
 # that does not list auth-sentinel and slow a per-row seconds file that
-# names launcher at ten minutes; loads adds the real updates and
-# agent-warden rows, their real input lines and the real shell files those
-# match, with Badge.qml, BarItem.qml and the qs.Ui qmldir;
+# names launcher at ten minutes; loads adds the real updates row, its
+# real input line and the real shell files it
+# matches, with Badge.qml, BarItem.qml and the qs.Ui qmldir;
 # chain makes the launcher row's Panel.qml import the real qs.Ui qmldir,
 # naming its singleton ImagePool and internal DismissScope, and name Mid
 # of shell/Lib, which names Leaf; unreadable-load adds a shell file that
@@ -1920,7 +1764,7 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # that fails only `git ls-files -z`, since a real failure of that read also
 # fails the diff read before it, and that selects the full area first.
 smoke_fixture() { # DIR [VARIANT]
-  local dir="$1" variant="${2:-rows}" row listed='bar hyprland-consent session launcher notifications notifications-keys other bare stale twice blank lost start-order auth-sentinel'
+  local dir="$1" variant="${2:-rows}" row listed='bar hyprland-consent launcher notifications notifications-keys other bare stale twice blank lost start-order auth-sentinel'
   fresh "$dir"
   mkdir -p "$dir/scripts/smoke/rows" "$dir/scripts/smoke/helper" "$dir/shell/plugins/acme.launcher" "$dir/shell/plugins/acme.notify" "$dir/shell/plugins/acme.other"
   case "$variant" in
@@ -1938,11 +1782,10 @@ smoke_fixture() { # DIR [VARIANT]
   printf '%s\n' 'source "$repo/scripts/smoke/verdict.sh"' 'sandbox="$TMPDIR/sandbox"' 'expect() { # LABEL WANT CMD...' '  local label="$1" want="$2"' '  shift 2' '  [[ $("$@") == "$want" ]]' '}' >>"$dir/scripts/smoke/harness.sh"
   printf 'failures=0\n' >"$dir/scripts/smoke/verdict.sh"
   printf 'helper\n' >"$dir/scripts/smoke/helper/click.c"
-  for row in Bar Consent Session Start Auth Keys; do printf 'clean\n' >"$dir/shell/Core/$row.qml"; done
+  for row in Bar Consent Start Auth Keys; do printf 'clean\n' >"$dir/shell/Core/$row.qml"; done
   for row in launcher notify other; do printf 'clean\n' >"$dir/shell/plugins/acme.$row/Panel.qml"; done
   printf '# The bar.\n# inputs: shell/Core/Bar.qml\n' >"$dir/scripts/smoke/rows/bar.sh"
   printf '# inputs: shell/Core/Consent.qml\n' >"$dir/scripts/smoke/rows/hyprland-consent.sh"
-  printf '# inputs: shell/Core/Session.qml\nset -euo pipefail\n' >"$dir/scripts/smoke/rows/session.sh"
   printf '# inputs: shell/Core/Start.qml\n' >"$dir/scripts/smoke/rows/start-order.sh"
   printf '# inputs: shell/Core/Auth.qml\n' >"$dir/scripts/smoke/rows/auth-sentinel.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.launcher/*' 'launcher_open() { :; }' 'launcher_close() { :; }' 'launcher_dir="$sandbox/apps"' \
@@ -1985,8 +1828,8 @@ smoke_fixture() { # DIR [VARIANT]
     printf '%s\n' 'import qs.Ui' 'import qs.Lib' 'Mid { DismissScope {} }' 'ImagePool.size' >"$dir/shell/plugins/acme.launcher/Panel.qml"
   fi
   if [[ $variant == loads || $variant == markdown* ]]; then
-    local -a real_rows=(updates agent-warden)
-    [[ $variant != markdown* ]] || real_rows=(jarvis-input)
+    local -a real_rows=(updates)
+    [[ $variant != markdown* ]] || real_rows=(jarvis)
     python3 - "$repo" "$dir" "${real_rows[@]}" <<'PYLOADS'
 import fnmatch, os, pathlib, re, sys
 repo, target = map(pathlib.Path, sys.argv[1:3])
@@ -2042,40 +1885,6 @@ PYLOADS
     printf '# inputs: shell/plugins/vgs.jarvis/backend/skills/voice/*\n' >"$dir/scripts/smoke/rows/skill-notes.sh"
     sed -i 's/^start-order$/skill-notes\nstart-order/' "$dir/scripts/smoke/rows.list"
   fi
-  if [[ $variant == tailscale-values || $variant == tailscale-values-control ]]; then
-    python3 - "$repo" "$dir" "$variant" <<'PYTAILSCALEINPUT'
-import glob, pathlib, re, sys
-repo, target = map(pathlib.Path, sys.argv[1:3])
-variant = sys.argv[3]
-source = (repo / 'scripts/smoke/rows/tailscale.sh').read_text()
-lines = re.findall(r'^# inputs: (.+)$', source, re.M)
-assert len(lines) == 1
-inputs = lines[0]
-for pattern in inputs.split():
-    for original in glob.glob(str(repo / pattern)):
-        original = pathlib.Path(original)
-        path = target / original.relative_to(repo)
-        if original.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
-            # Git tracks files only. Preserve matched directories in this
-            # committed fixture even when their contents are not inputs.
-            (path / '.fixture').touch()
-        if original.is_file():
-            if not path.exists():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('# neutral input\n')
-if variant == 'tailscale-values-control':
-    edge = 'shell/Commons/SettingValues.js '
-    assert inputs.count(edge) == 1
-    inputs = inputs.replace(edge, '')
-(target / 'scripts/smoke/rows/tailscale.sh').write_text('# inputs: ' + inputs + '\n')
-(target / 'scripts/smoke/rows/device-fakes.sh').write_text('# inputs: scripts/smoke/fixtures/devices/*\n')
-row_list = target / 'scripts/smoke/rows.list'
-text = row_list.read_text()
-assert text.count('start-order\n') == 1
-row_list.write_text(text.replace('start-order\n', 'device-fakes\ntailscale\nstart-order\n'))
-PYTAILSCALEINPUT
-  fi
   "${base_env[@]}" git -C "$dir" add -A
   # Rows whose command files read the smoke rows and helpers run on a
   # change to them; their stand-ins pass.
@@ -2084,7 +1893,7 @@ PYTAILSCALEINPUT
   "${base_env[@]}" git -C "$dir" commit -q -m smoke-rows
 }
 smoke_always='bare,stale,twice,blank,lost'
-smoke_core='bar,hyprland-consent,session'
+smoke_core='bar,hyprland-consent'
 smoke_tail='start-order,auth-sentinel'
 
 # Unknown inline edit operands retain the producing row's existing reach.
@@ -2115,15 +1924,10 @@ test_args=()
 smoke_launcher="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,$smoke_tail"
 smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notifications-keys,$smoke_always,$smoke_tail"
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
-smoke_tailscale="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail"
-smoke_badge="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,updates,agent-warden,$smoke_tail"
-smoke_jarvis="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis-input,$smoke_tail"
+smoke_badge="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,updates,$smoke_tail"
+smoke_jarvis="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis,$smoke_tail"
 # name|changed paths, a removed one led by -|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
-  "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
-  "control: losing the Tailscale byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||tailscale-values-control"
-  "a change to a Settings file the Tailscale row draws selects it, the status line among them|shell/plugins/vgs.settings/StatusLine.qml|changed|$smoke_tailscale||tailscale-values"
-  "a change to the Settings field selects the Tailscale row, which draws a field|shell/Ui/controls/SettingField.qml|changed|$smoke_tailscale||tailscale-values"
   "a shared component selects the real rows that draw it through another file|shell/Ui/feedback/Badge.qml|changed|$smoke_badge||loads"
   "control: without the load reading the rows that draw a shared component drop out|shell/Ui/feedback/Badge.qml|changed|$smoke_none|loads|loads"
   "a qmldir change selects the real rows whose files import its directory|shell/Ui/qmldir|changed|$smoke_badge||loads"
@@ -2172,7 +1976,7 @@ smoke_cases=(
   "a Markdown file the shell loads selects the row whose input names it|shell/plugins/vgs.jarvis/backend/skills/voice/core.md|changed|$smoke_jarvis||markdown"
   "control: a Markdown input that matches no Markdown drops the row that names it|shell/plugins/vgs.jarvis/backend/skills/voice/core.md|changed||markdown-input|markdown"
   "a file the row loads under its folder input selects it|shell/plugins/vgs.jarvis/Service.qml|changed|$smoke_jarvis||markdown"
-  "a wildcard input that covers only shell Markdown matches nothing and its row always runs|shell/plugins/vgs.jarvis/Service.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis-input,skill-notes,$smoke_tail||markdown-glob"
+  "a wildcard input that covers only shell Markdown matches nothing and its row always runs|shell/plugins/vgs.jarvis/Service.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis,skill-notes,$smoke_tail||markdown-glob"
   "control: a wildcard input that covers only shell Markdown passes the self-check and its row drops out|shell/plugins/vgs.jarvis/Service.qml|changed|$smoke_jarvis|markdown-glob|markdown-glob"
   "a path another table row owns selects the smoke rows that name it|scripts/fixtures/vpn/details.txt|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,vpn,$smoke_tail||table-owned"
   "control: a path another table row owns no longer selects the nested smoke|scripts/fixtures/vpn/details.txt|changed||table-reach|table-owned"
@@ -2280,7 +2084,7 @@ test_args=(--changed HEAD --list)
 d="$tmp/smoke-rows-slow"; smoke_fixture "$d" slow
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "a reached row with a long median stays selected" "$d" 0 "" \
-  "$smoke_launcher" "validate: smoke-rows=some selected=11 total=14"
+  "$smoke_launcher" "validate: smoke-rows=some selected=10 total=13"
 # A shell file the load reading cannot read, or a reading that fails, runs
 # every row and says why in one line; the table above holds the controls.
 d="$tmp/smoke-rows-unreadable-load-line"; smoke_fixture "$d" unreadable-load
@@ -2392,7 +2196,7 @@ PY
 "${base_env[@]}" git -C "$d" commit -q -am control
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "control: a read that ignores its status selects from a failed list" "$d" 0 "$failing_ls_files" \
-  "$smoke_launcher" "validate: smoke-rows=some selected=11 total=14" \
+  "$smoke_launcher" "validate: smoke-rows=some selected=10 total=13" \
   "!validate: smoke-rows=all reason=tracked-list-unreadable"
 # The self-check names each line that cannot select, with the line to add
 # or fix, and leaves the exit status alone, on a listing run and a real one.
@@ -2414,7 +2218,7 @@ smoke_self_check=(
   "validate: smoke-input unparsed path=scripts/smoke/rows/twice.sh; the function and variable check cannot read it to its end"
 )
 row "the smoke input self-check names each line to add or fix" "$d" 0 "" \
-  "${smoke_self_check[@]}" '!row=launcher' '!row=session' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode' '!variable=TMPDIR'
+  "${smoke_self_check[@]}" '!row=launcher' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode' '!variable=TMPDIR'
 test_args=(--changed HEAD)
 row "the smoke input self-check leaves a real run passing" "$d" 0 "" \
   "${smoke_self_check[@]}" '!variable=TMPDIR' "validate: ok"
@@ -2646,30 +2450,22 @@ PYENTRY
   fi
 done
 
-# A real row and its real shared helpers, without starting their runtime.
-# The fixture keeps the row's whole source and declared inputs. Only the
-# changed helper, hunk shape or incoming commit varies; expected plans do
-# not come from the reach reader.
+# A Gallery row that draws the orbs through the real shared helpers,
+# without starting their runtime: its one input line names the Gallery
+# plugin and its body calls gallery_draw_orbs, which reaches the other orb
+# readers. Only the changed helper, hunk shape or incoming commit varies;
+# expected plans do not come from the reach reader.
 function_fixture() { # DIR harness|library
   local dir="$1" location="$2"
   smoke_fixture "$dir"
   python3 - "$repo" "$dir" "$location" <<'PYFUNCTION'
-import fnmatch, pathlib, re, subprocess, sys
+import pathlib, sys
 repo, target = map(pathlib.Path, sys.argv[1:3])
 location = sys.argv[3]
-source = (repo / "scripts/smoke/rows/gallery.sh").read_text()
-inputs = re.findall(r"^# inputs: (.+)$", source, re.M)
-assert len(inputs) == 1
-tracked = subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"]).decode().split("\0")
-for pattern in inputs[0].split():
-    matches = [path for path in tracked if path and fnmatch.fnmatchcase(path, pattern)]
-    assert matches, pattern
-    for path in matches:
-        destination = target / path
-        if not destination.exists():
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text("# neutral input\n" if path.endswith(".sh") else "")
-(target / "scripts/smoke/rows/gallery.sh").write_text(source)
+window = target / "shell/plugins/vgs.gallery/Window.qml"
+window.parent.mkdir(parents=True, exist_ok=True)
+window.write_text("")
+(target / "scripts/smoke/rows/gallery.sh").write_text('# inputs: shell/plugins/vgs.gallery/*\ngallery_draw_orbs "the Gallery VoiceOrb shader"\n')
 row_list = target / "scripts/smoke/rows.list"
 text = row_list.read_text()
 assert text.count("start-order\n") == 1
@@ -2687,7 +2483,7 @@ else:
     with harness.open("a") as out:
         out.write("# Orb readers\n" + helpers)
 PYFUNCTION
-  commit "$dir" real-gallery
+  commit "$dir" gallery
 }
 smoke_gallery="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,gallery,$smoke_tail"
 test_area=qml
@@ -2713,7 +2509,7 @@ for function_case in harness library transitive-control top-level shared-line un
       wanted="$smoke_gallery"
       [[ $function_case != transitive-control ]] || wanted="scripts/qml-smoke.sh" ;;
   esac
-  row "function reach $function_case uses the real Gallery row, never launcher" "$d" 0 "" "$wanted"
+  row "function reach $function_case uses the Gallery row, never launcher" "$d" 0 "" "$wanted"
 done
 
 # A provider change reaches a declared plugin consumer, not every source
@@ -2760,25 +2556,7 @@ PROVIDERLIBRARIES
     cp -- "$repo/shell/Commons/qmldir" "$repo/shell/Commons/SessionLockState.js" "$d/shell/Commons/"
     cp -- "$repo/shell/plugins/vgs.lock/Service.qml" "$repo/shell/plugins/vgs.lock/manifest.json" "$d/shell/plugins/vgs.lock/"
     printf '# inputs: shell/plugins/vgs.lock/Service.qml\n' >"$d/scripts/smoke/rows/lock.sh"
-    # Keep the shipped idle/ipc observer and its real input line. In
-    # particular it reads Capabilities, but neither SessionLockState user.
-    python3 - "$repo" "$d" <<'MODULEPROVIDER'
-import fnmatch, pathlib, re, shutil, subprocess, sys
-repo, target = map(pathlib.Path, sys.argv[1:])
-source = (repo / 'scripts/smoke/rows/stay-awake.sh').read_text()
-inputs = re.findall(r'^# inputs: (.+)$', source, re.M)
-assert len(inputs) == 1
-tracked = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z']).decode().split('\0')
-for pattern in inputs[0].split():
-    matches = [path for path in tracked if path and fnmatch.fnmatchcase(path, pattern)]
-    assert matches, pattern
-    for path in matches:
-        destination = target / path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(repo / path, destination)
-(target / 'scripts/smoke/rows/stay-awake.sh').write_text('# inputs: ' + inputs[0] + '\n')
-MODULEPROVIDER
-    printf 'lock\nstay-awake\n' >>"$d/scripts/smoke/rows.list"
+    printf 'lock\n' >>"$d/scripts/smoke/rows.list"
   fi
   commit "$d" provider-fixture
   if [[ $provider_case == module-entry ]]; then
@@ -2796,7 +2574,7 @@ MODULEPROVIDER
     direct) row_re "direct provider inputs retain their row" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other.*power' ;;
     unknown-table) row_re "an unattributable table retains the ordinary hub importer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*other' ;;
     unreadable-manifest) row "an unreadable manifest selects every row" "$d" 0 "" 'scripts/qml-smoke.sh' ;;
-    module-entry) row_re "a SessionLockState entry retains lock consumers without the idle-only stay-awake hub observer" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power,lock' '!,stay-awake' '!,other,' ;;
+    module-entry) row_re "a SessionLockState entry retains lock consumers" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power,lock' '!,other,' ;;
     control)
       row "the provider control reaches no declared consumer on readable inputs" "$d" 0 "" "$smoke_none"
       if (failures=0; row_re "provider consumer guarantee" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*power'; ((failures == 0))) >"$tmp/provider-consumer-control.log"; then
@@ -2997,7 +2775,7 @@ for incoming in unrelated helper core own-fix input-reach-control; do
       plant "$d/scripts/smoke/harness.sh" $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])' $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])+0'
       wanted="$smoke_gallery"
       [[ $incoming != input-reach-control ]] || wanted="" ;;
-    core) printf '// incoming\n' >>"$d/shell/Core/Session.qml"; wanted="$smoke_none" ;;
+    core) printf '// incoming\n' >>"$d/shell/Core/Bar.qml"; wanted="$smoke_none" ;;
     *) printf '// incoming\n' >>"$d/shell/plugins/acme.notify/Panel.qml"; wanted="" ;;
   esac
   commit "$d" incoming
@@ -3010,48 +2788,10 @@ for incoming in unrelated helper core own-fix input-reach-control; do
   fi
   test_args=(--changed "$lane" --list)
   if [[ -z $wanted ]]; then
-    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "!scripts/qml-smoke.sh"
+    row "restack $incoming intersects incoming reach with the Gallery inputs" "$d" 0 "" "!scripts/qml-smoke.sh"
   else
-    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "$wanted" "!scripts/qml-smoke.sh --rows $smoke_core,launcher,"
+    row "restack $incoming intersects incoming reach with the Gallery inputs" "$d" 0 "" "$wanted" "!scripts/qml-smoke.sh --rows $smoke_core,launcher,"
   fi
-done
-
-# Keys owns the unlisted bubble row, whose diagnostics source needs the
-# listed caller's input declaration even without a direct symbol read.
-# Copy the actual keys input contract; only the diagnostics edge varies.
-test_area=tools
-test_args=(--changed HEAD)
-for source_case in nested-missing nested-named direct-missing direct-named; do
-  d="$tmp/smoke-source-$source_case"; smoke_fixture "$d"
-  plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh'
-  printf 'EOF\n' >>"$d/scripts/smoke/rows/twice.sh"
-  python3 - "$repo" "$d" "$source_case" <<'PYSOURCEROW'
-from pathlib import Path
-import re, sys
-repo, target = map(Path, sys.argv[1:3])
-route, declaration = sys.argv[3].split('-')
-inputs = re.findall(r'^# inputs: .+$', (repo / 'scripts/smoke/rows/jarvis-keys.sh').read_text(), re.M)
-assert len(inputs) == 1
-edge = ' scripts/smoke/rows/diagnostics.sh'
-assert inputs[0].count(edge) == 1
-line = inputs[0] if declaration == 'named' else inputs[0].replace(edge, '')
-source = 'source "$repo/scripts/smoke/rows/diagnostics.sh"\n'
-assert (repo / 'scripts/smoke/rows/jarvis-bubble.sh').read_text().count(source) == 1
-rows = target / 'scripts/smoke/rows'
-(rows / 'jarvis-keys.sh').write_text(line + '\n' + (source if route == 'direct' else 'smoke_row jarvis-bubble\n'))
-(rows / 'jarvis-bubble.sh').write_text(source if route == 'nested' else '# No nested source.\n')
-(rows / 'diagnostics.sh').write_text('# inputs: scripts/smoke/helper/*\n')
-with (target / 'scripts/smoke/rows.list').open('a') as f:
-    f.write('jarvis-keys\ndiagnostics\n')
-PYSOURCEROW
-  commit "$d" source-contract
-  printf 'changed\n' >>"$d/scripts/smoke/helper/click.c"
-  source_want=0 source_line='!row=jarvis-keys source=diagnostics'
-  if [[ $source_case == *-missing ]]; then
-    source_want=1
-    source_line='~row=jarvis-keys source=diagnostics from=scripts/smoke/rows/diagnostics.sh;'
-  fi
-  row_re "a $source_case row source checks the copied keys input contract" "$d" "$source_want" "" "$source_line"
 done
 
 # The tools row that fails on what the self-check only names. In the
@@ -3125,14 +2865,11 @@ done
 # this worktree: the newest commit holding the tree the last passing run
 # read. A lane validates its harness work staged and uncommitted, then
 # commits it; the next run, after a fix to one row's input, runs that row,
-# not every row. A stand-in shader runner keeps the harness round's other
-# qml row passing.
+# not every row.
 d="$tmp/base-fix-round"; smoke_fixture "$d"
 d_control="$tmp/base-fix-round-control"; smoke_fixture "$d_control"
 plant "$d_control/scripts/validate" 'elif [[ -z ${VGS_VALIDATE_BASE:-} ]] && change_base="$(last_pass)"; then' 'elif false; then'
 for dir in "$d" "$d_control"; do
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$dir/scripts/measure-shader.sh"
-  chmod +x "$dir/scripts/measure-shader.sh"
   printf '# changed\n' >>"$dir/scripts/qml-smoke.sh"
   "${base_env[@]}" git -C "$dir" add -A
 done
@@ -3155,8 +2892,6 @@ row "control: a fix round without the last pass runs every row" "$d_control" 0 "
 # pass. The control is a copy of validate whose record names no area.
 d_area="$tmp/base-fix-round-area-control"; smoke_fixture "$d_area"
 plant "$d_area/scripts/validate" 'pass_record="$(git rev-parse --absolute-git-dir)/vgs-validated-$area"' 'pass_record="$(git rev-parse --absolute-git-dir)/vgs-validated"'
-printf '#!/usr/bin/env bash\nexit 0\n' >"$d_area/scripts/measure-shader.sh"
-chmod +x "$d_area/scripts/measure-shader.sh"
 printf '# changed\n' >>"$d_area/scripts/qml-smoke.sh"
 commit "$d_area" harness
 test_args=()
@@ -3169,13 +2904,13 @@ row "control: another area reads the qml pass of a record that names no area" "$
 test_area=qml
 
 # A run that exits 77, a check that could not run, records nothing: the
-# stand-in shader runner exits 77. The control records before the
+# stand-in fatal-controls runner exits 77. The control records before the
 # not-measured exit.
 for variant in real control; do
   d="$tmp/base-record-skipped-$variant"; smoke_fixture "$d"
   [[ $variant == real ]] || plant "$d/scripts/validate" 'elif [[ ${#skipped[@]} -gt 0 ]]; then' 'elif last_pass_record; [[ ${#skipped[@]} -gt 0 ]]; then'
-  printf '#!/usr/bin/env bash\nexit 77\n' >"$d/scripts/measure-shader.sh"
-  chmod +x "$d/scripts/measure-shader.sh"
+  printf '#!/usr/bin/env bash\nexit 77\n' >"$d/scripts/test-qml-smoke.sh"
+  chmod +x "$d/scripts/test-qml-smoke.sh"
   commit "$d" skipped
 done
 test_args=()
@@ -3187,8 +2922,6 @@ row_re "control: a run that exits 77 records its tree" "$tmp/base-record-skipped
 for variant in real control; do
   d="$tmp/base-record-changed-$variant"; smoke_fixture "$d"
   [[ $variant == real ]] || plant "$d/scripts/validate" '  tree="$(worktree_tree)"' '  tree="$pass_tree"'
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$d/scripts/measure-shader.sh"
-  chmod +x "$d/scripts/measure-shader.sh"
   printf 'if [[ -z ${1-} ]]; then printf "ran\\n" >>"$(dirname -- "$0")/../ran.txt"; fi\n' >>"$d/scripts/qml-smoke.sh"
   commit "$d" writer
 done
@@ -3678,6 +3411,9 @@ record_case() { # SPEC
   IFS='|' read -r name area file after mutant wanted <<<"$1"
   d="$tmp/record-${name//[^a-z]/-}"
   fresh "$d"
+  # The fixture's qml unit controls row reads the base, as a `%scope` row
+  # declares.
+  plant "$d/scripts/validate" '"unit|qml unit controls|scripts/test-qml-unit.sh|%weight=all ' '"unit|qml unit controls|scripts/test-qml-unit.sh|%weight=all %scope '
   [[ -z $mutant ]] || plant "$d/scripts/validate" "${record_mutant_old[$mutant]}" "${record_mutant_new[$mutant]}"
   for stand_in in scripts/qml-unit.sh scripts/test-qml-unit.sh; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$d/$stand_in"
@@ -3699,7 +3435,7 @@ test_area=qml test_args=()
 # run lists what it reuses. Both kinds start with trunk at the fixture's
 # tip, so the lane's change alone differs from the branch point. In `unit`
 # the lane changes scripts/qml-unit.sh and both runs take the branch point
-# as their base, which the `%scope` row `qml unit controls` reads. In
+# as their base, which the fixture's `%scope` row `qml unit controls` reads. In
 # `qml` trunk's `load` commit replaces the launcher's Panel.qml with one
 # that loads shell/Lib/Helper.qml, which no input line names; the lane
 # changes the notifications Panel.qml through reuse_fixture and the
@@ -3770,6 +3506,9 @@ restack_case() { # SPEC
     [[ $variant != other ]] || printf 'lane\n' >>"$d/shell/plugins/acme.other/Panel.qml"
   else
     fresh "$d"
+    # The fixture's qml unit controls row reads the base, as a `%scope` row
+    # declares.
+    plant "$d/scripts/validate" '"unit|qml unit controls|scripts/test-qml-unit.sh|%weight=all ' '"unit|qml unit controls|scripts/test-qml-unit.sh|%weight=all %scope '
     [[ -z $mutant ]] || plant "$d/scripts/validate" "${restack_mutant_old[$mutant]}" "${restack_mutant_new[$mutant]}"
     for stand_in in scripts/qml-unit.sh scripts/test-qml-unit.sh; do
       printf '#!/usr/bin/env bash\nexit 0\n' >"$d/$stand_in"
@@ -3937,7 +3676,7 @@ test_args=()
 # of one of those names; and it refuses a row it does not hold. The
 # controls are copies: one whose row predicate holds every row, one that
 # follows no input line, one that adds no core row.
-smoke_core_rows=(bar hyprland-consent session start-order auth-sentinel)
+smoke_core_rows=(bar hyprland-consent start-order auth-sentinel)
 if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $(wc -l <<<"$listed") -ge 60 ]]; then
   for smoke_row_name in "${smoke_core_rows[@]}"; do
     if grep -qxF "$smoke_row_name" <<<"$listed"; then ok "the runner lists the core row $smoke_row_name"; else fail "the runner does not list the core row $smoke_row_name"; fi
@@ -3948,9 +3687,8 @@ if listed="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --list-rows)" && [[ $
 else
   fail "qml-smoke.sh --list-rows: the read listed under 60 rows, so the row list no longer reads as one name a line"
 fi
-# session and start-order read capabilities, which reads plugins, and
-# start-order reads device-fakes.
-smoke_subset=$'bar\nhyprland-consent\nplugins\ncapabilities\nsession\ndevice-fakes\nstart-order\nauth-sentinel'
+# start-order reads capabilities, which reads plugins, and device-fakes.
+smoke_subset=$'bar\nhyprland-consent\nplugins\ncapabilities\ndevice-fakes\nstart-order\nauth-sentinel'
 for smoke_named in plugins,bar capabilities; do
   if out="$("${base_env[@]}" "$repo/scripts/qml-smoke.sh" --rows "$smoke_named" --list-rows)" && [[ $out == "$smoke_subset" ]]; then
     ok "the runner lists the rows --rows $smoke_named names, the core rows and the rows those read, in run order"
@@ -3967,7 +3705,7 @@ for dir in runner-control runner-reads-control runner-core-control; do
 done
 cp -- "$repo/scripts/qml-smoke.sh" "$tmp/runner-reads-control/scripts/qml-smoke.sh"
 plant "$tmp/runner-reads-control/scripts/qml-smoke.sh" '        qml_smoke_queue+=("$qml_smoke_read")' '        :'
-if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'bar\nhyprland-consent\ncapabilities\nsession\nstart-order\nauth-sentinel' ]]; then
+if out="$("${base_env[@]}" bash "$tmp/runner-reads-control/scripts/qml-smoke.sh" --rows capabilities --list-rows)" && [[ $out == $'bar\nhyprland-consent\ncapabilities\nstart-order\nauth-sentinel' ]]; then
   ok "control: a runner that follows no input line lists the named row and the core rows alone"
 else
   fail "control: the runner that follows no input line listed: $out"
@@ -4051,8 +3789,8 @@ else
 fi
 # The rows a run holds, in a scratch tree whose list holds the core rows:
 # top names own's file, own names base's and part's, a row file the tree
-# has and the list does not, which is own's own; the core row session names
-# seat's; gone names a row file the tree lacks; and the short tree's list
+# has and the list does not, which is own's own; the core row start-order
+# names seat's; gone names a row file the tree lacks; and the short tree's list
 # lacks a core row. The tree's fence passes and its harness stands in,
 # printing each row it is handed and answering the step the runner takes
 # after hyprland-consent, so no run here starts a compositor or a shell. The run prints the named and the expanded set once, which a lane
@@ -4069,11 +3807,11 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   plant "$tmp/$dir/scripts/qml-smoke.sh" 'if [[ -z ${qml_smoke_attempt:-} ]]; then' 'if false; then'
   plant "$tmp/$dir/scripts/qml-smoke.sh" 'if [[ -n $first_bar_runs || -n ${qml_smoke_attempt:-} ]]; then' 'if true; then'
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/row-inputs.sh"
-  printf '%s\n' '# Rows.' bar hyprland-consent seat session base own top gone start-order auth-sentinel >"$tmp/$dir/scripts/smoke/rows.list"
-  for smoke_row_name in bar hyprland-consent seat base start-order auth-sentinel; do
+  printf '%s\n' '# Rows.' bar hyprland-consent seat base own top gone start-order auth-sentinel >"$tmp/$dir/scripts/smoke/rows.list"
+  for smoke_row_name in bar hyprland-consent seat base auth-sentinel; do
     printf '# inputs: shell/Core/Bar.qml\n' >"$tmp/$dir/scripts/smoke/rows/$smoke_row_name.sh"
   done
-  printf '# inputs: scripts/smoke/rows/seat.sh\n' >"$tmp/$dir/scripts/smoke/rows/session.sh"
+  printf '# inputs: scripts/smoke/rows/seat.sh\n' >"$tmp/$dir/scripts/smoke/rows/start-order.sh"
   printf '# inputs: scripts/smoke/rows/part.sh scripts/smoke/rows/base.sh\n' >"$tmp/$dir/scripts/smoke/rows/own.sh"
   printf '# inputs: scripts/smoke/rows/own.sh\n' >"$tmp/$dir/scripts/smoke/rows/top.sh"
   printf '# Run by own.sh.\n' >"$tmp/$dir/scripts/smoke/rows/part.sh"
@@ -4113,7 +3851,7 @@ else
   fail "control: the replacement filter did not reach the harness"
 fi
 d="$tmp/runner-reads"
-smoke_deep=(bar hyprland-consent seat session base own top start-order auth-sentinel)
+smoke_deep=(bar hyprland-consent seat base own top start-order auth-sentinel)
 status=0
 out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top 2>&1)" || status=$?
 if [[ $status == 0 && $out == "qml-smoke: rows named=top run=$(IFS=,; printf '%s' "${smoke_deep[*]}")"$'\n'"$(printf 'row=%s\n' "${smoke_deep[@]}")" && $(<"$d/fence.log") == fence ]]; then
@@ -4136,7 +3874,7 @@ else
 fi
 d="$tmp/runner-deep-control"
 plant "$d/scripts/qml-smoke.sh" $'    qml_smoke_reach[$qml_smoke_row]=1\n' $'    qml_smoke_reach[$qml_smoke_row]=1\n    [[ " ${qml_smoke_named[*]} " == *" $qml_smoke_row "* ]] || continue\n'
-if out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top --list-rows 2>&1)" && [[ $out == $'bar\nhyprland-consent\nsession\nown\ntop\nstart-order\nauth-sentinel' ]]; then
+if out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows top --list-rows 2>&1)" && [[ $out == $'bar\nhyprland-consent\nown\ntop\nstart-order\nauth-sentinel' ]]; then
   ok "control: a runner that follows the named rows' lines alone loses the second read and the core row's"
 else
   fail "control: the runner that follows the named rows' lines alone listed: $out"
@@ -4145,13 +3883,13 @@ d="$tmp/runner-refusal-control"
 plant "$d/scripts/qml-smoke.sh" '      elif [[ ! -f $repo/scripts/smoke/rows/$qml_smoke_read.sh ]]; then' '      elif false; then'
 status=0
 out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows gone --list-rows 2>&1)" || status=$?
-if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\nsession\ngone\nstart-order\nauth-sentinel' ]]; then
+if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\ngone\nstart-order\nauth-sentinel' ]]; then
   ok "control: a runner without the refusal lists the row"
 else
   fail "control: the runner without its unknown read refusal: exit=$status output=$out"
 fi
 for dir in runner-short runner-short-control; do
-  printf '%s\n' '# Rows.' bar hyprland-consent seat session base own top start-order >"$tmp/$dir/scripts/smoke/rows.list"
+  printf '%s\n' '# Rows.' bar hyprland-consent seat base own top start-order >"$tmp/$dir/scripts/smoke/rows.list"
 done
 d="$tmp/runner-short"
 status=0
@@ -4165,7 +3903,7 @@ d="$tmp/runner-short-control"
 plant "$d/scripts/qml-smoke.sh" $'  for qml_smoke_row in "${smoke_core[@]}"; do\n    if [[ " ${qml_smoke_rows[*]} " != *" $qml_smoke_row "* ]]; then' $'  for qml_smoke_row in "${smoke_core[@]}"; do\n    if false; then'
 status=0
 out="$("${base_env[@]}" bash "$d/scripts/qml-smoke.sh" --rows own --list-rows 2>/dev/null)" || status=$?
-if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\nsession\nbase\nown\nstart-order' ]]; then
+if [[ $status == 0 && $out == $'bar\nhyprland-consent\nseat\nbase\nown\nstart-order' ]]; then
   ok "control: a runner without the core row refusal lists a run that lacks the row"
 else
   fail "control: the runner without its missing core row refusal: exit=$status output=$out"
@@ -4302,35 +4040,6 @@ PYTHON
   done
 done
 
-# The shader consumer builds the shared keyboard helper too. A stand-in
-# consumer fails on a planted source defect, without starting a compositor.
-d="$tmp/plan-keyboard-edge"; fresh "$d"
-mkdir -p "$d/scripts/smoke/keyboard"
-printf '#!/bin/sh\nexit 0\n' >"$d/scripts/qml-smoke.sh"
-printf '#!/bin/sh\ngrep -qx clean scripts/smoke/keyboard/keyboard.c\n' >"$d/scripts/measure-shader.sh"
-chmod +x "$d/scripts/qml-smoke.sh" "$d/scripts/measure-shader.sh"
-printf 'clean\n' >"$d/scripts/smoke/keyboard/keyboard.c"
-"${base_env[@]}" git -C "$d" add -A
-"${base_env[@]}" git -C "$d" commit -q -m keyboard-consumers
-printf 'defect\n' >"$d/scripts/smoke/keyboard/keyboard.c"
-test_area=qml
-test_args=(--changed HEAD)
-row "a keyboard helper defect selects and fails the shader consumer" "$d" 1 "" \
-  "validate: failed=shader GPU cost (exit 1)"
-python3 - "$d/scripts/validate" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-s = p.read_text()
-edge = ' scripts/smoke/keyboard/*'
-assert s.count(edge) == 1
-changed = s.replace(edge, '')
-assert changed != s
-p.write_text(changed)
-PY
-"${base_env[@]}" git -C "$d" add scripts/validate
-"${base_env[@]}" git -C "$d" commit -q -m control
-row "control: removing the keyboard edge hides the shader failure" "$d" 0 "" "validate: ok"
 test_area=offline
 test_args=()
 
@@ -5475,47 +5184,45 @@ for value in 0 01 -1 two; do
   row "VGS_VALIDATE_JOBS=$value is refused" "$d" 2 "VGS_VALIDATE_JOBS=$value" "validate: refused: jobs=$value"
 done
 
-# scripts/test-qml-unit.sh runs its mutations side by side and prints each
-# kill verdict in table order. The copy's runner is a stand-in that exits
-# with the verdict its mutated file names after the delay it names, so the
-# first row ends last; the copy's other rows fail on the stand-in, and only
-# the mutation lines are read. A copy that prints the case logs in reverse
-# is the control.
+# scripts/test-qml-unit.sh runs its controls side by side, prints each
+# verdict in table order and exits 1 on a failed one. The copy's runner is
+# a stand-in that exits with the verdict its planted file names after the
+# delay it names, so the first log row ends last; the copy's other rows
+# fail on the stand-in, and only the planted log lines are read. A copy
+# that prints the case logs in reverse is the control.
 q="$tmp/qml-jobs"
 mkdir -p "$q/scripts/qml-tests" "$q/scripts/smoke" "$q/shell/Ui"
 printf '#!/bin/sh\nexit 0\n' >"$q/scripts/smoke/gpu-fence.sh"
 chmod +x "$q/scripts/smoke/gpu-fence.sh"
 printf 'base\n' >"$q/shell/Ui/a.qml"
-: >"$q/scripts/qml-tests/tst_x.qml"
 cat >"$q/scripts/qml-unit.sh" <<'SH'
 #!/usr/bin/env bash
-ui=""
+file=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ui) ui="$2"; shift 2 ;;
-    --tests|--commons|--core) shift 2 ;;
+    --ui|--tests|--commons|--core) shift 2 ;;
     --nope) echo 'qml-unit: refused: argument=--nope'; exit 2 ;;
-    *) shift ;;
+    *) file="$1"; shift ;;
   esac
 done
 [[ -z ${QML_UNIT_RUNNER:-} ]] || { echo 'qml-unit: status=not-measured missing=qmltestrunner'; exit 77; }
-[[ -n $ui ]] || exit 0
-read -r verdict delay <"$ui/a.qml"
+read -r verdict delay < <(sed -n 's|^ *// stand-in ||p' "$file" 2>/dev/null) || exit 0
 sleep "${delay:-0}"
-case "$verdict" in KILL) exit 1 ;; CRASH) exit 3 ;; *) exit 0 ;; esac
+echo "stand-in: exit=$verdict"
+exit "$verdict"
 SH
 chmod +x "$q/scripts/qml-unit.sh"
 python3 - "$repo/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit.sh" <<'PY'
 import sys
 source, copy = sys.argv[1:]
 lines = open(source, encoding="utf-8").read().split("\n")
-start = lines.index("mutations=(") + 1
+start = lines.index("logs=(") + 1
 end = lines.index(")", start)
 lines[start:end] = [
-    '  "killed slow|a.qml|base|KILL 0.6|tst_x.qml"',
-    '  "survived|a.qml|base|SURVIVE|tst_x.qml"',
-    '  "crashed|a.qml|base|CRASH|tst_x.qml"',
-    '  "killed fast|a.qml|base|KILL 0|tst_x.qml"',
+    '  "slow pass|slow|1|stand-in: exit=1|    // stand-in 1 0.6\\n"',
+    '  "wrong exit|wrong|1|stand-in: exit=1|    // stand-in 0 0\\n"',
+    '  "wrong line|line|1|stand-in: never|    // stand-in 1 0\\n"',
+    '  "fast pass|fast|0|stand-in: exit=0|    // stand-in 0 0\\n"',
 ]
 open(copy, "w", encoding="utf-8").write("\n".join(lines))
 PY
@@ -5524,30 +5231,30 @@ python3 - "$q/scripts/test-qml-unit-reversed.sh" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
-line = '    cat -- "$tmp/case-$phase-$i.log"\n'
+line = '    cat -- "$tmp/case-$i.log"\n'
 source = path.read_text()
 assert source.count(line) == 1
-path.write_text(source.replace(line, '    cat -- "$tmp/case-$phase-$((${#cases[@]} - 1 - i)).log"\n'))
+path.write_text(source.replace(line, '    cat -- "$tmp/case-$((${#cases[@]} - 1 - i)).log"\n'))
 PY
-qml_jobs_want=$'  ok    killed slow\n  FAIL  survived: tst_x.qml passed on the mutated copy\n  FAIL  crashed: the runner exited 3, so no test judged the mutated copy\n  ok    killed fast'
+qml_jobs_want=$'  ok    slow pass\n  FAIL  wrong exit: exit 0, want 1\n  FAIL  wrong line: no line: stand-in: never\n  ok    fast pass'
 for copy in test-qml-unit.sh test-qml-unit-reversed.sh; do
   status=0
   out="$("${base_env[@]}" VGS_VALIDATE_JOBS=4 bash "$q/scripts/$copy" 2>&1)" || status=$?
-  got="$(grep -E '^  (ok  |FAIL)  (killed|survived|crashed)' <<<"$out")" || got=""
+  got="$(grep -E '^  (ok  |FAIL)  (slow pass|wrong exit|wrong line|fast pass)' <<<"$out")" || got=""
   if [[ $copy == test-qml-unit.sh ]]; then
     if [[ $status == 1 && $got == "$qml_jobs_want" ]]; then
-      ok "qml mutations run side by side keep their kill verdicts in table order"
+      ok "qml unit controls run side by side keep their verdicts in table order and fail the run"
     else
-      fail "qml mutations side by side: exit=$status"; printf '%s\n' "$got" | sed 's/^/        /'
+      fail "qml unit controls side by side: exit=$status"; printf '%s\n' "$got" | sed 's/^/        /'
     fi
   elif [[ $got != "$qml_jobs_want" ]]; then
-    ok "control: qml mutation verdicts printed out of table order are caught"
+    ok "control: qml unit control verdicts printed out of table order are caught"
   else
-    fail "control: qml mutation verdicts printed in reverse still read in table order"
+    fail "control: qml unit control verdicts printed in reverse still read in table order"
   fi
 done
 status=0
-out="$("${base_env[@]}" VGS_VALIDATE_JOBS=0 bash "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
+out="$("${base_env[@]}" VGS_VALIDATE_JOBS=0 bash "$repo/scripts/test-qml-unit.sh" 2>&1)" || status=$?
 if [[ $status == 2 && $out == 'test-qml-unit: refused: jobs=0' ]]; then
   ok "test-qml-unit refuses VGS_VALIDATE_JOBS=0"
 else

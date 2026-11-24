@@ -233,7 +233,7 @@ blocked = False
 try:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and proc.poll() is None:
-        # /proc/locks can hide waiters on this host (rows/reset.sh).
+        # /proc/locks can hide waiters on this host.
         # The owned runner's flock has this root open on descriptor 8.
         # The independent lock above prevents that call from completing.
         pending = [proc.pid]

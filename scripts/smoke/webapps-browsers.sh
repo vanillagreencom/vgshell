@@ -1,5 +1,4 @@
-# Sourced by scripts/smoke/rows/webapps.sh and scripts/sandbox-shots.sh,
-# after the harness. No host browser may open from the sandbox: the Web
+# Sourced by scripts/sandbox-shots.sh, after the harness. No host browser may open from the sandbox: the Web
 # Apps service opens a site with the default browser's desktop entry, else
 # with the first Chromium-family browser entry it finds, and a host entry
 # names its browser by an absolute path, so no stand-in on PATH hides it.

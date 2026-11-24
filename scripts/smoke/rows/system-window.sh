@@ -150,11 +150,11 @@ PY
 # the restore puts that back.
 sys_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 # The sidebar must list the fixture sections alone, so every enabled
-# shipped section, such as vgs.displays from the default set rows/hidpi.sh
-# restarts over, is set aside; the restore below puts each back.
+# shipped section, such as vgs.displays from the default set, is set aside;
+# the restore below puts each back.
 sys_aside="$(shipped_panes_enabled)" || { fail "the enabled shipped sections are unreadable"; sys_aside='[]'; }
 # Alternate holders need the exclusive panes capability. These disposable
-# consumers release it; the unshadowed always-on plugins are checked by packages.sh.
+# consumers release it.
 python3 - "$repo/shell/plugins" "$home/.config/vgshell/plugins" <<'ALWAYSONFIXTURE'
 import json, pathlib, shutil, sys
 source, destination = map(pathlib.Path, sys.argv[1:])

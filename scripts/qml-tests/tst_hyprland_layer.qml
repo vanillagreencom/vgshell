@@ -76,9 +76,7 @@ Item {
 
         // Return once the engine has been back to the event loop, so a
         // Qt.callLater the code under test queued before this call has run
-        // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method). The
-        // order is checked by a run: the mutation row "a failed key read is
-        // read again on every release" goes red only behind this wait.
+        // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
         function settleTurn(message) {
             let settled = false;
             Qt.callLater(() => settled = true);

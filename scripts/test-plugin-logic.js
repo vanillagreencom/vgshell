@@ -2728,8 +2728,7 @@ function suite(ctx, configLogic, check) {
     ];
     for (const [name, seconds, onEnd, want] of stayAwakeRows) check("stayAwakeRefusal: " + name, ctx.stayAwakeRefusal(seconds, onEnd), want);
     // A hold's wait before its next check, from wall-clock readings: at
-    // most a step, and 0 once its end has come. The timer's re-arm and its
-    // end after a wake are scripts/smoke/rows/stay-awake.sh's.
+    // most a step, and 0 once its end has come.
     // [name, ends at, now, wait in ms, 0 for an ended hold].
     const holdEnd = Date.UTC(2026, 10, 3, 16, 0, 0);
     const stayAwakeWaitRows = [

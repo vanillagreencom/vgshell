@@ -205,8 +205,8 @@ jarvis_restore_requirements() { # COMMANDS
 }
 
 # jarvis_notice_close: the requirement notice enabling Jarvis raised while
-# its required commands are missing goes on the scan that finds them, as
-# in rows/jarvis-setup.sh; a scan raises no notice, so the stand-ins then
+# its required commands are missing goes on the scan that finds them; a
+# scan raises no notice, so the stand-ins then
 # go again and it stays closed. A row that raised it calls this before it
 # ends, so no later row starts under it.
 jarvis_notice_close() { # COMMANDS

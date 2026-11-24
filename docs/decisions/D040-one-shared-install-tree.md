@@ -8,7 +8,7 @@
 
 **Decision**: Every channel runs one installer into `/usr/share/vgshell`, or a versioned user tree for a curl install. `vgshell self update` touches only trees VGS laid out itself, and publishing runs from the maintainer's machine with no GitHub workflow.
 
-**Why**: One installer gives every channel the same file set, the install method decides who owns the tree, and local publishing keeps signing and AUR keys off the repository. `scripts/test-install-tree.sh` and `scripts/check-packaging.js` hold the tree.
+**Why**: One installer gives every channel the same file set, the install method decides who owns the tree, and local publishing keeps signing and AUR keys off the repository. `scripts/check-packaging.js` holds the tree.
 
 **Rejected**: `/usr/lib/vgshell`. The tree is scripts and data, not architecture-specific binaries.
 

@@ -5,7 +5,7 @@ The shared component library, module `qs.Ui`.
 ## Rules
 
 - A file in a subdirectory imports `qs.Ui` to compose another component.
-- A new component lands with a test under `scripts/qml-tests/` and one mutation per guarantee in `scripts/test-qml-unit.sh`.
+- A new component lands with a test under `scripts/qml-tests/`.
 - Edit `scripts/vendor-lucide`, never its generated `icons/Lucide.js`.
 
 ## Read when

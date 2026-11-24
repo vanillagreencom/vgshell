@@ -1,6 +1,6 @@
-# Sourced by scripts/smoke/rows/workspaces.sh and scripts/sandbox-shots.sh,
-# after the harness. The two-monitor workspaces world both draw: its
-# readers, its workspace rules and its settings write.
+# Sourced by scripts/sandbox-shots.sh, after the harness. The two-monitor
+# workspaces world it draws: its readers, its workspace rules and its
+# settings write.
 #
 # ws_pills OUTPUT [ID]: the drawn pills of the bar on OUTPUT, [[number,
 # lit]] in number order, of widget ID: vgs.workspaces, or the Bar's

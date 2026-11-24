@@ -21,8 +21,7 @@
 # holds its own bin/, since bin/vgshell finds the tree from its own real path,
 # and its own shell/; config/ and themes/ are links to the sandbox's. The
 # row stops the shell rows/read-only-prefix.sh started, starts the copy
-# through harness.sh's start_shell and leaves it running for
-# rows/hidpi.sh, which stops it.
+# through harness.sh's start_shell and leaves it running.
 # Its NoticeHost also restores the guard that hid a later launch refusal
 # beside a retained classified result. The same Retry press and drawing
 # reader as notices.sh must then find the refusal missing, while its typed

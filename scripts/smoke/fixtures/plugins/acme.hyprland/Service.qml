@@ -1,6 +1,6 @@
 import QtQuick
 
-// Reads the `hyprland` capability back for rows/hyprland-options.sh: its
+// Reads the `hyprland` capability back: its
 // member names, the paths reported overridden, the values the user's own
 // configuration gave its options, Hyprland's value of its unwritten ones, the foreign keys, the workspace rules and the
 // keymaps the keyboards are on; `switch` sends a layout switch. `conflict` is the key

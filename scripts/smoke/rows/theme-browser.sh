@@ -735,7 +735,6 @@ expect_poll "the footer shows the typed filter in place of the hint" '["Nord", "
 expect "the typed filter sits on the hint's line, at its top and height" "$hint_line" text_line nord
 expect "a typed filter leaves the rail where it was" held rail_held "$filter_rail"
 expect "the selection moves to the one match" '"nord"' view_value selectedName
-# Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
 expect "the drawn centre theme card matches the selected name after filtering" '"nord"' ipc smoke currentThemeCardName overlay vgs.themes
 expect_poll "nord's package preview wins over its installed wallpaper" "$repo/themes/catalog/nord/preview.jpg" selected_preview
 expect_poll "nord's selected card draws preview.jpg" ready card_image "$repo/themes/catalog/nord/preview.jpg"

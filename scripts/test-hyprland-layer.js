@@ -265,7 +265,7 @@ if (process.argv.includes("--user-bind-admission")) {
 // No window gaps as the layer writes it while its switch is on: zero gaps
 // as a workspace rule on the empty selector, which matches every
 // workspace, so a user's `general` gaps after the loading line leave it in
-// force. Hyprland v0.56.2 reads it back in scripts/smoke/rows/style.sh.
+// force.
 const NO_GAPS_SECTION = [
     "-- Window gaps: none on every workspace.",
     "hl.workspace_rule({ workspace = \"\", gaps_in = 0, gaps_out = 0 })"
@@ -387,8 +387,7 @@ const LOCK_SECTION = [
 // Hyprland's own hl.bind from a chunk at the user's file and line so a
 // bind's error names them, records the file and line of each
 // default-submap bind made outside the layer, and its report reads each
-// line's text. scripts/smoke/rows/hyprland-options.sh reads the record and
-// a broken bind's error back from the nested Hyprland v0.56.2.
+// line's text.
 const USER_BINDS_SECTION = [
     "-- User binds: where the user's configuration binds each key, which the shell names beside a key it also binds.",
     "do",
@@ -508,8 +507,7 @@ const PASSTHROUGH_SECTION = [
 // byte for byte: as the layer loads it reads each of PATHS, and Hyprland's
 // `config.reloaded` callback reads them again, sets VALUES and keeps the
 // reading between as the user's where the user's configuration changed it
-// to something else. scripts/smoke/rows/hyprland-options.sh reads the values
-// and the record back from the nested Hyprland v0.56.2.
+// to something else.
 function appliedSection(paths, values) {
     return [
         "-- Applied once the whole configuration has loaded: each value holds over the user's own line for it.",

@@ -8,24 +8,15 @@
 # and runs those rows, with the core rows and the rows they read:
 # docs/architecture/validation.md.
 bar
-bar-reconcile
 bar-controls
 tooltip-input
 hyprland-consent
 # The bar's chooser uses the wired application-window rules, and restores
 # its private fixture and configuration before plugin lifecycle rows.
 add-widget
-# Workspaces opens Manage widgets as add-widget does, adds and removes a
-# monitor of its own and restores the harness's workspaces and user file.
-workspaces
 plugins
 sources
 capabilities
-# After capabilities, with the first shell up and its first-start notice
-# answered; it runs planted rows that each leave one class of state, and
-# undoes what each left.
-leak-check
-session
 status
 manager
 updates
@@ -33,16 +24,8 @@ settings
 placement
 windows
 compositor-dispatchers
-# After compositor-dispatchers, beside the group lock it reads, and after
-# hyprland-consent, whose wired layer holds the key it types.
-windows-group-lock
 compositor-reveal
-agent-warden
-capability-release
 surfaces
-failed-builds
-monitors
-configuration
 theme
 themes
 collector
@@ -50,95 +33,46 @@ theme-browse
 theme-browser
 portal-accent
 theme-latency
-notify
 layers
-shader-frames
 tui
-# With the TUI rows, through the same stand-in terminal; it enables
-# vgs.sudo and gives it back disabled, its tree's sudo the sentinel again.
-sudo
 notices
 overlays
-gallery
 launcher
 # After launcher, whose first enable reads the edge light compiled from
 # a fresh revision: this row enables the launcher to read the Dev Tools
 # category, and disables it again.
 devtools
-# After launcher, which leaves the launcher disabled: this row enables it
-# to find the web app it adds, and disables it again.
-webapps
-list-motion
 notifications
 # After notifications, whose readers and helpers it uses.
 notifications-keys
-automations
-# After automations, which leaves the device stand-in systemctl in place;
-# it enables its plugin itself and disables it again.
-local-sync
-# After automations, whose systemctl and notify-send stand-ins it uses
-# and whose unit directory it reads empty before this row writes there.
-googledrive
-polkit
 # The device fakes the System rows build on; they stay up after it.
 device-fakes
 system-steps
 # After system-steps, over the same fakes' system tree.
 greeter
-bluetooth-agent
 jarvis
-# Uses Jarvis's shared fixture helpers after their owner has run, and the
-# notices/TUI fixtures for failed tasks and explicit terminal recovery.
-agent-debug
-jarvis-controls
-jarvis-setup
-jarvis-home-repair
-jarvis-satellite
-jarvis-page
-jarvis-input
-jarvis-browser
-jarvis-tasks
 jarvis-session
 hyprland
-hyprland-options
-input-facts
 # With the rows that keep the first shell and the smoke set; it enables its
 # plugin itself and disables it again.
 clipboard
-monitor-outputs
-displays-hdr
 displays-modes
 hold-shortcuts
 # After hold-shortcuts, over the same generated hold-bind path.
 voice
 jarvis-keys
-jarvis-widget
-# After jarvis-widget, which leaves Jarvis disabled on its stock files; it
-# resets Jarvis at its start and end, so no row after it reads its state.
-jarvis-desktop
 jarvis-console
-# After jarvis-console, on its own fixture tree; it leaves Jarvis disabled
-# and the stock shell started.
-jarvis-reply
 # After the Jarvis rows, with the device fakes up: it reads jarvis.sh's
 # fixture helpers and starts its own shells, and leaves the stock shell.
 open-split
-instance-guard
-diagnostics
-supervise
 child-lifetime
-# After supervise, with the tail rows that restart the shell: it proves the background launcher path and leaves a harness shell.
+# With the tail rows that restart the shell: it proves the background launcher path and leaves a harness shell.
 start
 lock
 # After lock, since it verifies that each plugin can run while the other is disabled.
 screensaver
-# After screensaver: the cover fixture takes the screensaver stage from it
-# while the row runs and gives it back.
-secure-cover
 read-only-prefix
-hyprland-consent-decline
 notices-control
-hidpi
 start-order
 startup-migrations
 overlay-capture
@@ -166,22 +100,14 @@ dictation
 # and its controls, so it runs with the tail rows that do the same; it
 # reads no state another row leaves.
 idle-inhibit
-# It installs its own fixture and restarts the shell for its controls, so
-# it runs with the tail rows that do the same; it reads no state another
-# row leaves.
-stay-awake
-# This row restarts the shell for its controls, so it runs with the tail rows that do the same.
-panes
-# After panes, which removes its fixture holder: vgs.system holds `panes`
-# here, and this row restarts the shell for a control too.
+# vgs.system holds `panes` here, and this row restarts the shell for a
+# control too.
 system-window
-packages
 # After system-window, whose vgs.system it enables again for the Mouse pane.
 mouse
 # After hyprland-consent, whose wired layer it reads Hyprland through, beside
 # the other System sections.
 appearance
-layer-glass
 # With the System sections, whose holder its page mounts in; the player is
 # the pw-play stand-in, so it needs no device fake.
 sounds
@@ -201,42 +127,19 @@ share-picker
 # After share-picker, over the same portal stack; it reads no state another
 # row leaves.
 picked-screen
-screen-freeze
 # After capture, before tui-guard: its Sign in reaches the stand-in
 # terminal, and it reads no state another row leaves.
 ai-usage
 traffic
 network
-sysmon
 # After system-window, which leaves vgs.system as this row finds it, and
 # over the device fakes; it reads no state the displays row leaves.
 bluetooth
-# After system-window, which leaves vgs.system as this row finds it, and
-# over the device fakes' stand-ins; it reads no state another section
-# leaves.
-tailscale
 vpn
-# After system-window, which leaves vgs.system as this row finds it, and
-# over the device fakes' CUPS stand-ins; it reads no state another
-# section leaves.
-printers
-# After launcher and hyprland, whose readers it uses; it restarts the
-# shell for its controls, so it runs with the tail rows that do the same.
-style
-# After style, with the tail rows that restart the shell: its Restart
+# With the tail rows that restart the shell: its Restart
 # relaunches the shell through the nested Hyprland, and it starts the
 # sandbox's tree again before it ends.
 core-drift
-# After core-drift, with the tail rows that restart the shell: its Reset and
-# Restore relaunch the shell through the nested Hyprland, and it starts the
-# sandbox's tree again over the user file it found before it ends.
-reset
-# This row restarts the shell for its hidden widget and its control, so it runs with the tail rows that do the same.
-widget-hide
-# It restarts the shell for its pin check and a control, so it runs with the
-# tail rows that do the same; its stand-in tray apps run on the sandbox's
-# private bus and stop before it ends.
-tray
 # Its control restarts the shell, so it runs with the tail rows that do
 # the same.
 remote-desktop
@@ -246,8 +149,5 @@ launcher-latency
 # After every row that opens a TUI: the stand-in terminal ran no plugin
 # script but a fixture's.
 tui-guard
-# Late, so no earlier row meets its generated plugins; it removes them
-# before it ends.
-plugin-pages
 # Last: its reading covers every row this run held before it.
 auth-sentinel

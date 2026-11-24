@@ -14,7 +14,7 @@ import qs.Unit
 // the planted set moves the page step. The Field then stands under no row
 // and logs nothing, where reading the marked SettingField's children logged
 // `Field.qml:163: TypeError: Value is undefined and could not be converted
-// to an object` (the control in scripts/test-qml-unit.sh). A group list
+// to an object`. A group list
 // that ends a live row and is marked the same way is left out of the row's
 // measure, as a hidden group is. A bare FormRow measures the space above it
 // by the same search (FormRow `rowAbove`, `inkTop`), so under a marked

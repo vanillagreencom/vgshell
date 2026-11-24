@@ -36,7 +36,7 @@
 #   only, the HID feature-report fake, and the cups-pk-helper stand-in on
 #   the sandbox system bus over the CUPS world.
 # - cups_world JSON sets keys of the CUPS world, cups.py's
-#   STATE/cups.json, and cups_world_read prints it; cups_signal MEMBER PRINTER sends one CUPS
+#   STATE/cups.json; cups_signal MEMBER PRINTER sends one CUPS
 #   notification on the sandbox system bus, as cupsd's dbus notifier does
 #   for a change the row made to the world. The world starts empty: a
 #   running scheduler with no printer. cups_uninstalled_copy DEST writes
@@ -171,8 +171,7 @@ PY
 }
 # cups_world JSON: each key of the object JSON set in the CUPS world, the
 # others kept, so a planted world keeps the subscriptions; prints
-# `world=set`. cups_world_read: the world, as one JSON object with every
-# key cups.py defaults.
+# `world=set`.
 cups_world() { # JSON
   python3 - "$devices_fixtures/cups.py" "$devices_dir" "$1" <<'PY'
 import importlib.util, json, sys
@@ -183,15 +182,6 @@ doc = cups.load(sys.argv[2])
 doc.update(json.loads(sys.argv[3]))
 cups.save(sys.argv[2], doc)
 print("world=set")
-PY
-}
-cups_world_read() {
-  python3 - "$devices_fixtures/cups.py" "$devices_dir" <<'PY'
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("cups", sys.argv[1])
-cups = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cups)
-print(json.dumps(cups.load(sys.argv[2]), sort_keys=True))
 PY
 }
 # cups_uninstalled_copy DEST: the repository's vgs.printers copied to DEST

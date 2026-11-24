@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# loads: scripts/check-smoke-needles.py scripts/qml_source.py scripts/shell_source.py shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js scripts/smoke/rows/stay-awake.sh -- the controls run the check and copy the core files they list into a disposable tree
+# loads: scripts/check-smoke-needles.py scripts/qml_source.py scripts/shell_source.py -- the controls run the check
 """Exercise the production needle reader on disposable smoke rows and sources.
 
 The planted comment needles are must-fail controls, including values assembled
@@ -102,27 +102,6 @@ class SmokeNeedles(unittest.TestCase):
                         self.assertEqual(result.returncode, 0 if args[0].startswith('--') else status, result.stdout + result.stderr)
                         if args[0].startswith('--'):
                             self.assertEqual(bool(result.stdout), unknown, result.stdout)
-
-    def test_real_sa_copy_later_groups_are_read_after_the_failure_guard(self):
-        repo = CHECK.parent.parent
-        for comment in (False, True):
-            with self.subTest(comment=comment), tempfile.TemporaryDirectory() as tmp:
-                root = pathlib.Path(tmp)
-                (root / 'scripts/smoke/rows').mkdir(parents=True)
-                (root / 'shell/Core').mkdir(parents=True)
-                for name in ('IdleRegistry.qml', 'PluginLogic.js'):
-                    shutil.copyfile(repo / 'shell/Core' / name, root / 'shell/Core' / name)
-                source = (repo / 'scripts/smoke/rows/stay-awake.sh').read_text()
-                old = "sa_slept=(shell/Core/IdleRegistry.qml 'const wait = Logic.stayAwakeWait(endsAt, Date.now());'"
-                self.assertEqual(source.count(old), 1)
-                if comment:
-                    source = source.replace(old, "sa_slept=(shell/Core/IdleRegistry.qml '// time it fires.'")
-                (root / 'scripts/smoke/rows/stay-awake.sh').write_text(source)
-                result = subprocess.run([sys.executable, str(CHECK), str(root)], capture_output=True, text=True,
-                                        env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}, timeout=30)
-                self.assertEqual(result.returncode, 1 if comment else 0, result.stdout + result.stderr)
-                if comment:
-                    self.assertTrue(result.stdout.startswith('needle-comment '), result.stdout)
 
     def test_missing_source_tree_cannot_certify_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

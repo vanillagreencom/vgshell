@@ -153,7 +153,7 @@ else
   fail "Google Drive confirmation fixture ownership"
 fi
 
-# Run each scene/row's actual rclone fixture through the production
+# Run the scene's actual rclone fixture through the production
 # initializer. A preceding native-export fixture must not erase directory
 # identity, and a local listing must never be enriched from the Drive root.
 # These are admission checks, not a capture or an alternate sync model.
@@ -168,15 +168,10 @@ import sys
 repo, scratch, bash, node = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 host_rclone = shutil.which("rclone")
 assert host_rclone is not None, "rclone=missing"
-row = (repo / "scripts/smoke/rows/googledrive.sh").read_text()
 scene = (repo / "scripts/sandbox-shots.sh").read_text()
 harness = (repo / "scripts/smoke/harness.sh").read_text()
 start = harness.index("py_reply() {")
 reader = harness[start:harness.index("\n}\n", start) + 3]
-start = row.index("cs_values_recovery() {")
-recovery = row[start:row.index("\n}\n", start) + 3]
-pair_match = 'r.get("pairLabel")=="Two-way fixture"'
-assert recovery.count(pair_match) == 1
 
 def heredoc(text, opening):
     assert text.count(opening) == 1, opening
@@ -184,10 +179,9 @@ def heredoc(text, opening):
     return text[start:text.index("\nSH\n", start) + 4]
 
 fixtures = [
-    ("smoke", heredoc(row, '  cat >"$shim/rclone" <<SH\n')),
     ("capture", heredoc(scene, '  cat >"$shim/rclone" <<SH\n')),
 ]
-secret = heredoc(row, '  sentinel_stand_over "$shim/secret-tool" <<SH\n').replace(
+secret = heredoc(scene, '  sentinel_stand_over "$shim/secret-tool" <<SH\n').replace(
     'sentinel_stand_over "$shim/secret-tool"', 'cat >"$shim/secret-tool"', 1)
 bootstrap = r'''set -euo pipefail
 shim=$1 cs_stub=$2 cs=$2 drive=$3 host_rclone=$4 host_node=$5
@@ -195,15 +189,9 @@ auth_log="$cs/auth.calls"
 reply_reader="$(declare -f py_reply)"
 '''
 local_scope = r'[[ -n \$list && \$* == *vgsdrive:* ]]'
-export_read = 'exports=set(open(sys.argv[2]).read().split()) if os.path.isfile(sys.argv[2]) else set()'
-assert fixtures[0][1].count(export_read) == 1
-assert fixtures[1][1].count(local_scope) == 1
+assert fixtures[0][1].count(local_scope) == 1
 controls = [
-    # The old export branch returned Size-adjusted lsjson before ID
-    # enrichment. Its directory listing had no exports to adjust.
-    ("smoke-export-bypass", fixtures[0][1].replace(export_read,
-        'if os.path.isfile(sys.argv[2]): print(json.dumps(items)); sys.exit()\n' + export_read), "identity-unknown"),
-    ("capture-local-root", fixtures[1][1].replace(local_scope, r'[[ -n \$list ]]'), "rclone-failed"),
+    ("capture-local-root", fixtures[0][1].replace(local_scope, r'[[ -n \$list ]]'), "rclone-failed"),
 ]
 
 for name, fixture, cause in [(name, fixture, None) for name, fixture in fixtures] + controls:
@@ -222,9 +210,10 @@ for name, fixture, cause in [(name, fixture, None) for name, fixture in fixtures
     # The native document belongs to the preceding copy fixture, not this
     # pair. Its marker is still present when initialization reads identity.
     (stub / "exports").write_text("native.docx\n")
+    # The scene's secret-tool stand-in reads a secret from a file's first
+    # line and its user attribute from the second.
     for key, value in (("client-id", "fixture-id"), ("client-secret", "fixture-secret"),
-                       ("token", '{"access_token":"fixture-token","token_type":"Bearer"}'),
-                       ("token.user", "someone@example.com")):
+                       ("token", '{"access_token":"fixture-token","token_type":"Bearer"}\nsomeone@example.com')):
         (stub / "secrets" / key).write_text(value)
     setup = subprocess.run([bash, "-c", reader + bootstrap + fixture + secret +
                             '\nchmod 755 "$shim/rclone" "$shim/secret-tool"\n',
@@ -261,26 +250,6 @@ for name, fixture, cause in [(name, fixture, None) for name, fixture in fixtures
         assert synced.returncode == 0 and synced.stdout == "pair=two-way result=idle\n", (
             name, synced.returncode, synced.stdout, synced.stderr)
         assert not (local / "subject.txt").exists(), name
-        record = subprocess.run(command + ["status"], env=env,
-                                capture_output=True, text=True, timeout=10)
-        assert record.returncode == 0, (name, record.stderr)
-        conflicts = json.loads(record.stdout)["conflicts"]
-        # cloudValue publishes pairLabel, not the runner record's pair.
-        # This exercises the row's reader on real recovery bytes with that
-        # published field contract; native smoke owns actual publication.
-        for conflict in conflicts:
-            conflict.pop("pair")
-        published = json.dumps({"cloud": {"conflicts": conflicts}})
-        for label, function, want in [
-                ("published", recovery, ["two-way", "completed", "local-recovery", "recover these exact bytes\n"]),
-                ("raw-pair-control", recovery.replace(pair_match, 'r.get("pair")=="two-way"'), None)]:
-            readback = subprocess.run([bash, "-c", reader + '\nreply=$1\n' +
-                'cs_values() { printf "%s\\n" "$reply"; }\n' + function + "\ncs_values_recovery\n",
-                "_", published], env={"PATH": env["PATH"], "VGS_TEST_RUN": "1"},
-                capture_output=True, text=True, timeout=10)
-            assert readback.returncode == 0 and json.loads(readback.stdout) == want, (
-                name, label, readback.returncode, readback.stdout, readback.stderr)
-        print("recovery-reader: case=%s exact-bytes=retained published-pairLabel=read raw-pair-control=null" % name)
     else:
         print("initialization-fixture-control: case=%s exit=%s stderr=%s" % (
             name, result.returncode, json.dumps(result.stderr)), flush=True)

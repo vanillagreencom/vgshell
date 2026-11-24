@@ -87,9 +87,8 @@
 #
 # The shader tests, which read pixels a MultiEffect draws, run under
 # xvfb-run, which picks the first display whose
-# /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once,
-# as the parallel mutations of scripts/test-qml-unit.sh make, can pick one
-# display and the second Xvfb fails. The world has private /tmp, so
+# /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once
+# can pick one display and the second Xvfb fails. The world has private /tmp, so
 # every run holds /tmp/.vgshell-qml-unit-xvfb.lock with flock for its whole
 # xvfb-run call, and a missing flock is not measured like a missing Xvfb.
 #

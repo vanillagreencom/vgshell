@@ -22,7 +22,7 @@
 # Session observation at the scripted capture port's actual open call.
 # Widget removal, bar unmapping and a widget on only the unfocused output
 # must withdraw capture. These are state/order probes, not timing budgets.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 # shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_parent_tree="$jarvis_fixture_tree" jarvis_fixture_parent_shim="$jarvis_fixture_shim"
@@ -1521,17 +1521,12 @@ PYREAD
 jarvis_bubble_binding_dir="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")"
 (
   failures=0 behaviour_failures=0
-  # Force an unrelated failure too. It must not change the binding verdict.
-  first_bar_ms=$((first_bar_budget_ms + 1))
-  first_bar_cpu_some_pct=0.0
-  # The real row appends sampler output; keep this control's files private.
   sandbox="$jarvis_bubble_binding_dir"
   check_unexpected_log "shell log" "$instance_log"
-  source "$repo/scripts/smoke/rows/diagnostics.sh"
 ) >"$jarvis_bubble_binding_dir/diagnostics.log"
 expect "control: the two-binding warning is among the diagnostics failures" rejected jarvis_bubble_binding_failure "$jarvis_bubble_binding_dir/diagnostics.log" "$jarvis_bubble_control_pattern"
-# Remove only the injected warning from the real diagnostic output. The
-# same assertion must then fail despite the remaining unrelated failure.
+# Remove only the injected warning from the real log check output. The
+# same assertion must then fail.
 python3 - "$jarvis_bubble_binding_dir/diagnostics.log" "$jarvis_bubble_binding_dir/no-binding.log" "$jarvis_bubble_control_pattern" <<'PYFILTER'
 from pathlib import Path
 import re,sys

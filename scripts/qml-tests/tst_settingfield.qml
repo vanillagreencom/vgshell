@@ -1124,7 +1124,7 @@ Item {
         // row stands under its heading instead. A theme's step moves it.
         // Spaced by their boxes, `stack.row` apart, the same rows stand 8
         // (select over select), 16 (select over switch) and 24 (switch over
-        // switch) blank rows apart: the control in scripts/test-qml-unit.sh.
+        // switch) blank rows apart.
         // The one-line sentence a stored key list with no key reads under
         // its field, under the After switch and under the Number select's
         // hint, stands the same; centred in its row box, the control there,
@@ -1163,9 +1163,9 @@ Item {
         // A column of bare FormRows leaves the same drawn space between its
         // rows as a column of Fields, `stack.page`, by the one rule a Field
         // stands by (FormRow `inkTop`), whatever the column's spacing, and
-        // each row box stays `row.height`. Spaced by their boxes, the
-        // control in scripts/test-qml-unit.sh, the rows stand apart by the
-        // column's spacing and what each control leaves blank in its box.
+        // each row box stays `row.height`. Spaced by their boxes, the rows
+        // stand apart by the column's spacing and what each control leaves
+        // blank in its box.
         function test_bare_rows_stand_one_step_apart_by_ink_data() {
             return [
                 { tag: "row spacing", spacing: "row", step: 0 },
@@ -1194,8 +1194,8 @@ Item {
 
         // A group list's first row reads no row of its own list above it,
         // so it stands by the row above the list: one `stack.page` of blank
-        // rows under it, as rows of one column do. Spaced by its box, the
-        // control in scripts/test-qml-unit.sh, it stands farther.
+        // rows under it, as rows of one column do. Spaced by its box, it
+        // stands farther.
         function test_group_list_first_row_stands_one_step_under_the_row_above() {
             const cover = createTemporaryObject(coveredGroup, root);
             verify(cover !== null);
@@ -1208,9 +1208,9 @@ Item {
 
         // Two requirement rows of a Details Tools section stand one
         // `stack.page` of blank rows apart, as FormRow spaces any two rows,
-        // and a theme's step moves it. Each wrapped in a Column of its own,
-        // the control in scripts/test-qml-unit.sh, a row finds no row above
-        // it and stands by its column's spacing whatever the step: 16 blank
+        // and a theme's step moves it. Each wrapped in a Column of its own, a
+        // row finds no row above it and stands by its column's spacing
+        // whatever the step: 16 blank
         // rows on the Updates page, 21 here (VGS-2253).
         function test_requirement_rows_stand_one_step_apart_by_ink_data() {
             return [
@@ -1314,8 +1314,7 @@ Item {
         // descenders, tall glyphs or neither. Read by their glyphs, as
         // Section reads a heading's space, the labels stood 48 and 50 px
         // apart under the two hints and 30, 31 and 29 px under the values,
-        // under scripts/qml-unit.sh on 732f0dae5: the controls in
-        // scripts/test-qml-unit.sh.
+        // under scripts/qml-unit.sh on 732f0dae5.
         function test_text_rows_keep_one_pitch_whatever_they_read() {
             const cover = createTemporaryObject(coveredText, root);
             verify(cover !== null);

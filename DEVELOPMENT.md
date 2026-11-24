@@ -54,7 +54,6 @@ The [smoke harness](scripts/smoke/harness.sh) sets `MALLOC_CONF=junk:free` for Q
 - Run a row through `scripts/validate qml --changed <base>` or name it to `scripts/qml-smoke.sh --rows`. The runner adds its core rows and the rows those read; do not invoke row files directly.
 - Give a new row's helpers a prefix no other row uses, since rows share a Bash shell.
 - Before enabling Jarvis in a row that reads focus or pixels, call `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh`. This supplies required command stand-ins so the requirement notice does not take focus.
-- Compare the printed instance-log paths when scoped and full runs disagree. `diagnostics` reads the current shell's log; a shell restart changes which warnings it sees.
 - Put scripted edits in a separate file so their quoting cannot end at a delimiter inside the edited script.
 - Never edit a script while a run is reading it: bash reads a script as it runs.
 - Name the before tree of `sandbox-shots.sh --rev` by the change's parent, `<change>^`. `origin/main` becomes the after tree once the change lands.

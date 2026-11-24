@@ -211,9 +211,9 @@ class Row:
                 if len(arguments) < 4:
                     raise Unreadable(f'{self.path}:{line}: edit-arguments')
                 yield line, arguments[1 if command == 'edit_tree' else 0], arguments[2]
-                # sa_copy's guard is part of the loop body, between its edit
-                # and shift. Certify the whole supported body before reading
-                # every group; a partial last group is not coverage.
+                # A guard inside the loop body, between its edit and shift, is
+                # part of the body. Certify the whole supported body before
+                # reading every group; a partial last group is not coverage.
                 before = self.text[:words[at][3]]
                 loop = re.search(r'while\s+\(\(\s*\$#\s*>=\s*(\d+)\s*\)\)\s*;\s*do\s*$', before)
                 if not loop and re.search(r'while[^\n]*;\s*do\s*$', before):

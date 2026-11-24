@@ -152,7 +152,7 @@ path.write_text(changed)
 PY
 }
 preserve_checkout
-core=(bar hyprland-consent session start-order auth-sentinel)
+core=(bar hyprland-consent start-order auth-sentinel)
 for row in "${core[@]}"; do
   printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/$row.sh"
 done
@@ -395,7 +395,7 @@ recorder = change(recorder, needle, '''            phase_file = pathlib.Path(__f
                 with (where / "release").open() as release:
                     release.readline()
 '''+needle)
-core = ['bar', 'hyprland-consent', 'session', 'start-order', 'auth-sentinel']
+core = ['bar', 'hyprland-consent', 'start-order', 'auth-sentinel']
 for name in core + ['following']:
     (tree / f'scripts/smoke/rows/{name}.sh').write_text('# inputs: scripts/smoke/harness.sh\n:\n')
 (tree / 'scripts/smoke/rows/fatal.sh').write_text('# inputs: scripts/smoke/harness.sh\nprintf "%s\\n" "$completion_missing"\n')

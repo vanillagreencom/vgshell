@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """One planted reader per rule of check-smoke-readers.py, the forms it must
 pass, the unreadable directories, and the repository's own rows against a
-coverage floor, with two required members: a copy of a notifications row
-JSON reader running python3 itself, and a copy of the instance-guard row
-running `qs list` itself. Each row builds a throwaway rows directory
+coverage floor, with one required member: a copy of a notifications row
+JSON reader running python3 itself. Each row builds a throwaway rows directory
 holding one row, runs the check on it and asserts the exact set of rule
 keys and lines, and the exit status. The `# leaves:` rule's rows each
 build a rows directory of several rows with a rows.list beside it, read
@@ -69,11 +68,11 @@ CASES = [
 ]
 
 # leaves rows: name, {row: text}, rows.list order, the expected (rule key,
-# row, line) findings. session is a core row in scripts/smoke/row-inputs.sh.
+# row, line) findings. bar is a core row in scripts/smoke/row-inputs.sh.
 LEAVES = [
     ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["a", "b"], []),
     ("a declaring row a later row matches only by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], [("unreachable-leaves", "a", 1)]),
-    ("a declaring core row", {"session": "# leaves: layers\n:\n"}, ["session"], []),
+    ("a declaring core row", {"bar": "# leaves: layers\n:\n"}, ["bar"], []),
     ("a leaves line below the leading comment block", {"a": ":\n# leaves: shim\n"}, ["a"], []),
     ("a declaring row only an earlier row names", {"a": "# inputs: scripts/smoke/rows/b.sh\n:\n", "b": "# leaves: options\n:\n"}, ["a", "b"], [("unreachable-leaves", "b", 1)]),
     ("a declaring row no row names", {"a": "# a row\n# leaves: shim\n:\n"}, ["a"], [("unreachable-leaves", "a", 2)]),
@@ -166,7 +165,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # The fixture tree's checker reads the fixture's
     # scripts/smoke/row-inputs.sh, which does not exist: the core rows
     # cannot be read.
-    directory = plant_rows(os.path.join(fixture, "leaves"), {"session": "# leaves: layers\n:\n"}, ["session"])
+    directory = plant_rows(os.path.join(fixture, "leaves"), {"bar": "# leaves: layers\n:\n"}, ["bar"])
     result = run([directory], checker)
     check("a declaration with no core list to read is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(smoke, "row-inputs.sh") + ":"), result)
     os.remove(nested)
@@ -224,22 +223,6 @@ with tempfile.TemporaryDirectory() as tmp:
         line = text[:text.index(reader)].count("\n") + 1
         want = [("inline-reader", f"{os.path.join(rows, 'row.sh')}:{line}")]
         check("the notifications JSON reader run through python3 is refused", result.returncode == 1 and findings(result) == want, result)
-
-    # The required member: the instance-guard row's listing, reverted to a
-    # raw qs list in a copy, is found where the row defines it.
-    with open(os.path.join(ROWS, "instance-guard.sh")) as source:
-        text = source.read()
-    listing = 'instance_count() { qs_list -p "$1" |'
-    if text.count(listing) != 1:
-        print(f"FAIL  instance_count is not defined once in {ROWS}/instance-guard.sh: the required member moved")
-        failures += 1
-    else:
-        mutant = text.replace(listing, 'instance_count() { "${shell_env[@]}" qs list -p "$repo/shell" -j 2>/dev/null |')
-        rows = plant(os.path.join(tmp, "qs-list-mutant"), mutant)
-        result = run([rows])
-        line = text[:text.index(listing)].count("\n") + 1
-        want = [("raw-qs-list", f"{os.path.join(rows, 'row.sh')}:{line}")]
-        check("the instance-guard listing run through qs list is refused", result.returncode == 1 and findings(result) == want, result)
 
 if failures:
     print(f"test-check-smoke-readers: failures={failures}")

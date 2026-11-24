@@ -29,8 +29,7 @@ import "../../shell/Commons/Reply.js" as Reply
 // from the key's write; with no key to draw it reads one sentence under the
 // field. A key the keyring cannot read links its plugin's Setup tab while
 // the key tool is missing. A key list on Details keeps its head.
-// Production-source controls live in
-// test-qml-unit.sh. The window's capabilities record each requested action.
+// The window's capabilities record each requested action.
 Item {
     id: root
     width: 1200

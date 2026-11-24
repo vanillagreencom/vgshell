@@ -2099,9 +2099,8 @@ EOF
     settings_scrolled_shot "$1" bar "the Bar page"
   fi
   # The automations' page at its top, the plugin enabled over the stand-ins
-  # rows/automations.sh reads (automations_stand_ins in
-  # scripts/smoke/harness.sh), so no call reaches the host's systemd user
-  # manager; the stand-ins removed after the shot, and the plugin disabled
+  # of automations_stand_ins in scripts/smoke/harness.sh, so no call
+  # reaches the host's systemd user manager; the stand-ins removed after the shot, and the plugin disabled
   # again only when this scene enabled it, since the setup steps' shot below
   # reads the page of the plugin their setup enabled.
   local auto_found=unread
@@ -2196,8 +2195,8 @@ EOF
   # one web app written through the window. Its address is the loopback
   # discard port, where nothing listens, so the service's read of the site
   # reaches no network and fails at once; the shot shows the list field.
-  # Each host browser entry hides behind a shadow while Web Apps runs, as
-  # in scripts/smoke/rows/webapps.sh, though the scene opens no web app.
+  # Each host browser entry hides behind a shadow while Web Apps runs,
+  # though the scene opens no web app.
   # The web apps, their entry, the shadows and the enablement are put back
   # after the shot.
   local webapps_found=unread
@@ -4106,7 +4105,7 @@ warden_shot_status() {
   expect_poll "the warden reads its $1 status as $want" "$want" warden_detail_state
 }
 # warden_shot_notify MODE: the plugin's `notify` setting written into its
-# plugins row, as rows/agent-warden.sh writes it; then the service reads it.
+# plugins row; then the service reads it.
 warden_shot_notify() {
   python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY2' || fail "writing the warden's notify setting failed"
 import json, os, sys
@@ -5970,8 +5969,7 @@ jarvis_input_label() {
   python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["status"]; print(s.get("setupInput", s["input"])["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 # Whether the Setup tab draws its steps: the required AI model and Voice
-# rows by manifest key, once each with a chip, the set
-# scripts/smoke/rows/jarvis-setup.sh's setup_rows reads.
+# rows by manifest key, once each with a chip.
 jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(all([x["key"] for x in r if x["chips"]].count(k) == 1 for k in ("setupModel", "setupVoice")))'; }
 jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
@@ -6231,10 +6229,9 @@ scene_jarvis-setup() { # MODE
   jarvis_voice_states "$1"
 }
 
-# The Voice step over a ready local voice, as rows/jarvis-setup.sh plants
-# it: the local speech stand-in, the marker of the tree's first declared
-# tier and the world's local-mode at ready, with Jarvis's required tools
-# stood in. First voxtype missing, then the smoke's voxtype stand-in on the
+# The Voice step over a ready local voice: the local speech stand-in, the
+# marker of the tree's first declared tier and the world's local-mode at
+# ready, with Jarvis's required tools stood in. First voxtype missing, then the smoke's voxtype stand-in on the
 # shell's PATH with its dictation model installed, then a microphone check
 # the stand-in source wakes. The
 # Local voice field lists the tree's own setup-local choices for a machine
@@ -6448,10 +6445,10 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
   jarvis_restore_requirements
 }
 
-# The Cloned voice (VGS-1385) for the owner's sheets, posed as
-# rows/jarvis-setup.sh poses it: the clone reader answers from the world's
-# clone-status.json (scripts/fixtures/jarvis/prepare.js instruments
-# CloneRuntime.qml), so no model, recording or tier is judged. The local
+# The Cloned voice (VGS-1385) for the owner's sheets: the clone reader
+# answers from the world's clone-status.json
+# (scripts/fixtures/jarvis/prepare.js instruments CloneRuntime.qml), so no
+# model, recording or tier is judged. The local
 # voice is the Large tier, ready: its marker, the world's local-mode at
 # ready and setup-local's own choices for a card its pick takes as Large.
 # Details holds the optional Cloned voice state and its action; Settings
@@ -7071,8 +7068,7 @@ PY
 }
 # The daemon's J09 world gives it a HOME of its own, so a folder the scene
 # makes under the sandbox HOME is not the daemon's. jarvis_home_lease_on
-# runs the daemon with the sandbox HOME, as rows/jarvis-home-repair.sh
-# does, until jarvis_home_lease_off puts the world's lease back. The world
+# runs the daemon with the sandbox HOME until jarvis_home_lease_off puts the world's lease back. The world
 # still owns every child and stand-in.
 jarvis_home_lease_on() {
   local lease="$sandbox/jarvis-world/lease.sh"
@@ -8601,7 +8597,7 @@ scene_bluetooth() { # MODE
 }
 # The System window's Printers section over the CUPS stand-ins
 # (scripts/smoke/fixtures/devices/cups.py): each state is planted in the
-# world and announced with CUPS's notification, as rows/printers.sh does.
+# world and announced with CUPS's notification.
 # The service holds `system`, so the setup makes the fakes' system tree
 # first, as the Bluetooth setup does.
 printers_shot_ready=false
@@ -11407,8 +11403,8 @@ scene_plugin-messages() { # MODE
 # plugin's own Prompt.qml in a stand-in of the summon host's overlay
 # surface. vgs.polkit stays disabled and nothing is typed; the scene reads
 # that no request went live, that the stand-in was never submitted and
-# that no authentication helper ran while it was open, as rows/polkit.sh
-# reads them (docs/decisions/D062-native-lock-and-polkit-plugins.md).
+# that no authentication helper ran while it was open
+# (docs/decisions/D062-native-lock-and-polkit-plugins.md).
 polkit_flows() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["polkitFlows"])'; }
 scene_polkit() { # MODE
   local shots_baseline_assertions=false
@@ -12654,9 +12650,15 @@ PYOPEN
       shots_baseline_safety expect_poll "the planted hook needs the reboot notice choice" vgsOnly shots_reboot_action
       close_notices ;;
     info-dialog)
-      # Use the existing popup readers and pointer helpers from their rows.
+      # Use the existing popup readers and pointer helpers from their row.
       eval "$(sed -n '/^info_link_shown() {/p; /^info_link_click() {/,/^}/p' "$checkout/scripts/smoke/rows/settings.sh")"
-      eval "$(sed -n '/^info_close_click() {/,/^}/p' "$checkout/scripts/smoke/rows/agent-warden.sh")"
+      info_close_click() {
+        local rect x y
+        rect="$(ipc smoke popupItemGeometry window vgs.settings Dialog "$1" Button Close)" || return 1
+        [[ $rect == \[* ]] || { echo "info_close_click: no Close button in dialog $1: $rect" >&2; return 1; }
+        read -r x y < <(at_centre vgs:dialog "$rect") || return 1
+        click "$x" "$y"
+      }
       for pair in "${info_entries[@]}"; do
         if [[ $pair == vgs.updates:rebootNotice ]]; then
           devices_ready info-dialog-shot || exit 77

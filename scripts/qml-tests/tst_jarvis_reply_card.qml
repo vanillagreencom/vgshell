@@ -15,8 +15,7 @@ import "../../shell/plugins/vgs.jarvis"
 // link as its only action; it keeps what it drew while it closes, takes a
 // click on an answer as one `console` call, and claims the pointer through
 // `reply-hover` only while it shows. Its surface and motion are
-// PassivePopup's (tst_passive_popup.qml); placement under the J is the
-// nested sandbox's (scripts/smoke/rows/jarvis-reply.sh).
+// PassivePopup's (tst_passive_popup.qml).
 Item {
     id: root
     width: 400

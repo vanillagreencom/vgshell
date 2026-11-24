@@ -24,7 +24,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 # mock-sni.py RECORD: two stand-in tray apps on the session bus that
-# DBUS_SESSION_BUS_ADDRESS names, which scripts/smoke/rows/tray.sh sets to
+# DBUS_SESSION_BUS_ADDRESS names, which the row that starts it sets to
 # the nested sandbox's private bus and nothing else. Each is a
 # StatusNotifierItem, Id vgs-smoke-tray-a and vgs-smoke-tray-b, titled
 # Smoke Tray A and Smoke Tray B, with a drawn icon and a dbusmenu tree:

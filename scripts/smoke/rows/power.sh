@@ -1082,8 +1082,6 @@ EOF_IDLE
 # that level, and vgs.power's disable ending its hold. Each end leaves the
 # other preferences unchanged: the hold's absolute end is saved separately
 # from idle/sleep times, and another duration updates stayAwakeMinutes.
-# The core's hold, its timer and its release are
-# scripts/smoke/rows/stay-awake.sh's.
 power_stay_awake() {
   power_stay_keep
   expect "before Stay awake vgs.power holds no hold" '[]' power_stay_holds

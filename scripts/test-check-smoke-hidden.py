@@ -19,7 +19,7 @@ def run(root):
 result = run(ROOT)
 assert result.returncode == 0, result.stdout + result.stderr
 commands = {line.split()[1].removeprefix("command=") for line in result.stdout.splitlines()}
-assert {"claude", "codex", "vgshell-browser-policy", "ttfx", "tesseract"} <= commands, result.stdout
+assert {"claude", "codex", "vgshell-browser-policy", "ttfx"} <= commands, result.stdout
 assert "rclone" not in commands, result.stdout  # A present-command assertion is not an absence control.
 print("ok repository absence assertions covered; presence assertions excluded")
 

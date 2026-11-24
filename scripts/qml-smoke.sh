@@ -156,32 +156,10 @@
 # would run, one name per line in run order, and every row without --rows;
 # it starts nothing. qml_smoke_wanted decides both.
 #
-# VGSHELL_SMOKE_RSS_CEILING_KIB: resident-size ceiling for the largest reading
-# of the shells the run starts up to rows/diagnostics.sh: each shell a row
-# stopped, read at its stop, and the one that row reads (shell_memory_note
-# in scripts/smoke/harness.sh). A row that stops and starts the shell
-# therefore hides no shell from the ceiling. It catches an allocation
-# blow-up at startup or in a row and nothing else: a run this short cannot
-# see growth over a session, which the sampler in docs/architecture/runtime.md
-# measures, the largest reading grows with the rows the run holds, and it carries the machine's
-# graphics stack. The default is twice the highest rss_peak_kib of three
-# runs of this script on the owner's machine (host cachy, AMD Ryzen 9
-# 9950X) on 2026-10-02, at load average 5 to 12, on one nested monitor:
-# 576964 to 587008 KiB over main at 7bb195940, each the run's first shell
-# read at its first stop: docs/architecture/validation.md § Latency budgets.
-# Each reading prints its high-water mark beside it.
-#
-# VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from runner startup
-# to the first bar surface with a client in the compositor's layer list,
-# with 10 ms between unsuccessful polls. The default is twice the highest
-# actual diagnostics reading in 20 independent --rows diagnostics runs of
-# main bf2f463a5 on cachy (AMD Ryzen 9 9950X, installed engine VGS 2),
-# 2026-10-22: 536 to 658 ms, cpu_some_pct 0.5 to 1.0, nearby 1-minute load
-# 7.93 to 13.21. Each reading is the session row's final shell restart,
-# with that run's fixture and cache state, rather than --first-bar-runs'
-# initial shell. VGS-2012 holds the raw distribution and timing limits.
-# VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: the same ceiling for the start
-# over the default set that rows/start-order.sh reads, where every bundled
+# VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: ceiling on the time from
+# runner startup to the first bar surface with a client in the compositor's
+# layer list, with 10 ms between unsuccessful polls, for the start over the
+# default set that rows/start-order.sh reads, where every bundled
 # plugin's bar widget now takes its first presence. The default is twice
 # the highest kept reading of two passes of --first-bar-runs 6
 # --plugin-set default on the same machine on 2026-10-05, at load average
@@ -191,11 +169,6 @@
 # readings, one start lost to an unsized nested monitor, were 363 to 467 ms
 # (0.5 to 1.3). A pass of each with a run over 1.3 read 646 to 790 ms here
 # and 412 to 523 ms on main, and is not kept.
-# VGSHELL_SMOKE_RECONCILE_BUDGET_MS: ceiling on the time from a
-# setPluginEnabled reply to the build records no longer listing the
-# disabled widget, polled with qs ipc. The default is twice the highest
-# reading of twelve runs of this script on the same machine on 2026-09-23,
-# which read 12 to 15 ms.
 # VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS: ceiling on the time from the notify
 # call for a Slack card with six custom emoji to its body naming the
 # images on every screen. VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS is the time
@@ -362,10 +335,7 @@ if [[ -n $qml_smoke_only && -z ${qml_smoke_attempt:-} ]]; then
   qml_smoke_run="${qml_smoke_only#,}"
   (IFS=,; printf 'qml-smoke: rows named=%s run=%s\n' "${qml_smoke_named[*]}" "${qml_smoke_run%,}")
 fi
-rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
-first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-1316}"
 default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-1426}"
-reconcile_budget_ms="${VGSHELL_SMOKE_RECONCILE_BUDGET_MS:-30}"
 emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-116}"
 emoji_inbox_budget_ms="${VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS:-1376}"
 

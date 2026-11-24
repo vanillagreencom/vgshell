@@ -5,12 +5,11 @@
 # whose --rows adds the core rows and the rows a row reads and whose
 # driver reports each row's result. The line's form is in scripts/AGENTS.md.
 
-# The rows every run that does not run every row runs: the bar and the
-# session the others build on, the consent row that answers the dialog the
-# first shell raises, the start order and auth-sentinel, whose reading
-# covers every row the run held. scripts/check-smoke-readers.py reads the
-# line.
-smoke_core=(bar hyprland-consent session start-order auth-sentinel)
+# The rows every run that does not run every row runs: the bar the others
+# build on, the consent row that answers the dialog the first shell raises,
+# the start order and auth-sentinel, whose reading covers every row the run
+# held. scripts/check-smoke-readers.py reads the line.
+smoke_core=(bar hyprland-consent start-order auth-sentinel)
 
 # The rows that judge what every other row of their sandbox left, each
 # with the field of harness.sh's smoke_judge_reading its own controls

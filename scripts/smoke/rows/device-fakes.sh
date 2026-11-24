@@ -359,7 +359,7 @@ PYLOSS
   [[ $? == 0 ]] || exit 1
   failures=0
   behaviour_failures=0
-  smoke_row hidpi >"$control/name-loss.log"
+  smoke_row bluetooth >"$control/name-loss.log"
   [[ $failures == 1 ]] || exit 1
   grep -q 'world=unavailable .*name=org.bluez .*since=.*last-ready=' "$control/name-loss.log" || exit 1
   kill -KILL "$network_pid" || exit 1

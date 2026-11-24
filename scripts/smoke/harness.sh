@@ -65,47 +65,10 @@ sandbox=""
 rt_dir=""
 source_repo="$repo"
 pgids=()
-# geometry, hold_check and render run a row under that class (row_class in
+# geometry and render run a row under that class (row_class in
 # scripts/smoke/verdict.sh).
 geometry() { local row_class=geometry; "$@"; }
-hold_check() { local previous="$row_class"; row_class=hold; "$@"; row_class="$previous"; }
 render() { local row_class=render; "$@"; }
-image_text_magenta_count() { # SURFACE HOST_KEY ID COPY_NAME INDEX
-  local surface="$1" host_key="$2" id="$3" copy_name="$4" index="$5" rows window sample geometry threshold device_size socket count
-  rows="$(ipc smoke imageTextItems "$host_key" "$id" "$copy_name")" || return
-  window="$(surface_box "$surface")" || return
-  if [[ $window != \[* ]]; then printf '%s\n' "$window"; return; fi
-  sample="$(py_reply 'import json,sys
-rows=json.load(sys.stdin); window=json.loads(sys.argv[1]); index=int(sys.argv[2])
-if not isinstance(rows,list) or index<0 or index>=len(rows):
-    print("absent"); sys.exit()
-item=rows[index]
-if not item["visible"] or not item["windowVisible"]:
-    print("not-drawn"); sys.exit()
-x,y,w,h=item["box"]; device=int(item["deviceSize"])
-if w <= 0 or h <= 0 or device <= 0:
-    print("empty"); sys.exit()
-threshold=max(1, (device * device) // 5)
-print("%d,%d %dx%d|%d|%d" % (round(window[0]+x), round(window[1]+y), round(w), round(h), threshold, device))' "$window" "$index" <<<"$rows")" || return 1
-  if [[ $sample != *'|'* ]]; then printf '%s\n' "$sample"; return; fi
-  IFS='|' read -r geometry threshold device_size <<<"$sample"
-  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
-  count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c 'import sys
-data=sys.stdin.buffer.read().split(b"\n",3)
-if len(data)!=4 or data[0]!=b"P6" or data[2]!=b"255": print("unreadable"); sys.exit(1)
-w,h=map(int,data[1].split()); pixels=data[3]
-if len(pixels)!=w*h*3: print("unreadable"); sys.exit(1)
-print(sum(pixels[i] >= 240 and pixels[i+1] <= 32 and pixels[i+2] >= 240 for i in range(0,len(pixels),3)))')" || return 1
-  printf '{"count":%s,"threshold":%s,"deviceSize":%s,"geometry":%s}\n' "$count" "$threshold" "$device_size" "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$geometry")"
-}
-image_text_magenta_drawn() { # SURFACE HOST_KEY ID COPY_NAME INDEX
-  local sample
-  sample="$(image_text_magenta_count "$@")" || return
-  if [[ $sample != \{* ]]; then printf '%s\n' "$sample"; return; fi
-  py_reply 'import json,sys
-row=json.load(sys.stdin)
-print(row["count"] >= row["threshold"])' <<<"$sample"
-}
 # Error lines a row provokes on purpose, as extended regexes; the log check
 # leaves out a line matching one of them. smoke_row empties it at the start
 # of each row that no other row holds and reads the shell log's window over
@@ -415,8 +378,7 @@ fi
 # before its sudo. The tree's sudo is a copy of the sudo sentinel and the
 # tree holds no root half, so the status read every holder of `sudo` starts,
 # whichever plugins the set starts with, prints root-half=absent and runs no
-# sudo; usr/bin links the tools that read runs. rows/sudo.sh plants a root
-# half and stands its own sudo over the sentinel.
+# sudo; usr/bin links the tools that read runs.
 sudo_grant_root="$sandbox/sudo-root"
 if [[ -e $repo/bin/vgshell-sudo-grant ]]; then
   mkdir -p -- "$sudo_grant_root/usr/bin" "$sudo_grant_root/usr/local/bin" "$sudo_grant_root/etc/sudoers.d"
@@ -574,8 +536,8 @@ fi
 
 # The authentication helpers under a process tree: pam_unix's unix_chkpwd,
 # polkit's polkit-agent-helper-1 (its name cut to 15 bytes in /proc), sudo
-# and faillock. No row may authenticate the host's user, so the lock and
-# polkit rows read none. `auth_helpers PID` prints the ones running under
+# and faillock. No row may authenticate the host's user, so the lock row
+# reads none. `auth_helpers PID` prints the ones running under
 # PID now, one `name pid` per line, `none` for none. `auth_watch_start LOG`
 # spawns a watcher that scans the harness's own tree, which holds every
 # shell it starts, every 50 ms and appends each helper it sees once to LOG,
@@ -647,7 +609,7 @@ spawn_display() { # LOG ENV_WORDS... -- CLIENT ARGS...
 # the pgid for teardown and is left in spawn_pid. Not a command substitution,
 # because a subshell could not append to pgids. LOG is made here, before the
 # fork: the background child opens its own redirect after spawn returns, so
-# a caller's first read would find no file (rows/webapps.sh checks it).
+# a caller's first read would find no file.
 spawn_pid=""
 spawn() { # LOG CMD...
   local log="$1" stream="${display_stream_kind:-}" registration=refused log_fd; shift
@@ -1034,16 +996,13 @@ nested_xwayland_check
 # built in every run; its `plugins` row keeps its widget off the bar, so
 # the first presence places nothing. rows/manager.sh shows the widget and
 # rows/settings.sh hides it again.
-# vgs.agent-warden starts disabled for the same reason; rows/agent-warden.sh
-# enables it and disables it again, as rows/agent-debug.sh does
-# vgs.agent-debug. vgs.devtools starts disabled too: its
+# vgs.agent-warden and vgs.agent-debug start disabled for the same reason.
+# vgs.devtools starts disabled too: its
 # service's IPC target and status record would sit in the capability rows'
 # lending records, and its queries would run the host's mise;
 # rows/devtools.sh enables it over stub commands. vgs.automations starts
-# disabled for the same reason, and rows/automations.sh enables it over
-# stand-in systemctl, systemd-run, notify-send and loginctl. vgs.polkit
-# starts disabled, since polkit is exclusive and the capability rows'
-# fixture holds it; rows/polkit.sh enables it and disables it again.
+# disabled for the same reason. vgs.polkit starts disabled, since polkit is
+# exclusive and the capability rows' fixture holds it.
 # vgs.lock starts disabled for the launcher's reason, and its idle watch
 # would lock the session under the rows after five minutes; rows/lock.sh
 # enables it and disables it again. vgs.greeter starts disabled, since it
@@ -1053,11 +1012,9 @@ nested_xwayland_check
 # vgs.scratchpads starts disabled for the launcher's reason;
 # rows/scratchpads.sh enables it and disables it again. The screensaver
 # row restores its incoming enablement after its checks. vgs.sudo starts disabled,
-# so no earlier row counts its widget in the bar or its hold of `sudo`;
-# rows/sudo.sh enables it and disables it again. vgs.local-sync starts
-# disabled, since its service reads the user manager's units through
-# systemctl at start; rows/local-sync.sh enables it over its own fixture
-# unit and disables it again.
+# so no row counts its widget in the bar or its hold of `sudo`.
+# vgs.local-sync starts disabled, since its service reads the user
+# manager's units through systemctl at start.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -1123,8 +1080,8 @@ EOF
 # show-user with lingering off, the read the engine makes, and logs any
 # other verb. A shim file one of them covers is kept under STUB/saved until
 # automations_stand_ins_restore STUB puts it back and removes the
-# stand-ins. rows/automations.sh and the
-# Settings scene of scripts/sandbox-shots.sh enable the plugin over them.
+# stand-ins. rows/windows.sh and the Settings scene of
+# scripts/sandbox-shots.sh enable the plugin over them.
 automations_stand_in_names=(systemctl systemd-run notify-send)
 automations_stand_ins() { # STUB
   local stub="$1" name
@@ -2056,7 +2013,7 @@ point_item() { # LOOKUP [DX DY]
 }
 # click_item LOOKUP [DX DY]: point_item, then one click at the point it
 # settled on; returns 1, with no click, when point_item does. The rows that
-# click through it: agent-warden.sh, themes.sh (its click_row
+# click through it: themes.sh (its click_row
 # and click_button, and the helper's controls) and notifications.sh (the
 # Reply pill, a card's default action, Mark read and Clear history).
 click_item() { # LOOKUP [DX DY]
@@ -2770,34 +2727,13 @@ open(path, "w").write(text.replace(old, new))' "$path" "$3" "$4" && ! cmp -s -- 
 }
 # The resident size of every shell the run starts. shell_memory_note reads
 # VmRSS and VmHWM of the shell shell_qs_pid names from /proc/<pid>/status
-# into rss_kib and hwm_kib, prints them with the pid and the row that read
-# them, and hands the resident size to shell_memory_keep, which keeps the
-# largest in rss_peak_kib and the row that read it in rss_peak_row.
-# stop_shell notes the shell before its TERM, so a shell a row replaces is
-# read at its end, as well as the shell rows/diagnostics.sh notes and
-# judges with rss_verdict; a reading a stop takes after that row is printed
-# and not judged. With no shell pid, or a pid whose status is gone or holds
-# no resident size, as after a row killed the shell, it reads 0 for both
-# and keeps nothing. rss_verdict PEAK CEILING: `unread` for a PEAK of 0,
-# `over` for one above CEILING, else `under`. shells_unread: the pids
-# shell_answers took up that no note read, or `none`, so a shell that ended
-# unread fails the row that judges. rows/diagnostics.sh holds the controls.
+# into rss_kib and hwm_kib and prints them with the pid and the row that
+# read them. stop_shell notes the shell before its TERM, so a shell a row
+# replaces is read at its end. With no shell pid, or a pid whose status is gone or holds
+# no resident size, as after a row killed the shell, it reads 0 for both.
 rss_kib=0
 hwm_kib=0
-rss_peak_kib=0
-rss_peak_row=""
 shell_pids_started=()
-shell_pids_noted=()
-shells_unread() {
-  local pid unread=()
-  for pid in "${shell_pids_started[@]}"; do
-    [[ " ${shell_pids_noted[*]} " == *" $pid "* ]] || unread+=("$pid")
-  done
-  if [[ ${#unread[@]} -eq 0 ]]; then echo none; else echo "${unread[*]}"; fi
-}
-shell_memory_keep() { # RSS_KIB ROW
-  if [[ $1 -gt $rss_peak_kib ]]; then rss_peak_kib="$1"; rss_peak_row="$2"; fi
-}
 shell_memory_note() {
   local status_text="" row="${smoke_row_name:-none}"
   rss_kib=0
@@ -2807,11 +2743,6 @@ shell_memory_note() {
   rss_kib="${BASH_REMATCH[1]}"
   [[ $status_text =~ VmHWM:[[:space:]]+([0-9]+)\ kB ]] && hwm_kib="${BASH_REMATCH[1]}"
   echo "  rss_kib=$rss_kib hwm_kib=$hwm_kib pid=$shell_qs_pid row=$row"
-  shell_pids_noted+=("$shell_qs_pid")
-  shell_memory_keep "$rss_kib" "$row"
-}
-rss_verdict() { # PEAK CEILING
-  if [[ $1 -le 0 ]]; then echo unread; elif [[ $1 -gt $2 ]]; then echo over; else echo under; fi
 }
 # shell_stop OUTCOME_VAR [REPORT_VAR]: stops the runner start_shell
 # started, before a row starts another, and sets OUTCOME_VAR to one word
@@ -3809,9 +3740,9 @@ PY
 # shipped_panes_enabled: every enabled plugin under the sandbox copy's
 # shell/plugins whose kinds include `pane`, as one sorted JSON list. A row
 # that reads the panes holder's list sets each aside before it lists its
-# fixtures, since the default set, which rows/hidpi.sh restarts over,
-# enables every shipped plugin; the row's restore of the user file puts
-# them back, and it reads this list again to prove it.
+# fixtures, since the default set enables every shipped plugin; the row's
+# restore of the user file puts them back, and it reads this list again to
+# prove it.
 shipped_panes_enabled() {
   ipc shell listPlugins | py_reply 'import json, os, sys
 root = os.path.realpath(sys.argv[1])
@@ -4113,7 +4044,7 @@ core_words() { # KEY TITLE APP_ID ARGS...
     --record "$key" --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id "$app" --window-title "VGS · $title" -- "$core_vgshell" "$@"
 }
 # The agent warden's runtime dir and vsys's own status fixtures, which
-# rows/agent-warden.sh and scripts/sandbox-shots.sh write from.
+# scripts/sandbox-shots.sh writes from.
 warden_dir="$rt_dir/agent-warden"
 warden_fixtures="$repo/scripts/smoke/fixtures/agent-warden"
 # warden_put NAME AGE [KIND]: status-NAME.json with its time and every
@@ -4357,8 +4288,7 @@ source "$repo/scripts/smoke/leaks.sh"
 # The filter runs by exec: under an inherited ERR trap a
 # process substitution keeps its shell, which holds the caller's output
 # open while the filter waits for its input to close, and a row run in a
-# command substitution, as rows/leak-check.sh runs its plants, then never
-# returns.
+# command substitution then never returns.
 # It runs in a session of its own (setsid execs it in place, as its caller
 # leads no group), so a stop the fence hands the world's session
 # (gpu-fence.sh's forward) leaves it to pass on the lines the teardown

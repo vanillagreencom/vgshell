@@ -58,7 +58,7 @@ lines = Path(path).read_text().split("\n")
 kind, _, name = spec.partition(":")
 if kind == "fn":
     hits = [i for i, l in enumerate(lines) if re.match(r"\s*" + re.escape(name) + r"\(\) \{", l)]
-elif kind in ("block", "statement", "heredoc", "writer", "span"):
+elif kind in ("block", "statement", "writer", "span"):
     hits = [i for i, l in enumerate(lines) if l.startswith(name)]
 else:
     hits = [i for i, l in enumerate(lines) if l == name]
@@ -82,9 +82,6 @@ elif kind == "writer":
         end += 1
 elif kind == "span":
     end = next(i for i in range(start, len(lines)) if needle in lines[i])
-elif kind == "heredoc":
-    marker = lines[start].split("<<", 1)[1].strip("'\"")
-    end = next(i for i in range(start + 1, len(lines)) if lines[i] == marker)
 elif kind == "line" or (kind == "fn" and lines[start].rstrip().endswith("}")):
     end = start
 else:
@@ -196,11 +193,9 @@ run_world() {
     mon_w=100 mon_h=100 pointer_at="" failures=0
     layout_size() { echo 0 0 100 100; }
     dir="$sandbox" shader=fixture orb_style="" orb_reduced=0 base_path="$PATH"
-    share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
-    lc_toplevel_log="$sandbox/leak-plant-toplevel.log" leak_seq=1
+    share_world="$sandbox" traffic_dir="$sandbox"
     tui_record="$sandbox/terminal.calls" tui_refused="$sandbox/refused" tui_fixtures="$sandbox/fixtures"
     tui_terminal="$sandbox/terminal" tui_terminal_written="$sandbox/terminal-written"
-    wa_dir="$sandbox" wa_launches="$sandbox/browser.calls" jd_entry="$sandbox/app.desktop"
     repo="$sandbox/repo" checkout="$sandbox/repo" source_repo="$sandbox/repo"
     shim="$CASE_DIR/bin" node_bin="$CASE_DIR/bin/node" shell_start_path="$CASE_DIR/bin:$PATH" devices_env_words=()
     share_pipewire_dir="$rt_dir/share-pipewire" share_fixture="$sandbox/share-fixture"
@@ -429,7 +424,7 @@ fi
 # nested_input_check. Each runs with the host-socket
 # shell_env below.
 host_words="env -i PATH=@bin XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1"
-# loads: scripts/smoke/harness.sh scripts/smoke/rows/start.sh scripts/smoke/rows/instance-guard.sh scripts/smoke/rows/plugin-pages.sh scripts/smoke/rows/greeter.sh scripts/smoke/rows/share-picker.sh scripts/smoke/rows/capture.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh scripts/shader/measure-scene.sh scripts/smoke/rows/scratchpads.sh scripts/smoke/rows/lock.sh scripts/smoke/app-window.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/leak-check.sh scripts/smoke/rows/traffic.sh scripts/smoke/rows/tui.sh scripts/smoke/rows/webapps.sh scripts/smoke/rows/jarvis-desktop.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/reset.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar-controls.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh -- the cases read each file the table lists and run what they extract
+# loads: scripts/smoke/harness.sh scripts/smoke/rows/start.sh scripts/smoke/rows/greeter.sh scripts/smoke/rows/share-picker.sh scripts/smoke/rows/capture.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh scripts/shader/measure-scene.sh scripts/smoke/rows/scratchpads.sh scripts/smoke/rows/lock.sh scripts/smoke/app-window.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/traffic.sh scripts/smoke/rows/tui.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar-controls.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh -- the cases read each file the table lists and run what they extract
 helpers=(
 
   'shell runner|scripts/smoke/harness.sh|fn:start_shell|spawn_display|start_shell @sandbox @sandbox/shell.log no-bar|@sandbox/bin/vgshell|nonzero|spawn_display'
@@ -438,9 +433,6 @@ helpers=(
   'start runtime override|scripts/smoke/rows/start.sh|fn:vgshell_start_no_signature|nested_input_check|shell_start_words+=(XDG_RUNTIME_DIR=@host); source "$UNITS/start-env.sh"; vgshell_start_no_signature @sandbox|@sandbox/bin/vgshell|nonzero|nested_input_check'
   'start signature override|scripts/smoke/rows/start.sh|fn:vgshell_start_no_signature|nested_input_check|shell_start_words+=(HYPRLAND_INSTANCE_SIGNATURE=host-instance); source "$UNITS/start-env.sh"; vgshell_start_no_signature @sandbox|@sandbox/bin/vgshell|nonzero|nested_input_check'
   'start foreground control|scripts/smoke/rows/start.sh|span:  nested_input_check "$sandbox/tree-foreground/bin/vgshell"|control_out="$(timeout|start_env+=(XDG_RUNTIME_DIR=@host); mkdir -p "$sandbox/tree-foreground/bin"; cp "$sandbox/bin/vgshell" "$sandbox/tree-foreground/bin/vgshell"::CALL:::|@sandbox/tree-foreground/bin/vgshell|nonzero|nested_input_check'
-  'bare instance|scripts/smoke/rows/instance-guard.sh|statement:spawn_display "$sandbox/bare.log"|spawn_display|:|qs|nonzero|spawn_display'
-  'unguarded instance|scripts/smoke/rows/instance-guard.sh|fn:start_unguarded|spawn_display|start_unguarded @sandbox/unguarded.log @sandbox/tree label|qs|nonzero|spawn_display'
-  'unpaged instance|scripts/smoke/rows/plugin-pages.sh|statement:  spawn_display "$sandbox/plugin-pages-unpaged.log"|spawn_display|:|qs|nonzero|spawn_display'
   'greeter host|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
   'greeter fake greetd|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_again_log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
   'greeter refused view|scripts/smoke/rows/greeter.sh|statement:spawn_display "$sandbox/greeter-outside.log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
@@ -461,20 +453,15 @@ helpers=(
   'lock client|scripts/smoke/rows/lock.sh|fn:start_lock_client|spawn_display|start_lock_client probe|@sandbox/lock-client|nonzero|spawn_display'
   'application window|scripts/smoke/app-window.sh|fn:open_toplevel|spawn_display|open_toplevel @sandbox/app.log smoke.app App|@sandbox/toplevel|nonzero|spawn_display'
   'Hyprland window|scripts/smoke/rows/hyprland.sh|fn:open_tui|spawn_display|open_tui smoke.hyprland|@sandbox/toplevel|nonzero|spawn_display'
-  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$lc_toplevel_log" "${shell_env[@]}" -- "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'leak reporter|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-reporter-$leak_seq.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'
   'inherited display boundary|scripts/smoke/harness.sh|fn:write_display_client|exec "${shell_env[@]}" "$@"|write_display_client; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$sandbox/display-client" "$sandbox/toplevel" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|nested_input_check "$1"'
   'terminal window|scripts/smoke/harness.sh|fn:terminal_stand_in|"$display_client" "$toplevel"|terminal_stand_in; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.terminal --title=Terminal -- @bin/vgshell-tui present -- true 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$display_client" '
-  'webapps browser|scripts/smoke/rows/webapps.sh|heredoc:cat >"$wa_dir/chromium" <<EOF|"$sandbox/display-client"|env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$BASH" "$wa_dir/chromium" --app=https://example.com 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|$(printf '\''%q'\'' "$sandbox/display-client") '
-  'Jarvis application|scripts/smoke/rows/jarvis-desktop.sh|statement:printf '\''[Desktop Entry]|"$sandbox/display-client"|read -r -a desktop_exec <<<"$(sed -n '\''s/^Exec=//p'\'' "$jd_entry")"; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "${desktop_exec[@]}" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$sandbox/display-client" '
   'type_keys|scripts/smoke/harness.sh|fn:type_keys|"${shell_env[@]}" wtype|type_keys -k Escape|wtype|nonzero'
   'pointer_dispatch|scripts/smoke/harness.sh|fn:pointer_dispatch|"$sandbox/click" "$x" "$y"|pointer_dispatch 10 20|@sandbox/click|nonzero'
   'hold_start_keyboard keyboard|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard probe @sandbox/keyboard us ""|@sandbox/keyboard|nonzero'
   'hold_start_keyboard keyboard-silent|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard silent @sandbox/keyboard-silent us ""|@sandbox/keyboard-silent|nonzero'
-  'reset_keyboard_start|scripts/smoke/rows/reset.sh|fn:reset_keyboard_start|"${shell_env[@]}" "$sandbox/keyboard"|reset_keyboard_fifo=@sandbox/reset.fifo reset_keyboard_log=@sandbox/reset.log; reset_keyboard_start|@sandbox/keyboard|nonzero'
   'voice_start_keyboard|scripts/smoke/rows/voice.sh|fn:voice_start_keyboard|"${shell_env[@]}" "$sandbox/keyboard"|voice_start_keyboard|@sandbox/keyboard|nonzero'
   'zone_hold_press|scripts/smoke/rows/bar-controls.sh|fn:zone_hold_press|"${shell_env[@]}" "$sandbox/click"|zone_hold_press acme.probe 0 12|@sandbox/click|nonzero'
   'tiplink_drag|scripts/smoke/rows/bar-controls.sh|fn:tiplink_drag|"${shell_env[@]}" "$sandbox/click"|tiplink_drag acme.tiplink far|@sandbox/click|nonzero'
@@ -633,8 +620,7 @@ for i in "${!helpers[@]}"; do
   replacement=:
   [[ ${guard:-nested_input_check} != spawn_display ]] || replacement=unguarded_display_spawn
   case $name in
-    'terminal window'|'webapps browser'|'clone kitty'|'dictation kitty'|'scratchpad application') replacement="" ;;
-    'Jarvis application') replacement='"" ' ;;
+    'terminal window'|'clone kitty'|'dictation kitty'|'scratchpad application') replacement="" ;;
   esac
   plant "$(helper_unit "$i")" "${guard:-nested_input_check}" "$replacement" "$mutant" || { fail "control: $name: the defect could not be planted"; continue; }
   if found="$(helper_case "$mutant" "$call" "$tool" "$want")" && [[ $found == *"calls=[tool=${tool##*/} "* ]]; then ok "control: $name without its guard goes red: $found"; else fail "control: $name without its guard stays green"; fi
