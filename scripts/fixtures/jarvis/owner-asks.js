@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Test-only package command, copied to HOME/.agents/skills/jarvis/scripts/jarvis-session.
 // --seed HOME [COUNT], --state HOME, --mode HOME MODE and --verify HOME ID
-// are fixture controls. Product callers use only the actual owner-asks CLI.
+// are fixture controls. Product callers use only the actual owner-asks CLI
+// and the main's `status --main`.
 "use strict";
 const fs = require("node:fs"), path = require("node:path");
 const args = process.argv.slice(2);
@@ -34,6 +35,13 @@ if (["--mode", "--verify"].includes(args[0])) {
     write(home, state); process.exit(0);
 }
 const home = args.includes("--home") ? args[args.indexOf("--home") + 1] : null;
+// The package of a main answers `status --main` with its role alone, as
+// satellite-package.py stands in for it; any other answer reads as a
+// package that did not answer (Satellite.js reading).
+if (args[0] === "status" && args.includes("--main")) {
+    output({ v: 1, role: "main" });
+    process.exit(0);
+}
 if (args[0] !== "owner-asks") {
     output({ v: 1, state: "stopped", reason: "never-started", detail: "", home, harness: null, account: null });
     process.exit(0);

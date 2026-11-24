@@ -5006,6 +5006,17 @@ scene_keyhints() { # MODE
   expect_poll "the Key Hints window is gone" 0 window_count "Key Hints"
 }
 
+# jarvis_scripted_restore BEFORE_BACKEND BEFORE_ENGINE: the sandbox
+# copies of the daemon and the engine scripted.js instruments, put back
+# from their saved copies, without the fixture it placed beside them or
+# the voice mute a console tour leaves.
+jarvis_scripted_restore() {
+  local backend="$repo/shell/plugins/vgs.jarvis/backend"
+  cp -- "$1" "$backend/jarvisd.js"
+  cp -- "$2" "$backend/ChainedEngine.js"
+  rm -f -- "${backend:?}/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/voice-mute.json"
+}
+
 # Jarvis Console over the scripted daemon fixture. It mutates only the
 # sandbox copy of the daemon and engine, then restores them before leaving.
 scene_jarvis-console() { # MODE
@@ -5048,12 +5059,6 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
     expect_poll "the Jarvis console maps" 1 window_count Jarvis
     expect_poll "the Jarvis console text field has focus" true jarvis_console_focused
   }
-  jarvis_console_restore() {
-    cp -- "$before_backend" "$backend"
-    cp -- "$before_engine" "$engine"
-    rm -f -- "$plugin/backend/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/voice-mute.json"
-  }
-
   jarvis_setup_requirements
   "$node_bin" "$checkout/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$backend" "$startup_gate" "$startup_seen"
   tree_rescan "the Jarvis gated daemon is scanned"
@@ -5065,7 +5070,7 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   expect "the Jarvis console hides after the not-ready image" ok ipc shell hide window vgs.jarvis
   expect "disabling vgs.jarvis after the not-ready image is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone after the not-ready image" absent ipc smoke jarvisProcess
-  jarvis_console_restore
+  jarvis_scripted_restore "$before_backend" "$before_engine"
 
   jarvis_asks_fixture "$checkout"
   expect "the package fixture Home is selected for console images" ok ipc shell reloadConfig
@@ -5115,25 +5120,48 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   user_config_restore "$before_config"
   expect "the console capture restores the selected Home" ok ipc shell reloadConfig
   jarvis_restore_requirements
-  jarvis_console_restore
+  jarvis_scripted_restore "$before_backend" "$before_engine"
   tree_rescan "the stock Jarvis files are scanned after console images"
   jarvis_notice_close
 }
 
 # The jarvis-speech-only scene: Chat over the scripted daemon fixture under
 # a voice that takes speech only, with the pointer on the locked message
-# box, its reason shown, then at rest.
+# box, its reason shown, then at rest. Jarvis's AI model is an Anthropic
+# key, whose fixed model list (AccountProviders.js) the console reads with
+# no key and no network, so the model and effort row stands under the
+# notice as a signed-in user's does.
 scene_jarvis-speech-only() { # MODE
-  local plugin="$repo/shell/plugins/vgs.jarvis" backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  local backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
   local before_backend="$sandbox/jarvis-speech-only-$1-jarvisd-before.js"
+  local before_engine="$sandbox/jarvis-speech-only-$1-engine-before.js"
   local before_config="$sandbox/jarvis-speech-only-$1-config-before.json"
-  local gates="$sandbox/jarvis-speech-only-$1-gates" rect x y
+  local state="$home/.local/state/vgshell/jarvis" before_keys="$sandbox/jarvis-speech-only-$1-keys-before.json"
+  local gates="$sandbox/jarvis-speech-only-$1-gates" rect x y brain
   cp -- "$backend" "$before_backend"
+  cp -- "$engine" "$before_engine"
   cp -- "$home/.config/vgshell/shell.json" "$before_config"
-  mkdir -p -- "$gates"
+  rm -f -- "${before_keys:?}"
+  mkdir -p -- "$gates" "$state" "$sandbox/jarvis-speech-only-no-path"
+  [[ ! -e $state/keys.json ]] || cp -- "$state/keys.json" "$before_keys"
+  # A saved key reference holds metadata only (Secrets.js reference); the
+  # sandbox keyring holds no key under it.
+  python3 - "$state/keys.json" <<'PY' || fail "the Anthropic key reference is not written"
+import json,os,sys
+held=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else []
+origin="https://api.anthropic.com"
+held.append({"provider":"anthropic","account":"Sandbox","origin":origin,
+             "attributes":{"service":"vgs-jarvis","provider":"anthropic","account":"Sandbox","origin":origin}})
+open(sys.argv[1],"w").write(json.dumps(held)+"\n")
+PY
+  brain="$(env -i PATH="$sandbox/jarvis-speech-only-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
+    XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
+    py_reply 'import json,sys; print(next(a["id"] for a in json.load(sys.stdin) if a["provider"]=="anthropic" and a["source"]["kind"]=="keyring"))')" ||
+    fail "the account helper lists no id for the Anthropic key"
   jarvis_setup_requirements
   jarvis_asks_fixture "$checkout"
-  expect "the package fixture Home is selected for the speech-only images" ok ipc shell reloadConfig
+  outdated_brain "$home/.config/vgshell/shell.json" "$brain"
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --duplex
   tree_rescan "the Jarvis speech-only daemon is scanned"
   expect "enabling vgs.jarvis for the speech-only images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -5141,6 +5169,14 @@ scene_jarvis-speech-only() { # MODE
   expect "the Jarvis console summons" ok ipc shell summon window vgs.jarvis '{}'
   expect_poll "the Jarvis console maps" 1 window_count Jarvis
   expect_poll "Chat shows a voice that takes speech only" true ipc smoke readInstance window vgs.jarvis speechOnly
+  # The package answers as the main, so Chat shows no forwarding warning,
+  # and the console has read the key's models and their efforts.
+  jarvis_speech_only_values() {
+    ipc smoke readInstance window vgs.jarvis values | py_reply 'import json,sys
+v=json.load(sys.stdin)
+print(json.dumps([(v.get("mainReach") or {}).get("kind"), len(v.get("models") or []) > 0, len(v.get("efforts") or []) > 0]))'
+  }
+  expect_poll "Chat reads the main Jarvis and offers the key's models and efforts" '["main", true, true]' jarvis_speech_only_values
   # The locked area reads no hover of its own, so the pointer goes to its
   # centre and the reason's own reading settles it.
   rect="$(ipc smoke windowGeometry window vgs.jarvis TextArea "")" || rect=unreadable
@@ -5157,10 +5193,10 @@ scene_jarvis-speech-only() { # MODE
   expect_poll "vgs.jarvis is gone after its speech-only images" absent ipc smoke jarvisProcess
   jarvis_asks_restore
   user_config_restore "$before_config"
-  expect "the speech-only capture restores the selected Home" ok ipc shell reloadConfig
+  expect "the speech-only capture restores the selected Home and AI model" ok ipc shell reloadConfig
+  if [[ -e $before_keys ]]; then cp -- "$before_keys" "$state/keys.json"; else rm -f -- "${state:?}/keys.json"; fi
   jarvis_restore_requirements
-  cp -- "$before_backend" "$backend"
-  rm -f -- "${plugin:?}/backend/scripted-fixture.js"
+  jarvis_scripted_restore "$before_backend" "$before_engine"
   tree_rescan "the stock Jarvis files are scanned after the speech-only images"
   jarvis_notice_close
 }
