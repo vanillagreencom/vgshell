@@ -4,7 +4,8 @@
 #
 # Ignore repeat stop signals from the first stop on, and every stop while
 # closing producers and the recorder after any other exit.
-# SIGKILL is handled by the world's PID namespace and after-namespace copy.
+# SIGKILL is handled by the world's PID namespace and after-namespace copy,
+# or in a throwaway world by the fence's subreaper sweep (gpu-fence.sh).
 # A stop that TERMs every process of the world, as a systemd unit's stop
 # does, reaches this cleanup and every process it ends at once. The world's
 # bubblewrap monitor ignores it (gpu-fence.sh), so the namespace outlives

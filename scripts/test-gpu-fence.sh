@@ -45,6 +45,24 @@
 # started under a lower data limit keeps it, and a setting that is no byte
 # count is refused before anything starts.
 #
+# The throwaway cases run the fence's throwaway world (D142) inside an
+# outer bubblewrap namespace, the only boundary around that world's command
+# on this computer: the host read-only but for the scratch root, a minimal
+# /dev, planted trees in place of /sys/class and /run, no network and a PID
+# namespace of its own. No case's command opens a device. On the empty
+# host the command reads the declared environment, the ceiling and a
+# passing --check, and a grandchild it leaves in a session of its own is
+# gone with the root when the fence returns, after the command's own exit
+# and after a KILL of it. Each planted fact stops the run before the
+# command, --sys is refused, the same host with no declaration takes the
+# bubblewrap world, and a planted marker passes --check only where its
+# owner is the check's ancestor. The command's XDG_RUNTIME_DIR is private
+# and its owned/ is the root's runtime, where the harness's mktemp lands.
+# A world whose command stalls before the harness records it, with TERM
+# ignored, is ended by qml-smoke's own no-progress stop, so the run log
+# reaches EOF and its grandchild is gone. Controls drop the input refusal
+# and the sweep, and make the stop read the root from the harness's record.
+#
 # The PATH case reads which qs and node a command finds in the world and
 # under the harness's own sandbox_env words. A copy of the harness whose
 # sandbox PATH leads with the native node's directory must turn it red.
@@ -933,6 +951,279 @@ reap_unknown() {
     grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.4194305-1-1-r.other0 reason=other-namespace" "$TMP_ROOT/err"
 }
 
+# The throwaway hosts: the trees the outer namespace shows in place of
+# /sys/class and /run. `empty` registers nothing; each other plants one fact
+# of a person's computer.
+for host in empty input connector user bus amdgpu; do
+  mkdir -p -- "$TMP_ROOT/host-$host/class/input" "$TMP_ROOT/host-$host/class/drm" "$TMP_ROOT/host-$host/run"
+done
+mkdir -- "$TMP_ROOT/host-input/class/input/input0" "$TMP_ROOT/host-connector/class/drm/card0-DP-1"
+mkdir -p -- "$TMP_ROOT/host-user/run/user/1000" "$TMP_ROOT/host-bus/run/dbus" "$TMP_ROOT/host-amdgpu/class/drm/card1/device"
+: >"$TMP_ROOT/host-bus/run/dbus/system_bus_socket"
+echo 226:1 >"$TMP_ROOT/host-amdgpu/class/drm/card1/dev"
+ln -s ../../../bus/pci/drivers/amdgpu "$TMP_ROOT/host-amdgpu/class/drm/card1/device/driver"
+# bin-none and python3, which the throwaway world's subreaper and sweep and
+# the cases' command run.
+mkdir -- "$TMP_ROOT/bin-throwaway"
+for tool in "$TMP_ROOT"/bin-none/*; do ln -s -- "$(readlink -- "$tool")" "$TMP_ROOT/bin-throwaway/${tool##*/}"; done
+ln -s -- "$(type -P python3)" "$TMP_ROOT/bin-throwaway/python3"
+# The throwaway world's command: what it reads of its environment, its
+# limits and a nested --check, then a grandchild of the fence in a session
+# of its own, which outlives this command. `idle` then marks it ready and
+# waits for the KILL the no-progress stop sends.
+cat >"$TMP_ROOT/throwaway-cmd.py" <<'PY'
+import json, os, pathlib, subprocess, sys, time
+report, mode, bash, fence = sys.argv[1:]
+root = os.environ["VGSHELL_WORLD_ROOT"]
+planted = ("FENCE_TEST_VALUE", "WAYLAND_DISPLAY", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "VGS_VALIDATE_ROW_MEMORY")
+under = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR")
+limits = {}
+with open("/proc/self/limits") as stream:
+    for line in stream:
+        for key, name in (("Max data size", "data"), ("Max core file size", "core")):
+            if line.startswith(key + " "):
+                limits[name] = line[len(key):].split()[0]
+quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+# The runtime the harness takes: a private XDG_RUNTIME_DIR under the root
+# whose owned/ is the root's runtime, where its mktemp of the sandbox
+# runtime (harness.sh) succeeds and lands.
+def runtime():
+    directory = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/"))
+    if not directory.is_relative_to(root) or not directory.is_dir() or directory.stat().st_mode & 0o777 != 0o700:
+        return "private-unowned"
+    if (directory / "owned").resolve() != pathlib.Path(root, "runtime").resolve():
+        return "owned-elsewhere"
+    made = subprocess.run(["mktemp", "-d", str(directory / "owned/x.XXXXXX")], capture_output=True, text=True)
+    if made.returncode or not pathlib.Path(made.stdout.strip()).resolve().is_relative_to(pathlib.Path(root, "runtime").resolve()):
+        return "mktemp-failed"
+    return "owned"
+facts = {
+    "root": root,
+    "leaked": [name for name in planted if name in os.environ],
+    "outside": [name for name in under if not pathlib.Path(os.environ.get(name, "/")).is_relative_to(root)],
+    "runtime": runtime(),
+    "marker": os.environ.get("VGS_TEST_RUN"),
+    "limits": limits,
+    "check": subprocess.run([bash, fence, "--check"], **quiet).returncode,
+    "grandchild": subprocess.Popen(["setsid", "sleep", "300"], **quiet).pid,
+}
+pathlib.Path(report, "facts.json").write_text(json.dumps(facts))
+if mode == "idle":
+    pathlib.Path(report, "ready").write_text("ready\n")
+    time.sleep(300)
+PY
+# throwaway.py FENCE BASH SCRATCH BIN MODE WORD...: PID 1's child in the
+# outer namespace. It runs FENCE with WORD... from an environment that holds
+# PATH, the BIN directory alone, HOME, TMPDIR, a caller runtime and the
+# planted names, writes the fence's stderr to SCRATCH/err and prints what
+# the run left: `run` and `kill` the command's readings, the fence's status
+# and whether the grandchild and the root are gone once the fence returns;
+# `kill` KILLs the command the root's info names, as qml_smoke_end_world
+# does; `start` whether a command that would make a marker started;
+# `foreign` the --check status over a planted root whose owner is a live
+# process that is no ancestor of the check, then over one whose owner is.
+cat >"$TMP_ROOT/throwaway.py" <<'PY'
+import json, os, pathlib, re, signal, subprocess, sys, tempfile, time
+fence, bash, scratch, bin_dir, mode, *words = sys.argv[1:]
+run = pathlib.Path(tempfile.mkdtemp(prefix="throwaway-run-", dir=scratch))
+for name in ("home", "tmp", "report", "caller-runtime"):
+    (run / name).mkdir()
+env = {"PATH": bin_dir, "HOME": str(run / "home"), "TMPDIR": str(run / "tmp"), "XDG_RUNTIME_DIR": str(run / "caller-runtime"),
+       "VGS_VALIDATE_ROW_MEMORY": "268435456", "FENCE_TEST_VALUE": "planted", "WAYLAND_DISPLAY": "planted", "DISPLAY": ":99",
+       "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"}
+command = ["python3", str(pathlib.Path(scratch, "throwaway-cmd.py")), str(run / "report")]
+streams = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": open(pathlib.Path(scratch, "err"), "w")}
+def ended(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as stream:
+            return stream.read().rpartition(") ")[2].split()[0] == "Z"
+    except OSError:
+        return True
+def left(facts):
+    print("grandchild=" + ("ended" if ended(facts["grandchild"]) else "alive"))
+    print("root=" + ("left" if os.path.lexists(facts["root"]) else "removed"))
+def facts():
+    return json.loads((run / "report/facts.json").read_text())
+if mode == "run":
+    status = subprocess.run([bash, fence, *words, *command, "run", bash, fence], env=env, timeout=30, **streams).returncode
+    read = facts()
+    print("status=%d" % status)
+    print("check=%d" % read["check"])
+    print("environment=" + ("declared" if not read["leaked"] and read["marker"] == "1" else "leaked:" + ",".join(read["leaked"])))
+    print("paths=" + ("under-root" if not read["outside"] else "outside:" + ",".join(read["outside"])))
+    print("runtime=" + read["runtime"])
+    print("limits=data:%s,core:%s" % (read["limits"].get("data"), read["limits"].get("core")))
+    left(read)
+elif mode == "kill":
+    world = subprocess.Popen([bash, fence, *words, *command, "idle", bash, fence], env=env, **streams)
+    info = None
+    for _ in range(200):
+        if (run / "report/ready").exists():
+            read = facts()
+            text = pathlib.Path(read["root"], "info").read_text() if pathlib.Path(read["root"], "info").exists() else ""
+            child = re.search(r'^ *"child-pid": *([0-9]+),?$', text, re.M)
+            space = re.search(r'^ *"pid-namespace": *([0-9]+),?$', text, re.M)
+            if child and space:
+                info = int(child.group(1)), space.group(1)
+                break
+        time.sleep(0.05)
+    assert info, "the world recorded no command"
+    if os.readlink("/proc/%d/ns/pid" % info[0]) == "pid:[%s]" % info[1]:
+        os.kill(info[0], signal.SIGKILL)
+    print("status=%d" % world.wait(timeout=30))
+    left(read)
+elif mode == "start":
+    marker = run / "marker"
+    status = subprocess.run([bash, fence, *words, "touch", str(marker)], env=env, timeout=30, **streams).returncode
+    print("status=%d" % status)
+    print("command=" + ("started" if marker.exists() else "none"))
+elif mode == "foreign":
+    sibling = subprocess.Popen(["sleep", "30"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    try:
+        for label, pid, suffix in (("foreign", sibling.pid, "planta"), ("ancestor", os.getpid(), "plantb")):
+            with open("/proc/%d/stat" % pid) as stream:
+                start = stream.read().rpartition(") ")[2].split()[19]
+            space = re.fullmatch(r"pid:\[([0-9]+)\]", os.readlink("/proc/%d/ns/pid" % pid)).group(1)
+            root = run / ("vgshell-world.%d-%s-%s-r.%s" % (pid, start, space, suffix))
+            root.mkdir()
+            (root / "throwaway").write_text("")
+            status = subprocess.run([bash, fence, "--check"], env={**env, "VGSHELL_WORLD_ROOT": str(root)}, timeout=30, **streams).returncode
+            print("%s=%d" % (label, status))
+    finally:
+        sibling.kill()
+        sibling.wait()
+elif mode == "stall":
+    os.execve(bash, [bash, str(pathlib.Path(scratch, "stall-driver.sh")), fence, scratch, bin_dir, *words], {"PATH": bin_dir})
+else:
+    sys.exit("throwaway.py: mode=" + mode)
+PY
+# stall.sh RUN: a throwaway world's command that stalls as a harness does
+# before it writes its `world` record, with TERM ignored, while a
+# grandchild in a session of its own holds the run log open.
+cat >"$TMP_ROOT/stall.sh" <<'SH'
+run="$1"
+trap '' TERM
+setsid sh -c 'trap "" TERM; while :; do sleep 1; done' &
+printf '%s\n' "$!" >"$run/grandchild"
+: >"$run/ready"
+while :; do sleep 1; done
+SH
+# stall-driver.sh FENCE SCRATCH BIN QML_SMOKE: qml-smoke's no-progress
+# stop, its own qml_smoke_owns_child and qml_smoke_end_world read from
+# QML_SMOKE, over a throwaway fence that runs stall.sh with the run log a
+# pipe to a reader that ends at EOF, as the driver's tee does. After the
+# TERM the stall ignores it takes the stop's first step, waits one bound
+# for the fence to end, takes the second, and then waits one bound for the
+# reader. It prints whether the reader reached EOF, so a driver that waits
+# on it returns, and whether the grandchild ended.
+cat >"$TMP_ROOT/stall-driver.sh" <<'SH'
+set -euo pipefail
+fence="$1" scratch="$2" bin="$3" qml_smoke="$4"
+source "${fence%/*}/reap.sh"
+functions="$(sed -n '/^  qml_smoke_owns_child() {$/,/^  }$/p; /^  qml_smoke_end_world() {$/,/^  }$/p' "$qml_smoke")"
+[[ $functions == *'qml_smoke_owns_child() {'* && $functions == *'qml_smoke_end_world() {'* ]] || { echo functions=unextracted; exit 1; }
+eval "$functions"
+ended() { local line=""; read -r line 2>/dev/null <"/proc/$1/stat" || return 0; line="${line##*) }"; [[ ${line%% *} == Z ]]; }
+run="$(mktemp -d "$scratch/stall-run.XXXXXX")"
+mkdir -- "$run/tmp" "$run/home" "$run/attempt"
+# The attempt fence shares the driver's TMPDIR.
+export TMPDIR="$run/tmp"
+exec {log}> >(exec "$BASH" -c 'while IFS= read -r line; do printf "%s\n" "$line"; done' >"$run/run.log")
+log_pid=$!
+env -i PATH="$bin" HOME="$run/home" TMPDIR="$TMPDIR" "$BASH" "$fence" --throwaway-host -- "$BASH" "$scratch/stall.sh" "$run" >&"$log" 2>&1 {log}>&- &
+qml_smoke_fence_pid=$!
+exec {log}>&-
+# The stop reads the info the fence writes once CMD has started.
+for ((tick = 0; tick < 200; tick++)); do [[ -e $run/ready ]] && compgen -G "$TMPDIR/vgshell-world.*/info" >/dev/null && break; sleep 0.05; done
+[[ -e $run/ready ]] && compgen -G "$TMPDIR/vgshell-world.*/info" >/dev/null || { echo stall=unready; exit 1; }
+qml_smoke_phase=attempt qml_smoke_attempt="$run/attempt" qml_smoke_idle_secs=1 qml_smoke_end_step=0 smoke_log_dir="$run"
+kill -TERM -- "$qml_smoke_fence_pid" 2>/dev/null || true
+qml_smoke_end_world 2>>"$run/driver.err"
+for ((tick = 0; tick < 100; tick++)); do ended "$qml_smoke_fence_pid" && break; sleep 0.1; done
+qml_smoke_end_world 2>>"$run/driver.err"
+for ((tick = 0; tick < 100; tick++)); do ended "$log_pid" && break; sleep 0.1; done
+if ended "$log_pid"; then echo log=closed; else echo log=open; fi
+grandchild=""
+read -r grandchild <"$run/grandchild" || true
+if [[ -n $grandchild ]] && ! ended "$grandchild"; then echo grandchild=alive; else echo grandchild=ended; fi
+SH
+# on_host FILE HOST MODE WORD...: throwaway.py over FILE in the outer
+# namespace, the only boundary around a throwaway world's command on this
+# computer: the host read-only but for the scratch root, a minimal /dev
+# with no /dev/dri (bwrap --dev), HOST's trees in place of /sys/class and
+# /run, no network and a PID namespace of its own, whose end ends what a
+# defect leaves. No case's command opens a device. Sets status; the
+# driver's report is $TMP_ROOT/out and the fence's stderr $TMP_ROOT/err.
+on_host() {
+  local file="$1" host="$TMP_ROOT/host-$2" mode="$3"
+  shift 3
+  status=0
+  : >"$TMP_ROOT/err"
+  timeout -k 2 90 env -i "$real_bwrap" --ro-bind / / --dev /dev --bind "$TMP_ROOT" "$TMP_ROOT" \
+    --ro-bind "$host/class" /sys/class --ro-bind "$host/run" /run \
+    --unshare-net --unshare-pid --proc /proc --die-with-parent \
+    -- "$(type -P python3)" -I "$TMP_ROOT/throwaway.py" "$file" "$BASH" "$TMP_ROOT" "$TMP_ROOT/bin-throwaway" "$mode" "$@" \
+    >"$TMP_ROOT/out" || status=$?
+}
+# throwaway_runs FILE: on the empty host a declared throwaway world runs the
+# command in the declared environment, under the ceiling, with a passing
+# --check, and ends its grandchild before it removes the root.
+throwaway_runs() {
+  local want="status=0
+check=0
+environment=declared
+paths=under-root
+runtime=owned
+limits=data:268435456,core:0
+grandchild=ended
+root=removed"
+  on_host "$1" empty run --throwaway-host
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == "$want" ]] &&
+    grep -qx -- 'gpu-fence: world=throwaway' "$TMP_ROOT/err" &&
+    grep -qx -- 'gpu-fence: ceiling=data limit=268435456' "$TMP_ROOT/err"
+}
+# throwaway_killed FILE: a KILL of the command, the no-progress stop, still
+# ends its grandchild and removes the root.
+throwaway_killed() {
+  on_host "$1" empty kill --throwaway-host
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'status=137\ngrandchild=ended\nroot=removed' ]]
+}
+# throwaway_refused FILE HOST FACT PATH: HOST's planted fact stops the run
+# before the command, naming FACT at PATH.
+throwaway_refused() {
+  on_host "$1" "$2" start --throwaway-host
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'status=77\ncommand=none' &&
+     "$(first_error)" == "gpu-fence: status=not-measured reason=throwaway-refused fact=$3 path=$4" ]]
+}
+# throwaway_trees FILE: a throwaway world reads only the real trees, so
+# --sys over an empty tree is refused, never the throwaway world.
+throwaway_trees() {
+  on_host "$1" empty start --throwaway-host --sys "$TMP_ROOT/host-empty"
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'status=2\ncommand=none' && "$(first_error)" == "gpu-fence: refused: throwaway=--sys" ]]
+}
+# throwaway_undeclared FILE: the same empty host with no declaration takes
+# the bubblewrap world, which a PATH with no bwrap cannot make.
+throwaway_undeclared() {
+  on_host "$1" empty start
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'status=77\ncommand=none' && "$(first_error)" == "gpu-fence: status=not-measured reason=bwrap-missing" ]]
+}
+# throwaway_foreign FILE: a planted marker whose owner is a live process but
+# no ancestor of the check passes no check; the same root owned by the
+# check's ancestor does, so the owner's ancestry is what the check reads.
+throwaway_foreign() {
+  on_host "$1" empty foreign
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'foreign=1\nancestor=0' ]]
+}
+# throwaway_stalled FILE [QML_SMOKE]: qml-smoke's no-progress stop ends a
+# throwaway world whose command stalls before the harness records it, with
+# TERM ignored: the run log reaches EOF, so the driver returns, and the
+# command's grandchild has ended. A KILL of the fence alone would leave
+# that tree holding the log.
+throwaway_stalled() {
+  on_host "$1" empty stall "${2:-$repo/scripts/qml-smoke.sh}"
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == $'log=closed\ngrandchild=ended' ]]
+}
+
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
   "the check leaves the caller checkout byte-identical|no|check_readonly"
@@ -977,6 +1268,17 @@ cases=(
   "a device number that is none starts nothing|no|unreadable"
   "a call with no command is refused|no|refused missing-command"
   "an unknown option is refused|no|refused --nope --nope"
+  "a declared throwaway host runs the command in the declared environment and ends what it left|yes|throwaway_runs"
+  "a KILL of a throwaway world's command still ends what it left and removes the root|yes|throwaway_killed"
+  "a throwaway host with an input device starts nothing|yes|throwaway_refused input input /sys/class/input/input0"
+  "a throwaway host with a display output starts nothing|yes|throwaway_refused connector connector /sys/class/drm/card0-DP-1"
+  "a throwaway host with a login session starts nothing|yes|throwaway_refused user session /run/user/1000"
+  "a throwaway host with a system bus starts nothing|yes|throwaway_refused bus session /run/dbus/system_bus_socket"
+  "a throwaway host with an amdgpu node starts nothing|yes|throwaway_refused amdgpu amdgpu /dev/dri/card1"
+  "a throwaway host named by --sys is refused|yes|throwaway_trees"
+  "a host that declares no throwaway world takes the bubblewrap world|yes|throwaway_undeclared"
+  "a throwaway marker whose owner is no ancestor passes no check|yes|throwaway_foreign"
+  "a no-progress stop ends a throwaway world that stalls before the harness records it|yes|throwaway_stalled"
 )
 # run_case FILE LABEL: 0 green, 1 red, 2 when it needs a namespace this
 # host cannot make, 3 when no case carries LABEL.
@@ -1260,6 +1562,14 @@ forward() {
   '      reason=no-owner-in-name'
   '      reason=owner-unreadable'
   'a root whose name holds no owner or whose owner lives elsewhere is kept and reported'
+  'the throwaway world drops the input refusal'
+  '((${#listed[@]} == 0)) || host_refused input "${listed[0]}"'
+  ':'
+  'a throwaway host with an input device starts nothing'
+  'the throwaway world ends nothing its command left'
+  'error="$(python3 -I -c "$sweep" "$$" 2>&1)"'
+  'error=""'
+  'a declared throwaway host runs the command in the declared environment and ends what it left'
 )
 # run_controls TABLE: each control of the array TABLE planted in a copy of
 # the fence must turn its case red. A control that leaves the case green,
@@ -1310,6 +1620,30 @@ if [[ $namespace == true ]]; then
 else
   unmeasured=$((unmeasured + 1))
   printf '  skip  control: a sandbox PATH led by the native node'"'"'s directory\n'
+fi
+
+# A no-progress stop that reads the attempt's root from the harness's
+# `world` record alone finds none in a world that stalled before it, and
+# its KILL of the fence leaves the tree holding the log: the stall case
+# must go red.
+if [[ $namespace == true ]]; then
+  stall_old='    if start="$(proc_start "$qml_smoke_fence_pid")" && space="$(pid_namespace "$qml_smoke_fence_pid")"; then
+      for candidate in "${TMPDIR:-/tmp}/vgshell-world.$qml_smoke_fence_pid-$start-$space-"[rk].??????; do
+        [[ -d $candidate && ! -L $candidate ]] || continue
+        root="$(realpath -e -- "$candidate")" || root=""
+      done
+    fi'
+  stall_new='    [[ ! -f $qml_smoke_attempt/world ]] || IFS= read -r -d '"''"' root <"$qml_smoke_attempt/world" || true'
+  if ! mutate "$repo/scripts/qml-smoke.sh" "$stall_old" "$stall_new" "$TMP_ROOT/qml-smoke-world-record.sh"; then
+    fail "control: a no-progress stop that reads the root from the world record alone"
+  elif throwaway_stalled "$fence" "$TMP_ROOT/qml-smoke-world-record.sh"; then
+    fail "control: a no-progress stop that reads the root from the world record alone left the stall case green"
+  else
+    ok "control: a no-progress stop that reads the root from the world record alone"
+  fi
+else
+  unmeasured=$((unmeasured + 1))
+  printf '  skip  control: a no-progress stop that reads the root from the world record alone\n'
 fi
 
 # A fence whose command stays in the terminal's session stops on its mode
@@ -1686,7 +2020,7 @@ open(path, "w").write(text)
 PY
   if [[ $name == qml-smoke.sh && ${4:-} != non-nixos ]]; then : >"$tree/NIXOS"; fi
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
-  cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$repo/scripts/smoke/row-inputs.sh" "$tree/scripts/smoke/"
+  cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$repo/scripts/smoke/row-inputs.sh" "$repo/scripts/smoke/reap.sh" "$tree/scripts/smoke/"
   git -C "$tree" init -q
   git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
   if [[ $name == measure-shader.sh && $3 == 0 && ${4:-} != missing-hold ]]; then

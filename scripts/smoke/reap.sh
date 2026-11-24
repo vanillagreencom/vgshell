@@ -46,6 +46,10 @@ proc_refs() {
   done
 }
 
+# The owner a root's name records after its prefix, as the one mktemp that
+# makes it writes it: <pid>-<start>-<pid namespace>-<r|k>.XXXXXX.
+root_owner_form='^([0-9]+)-([0-9]+)-([0-9]+)-([rk])\.[A-Za-z0-9]{6}$'
+
 # reap_orphans LABEL PREFIX NAMESPACE OLD_FORM: before a run makes its root,
 # remove each PREFIX* root under the caller TMPDIR whose owner has ended,
 # so a run that was killed (SIGKILL runs no trap) leaves nothing behind for
@@ -91,7 +95,7 @@ reap_orphans() {
     if [[ $name =~ $old_form ]]; then old=true old_pid="${BASH_REMATCH[1]-}"; fi
     if [[ -L $root ]] || ! [[ -d $root || ( -f $root && -n $old_pid ) ]]; then
       reason=not-a-directory
-    elif [[ $name =~ ^([0-9]+)-([0-9]+)-([0-9]+)-([rk])\.[A-Za-z0-9]{6}$ ]]; then
+    elif [[ $name =~ $root_owner_form ]]; then
       pid="${BASH_REMATCH[1]}" start="${BASH_REMATCH[2]}" ns="${BASH_REMATCH[3]}" kind="${BASH_REMATCH[4]}"
       if [[ $kind == k ]]; then
         reason=keep

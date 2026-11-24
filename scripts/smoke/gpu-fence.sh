@@ -8,6 +8,7 @@
 # REVISIT(D099): a kernel that fixes the amdgpu open path needs no fence.
 #
 # Usage: scripts/smoke/gpu-fence.sh [DECLARATIONS] -- CMD [ARG...]
+#        scripts/smoke/gpu-fence.sh --throwaway-host [DECLARATIONS] -- CMD [ARG...]
 #        scripts/smoke/gpu-fence.sh --check
 #
 # The DRM nodes are read on every run from /sys/class/drm/<node>: `dev`
@@ -18,6 +19,8 @@
 # access, /tmp, /dev/shm and XDG_RUNTIME_DIR are private tmpfs mounts,
 # the caller runtime and the system buses are hidden, and the network is
 # unshared unless --net names the selftest exception. D112 owns this boundary.
+# On a host the run declares it created, CMD runs in the throwaway world
+# below instead (D142).
 # Its PATH is the caller's behind one directory that holds the native node
 # alone, so every command the caller puts on PATH keeps its place.
 #
@@ -52,12 +55,51 @@
 # by its own exit handling before the namespace ends. A stop that comes
 # before the proof has given them back to CMD ends the world at once. The
 # PID namespace and --die-with-parent end every descendant after CMD ends,
-# including children in other sessions and stopped children.
+# including children in other sessions and stopped children; in a
+# throwaway world the fence's sweep ends them (below).
 # Its /proc exposes no outside process or descriptor.
+#
+# --throwaway-host declares that the caller created this host and will
+# delete it. Only a sandbox runner's outermost call passes it; no entry
+# point in this repository does. CMD then runs on the host itself, without
+# bubblewrap. It keeps the owned root and its name, the reaper, --keep, the
+# --out and --input refusals, evidence retention, the ceiling and the
+# declared environment table, passed by env -i with XDG_RUNTIME_DIR at
+# <root>/xdg, whose `owned` links to <root>/runtime as the bwrap world's
+# /tmp/vr/owned binds it. It drops the read-only host, the private /tmp and
+# /dev/shm, the unshared network and the PID namespace, so it refuses the
+# declarations that need a mount namespace or a host view of its own:
+#   gpu-fence: refused: throwaway=<--secrets|--sign-in|--nix-store|--sys|--dev>
+# A nested call inherits the throwaway world only when VGSHELL_WORLD_ROOT
+# holds that world's `throwaway` marker and the owner the root's name
+# records is a live ancestor of the caller. Every throwaway start, declared
+# or inherited, first reads the real /sys and /run and stops at the first
+# fact of a person's computer: an amdgpu node plan finds, an entry under
+# /sys/class/input, a connector under /sys/class/drm, or a live session (an
+# entry under /run/user or /run/systemd/sessions, /run/dbus/system_bus_socket
+# or /run/tailscale). Before CMD starts the fence makes itself the child
+# subreaper of CMD's tree, so every orphan in it, one in another session
+# included, becomes the fence's child. CMD runs in a process group of its
+# own in the caller's session, where a read from a controlling terminal
+# would stop it, so the runner starts the fence with none. TERM, INT and
+# HUP each go once to every process group of that session that CMD's
+# processes are in. When CMD ends the fence KILLs every process left in its
+# tree, and only then retains evidence and removes the root; a process
+# still there after 5 s is named on a cleanup=sweep-failed line and keeps
+# the root, renamed to kind k so no reaper removes it. A SIGKILL of the
+# fence leaves that tree to the nearest living subreaper: the outer fence
+# of a nested world, which ends it only once its own CMD ends, or else the
+# host the runner deletes. So a stop that must end the tree KILLs CMD, the
+# child-pid the root's info holds with the host's PID namespace, and the
+# fence sweeps; the root is named for the fence, so a caller that holds
+# the fence's pid finds it before CMD writes anything. stderr carries
+#   gpu-fence: world=throwaway
+# in place of the proof lines, before the ceiling line.
 #
 # Every process the world starts runs under one data ceiling, RLIMIT_DATA
 # (setrlimit(2): the heap and private writable mappings), which prlimit sets
-# on bubblewrap before it starts, so the whole namespace inherits it.
+# on bubblewrap before it starts, so the whole namespace inherits it (in a
+# throwaway world, on CMD before it starts).
 # VGS_VALIDATE_ROW_MEMORY names the ceiling in bytes; unset or empty, it is
 # 17179869184 (16 GiB), on the readings docs/architecture/validation.md
 # § Host safety names. A world started under a lower limit keeps that
@@ -85,7 +127,9 @@
 #   gpu-fence: ceiling=data limit=<bytes>
 #
 # --check reads access permissions and mounts: the checkout must be read-only,
-# the owned root writable and every AMD path absent. It never writes.
+# the owned root writable and every AMD path absent. In a throwaway world it
+# passes when the world is inherited as above, the host passes the
+# throwaway refusals and the root is writable. It never writes.
 # An entry point continues only after
 #   gpu-fence.sh --check || exec gpu-fence.sh [DECLARATIONS] "$self" "${argv[@]}"
 #
@@ -104,9 +148,13 @@
 # the decision record holds what was measured of the programs run here.
 #
 # Exit: CMD's status. 2 on a refused argument. 77 when nothing was started,
-# never a run outside the namespace; the first status=not-measured line on
-# stderr names why (cleanup= lines may come before it):
+# never a run outside the namespace but in a declared throwaway world; the
+# first status=not-measured line on stderr names why (cleanup= lines may
+# come before it):
 #   gpu-fence: status=not-measured reason=bwrap-missing
+#   gpu-fence: status=not-measured reason=throwaway-refused fact=<amdgpu|input|connector|session> path=<path>
+#   gpu-fence: status=not-measured reason=subreaper-failed <errno=<n>|python3=unusable|path=<path>>
+#   gpu-fence: status=not-measured reason=invariant <name>=<value>
 #   gpu-fence: status=not-measured reason=owner-record-unreadable path=<path>
 #   gpu-fence: status=not-measured reason=root-failed
 #   gpu-fence: status=not-measured reason=namespace-failed exit=<status>
@@ -132,7 +180,10 @@ fault() {
     namespace-failed) note "  bubblewrap could not make the namespace; its output follows" ;;
     amd-node-visible) note "  a path to an amdgpu node resolves inside the namespace" ;;
     node-missing) note "  a node or link the host had does not resolve inside the namespace" ;;
-    sysfs-unreadable) note "  a DRM node's device number or driver could not be read" ;;
+    sysfs-unreadable) note "  a DRM node's device number or driver, or a directory the throwaway refusals list, could not be read" ;;
+    throwaway-refused) note "  the host shows an amdgpu node, an input device, a display output or a live session, so the throwaway world does not start on it (D142)" ;;
+    subreaper-failed) note "  the fence could not make itself the subreaper that ends CMD's descendants in a throwaway world" ;;
+    invariant) note "  a value the fence sets itself holds none of its cases: a defect of the fence" ;;
     entry-unclassified) note "  an entry under the device tree is no node sysfs lists and no link, so the namespace cannot place it" ;;
     links-unreadable) note "  the links under the device tree could not be resolved" ;;
     limits-unreadable) note "  the data limit this process runs under could not be read" ;;
@@ -156,8 +207,19 @@ fresh=false
 network=(--unshare-net)
 secrets=false
 sign_in_name="" sign_in_dir=""
+throwaway_declared=false
+tree_flag=""
+# --subreaper STATUS is the fence's own first argument when it has re-executed
+# itself as the subreaper of a throwaway world: prctl's errno, 0 on success,
+# or `unusable` when the program that sets it failed.
+subreaper=""
+fence_argv=("$@")
 while (($#)); do
   case "$1" in
+    --subreaper)
+      [[ $# -ge 2 && $2 =~ ^([0-9]+|unusable)$ ]] || { note "refused: argument=$1"; exit 2; }
+      subreaper="$2"; shift 2 ;;
+    --throwaway-host) throwaway_declared=true; shift ;;
     --out|--input|--nix-store|--checkout|--sign-in)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       case "$1" in
@@ -178,6 +240,7 @@ while (($#)); do
     --sys|--dev)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       if [[ $1 == --sys ]]; then sys="$2"; else dev="$2"; fi
+      tree_flag="$1"
       shift 2 ;;
     --check) mode=check; shift; break ;;
     --inside) mode=inside; shift; break ;;
@@ -321,27 +384,221 @@ fenced() {
   [[ $host_readonly == true && -n $own_root && $runtime_device == "$own_device" && $runtime_root == "$own_root/runtime" ]]
 }
 
+# invariant NAME=VALUE: a value this script sets itself holds none of its
+# cases.
+invariant() { fault invariant "$1"; exit 77; }
+
+# listing DIR: set listed to DIR's entries. A DIR that is no directory this
+# process can list stops the run: an empty answer from it would read as a
+# host that registers nothing.
+listing() {
+  local entry
+  listed=()
+  [[ -d $1 && -r $1 && -x $1 ]] || { fault sysfs-unreadable "path=$1"; exit 77; }
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    if [[ -e $entry || -L $entry ]]; then listed+=("$entry"); fi
+  done
+}
+
+# host_refused FACT PATH: the host shows FACT at PATH, so it is taken for a
+# person's computer and nothing starts.
+host_refused() { fault throwaway-refused "fact=$1 path=$2"; exit 77; }
+
+# throwaway_host: the throwaway world's refusals (D142), read from the real
+# /sys and /run; world_kind refuses --sys and --dev before this runs, so
+# plan read the real trees too. /sys/class/input and /sys/class/drm must be
+# listable: a host with no sysfs mounted would show neither fact. /run/user
+# and /run/systemd/sessions may be absent, as on a host with no login
+# manager. The order of the facts is the order of the reasons.
+throwaway_host() {
+  local entry dir
+  local -a drm=()
+  listing /sys/class/drm
+  drm=("${listed[@]}")
+  # plan hides an amdgpu node's paths, its /dev/dri name first; here
+  # nothing could hide them (D099).
+  ((${#hidden[@]} == 0)) || host_refused amdgpu "${hidden[0]}"
+  listing /sys/class/input
+  ((${#listed[@]} == 0)) || host_refused input "${listed[0]}"
+  # The kernel names a connector card<N>-<connector> beside its card<N>
+  # (drm_sysfs.c, drm_sysfs_connector_add); cachy lists card0-DP-4 and
+  # card0-Writeback-1 beside card0 (VGS-2747).
+  for entry in "${drm[@]}"; do
+    [[ ${entry##*/} != card*-* ]] || host_refused connector "$entry"
+  done
+  for dir in /run/user /run/systemd/sessions; do
+    [[ -e $dir || -L $dir ]] || continue
+    listing "$dir"
+    ((${#listed[@]} == 0)) || host_refused session "${listed[0]}"
+  done
+  for entry in /run/dbus/system_bus_socket /run/tailscale; do
+    [[ ! -e $entry && ! -L $entry ]] || host_refused session "$entry"
+  done
+}
+
+# throwaway_parent: true when VGSHELL_WORLD_ROOT is the root of a throwaway
+# world this process runs in. The root holds the marker that world wrote,
+# and the owner its name records (pid, start time and PID namespace,
+# reap.sh's form) is an ancestor of this process, found by its parent
+# links. A planted marker without such an owner is no world, and neither is
+# a sibling run's root.
+throwaway_parent() {
+  local root="${VGSHELL_WORLD_ROOT-}" name pid start ns at line current
+  local -a fields=()
+  [[ -n $root && -d $root && -f $root/throwaway ]] || return 1
+  name="${root##*/}"
+  [[ $name == vgshell-world.* && ${name#vgshell-world.} =~ $root_owner_form ]] || return 1
+  pid="${BASH_REMATCH[1]}" start="${BASH_REMATCH[2]}" ns="${BASH_REMATCH[3]}"
+  at=$$
+  while [[ $at != "$pid" ]]; do
+    read -r line 2>/dev/null <"/proc/$at/stat" || return 1
+    # Field 4 of stat (proc(5)) is the parent, counted from the last ") "
+    # as in proc_start (reap.sh); init's is 0, past every ancestor.
+    read -r -a fields <<<"${line##*) }"
+    at="${fields[1]-}"
+    [[ $at =~ ^[1-9][0-9]*$ ]] || return 1
+  done
+  current="$(proc_start "$pid")" && [[ $current == "$start" ]] &&
+    current="$(pid_namespace "$pid")" && [[ $current == "$ns" ]]
+}
+
+# world_kind: the one decision of the world this call runs in, made once
+# after argument parsing and plan. `bwrap` is the namespace D112 owns.
+# `throwaway` is the host itself, declared by the runner that made it or
+# inherited from a throwaway world this process runs in (D142); it is no
+# fallback, so a host that fails its refusals never gets the bwrap world
+# instead. Every branch on `world` names both and asserts on any other.
+world_kind() {
+  inherited_world=false
+  if throwaway_parent; then inherited_world=true; fi
+  if [[ $throwaway_declared == false && $inherited_world == false ]]; then
+    [[ -z $subreaper ]] || { note "refused: argument=--subreaper"; exit 2; }
+    world=bwrap
+    return 0
+  fi
+  [[ -z $tree_flag ]] || { note "refused: throwaway=$tree_flag"; exit 2; }
+  [[ $secrets == false ]] || { note "refused: throwaway=--secrets"; exit 2; }
+  [[ -z $sign_in_name ]] || { note "refused: throwaway=--sign-in"; exit 2; }
+  [[ -z $nix_store ]] || { note "refused: throwaway=--nix-store"; exit 2; }
+  throwaway_host
+  world=throwaway
+}
+
+# Run by python3 -I as the fence's own image with the fence's SigIgn mask:
+# set the child subreaper attribute, then exec bash on the fence again with
+# --subreaper and prctl's errno, so the pid the caller holds stays the
+# fence's. PR_SET_CHILD_SUBREAPER is 36 (linux/prctl.h); the attribute "is
+# preserved across execve(2)" and an orphan "will be reparented to the
+# nearest still living ancestor subreaper" (PR_SET_CHILD_SUBREAPER(2const)).
+# Python ignores SIGPIPE and SIGXFSZ at start (the signal module's
+# documentation), an exec keeps an ignored signal ignored, and bash cannot
+# trap or reset one ignored on entry (bash(1), trap): a recorded run of a
+# python3 -I execv into bash read SigIgn 0x1001000 against the caller's
+# 0x1000000. So both go back to their default unless the caller's mask,
+# whose bit N-1 is signal N, ignores them. Any other failure of this
+# program reaches the fence as `--subreaper unusable`.
+become_subreaper='import os, sys
+try:
+    import ctypes, signal
+    ignored = int(sys.argv[3], 16)
+    for number in (signal.SIGPIPE, signal.SIGXFSZ):
+        if not ignored >> (number - 1) & 1:
+            signal.signal(number, signal.SIG_DFL)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(ctypes.c_int(36), ctypes.c_ulong(1), ctypes.c_ulong(0), ctypes.c_ulong(0), ctypes.c_ulong(0)) == 0:
+        status = "0"
+    else:
+        status = str(ctypes.get_errno() or "unusable")
+except Exception:
+    status = "unusable"
+os.execv(sys.argv[1], [sys.argv[1], sys.argv[2], "--subreaper", status, *sys.argv[4:]])'
+
+# Run by python3 -I with the fence's pid: KILL every process whose parent is
+# the fence, wait for each to end, and list again until none is left, since
+# a KILLed process's children become the fence's. A pid read from /proc may
+# pass to another process once the fence reaps the one it named, which this
+# process cannot hold off, so each KILL goes through a pidfd opened before
+# the parent is read again: the pidfd names the one process (pidfd_open(2):
+# it becomes readable when that process ends). This process and the command
+# substitution that runs it are spared. A zombie has ended. The 5 s bound
+# is the one release's namespace wait uses; a process still there after it,
+# as one held in an uninterruptible sleep, is named and keeps the root.
+sweep='import os, select, signal, sys, time
+fence = sys.argv[1]
+spared = {os.getpid(), os.getppid()}
+deadline = time.monotonic() + 5
+def parent(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as stream:
+            fields = stream.read().rpartition(") ")[2].split()
+    except OSError:
+        return None
+    return None if fields[0] == "Z" else fields[1]
+while True:
+    left = [pid for pid in map(int, filter(str.isdigit, os.listdir("/proc"))) if pid not in spared and parent(pid) == fence]
+    if not left:
+        sys.exit(0)
+    if time.monotonic() > deadline:
+        print("left=" + ",".join(map(str, left)))
+        sys.exit(1)
+    poller, handles, pending = select.poll(), [], set()
+    for pid in left:
+        try:
+            handle = os.pidfd_open(pid)
+        except ProcessLookupError:
+            continue
+        handles.append(handle)
+        if parent(pid) != fence:
+            continue
+        try:
+            signal.pidfd_send_signal(handle, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        poller.register(handle, select.POLLIN)
+        pending.add(handle)
+    while pending and time.monotonic() < deadline:
+        for handle, _ in poller.poll(max(1, int((deadline - time.monotonic()) * 1000))):
+            poller.unregister(handle)
+            pending.discard(handle)
+    for handle in handles:
+        os.close(handle)'
+
 # Wait for the namespace's init to leave before reading evidence or removing
 # the one root this process acquired. PID 1 exits after the kernel reaps
-# every other process in its namespace.
+# every other process in its namespace. A throwaway world has no namespace:
+# the fence, the subreaper of CMD's tree, ends what is left of it first,
+# and keeps the root when it cannot.
 release() {
-  local init="" ns="" path error _
+  local init="" ns="" path error="" kept_dir swept=true _
   [[ -n ${fence_dir-} ]] || return 0
   if [[ -n ${proxy_pid:-} ]]; then
     exec {proxy_read}<&-
     wait "$proxy_pid" 2>/dev/null || true
   fi
-  if [[ -s $fence_dir/info ]]; then
-    init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || init=""
-    ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || ns=""
-  fi
-  if [[ -n $init && -n $ns ]]; then
-    # A real wait: the kernel ends the namespace within milliseconds.
-    for _ in $(seq 1 100); do
-      [[ "$(readlink "/proc/$init/ns/pid" 2>/dev/null)" == "pid:[$ns]" ]] || break
-      sleep 0.05
-    done
-  fi
+  case "$world" in
+    bwrap)
+      if [[ -s $fence_dir/info ]]; then
+        init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || init=""
+        ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || ns=""
+      fi
+      if [[ -n $init && -n $ns ]]; then
+        # A real wait: the kernel ends the namespace within milliseconds.
+        for _ in $(seq 1 100); do
+          [[ "$(readlink "/proc/$init/ns/pid" 2>/dev/null)" == "pid:[$ns]" ]] || break
+          sleep 0.05
+        done
+      fi ;;
+    throwaway)
+      # The wait has reaped CMD, so its pid may pass to another process in
+      # the host's PID namespace, the one info names; the no-progress stop
+      # (qml_smoke_end_world) must find no pid there to KILL.
+      rm -f -- "$fence_dir/info"
+      if ! error="$(python3 -I -c "$sweep" "$$" 2>&1)"; then
+        note "cleanup=sweep-failed path=$fence_dir sweep-error=$(why "$error")"
+        swept=false
+      fi ;;
+    *) invariant "world=$world" ;;
+  esac
   for path in "$fence_dir"/tmp/vgshell-smoke.*/evidence/destination; do
     [[ ! -f $path ]] || python3 "${self%/*}/evidence.py" "$fence_dir" "${path%/evidence/destination}" "${output_roots[@]}" || true
   done
@@ -350,6 +607,17 @@ release() {
   fi
   if [[ $keep == true ]]; then
     note "kept root=$fence_dir"
+  elif [[ $swept == false ]]; then
+    # A process the sweep could not end may still write under the root, so
+    # it takes kind k, a kept root, which no reaper removes (reap.sh). The
+    # mktemp suffix holds no '-', so the last "-r." is the kind's.
+    kept_dir="${fence_dir%-r.*}-k.${fence_dir##*-r.}"
+    error=""
+    if [[ ! -e $kept_dir && ! -L $kept_dir ]] && error="$(mv -T -- "$fence_dir" "$kept_dir" 2>&1)"; then
+      note "kept root=$kept_dir"
+    else
+      note "cleanup=rename-failed path=$fence_dir rename-error=$(why "${error:-target-exists}")"
+    fi
   elif ! error="$(rm -rf -- "${fence_dir:?}" 2>&1)"; then
     note "cleanup=rm-failed path=$fence_dir rm-error=$(why "$error")"
   fi
@@ -389,7 +657,9 @@ inside() {
 
 # ours PID: true while PID is the fence's child. The fence reaps the
 # monitor only in its own wait and starts no other child after it, so a
-# pid whose parent reads as the fence is still the monitor.
+# pid whose parent reads as the fence is still the monitor. In a throwaway
+# world the monitor is CMD, and the orphans of its tree become the fence's
+# children too; none of them can hold CMD's pid until the fence reaps CMD.
 ours() {
   local stat=()
   read -r -a stat 2>/dev/null <"/proc/$1/stat" && [[ ${stat[3]-} == "$$" ]]
@@ -449,7 +719,9 @@ stop_session() {
 # fence exits with STATUS. Until the proof has given the stops back
 # (stops-restored in the root), every process the monitor has started
 # ignores SIGNAL and no part of CMD needs its exit, so the fence ends the
-# world (end_world) and exits with STATUS.
+# world (end_world) and exits with STATUS. In a throwaway world the fence
+# started CMD itself, with no monitor, no init and no ignored stops, so
+# SIGNAL goes to CMD and its foreground command at once.
 stop_status=""
 declare -A forwarded=()
 forward() {
@@ -458,14 +730,19 @@ forward() {
   # The EXIT trap's release must not be cut short by another kind.
   [[ -n $monitor ]] || { trap '' TERM INT HUP; exit "$2"; }
   ours "$monitor" || return 0
-  if [[ -e $fence_dir/stops-restored ]]; then
-    read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
-    [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
-    [[ -z $child ]] || stop_session "$1" "$child"
-  else
-    stop_status=$2
-    end_world "$monitor"
-  fi
+  case "$world" in
+    bwrap)
+      if [[ -e $fence_dir/stops-restored ]]; then
+        read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+        [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
+        [[ -z $child ]] || stop_session "$1" "$child"
+      else
+        stop_status=$2
+        end_world "$monitor"
+      fi ;;
+    throwaway) stop_session "$1" "$monitor" ;;
+    *) invariant "world=$world" ;;
+  esac
 }
 
 # end_world MONITOR: KILL the namespace's init and then MONITOR, and wait
@@ -506,7 +783,14 @@ end_world() {
 case "$mode" in
   check)
     plan
-    if exposed || ! fenced; then exit 1; fi
+    world_kind
+    case "$world" in
+      bwrap)
+        if exposed || ! fenced; then exit 1; fi ;;
+      throwaway)
+        [[ $inherited_world == true && -w $VGSHELL_WORLD_ROOT ]] || exit 1 ;;
+      *) invariant "world=$world" ;;
+    esac
     exit 0 ;;
   inside)
     inside "$@" ;;
@@ -516,8 +800,33 @@ case "$mode" in
     # At most 18 digits, so bash's 64-bit arithmetic below cannot overflow.
     [[ $ceiling =~ ^[1-9][0-9]{0,17}$ ]] || { note "refused: row-memory=$(why "$ceiling")"; exit 2; }
     plan
-    if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
-    command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
+    world_kind
+    case "$world" in
+      bwrap)
+        if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
+        command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; } ;;
+      throwaway)
+        # An inherited throwaway world is reused as an inherited namespace
+        # is: its fence already owns every descendant.
+        [[ $fresh == true || $inherited_world == false ]] || exec "$@"
+        if [[ -z $subreaper ]]; then
+          # A python3 that is missing or cannot start, or has no ctypes,
+          # would end this process with its own status in CMD's place.
+          python3 -I -c 'import ctypes' >/dev/null 2>&1 || { fault subreaper-failed python3=unusable; exit 77; }
+          # SigIgn in /proc/<pid>/status (proc(5)): the signals this process
+          # ignores, as the caller left them.
+          ignored=""
+          { while read -r key value; do [[ $key != SigIgn: ]] || ignored="$value"; done <"/proc/$$/status"; } 2>/dev/null || true
+          [[ $ignored =~ ^[0-9a-f]+$ ]] || { fault subreaper-failed "path=/proc/$$/status"; exit 77; }
+          exec python3 -I -c "$become_subreaper" "$BASH" "$self" "$ignored" "${fence_argv[@]}"
+        fi
+        case "$subreaper" in
+          0) ;;
+          unusable) fault subreaper-failed python3=unusable; exit 77 ;;
+          *) fault subreaper-failed "errno=$subreaper"; exit 77 ;;
+        esac ;;
+      *) invariant "world=$world" ;;
+    esac
     world_start="$(proc_start "$$")" || { fault owner-record-unreadable "path=/proc/$$/stat"; exit 77; }
     world_ns="$(pid_namespace "$$")" || { fault owner-record-unreadable "path=/proc/$$/ns/pid"; exit 77; }
     inherited="$(data_limit)" || { fault limits-unreadable "path=/proc/$$/limits"; exit 77; }
@@ -564,11 +873,24 @@ case "$mode" in
     # These are the complete environment tables. Graphics/session variables
     # never enter either table. Prepared selftest values hold paths or account
     # references, never credentials; the runner computes them before entry.
+    # A throwaway world has no private tmpfs at the runtime path, so it
+    # gives the bwrap world's layout under the root: a 0700 directory whose
+    # `owned` is the root's runtime. The harness makes its runtime there
+    # (harness.sh: mktemp -d "$XDG_RUNTIME_DIR/owned/vs.XXXXXX") and records
+    # its backing as <root>/runtime/<name>, which evidence.py reads.
+    case "$world" in
+      bwrap) runtime_dir="$world_runtime" ;;
+      throwaway)
+        runtime_dir="$fence_dir/xdg"
+        mkdir -m 700 -- "$runtime_dir"
+        ln -s -- "$fence_dir/runtime" "$runtime_dir/owned" ;;
+      *) invariant "world=$world" ;;
+    esac
     environment=(--clearenv
       --setenv HOME "$fence_dir/home" --setenv XDG_CONFIG_HOME "$fence_dir/config"
       --setenv XDG_DATA_HOME "$fence_dir/data" --setenv XDG_STATE_HOME "$fence_dir/state"
       --setenv XDG_CACHE_HOME "$fence_dir/cache" --setenv TMPDIR "$fence_dir/tmp"
-      --setenv XDG_RUNTIME_DIR "$world_runtime" --setenv VGSHELL_WORLD_ROOT "$fence_dir"
+      --setenv XDG_RUNTIME_DIR "$runtime_dir" --setenv VGSHELL_WORLD_ROOT "$fence_dir"
       --setenv VGS_TEST_RUN 1)
     passed=(PATH USER LOGNAME LANG LC_ALL TERM QML_UNIT_RUNNER
       VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS
@@ -670,60 +992,98 @@ case "$mode" in
     fi
     # With no AMD node nothing under /dev changes, and nothing is proved.
     if ((${#hidden[@]} == 0)); then rebuild=(); kept=(); fi
-    # CMD gets a session of its own: in the caller's session, with the
-    # monitor's group in the background, a terminal would stop it on a read
-    # or a mode change.
-    # bubblewrap --help: ro-bind is nodev; dev-bind restores device access.
-    # The private runtime's child uses root-owned backing storage so the
-    # after-namespace copier can still read logs after tmpfs disappears.
-    # bubblewrap's monitor ignores the signals the fence forwards. A unit's
-    # stop (systemd.kill(5), KillMode=control-group) TERMs every process of
-    # the unit, the monitor too, and bubblewrap 0.13.1 sets no handler: the
-    # monitor would die, and --die-with-parent would kill the namespace
-    # before CMD's exit trap ends. The disposition is inherited through
-    # bubblewrap's exec, so the proof puts it back before CMD starts.
-    fence=(env --ignore-signal=TERM,INT,HUP bwrap "${root_mounts[@]}" --dev-bind /dev /dev
-      --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
-      "${parent_mounts[@]}" --bind "$fence_dir" "$fence_dir"
-      --bind "$fence_dir/runtime" "$world_runtime/owned"
-      "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
-      "${environment[@]}" --remount-ro /)
+    case "$world" in
+      bwrap)
+        # CMD gets a session of its own: in the caller's session, with the
+        # monitor's group in the background, a terminal would stop it on a read
+        # or a mode change.
+        # bubblewrap --help: ro-bind is nodev; dev-bind restores device access.
+        # The private runtime's child uses root-owned backing storage so the
+        # after-namespace copier can still read logs after tmpfs disappears.
+        # bubblewrap's monitor ignores the signals the fence forwards. A unit's
+        # stop (systemd.kill(5), KillMode=control-group) TERMs every process of
+        # the unit, the monitor too, and bubblewrap 0.13.1 sets no handler: the
+        # monitor would die, and --die-with-parent would kill the namespace
+        # before CMD's exit trap ends. The disposition is inherited through
+        # bubblewrap's exec, so the proof puts it back before CMD starts.
+        fence=(env --ignore-signal=TERM,INT,HUP bwrap "${root_mounts[@]}" --dev-bind /dev /dev
+          --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
+          "${parent_mounts[@]}" --bind "$fence_dir" "$fence_dir"
+          --bind "$fence_dir/runtime" "$world_runtime/owned"
+          "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
+          "${environment[@]}" --remount-ro /) ;;
+      throwaway)
+        # The same table, as env -i assignments: bubblewrap's words are
+        # --clearenv, then --setenv NAME VALUE for each name.
+        fence=(env -i)
+        for ((slot = 1; slot < ${#environment[@]}; slot += 3)); do
+          [[ ${environment[slot]} == --setenv ]] || invariant "environment=${environment[slot]}"
+          fence+=("${environment[slot + 1]}=${environment[slot + 2]}")
+        done ;;
+      *) invariant "world=$world" ;;
+    esac
     # prlimit sets the ceiling and the core limit on itself and execs the
     # rest, so bubblewrap and all it starts inherit both, and the monitor
     # keeps the pid the fence started.
     fence=(prlimit "--data=$ceiling:$ceiling" --core=0 -- "${fence[@]}")
     proof=(-- env --default-signal=TERM,INT,HUP "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
-    status=0
-    probe="$(
-      # Bash keeps coprocess descriptors in command substitutions alone.
-      [[ -z ${proxy_read:-} ]] || exec {proxy_read}<&-
-      "${fence[@]}" "${proof[@]}" true 2>&1
-    )" || status=$?
-    case "$status" in
-      0) ;;
-      # The proof inside the probe named its own reason.
-      77) printf '%s\n' "$probe" >&2; exit 77 ;;
-      *) fault namespace-failed "exit=$status"; printf '%s\n' "$probe" >&2; exit 77 ;;
+    case "$world" in
+      bwrap)
+        status=0
+        probe="$(
+          # Bash keeps coprocess descriptors in command substitutions alone.
+          [[ -z ${proxy_read:-} ]] || exec {proxy_read}<&-
+          "${fence[@]}" "${proof[@]}" true 2>&1
+        )" || status=$?
+        case "$status" in
+          0) ;;
+          # The proof inside the probe named its own reason.
+          77) printf '%s\n' "$probe" >&2; exit 77 ;;
+          *) fault namespace-failed "exit=$status"; printf '%s\n' "$probe" >&2; exit 77 ;;
+        esac
+        # The probe's proof wrote it; the run's own proof writes it again.
+        rm -f -- "$fence_dir/stops-restored"
+        if ((${#skipped_service_masks[@]})); then
+          skipped_service_names="$(IFS=,; printf '%s' "${skipped_service_masks[*]}")"
+          note "service-masks skipped=$skipped_service_names"
+        fi ;;
+      throwaway)
+        # No namespace to prove: the refusals stopped a host with an amdgpu
+        # node, so plan hid nothing. The marker is what a nested call
+        # inherits this world by (throwaway_parent).
+        note "world=throwaway"
+        : >"$fence_dir/throwaway" ;;
+      *) invariant "world=$world" ;;
     esac
-    # The probe's proof wrote it; the run's own proof writes it again.
-    rm -f -- "$fence_dir/stops-restored"
-    if ((${#skipped_service_masks[@]})); then
-      skipped_service_names="$(IFS=,; printf '%s' "${skipped_service_masks[*]}")"
-      note "service-masks skipped=$skipped_service_names"
-    fi
     # bubblewrap's monitor forwards no signal, so the fence stays its parent.
     # The monitor gets a process group of its own: `set -m` makes it in
     # parent and child before `&` returns. A signal to the caller's group
     # then reaches the fence alone, a terminal's stop included. Without job
     # control bash would start the monitor with INT and QUIT ignored, and
-    # CMD would inherit QUIT ignored.
+    # CMD would inherit QUIT ignored. In a throwaway world the monitor is
+    # CMD itself.
     trap 'forward TERM 143' TERM
     trap 'forward INT 130' INT
     trap 'forward HUP 129' HUP
     set -m
-    "${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" &
+    case "$world" in
+      bwrap) "${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" & ;;
+      # The proof's first word ends bubblewrap's options. With no path to
+      # check it reads back the ceiling and execs CMD, so every exec keeps
+      # the pid the fence started.
+      throwaway) "${fence[@]}" "${proof[@]:1}" "$@" & ;;
+      *) invariant "world=$world" ;;
+    esac
     set +m
     monitor=$!
+    case "$world" in
+      bwrap) ;;
+      # bubblewrap writes info through --info-fd. Here the fence writes its
+      # two fields: CMD, which the no-progress stop KILLs
+      # (qml_smoke_end_world), and the host's PID namespace it runs in.
+      throwaway) printf '{\n    "child-pid": %s,\n    "pid-namespace": %s\n}\n' "$monitor" "$world_ns" >"$fence_dir/info" ;;
+      *) invariant "world=$world" ;;
+    esac
     # A trapped signal ends a wait early, and so can one that comes while
     # the trap runs. The shell keeps the monitor's status for the last wait.
     while ours "$monitor"; do

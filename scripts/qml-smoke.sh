@@ -97,8 +97,10 @@
 # the run ends there, resuming nothing. A world still running one bound
 # after that stop, as one whose teardown hangs with TERM ignored, is ended:
 # the driver kills the namespace init the fence recorded in its root's
-# info, so the fence's own wait returns and its release keeps the world's
-# evidence and removes the root (scripts/smoke/gpu-fence.sh). A fence still
+# info, CMD itself in a throwaway world, so the fence's own wait returns
+# and its release keeps the world's evidence and removes the root
+# (scripts/smoke/gpu-fence.sh). The driver finds that root by the fence's
+# pid, so a world that stalls before the harness records it ends too. A fence still
 # running one bound after that is killed. Either way the attempt has no
 # completion record. The stop line names the root and the hung row's
 # evidence. The run's record holds
@@ -421,6 +423,8 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   done
   # smoke_outcomes reads the attempts' row records.
   source "$repo/scripts/smoke/row-inputs.sh"
+  # qml_smoke_end_world reads the attempt fence's owner through it.
+  source "$repo/scripts/smoke/reap.sh"
   # Only private bookkeeping is written here. The world owns validation and
   # creation of every requested output before the worker writes there.
   qml_smoke_driver="$(mktemp -d "${VGS_SMOKE_RESULTS_DIR:-${TMPDIR:-/tmp}}/qml-smoke-resume.XXXXXX")" || { echo 'qml-smoke: scratch=mktemp-failed' >&2; exit 1; }
@@ -497,17 +501,32 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   # --info-fd's child-pid and pid-namespace), only while that PID is still
   # in that namespace: a KILL from the parent namespace ends the namespace
   # (pid_namespaces(7)), the fence's wait on its monitor returns, and its
-  # release keeps the world's evidence. The second, for a fence that still
-  # has not ended, kills the fence.
+  # release keeps the world's evidence. In a throwaway world the fence
+  # writes CMD's pid and the host's PID namespace there instead, and removes
+  # the info once it has reaped CMD; the KILL ends CMD and the fence's sweep
+  # ends what CMD left, where a KILL of that fence would leave CMD's tree
+  # holding the run log (gpu-fence.sh). The fence names its root for itself
+  # when it makes it, <TMPDIR>/vgshell-world.<pid>-<start>-<pid namespace>-
+  # <r|k>.XXXXXX (reap.sh), so the root is read from the fence's own pid,
+  # which this driver holds, and not from any record the harness writes:
+  # one that stalls before its `world` record is ended too. The second, for
+  # a fence that still has not ended, kills the fence.
   qml_smoke_end_world() {
-    local root="" init="" ns="" sandbox="" row
+    local root="" init="" ns="" sandbox="" row start space candidate
     [[ $qml_smoke_phase == attempt && -n $qml_smoke_fence_pid ]] && qml_smoke_owns_child "$qml_smoke_fence_pid" || return 0
     if ((qml_smoke_end_step++ > 0)); then
       kill -KILL -- "$qml_smoke_fence_pid" 2>/dev/null || true
       printf 'qml-smoke: no-progress stop=unanswered fence=killed after-secs=%s\n' "$((2 * qml_smoke_idle_secs))" >&2
       return 0
     fi
-    [[ ! -f $qml_smoke_attempt/world ]] || IFS= read -r -d '' root <"$qml_smoke_attempt/world" || true
+    # The fence shares this driver's TMPDIR. Its start time and namespace
+    # tell its root from one an earlier holder of the pid left.
+    if start="$(proc_start "$qml_smoke_fence_pid")" && space="$(pid_namespace "$qml_smoke_fence_pid")"; then
+      for candidate in "${TMPDIR:-/tmp}/vgshell-world.$qml_smoke_fence_pid-$start-$space-"[rk].??????; do
+        [[ -d $candidate && ! -L $candidate ]] || continue
+        root="$(realpath -e -- "$candidate")" || root=""
+      done
+    fi
     if [[ -n $root ]]; then
       init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' -- "$root/info" 2>/dev/null)" || init=""
       ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' -- "$root/info" 2>/dev/null)" || ns=""
