@@ -141,9 +141,9 @@ world(async () => {
                 XDG_STATE_HOME: state, SSH_AUTH_SOCK: environment.SSH_AUTH_SOCK }, "the package gets its variables and the SSH agent, no key");
             const checked = path.join(process.env.JARVIS_TEST_ROOT, "record.json");
             fs.writeFileSync(checked, JSON.stringify(forwards().at(-1).record));
-            const judged = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import forward; forward.checked_record(sys.argv[2])",
+            const judged = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import forward; [forward.checked_record(sys.argv[2], confirm) for confirm in (False, True)]",
                 packageLib, checked], { encoding: "utf8", env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
-            assert.equal(judged.status, 0, "the current package still accepts individual consent: " + judged.stderr);
+            assert.equal(judged.status, 0, "the current package accepts individual consent with the confirm setting off and on: " + judged.stderr);
             // The main reads a first voice-request: line as the caller and a
             // forwarded-request: line as the forward's own: text that writes
             // either, anywhere and in any case, never reaches the package.
