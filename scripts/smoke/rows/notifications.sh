@@ -6040,8 +6040,34 @@ PY
   volume_ref="$(app_rms vgs-smoke-speakers)" || volume_ref=0
   expect "the requested Pulse level is measurable" True python3 -c 'import sys; print(100<int(sys.argv[1])<1500)' "$volume_ref"
   kill -- "-$volume_reference_pid" 2>/dev/null || true
-  "${shell_env[@]}" wpctl settings node.stream.restore-props true >/dev/null || fail "the private stream state could not be enabled"
-  "${shell_env[@]}" wpctl settings node.stream.restore-target true >/dev/null || fail "the private target state could not be enabled"
+  # wpctl settings exits 0 when it refuses a write or loses its connection
+  # before sending it (WirePlumber 0.5.19 src/tools/wpctl.c, settings_run
+  # and the core's disconnected handler), so a write counts only once the
+  # private WirePlumber's sm-settings publishes it. A lost restore-props
+  # write leaves restore-target alone running the state script: it then
+  # saves only an empty pw-record target record and no stream volume.
+  stream_setting() { # KEY VALUE
+    local now reply status=0
+    now="$(notification_audio_setting "$1")" || return 1
+    if [[ $now != "$2" ]]; then
+      reply="$("${shell_env[@]}" wpctl settings "$1" "$2" 2>&1)" || status=$?
+      printf 'notifications: stream-setting-write key=%s want=%s read=%s exit=%s reply=%s\n' "$1" "$2" "$now" "$status" "${reply//$'\n'/ }" >&2
+      now="$(notification_audio_setting "$1")" || return 1
+    fi
+    printf '%s\n' "$now"
+  }
+  stream_setting_unapplied() { (
+    notification_audio_setting() { echo false; }
+    shell_env=(true)
+    failures=0; behaviour_failures=0
+    expect_poll "a stream setting WirePlumber never publishes" true stream_setting node.stream.restore-props true >"$note_audio_evidence/setting-control.log" 2>&1
+    echo "$failures"
+  ); }
+  expect "control: a stream-property write WirePlumber never publishes fails" 1 stream_setting_unapplied
+  printf '[stream-properties]\nInput/Audio:application.name:pw-record={}\n' >"$note_audio_evidence/props-off-control"
+  expect "control: state saved with stream properties off fails the ordinary-state assertion" pending-or-persisted volume_state "$note_audio_evidence/props-off-control"
+  expect_poll "the private WirePlumber publishes stream-property saving" true stream_setting node.stream.restore-props true
+  expect_poll "the private WirePlumber publishes stream-target saving" true stream_setting node.stream.restore-target true
   expect "Do Not Disturb turns on for requested-volume chimes" on notes silence on
   notify "Smoke Volume" 0 "Requested volume chimes" "" '[]' '{"desktop-entry": <"smoke-volume">}' 0 >/dev/null || fail "the requested-volume notification could not be sent"
   expect_poll "the hold names the actual Pulse application" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke volume"
@@ -6095,8 +6121,8 @@ PY
   kill -CONT "$shell_qs_pid" || fail "the shell did not resume after holder loss"
   note_audio_shell_stopped=no
   expect_poll "the replacement writer restores the broad Knock hold" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
-  "${shell_env[@]}" wpctl settings node.stream.restore-props false >/dev/null || fail "the private stream state could not be restored"
-  "${shell_env[@]}" wpctl settings node.stream.restore-target false >/dev/null || fail "the private target state could not be restored"
+  expect_poll "the private WirePlumber publishes stream-property saving off" false stream_setting node.stream.restore-props false
+  expect_poll "the private WirePlumber publishes stream-target saving off" false stream_setting node.stream.restore-target false
   knock_take_file="$sandbox/knock-take.wav"
   knock_record start
   expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50 20
