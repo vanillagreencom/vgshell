@@ -13,7 +13,7 @@ compatibility: "Requires these commands on PATH: agent-browser, python3, bash, k
 
 # Jarvis
 
-Jarvis is the owner's main long-running session. Jarvis main is the one computer that runs Jarvis. Jarvis Voice is the VGS voice session on any computer. A Jarvis satellite is another of the owner's computers with a clone of the Jarvis home. It runs Jarvis Voice, not Jarvis, and forwards long work to Jarvis main.
+Jarvis is the owner's main long-running session. Jarvis main is the one computer that runs Jarvis. Jarvis Voice is the VGS voice session on any computer. A Jarvis satellite is another of the owner's computers with a clone of the Jarvis home. A Jarvis satellite runs Jarvis Voice and the local console session, runs the standing watch loop when installed as a systemd user service, and forwards work that needs accounts, the fleet, the home repository or anything outside that computer to Jarvis main.
 
 ## Setup
 
