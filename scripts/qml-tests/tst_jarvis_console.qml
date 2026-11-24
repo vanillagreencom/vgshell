@@ -498,6 +498,25 @@ Item {
                 return Qt.rect(at.x, at.y, item.width, item.height);
             };
             const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+            // tryVerify builds its message before it waits; this reads the
+            // state when the wait gives up.
+            const waitFor = (holds, timeout) => {
+                for (let left = timeout; left > 0 && !holds(); left -= 50) wait(50);
+                return holds();
+            };
+            // The notice and the choices show in this turn; the console
+            // places them, and so the box, in later polish passes and as
+            // the notice's padding settles, and until then the box can
+            // read below the window. Hover only once the box rests inside
+            // the window.
+            let rest = null;
+            const rests = () => {
+                const now = box(entry);
+                const still = rest !== null && now.x === rest.x && now.y === rest.y;
+                rest = now;
+                return still && now.y >= 0 && now.y + now.height <= root.height;
+            };
+            verify(waitFor(rests, 2000), "the message box rests inside the window: " + JSON.stringify({ box: box(entry), window: [root.width, root.height] }));
             mouseMove(entry, entry.width / 2, entry.height / 2);
             const tip = collect(entry, n => n.objectName === "disabledReasonTip", [])[0];
             verify(tip !== undefined, "the locked box holds its reason");
@@ -531,12 +550,6 @@ Item {
                     pointer: [pointer.x, pointer.y], entryUnder: hits.indexOf(entry) !== -1,
                     top: hits.slice(-3).map(item => String(item))
                 });
-            };
-            // tryVerify builds its message before it waits; this reads the
-            // state when the wait gives up.
-            const waitFor = (holds, timeout) => {
-                for (let left = timeout; left > 0 && !holds(); left -= 50) wait(50);
-                return holds();
             };
             try {
                 verify(waitFor(() => tip.resting, 1000), "the pointer rests on the box: " + state());
