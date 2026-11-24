@@ -16,8 +16,26 @@ A FILE that is not a regular file git lists under that spelling, or a
 reading that cannot finish, prints one `unreadable path=<path> cause=<cause>`
 or `failed operation=<operation> ...` fact in place of the reading. -B: the
 reading writes no bytecode into the tree it reads.
+
+Each file's facts are kept outside the tree, in vgs-row-loads.json in the
+worktree's git directory, and reused while the reader, the file and every
+inventory answer its reading asked are unchanged: § The stored reading
+below. A store it cannot read or write is no fault and prints nothing.
 """
-import ast, bisect, concurrent.futures, ctypes, fnmatch, functools, json, multiprocessing, os, re, shlex, signal, subprocess, sys, tokenize, io
+import ast, bisect, concurrent.futures, ctypes, fnmatch, functools, json, multiprocessing, os, re, shlex, signal, subprocess, sys, tokenize, io, hashlib, tempfile
+
+# The reader's own bytes, part of every stored fact's key. Python compiled
+# this module from an earlier read of the file, so an edit between that read
+# and this one would key the old code's facts to the new bytes: the store is
+# used only when the bytes compile to the code running here. CPython compares
+# code objects by their compiled content, nested functions' code included
+# (code_richcompare, Objects/codeobject.c); recorded run, CPython 3.14.10: a
+# normal run compares equal, and code compiled from bytes whose module or
+# method body differs does not. An edit after this read is harmless: the
+# facts are keyed to the bytes that compiled them.
+with open(__file__, "rb") as _own:
+    READER_BYTES = _own.read()
+READER_RUNS = compile(READER_BYTES, __file__, "exec") == sys._getframe(0).f_code
 
 
 class Unreadable(Exception):
@@ -46,14 +64,22 @@ def inventory():
     return paths, present, folders
 
 
-def read_text(path):
+def read_bytes(path):
+    """PATH's bytes: the one read of a command file, which its key, its
+    language and its text all take, so a save while the reading runs
+    cannot key one content's facts to another's bytes."""
     try:
         with open(path, "rb") as source:
-            return source.read().decode("utf-8-sig")
-    except UnicodeError as exc:
-        raise Unreadable(path, str(exc)) from exc
+            return source.read()
     except OSError as exc:
         raise Unreadable(path, exc.strerror or str(exc)) from exc
+
+
+def decoded(path, data):
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeError as exc:
+        raise Unreadable(path, str(exc)) from exc
 
 # ---------------------------------------------------------------------------
 # The supported loading boundary: the direct loads of a command file.
@@ -307,6 +333,23 @@ class Bindings:
 
     def values(self):
         return [value for _, value in self.items()]
+
+
+class Asked:
+    """An inventory set a reading may only ask membership of, recording each
+    value it asks and the answer: what a stored reading's reuse checks. Any
+    other use, such as iterating or sizing it, raises and fails the reading,
+    so no reader path can depend on the inventory past this record."""
+
+    def __init__(self, members):
+        self.members, self.answers = members, {}
+
+    def __contains__(self, value):
+        if value is not None and not isinstance(value, str):
+            # The store holds each question as JSON, a string or null.
+            raise RuntimeError(f"inventory question of a {type(value).__name__}")
+        answer = self.answers[value] = value in self.members
+        return answer
 
 
 class Reading:
@@ -1599,7 +1642,12 @@ def comment_lines(kind, text):
     return {number for number, line in enumerate(lines, 1) if line.lstrip().startswith("#")}
 
 
-def language(path):
+SHEBANG = "shebang"
+
+
+def named_language(path):
+    """PATH's language by its name, None for data, or SHEBANG for an
+    extensionless name, which its first line decides."""
     name = os.path.basename(path)
     if name.endswith((".js", ".mjs", ".cjs")):
         return "js"
@@ -1611,11 +1659,14 @@ def language(path):
         # A command word with another extension, a .qml file among them, is
         # data the command reads; the command's own file is the loader.
         return None
-    try:
-        with open(path, "rb") as source:
-            first = source.readline(200)
-    except OSError as exc:
-        raise Unreadable(path, exc.strerror or str(exc)) from exc
+    return SHEBANG
+
+
+def language(path, data):
+    kind = named_language(path)
+    if kind != SHEBANG:
+        return kind
+    first = data[:200].partition(b"\n")[0]
     if not first.startswith(b"#!"):
         return None
     words = first[2:].decode("utf-8", "replace").split()
@@ -1643,16 +1694,16 @@ class ReadFailed(Exception):
         self.path, self.kind, self.cause = path, kind, cause
 
 
-# The inventory, read before the workers fork, which inherit it: a task
-# carries only its paths.
-PRESENT, FOLDERS = set(), set()
+# The inventory, read before the workers fork, which inherit it, and the
+# bytes of each file a worker reads: a task carries only its paths.
+PRESENT, FOLDERS, DATA = set(), set(), {}
 
 
-def read_path(reading, path):
-    kind = language(path)
+def read_path(reading, path, data):
+    kind = language(path, data)
     if kind is None:
         return
-    text = read_text(path)
+    text = decoded(path, data)
     reading.read_directives(path, text, comment_lines(kind, text))
     if kind == "js":
         JsFile(reading, path, text).scan()
@@ -1668,18 +1719,125 @@ def read_path(reading, path):
 
 
 def read_files(paths):
-    """One worker's reading of PATHS. Its failure returns as plain data,
-    naming the file it was reading: an exception whose arguments do not
-    rebuild it cannot cross the pool."""
-    reading, path = Reading(PRESENT, FOLDERS), None
+    """One worker's reading of PATHS, each file in a reading of its own, so
+    its facts and the inventory answers its reading asked are its own: for
+    each file, (path, (loads, patterns, unread, malformed), (present
+    answers, folder answers)). Its failure returns as plain data, naming the
+    file it was reading: an exception whose arguments do not rebuild it
+    cannot cross the pool."""
+    files, path = [], None
     try:
         for path in paths:
-            read_path(reading, path)
+            reading = Reading(Asked(PRESENT), Asked(FOLDERS))
+            read_path(reading, path, DATA[path])
+            facts = (reading.loads, reading.patterns, reading.unread, reading.malformed)
+            other = set().union(*facts) - {path}
+            if other:
+                # A stored entry holds the facts of its own file alone.
+                raise RuntimeError(f"fact of another loader: {sorted(other)[0]}")
+            files.append((path, tuple(found.get(path, set()) for found in facts),
+                          (reading.present.answers, reading.folders.answers)))
     except Unreadable as exc:
         return ("unreadable", exc.path, exc.strerror)
     except Exception as exc:
         return ("failed", path, type(exc).__name__, str(exc))
-    return ("facts", reading.loads, reading.patterns, reading.unread, reading.malformed)
+    return ("facts", files)
+
+
+# --- The stored reading ----------------------------------------------------
+#
+# read_path's facts of a file follow from the reader (this file's bytes, the
+# Python that runs it, node's built-in list), the file's path and bytes, and
+# the answers to the inventory questions Asked records; nothing else feeds
+# it. So an entry's key is a digest of the reader, the path and the bytes,
+# and a hit stands only while each question it recorded answers the same:
+# a file added or removed elsewhere voids only the entries whose reading
+# asked about it.
+# The store holds only the entries of the last reading that read a file,
+# which bounds it; a reading whose every file hit leaves it as it is, so a
+# reading of a few files of the checkout keeps the entries of the last
+# reading of all of them.
+#
+# The store is a memo, never evidence. A store that is missing, unreadable
+# or of another shape, or an entry missing a field, is a miss, and the file
+# is read again. A failed write is ignored and prints nothing, since stdout
+# and stderr carry the facts scripts/validate parses. D107 does not govern
+# the format: every key carries the reader's digest, so a reader that
+# writes another format reads no entry an earlier one wrote. Readings side
+# by side: the last write wins, and a lost entry costs one reading of its
+# file. The write goes to a temporary file under a fixed prefix beside the
+# store, replaced onto it, so a reader never sees half a store; a reading
+# killed mid-write, as at validate's deadline, leaves that file behind.
+
+STORE = "vgs-row-loads.json"
+ANSWERS = (("present", "not_present"), ("folders", "not_folders"))
+
+
+def store_path():
+    """The store in the worktree's own git directory, beside validate's
+    records, so worktrees on other readers do not replace each other's;
+    None when git cannot name that directory."""
+    found = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], capture_output=True)
+    if found.returncode:
+        return None
+    return os.path.join(os.fsdecode(found.stdout.rstrip(b"\n")), STORE)
+
+
+def load_store(path):
+    try:
+        with open(path, "rb") as source:
+            store = json.load(source)
+    except (OSError, ValueError):
+        return {}
+    return store if isinstance(store, dict) else {}
+
+
+def entry_of(facts, answers):
+    """The stored form of one file's FACTS and inventory ANSWERS, each
+    question kept as asked, None as null."""
+    loads, patterns, unread, malformed = facts
+    entry = {"loads": sorted(loads), "patterns": sorted(patterns), "unread": [list(site) for site in sorted(unread)],
+             "malformed": sorted(malformed)}
+    for asked, (yes, no) in zip(answers, ANSWERS):
+        entry[yes] = [value for value, answer in asked.items() if answer]
+        entry[no] = [value for value, answer in asked.items() if not answer]
+    return entry
+
+
+def stored(entry):
+    """The facts and answers ENTRY holds, or None for an entry of any shape
+    entry_of does not write, a missing field among them: a missing unread
+    field read as none would skip a row the file's reading runs."""
+    try:
+        facts = (set(entry["loads"]), set(entry["patterns"]), {tuple(site) for site in entry["unread"]},
+                 set(entry["malformed"]))
+        answers = tuple({**dict.fromkeys(entry[yes], True), **dict.fromkeys(entry[no], False)} for yes, no in ANSWERS)
+        return (facts, answers) if entry_of(facts, answers) == entry else None
+    except (KeyError, TypeError):
+        return None
+
+
+def held(answers):
+    present, folders = answers
+    return (all((value in PRESENT) == answer for value, answer in present.items())
+            and all((value in FOLDERS) == answer for value, answer in folders.items()))
+
+
+def write_store(path, entries):
+    try:
+        handle = tempfile.NamedTemporaryFile("w", encoding="ascii", dir=os.path.dirname(path), prefix=STORE + ".",
+                                             suffix=".tmp", delete=False)
+    except OSError:
+        return
+    try:
+        with handle:
+            json.dump(entries, handle, separators=(",", ":"))
+        os.replace(handle.name, path)
+    except OSError:
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
 
 
 def worker_start(reader):
@@ -1690,45 +1848,75 @@ def worker_start(reader):
         os._exit(1)
 
 
-# The pool's bound: the whole reading took 3.1 s of CPU on one core
-# (`taskset -c 0`, 324 command files, VGS-2749), so four workers bring it
-# under a second, and a caller that runs many readings side by side, such
-# as scripts/test-validate.sh, starts no more than four workers for each.
+# The pool's bound: a reading with no stored facts took 3.1 s of CPU on
+# one core (`taskset -c 0`, 324 command files, VGS-2749), so four workers
+# bring it under a second, and a caller that runs many readings side by
+# side, such as scripts/test-validate.sh, starts no more than four workers
+# for each.
 # The rows that start this pool declare `%weight=4` in scripts/validate.
 WORKERS = 4
 
 
 def reading_of(paths):
-    """The reading of PATHS, split across at most WORKERS of the cores this
+    """The reading of PATHS: each file's stored facts where they hold, and
+    a reading of the rest split across at most WORKERS of the cores this
     process may use (sched_getaffinity, os(3)), in the reader alone for one
-    core or one file. fork: a worker inherits the inventory, and a
-    forkserver or spawn child would run this script's top level again."""
-    NODE_BUILTINS.update(node_builtins())
-    workers = min(len(os.sched_getaffinity(0)), WORKERS, len(paths))
-    if workers <= 1:
-        answers = [read_files(paths)]
+    core or one file, and none when every file's facts hold. fork: a worker
+    inherits the inventory and the files' bytes, and a forkserver or spawn
+    child would run this script's top level again."""
+    builtins = node_builtins()
+    NODE_BUILTINS.update(builtins)
+    reader = hashlib.sha256(hashlib.sha256(READER_BYTES).digest() + sys.version.encode() + b"\0"
+                            + json.dumps(sorted(builtins)).encode()).digest()
+    store_file = store_path() if READER_RUNS else None
+    store = load_store(store_file) if store_file else {}
+    entries, found, keys = {}, {}, {}
+    for path in paths:
+        if named_language(path) is None:
+            continue
+        data = read_bytes(path)
+        # The reader digest has a fixed length and no path holds a NUL, so
+        # no two (path, bytes) pairs share a key's input.
+        key = keys[path] = hashlib.sha256(reader + os.fsencode(path) + b"\0" + data).hexdigest()
+        hit = stored(store.get(key))
+        if hit is not None and held(hit[1]):
+            entries[key], found[path] = store[key], hit[0]
+        else:
+            DATA[path] = data
+    misses = [path for path in keys if path not in found]
+    workers = min(len(os.sched_getaffinity(0)), WORKERS, len(misses))
+    if not misses:
+        answers = []
+    elif workers <= 1:
+        answers = [read_files(misses)]
     else:
-        count = min(len(paths), workers * 4)
+        count = min(len(misses), workers * 4)
         # A worker that dies breaks the pool, which then fails every pending
         # result (concurrent.futures, BrokenProcessPool), where a
         # multiprocessing.Pool would wait on it forever.
         pool = concurrent.futures.ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork"),
                                                       initializer=worker_start, initargs=(os.getpid(),))
         try:
-            answers = list(pool.map(read_files, [paths[i::count] for i in range(count)]))
+            answers = list(pool.map(read_files, [misses[i::count] for i in range(count)]))
         except concurrent.futures.process.BrokenProcessPool as exc:
             raise RuntimeError(f"load-reading worker ended: {exc}") from exc
         finally:
             pool.shutdown(cancel_futures=True)
-    reading = Reading(PRESENT, FOLDERS)
     for kind, *answer in answers:
         if kind == "unreadable":
             raise Unreadable(*answer)
         if kind == "failed":
             raise ReadFailed(*answer)
-        for mine, theirs in zip((reading.loads, reading.patterns, reading.unread, reading.malformed), answer):
-            for loader, values in theirs.items():
-                mine.setdefault(loader, set()).update(values)
+        for path, facts, asked in answer[0]:
+            found[path] = facts
+            entries[keys[path]] = entry_of(facts, asked)
+    if store_file and misses:
+        write_store(store_file, entries)
+    reading = Reading(PRESENT, FOLDERS)
+    for path, facts in found.items():
+        for mine, theirs in zip((reading.loads, reading.patterns, reading.unread, reading.malformed), facts):
+            if theirs:
+                mine[path] = set(theirs)
     return reading
 
 
