@@ -76,11 +76,11 @@ Item {
         function lineInk() {
             return "            Rectangle {\n"
                 + "                width: parent.width\n"
-                + "                height: actionMask.band.top\n"
+                + "                height: actionMask.bandTop\n"
                 + "                color: card.look.tray.fadeInk\n"
                 + "            }\n"
                 + "            Rectangle {\n"
-                + "                y: actionMask.band.bottom\n"
+                + "                y: actionMask.bandBottom\n"
                 + "                width: parent.width\n"
                 + "                height: parent.height - y\n"
                 + "                color: card.look.tray.fadeInk\n"
@@ -231,7 +231,7 @@ Item {
                         : row.control === "missing-mask"
                             ? alteredCard("            layer.enabled: card.visible && tray.visible", "            layer.enabled: false && card.visible && tray.visible")
                             : row.control === "no-ink-above"
-                                ? alteredCard("                height: actionMask.band.top\n", "                height: 0\n") : build(shippedCard);
+                                ? alteredCard("                height: actionMask.bandTop\n", "                height: 0\n") : build(shippedCard);
             try {
                 // The recording worker's actual Open/Show actions and the
                 // shell Dismiss leave original ink before the fade band.
