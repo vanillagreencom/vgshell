@@ -24,7 +24,9 @@
 # window first drawn after that to read as the text they draw, from the
 # copies the shell started with, and a restart to load a copy of the new
 # bytes. A last start clears the debt it raises.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf shell/Commons/Theme.qml shell/Ui/foundation/Label.qml scripts/smoke/Probe.qml bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py scripts/smoke/fonts.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/vgshell-scan bin/vgshell bin/lib/dbus_wire.py -- a load past a process the row runs, or a copy
+# loads: shell/Commons/Theme.qml shell/Ui/foundation/Label.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml -- a startup file the row observes
 set -euo pipefail
 source "$repo/scripts/smoke/fonts.sh"
 expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')

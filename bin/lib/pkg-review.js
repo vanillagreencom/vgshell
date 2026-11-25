@@ -206,6 +206,7 @@ function effectiveConfig(config, binary) {
 function publishedPackages() {
     const dir = path.join(repo, "packaging/arch"), names = [], fields = [];
     try {
+        // loads: packaging/arch/*/.SRCINFO -- each recipe folder's .SRCINFO
         for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
             if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8"))) {
                 fields.push({ ...field, recipe: entry.name });

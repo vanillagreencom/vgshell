@@ -3921,6 +3921,30 @@ hover_widget() {
   if ! hover "$((x - 6))" "$y" || ! hover "$x" "$y"; then fail "$1: the hover failed"; return 1; fi
 }
 tooltip_opened() { ipc smoke readDescendant "$(bar_key)" "$1" Tooltip opened; }
+# The agent warden's runtime dir and vsys's own status fixtures.
+warden_dir="$rt_dir/agent-warden"
+warden_fixtures="$repo/scripts/smoke/fixtures/agent-warden"
+# warden_put NAME AGE [KIND]: status-NAME.json with its time and every
+# event's set AGE seconds before now, and every event's kind set to KIND
+# when given, replaced into place by rename; prints the time.
+warden_put() {
+  python3 - "$warden_fixtures/status-$1.json" "$warden_dir" "$2" "${3:-}" <<'PY'
+import json, os, sys, time
+source, target, age, kind = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+doc = json.load(open(source))
+moment = int(time.time()) - age
+doc["time"] = moment
+for event in doc["events"]:
+    event["time"] = moment
+    if kind:
+        event["kind"] = kind
+tmp = os.path.join(target, "status.tmp.%d" % os.getpid())
+with open(tmp, "w") as out:
+    json.dump(doc, out)
+os.replace(tmp, os.path.join(target, "status.json"))
+print(moment)
+PY
+}
 warden_detail_state() { ipc vgs.agent-warden invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin).get("detail"); print(d["state"] if d else "unpublished")'; }
 # warden_status NAME STATE: the warden's status-NAME.json written fresh,
 # read back as STATE, so a surface never shows the status gone stale.

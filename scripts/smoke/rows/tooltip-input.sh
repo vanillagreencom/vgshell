@@ -7,7 +7,7 @@
 # VGS-2522's nested WAYLAND_DEBUG recording shows the unfixed first buffer
 # before the empty input region and a panel Leave; the fixed recording
 # shows the empty region before even the first bufferless commit.
-# inputs: shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Hosts/BarHost.qml scripts/smoke/fixtures/plugins/acme.tiplink/*
+# loads: shell/Hosts/BarHost.qml -- a startup file the row observes
 set -euo pipefail
 
 tipinput_saved="$sandbox/tooltip-input-saved.json"

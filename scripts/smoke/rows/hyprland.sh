@@ -22,10 +22,12 @@
 # Hyprland v0.56.2 reads no layer rule back, so the rows hold the layer rules
 # through the written file and an empty configerrors, where Hyprland lists a
 # field it refuses.
-# inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell-hypr-judge bin/vgshell shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/*/manifest.json themes/vgs/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Theme.qml shell/Commons/ThemeSource.qml shell/Core/Config.qml scripts/smoke/fixtures/appearance-edit.py bin/vgshell-theme-judge scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/themes.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Core/HyprlandLayer.qml -- a startup file the row observes
+# loads: shell/plugins/*/manifest.json -- a catalog read of every plugin's manifest
+# loads: themes/vgs/* themes/catalog/flexoki-light/* -- theme package data the row applies by name
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 user_config="$home/.config/vgshell/shell.json"
 wire_line="pcall(dofile, \"$hypr_layer\")"
 vgshell_run() { "${shell_env[@]}" "$repo/bin/vgshell" "$@"; }

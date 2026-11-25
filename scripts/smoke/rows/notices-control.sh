@@ -26,7 +26,7 @@
 # beside a retained classified result. The same Retry press and drawing
 # reader as notices.sh must then find the refusal missing, while its typed
 # cause, trade and synchronous launcher-missing remain.
-# inputs: shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/rows/notices.sh
+# loads: shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml -- a startup file the row observes
 set -euo pipefail
 expected_errors+=('notices: installed=acme[.]needs unknown: acme[.]needs')
 mutant="$sandbox/notice-mutant"

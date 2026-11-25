@@ -1,5 +1,11 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.workspaces/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/pkg/aur-curl.js scripts/fixtures/pkg/aur-any.SRCINFO scripts/lib/jarvis-env.sh
+# loads: scripts/smoke/persisted-inputs.py scripts/smoke/evidence.py scripts/smoke/gpu-fence.sh -- the helpers the harness runs for every row
+# loads: scripts/smoke/Probe.qml -- the probe the harness hands every nested shell
+# loads: scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* -- the sources the harness compiles for every row
+# loads: scripts/smoke/fixtures/plugins/acme.tick/* -- the fixture plugin the default user file places for every row
+# loads: scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json -- the device stand-ins devices.sh starts for every row
+# loads: scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh -- the Jarvis fixtures of the shared world
+# loads: scripts/fixtures/pkg/aur-curl.js scripts/fixtures/pkg/aur-any.SRCINFO -- the package fixtures of the shared world
 set -euo pipefail
 smoke_harness_started_us="${EPOCHREALTIME/./}"
 # Reports must not become a reader's stdout or stderr inside $() or a
@@ -4174,37 +4180,15 @@ core_words() { # KEY TITLE APP_ID ARGS...
   words "--app-id=$app" "--title=VGS · $title" -- "$tui_self" present --presentation full \
     --record "$key" --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id "$app" --window-title "VGS · $title" -- "$core_vgshell" "$@"
 }
-# The agent warden's runtime dir and vsys's own status fixtures, which
-# scripts/sandbox-shots.sh writes from.
-warden_dir="$rt_dir/agent-warden"
-warden_fixtures="$repo/scripts/smoke/fixtures/agent-warden"
-# warden_put NAME AGE [KIND]: status-NAME.json with its time and every
-# event's set AGE seconds before now, and every event's kind set to KIND
-# when given, replaced into place by rename; prints the time.
-warden_put() {
-  python3 - "$warden_fixtures/status-$1.json" "$warden_dir" "$2" "${3:-}" <<'PY'
-import json, os, sys, time
-source, target, age, kind = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
-doc = json.load(open(source))
-moment = int(time.time()) - age
-doc["time"] = moment
-for event in doc["events"]:
-    event["time"] = moment
-    if kind:
-        event["kind"] = kind
-tmp = os.path.join(target, "status.tmp.%d" % os.getpid())
-with open(tmp, "w") as out:
-    json.dump(doc, out)
-os.replace(tmp, os.path.join(target, "status.json"))
-print(moment)
-PY
-}
 # The requirement notice the core shows as [plugin, commands, required,
 # installing], or null.
 notice_shown() { ipc shell lent | python3 -c 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print(json.dumps(None if s is None else [s["plugin"], s["commands"], s["required"], s["installing"]]))'; }
 hypr_consent_record() { ipc shell lent | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["consent"]))'; }
 hypr_consent_phase() { ipc shell lent | python3 -c 'import json,sys; s=json.load(sys.stdin)["notices"].get("consentState") or {}; print(s.get("phase", "absent"))'; }
-hypr_wire_count() { local line="pcall(dofile, \"$home/.local/state/vgshell/hypr/vgs.lua\")"; grep -cxF -- "$line" "$home/.config/hypr/hyprland.lua" || true; }
+# The Hyprland layer the shell writes, which the consent rows, the display
+# rows and capture read.
+hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
+hypr_wire_count() { local line="pcall(dofile, \"$hypr_layer\")" status=0; grep -cxF -- "$line" "$home/.config/hypr/hyprland.lua" || status=$?; [[ $status -le 1 ]]; }
 # The consent slot's question, whether the first-start welcome holds it or
 # it stands alone, as { command, failure }.
 hypr_consent_question() { ipc shell lent | python3 -c 'import json,sys; c=json.load(sys.stdin)["notices"]["consent"]; print(json.dumps(None if c is None else {"failure": c["failure"]}))'; }

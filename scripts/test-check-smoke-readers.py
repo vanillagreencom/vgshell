@@ -70,20 +70,20 @@ CASES = [
 # leaves rows: name, {row: text}, rows.list order, the expected (rule key,
 # row, line) findings. bar is a core row in scripts/smoke/row-inputs.sh.
 LEAVES = [
-    ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["a", "b"], []),
-    ("a declaring row a later row matches only by a glob", {"a": "# leaves: options\n:\n", "b": "# inputs: scripts/smoke/rows/*\n:\n"}, ["a", "b"], [("unreachable-leaves", "a", 1)]),
+    ("a declaring row a later row names", {"a": "# leaves: options\n:\n", "b": "# loads: scripts/smoke/rows/a.sh -- the options a leaves\n:\n"}, ["a", "b"], []),
+    ("a declaring row a later row matches only by a glob", {"a": "# leaves: options\n:\n", "b": "# loads: scripts/smoke/rows/* -- every row file\n:\n"}, ["a", "b"], [("unreachable-leaves", "a", 1)]),
     ("a declaring core row", {"bar": "# leaves: layers\n:\n"}, ["bar"], []),
     ("a leaves line below the leading comment block", {"a": ":\n# leaves: shim\n"}, ["a"], []),
-    ("a declaring row only an earlier row names", {"a": "# inputs: scripts/smoke/rows/b.sh\n:\n", "b": "# leaves: options\n:\n"}, ["a", "b"], [("unreachable-leaves", "b", 1)]),
+    ("a declaring row only an earlier row names", {"a": "# loads: scripts/smoke/rows/b.sh -- the options b leaves\n:\n", "b": "# leaves: options\n:\n"}, ["a", "b"], [("unreachable-leaves", "b", 1)]),
     ("a declaring row no row names", {"a": "# a row\n# leaves: shim\n:\n"}, ["a"], [("unreachable-leaves", "a", 2)]),
-    ("a declaring row rows.list does not hold", {"a": "# leaves: shim\n:\n", "b": "# inputs: scripts/smoke/rows/a.sh\n:\n"}, ["b"], [("unreachable-leaves", "a", 1)]),
+    ("a declaring row rows.list does not hold", {"a": "# leaves: shim\n:\n", "b": "# loads: scripts/smoke/rows/a.sh -- the options a leaves\n:\n"}, ["b"], [("unreachable-leaves", "a", 1)]),
 ]
 
 failures = 0
 
 
-def run(args, checker=CHECK):
-    return subprocess.run([sys.executable, checker, *args], capture_output=True, text=True, env=ENV, timeout=30)
+def run(args, checker=CHECK, stdin=""):
+    return subprocess.run([sys.executable, checker, *args], input=stdin, capture_output=True, text=True, env=ENV, timeout=30)
 
 
 def check(name, condition, result):
@@ -136,8 +136,9 @@ with tempfile.TemporaryDirectory() as tmp:
                 owners = re.findall(r"function=(\S+) defined=(.+):\d+$", result.stdout, re.M)
                 check(name + " names the function and both files", owners == [("copy_tree", os.path.join(HERE, "smoke", "harness.sh"))], result)
 
-    # Copy the real checker into a disposable repository so source discovery
-    # reads the fixture harness without expanding the checker's public API.
+    # Copy the real checker and the closure reader it runs into a disposable
+    # repository, so the harness closure is the fixture harness's without
+    # expanding the checker's public API.
     fixture = os.path.join(tmp, "harness-tree")
     smoke = os.path.join(fixture, "scripts", "smoke")
     library = os.path.join(fixture, "bin", "lib")
@@ -145,6 +146,10 @@ with tempfile.TemporaryDirectory() as tmp:
     os.makedirs(library)
     checker = os.path.join(fixture, "scripts", "check-smoke-readers.py")
     shutil.copyfile(CHECK, checker)
+    for reader in ("row_loads.py", "shell_source.py"):
+        # loads: scripts/row_loads.py scripts/shell_source.py -- the fixture copies the readers
+        shutil.copyfile(os.path.join(HERE, reader), os.path.join(fixture, "scripts", reader))
+    subprocess.run(["git", "init", "-q", fixture], env=ENV, check=True)
     harness = os.path.join(smoke, "harness.sh")
     helper = os.path.join(smoke, "helper.sh")
     nested = os.path.join(library, "nested.sh")
@@ -162,15 +167,25 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = plant(fixture, "phantom() { :; }\n")
     result = run([rows], checker)
     check("a stand-in function in a harness heredoc is not shared", result.returncode == 0, result)
+    # The harness sources saved state through /dev/stdin, as
+    # scripts/smoke/leaks.sh does: runtime data, never the checker's stdin.
+    with open(harness, "a") as source:
+        source.write('source /dev/stdin < <(sed s/a/b/ "$start/launch")\n')
+    rows = plant(fixture, "from_stdin() { :; }\n")
+    result = run([rows], checker, stdin="from_stdin() { :; }\n")
+    check("a source of /dev/stdin defines no harness function", result.returncode == 0, result)
     # The fixture tree's checker reads the fixture's
     # scripts/smoke/row-inputs.sh, which does not exist: the core rows
     # cannot be read.
     directory = plant_rows(os.path.join(fixture, "leaves"), {"bar": "# leaves: layers\n:\n"}, ["bar"])
     result = run([directory], checker)
     check("a declaration with no core list to read is unreadable", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + os.path.join(smoke, "row-inputs.sh") + ":"), result)
-    os.remove(nested)
+    # A source the reading cannot resolve may name a file that defines a
+    # function, so the closure cannot certify the rows.
+    with open(helper, "a") as source:
+        source.write('source "$repo/scripts/smoke/$helper_name.sh"\n')
     result = run([rows], checker)
-    check("a missing sourced helper cannot certify the rows", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + nested + ":"), result)
+    check("a source the closure cannot resolve cannot certify the rows", result.returncode == 2 and result.stdout.startswith("check-smoke-readers: unreadable: " + helper + ":"), result)
 
     for index, (name, rows, order, expected) in enumerate(LEAVES):
         directory = plant_rows(os.path.join(tmp, f"leaves-{index}"), rows, order)

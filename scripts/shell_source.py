@@ -7,6 +7,9 @@ ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?\+?=")
 HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
 SOURCE = re.compile(r'^\s*(?:source|\.)\s+"\$repo/([^"]+)"', re.M)
 DECLARE = {"local", "declare", "typeset", "export", "readonly"}
+# The declarations that bind a name in the function they run in, unless
+# `-g` makes it global: Bash manual, Shell Builtin Commands (declare, local).
+LOCAL = {"local", "declare", "typeset"}
 RESET = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "time"}
 TAKES = {"read": set("dinNptu"), "mapfile": set("dnOsuCc"), "readarray": set("dnOsuCc")}
 
@@ -21,6 +24,7 @@ def head(words):
 
 class Scan:
     """One bash file's functions, the names it assigns or declares, the
+    names it declares local outside every function body it defines, the
     variables it expands, its commands as word lists, the rows it runs
     through smoke_row, and its runners: FUNCTION -> N for each function
     whose body runs "$@" as a command after one `shift N`. Quotes, heredocs,
@@ -30,6 +34,7 @@ class Scan:
     def __init__(self, text):
         self.t, self.n, self.broken = text, len(text), False
         self.funcs, self.sets, self.reads, self.rows = set(), set(), set(), set()
+        self.locals = set()
         self.sources = set()
         self.commands, self.runners, self.heredocs = [], {}, []
         self.arrays = []
@@ -264,6 +269,8 @@ class Scan:
             m = NAME.match(prefix)
             if m and not prefix.startswith("-"):
                 self.sets.add(m.group())
+                if cmd in LOCAL and not self.open_spans and not any(arg and arg.startswith("-") and "g" in arg for arg in args[:-1]):
+                    self.locals.add(m.group())
         elif cmd in ("for", "select") and len(args) == 1 and whole:
             self.sets.add(whole)
         elif cmd == "printf" and prev == "-v" and whole:

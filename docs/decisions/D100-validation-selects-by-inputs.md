@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-10-03
-**Status**: Active (rerun of a passed reached row → D117)
+**Status**: Active (smoke row inputs → D143; rerun of a passed reached row → D117)
 **Research**: [VGS-786](https://linear.app/vanillagreen/issue/VGS-786)
 
 **Decision**: Every change that adds a surface, a service, a plugin or a check adds its validation row in the same change, and the nested sandbox is the only place a shell starts. A readable diff containing only Markdown or text selects only text checks, even when the product displays that text. A mixed diff keeps input-based selection, and an explicit full or release run keeps every check. Every row declares its inputs in its own file, and other diff-scoped runs execute only the rows a change reaches, with the core rows always on and an undeclarable row always run when the nested smoke is selected. A shared harness input is traced by the changed function and its callers; a top-level or unreadable hunk selects every row. A restack compares against the last validated commit and intersects incoming reach with the branch's selected inputs, including unchanged dependencies. A lane validates its final diff once with the rows its change names; a batch run of main covers the rest and gates nothing. On the fleet host, an hourly VGS automation starts `scripts/main-run.sh unit qml` whenever `scripts/main-run.sh --due unit qml` says a batch is due.

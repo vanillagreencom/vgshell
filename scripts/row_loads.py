@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""The load reading of scripts/validate's table rows.
+"""The load reading of scripts/validate's table rows and nested smoke rows,
+and the one reader of the relation between smoke rows.
 
 Run from the repository root as `python3 -I -B scripts/row_loads.py --rows
-FILE... [--loads FILE...]`. It reads each FILE, a table row's command file,
+FILE... [--loads FILE...]`, `--smoke ROW...`, `--harness`, `--row-reads
+ROW... [--unlisted BASE NAME...]` or `--harness-reach BASE PATH ROW...`. It reads each FILE, a table row's command file,
 under the loading boundary table below, and never a file those load in
 turn. For each FILE it prints `unread FILE LINE KIND GLOB` for a load site
 no `loads:` directive covers, with `-` for a value whose glob it cannot
@@ -11,6 +13,19 @@ named after --loads as well it prints `load FILE TARGET` for each tracked
 file a load operation of FILE names, and `pattern FILE GLOB` for each glob
 of its directives. scripts/validate is the caller: table_unread_read reads
 the unread facts and table_cover the loads.
+
+--smoke prints each listed ROW's facts, walked as § The smoke rows below
+gives: `input ROW PATH`, `pattern ROW GLOB`, `plugin ROW FOLDER`, `reads
+ROW NEEDED function|variable|state`, `unread ROW FILE LINE KIND GLOB`,
+`malformed ROW FILE LINE` and `unparsed FILE`; smoke_rows_read in
+scripts/validate files them. --harness prints the harness's own inputs:
+`harness PATH`, `harness-glob GLOB`, `harness-unread FILE LINE KIND GLOB`
+and `harness-malformed FILE LINE`. --row-reads prints only the `reads` and
+`unparsed` facts, which scripts/qml-smoke.sh closes --rows over; a NAME
+after --unlisted, a row rows.list no longer holds, counts as a definer,
+read from the tree or else from BASE, and only its readers print.
+--harness-reach prints `reach ROW` for each row a function-level change
+to the harness file PATH against BASE reaches, or `harness` for every row.
 
 A FILE that is not a regular file git lists under that spelling, or a
 reading that cannot finish, prints one `unreadable path=<path> cause=<cause>`
@@ -358,29 +373,39 @@ class Reading:
     def __init__(self, present, folders):
         self.present, self.folders = present, folders
         self.loads, self.patterns, self.unread, self.malformed, self.directives, self.declared = {}, {}, {}, {}, {}, {}
+        self.inproc, self.missing = {}, {}
 
-    def edge(self, loader, target):
-        """A load of TARGET when it is a tracked file; a folder or a target
-        the tree lacks loads nothing."""
-        if target is None or target == loader or target not in self.present:
+    def edge(self, loader, target, inproc=False):
+        """A load of TARGET when it is a tracked file, in the loader's own
+        process when INPROC: a source, an import or a require. A folder
+        loads nothing. A target the tree lacks is `missing`: the smoke
+        reading keeps it as a literal input, so the change that removed a
+        file a row still names reaches the row."""
+        if target is None or target == loader:
+            return
+        if target not in self.present:
+            if target and target not in self.folders and not GLOB.search(target) and not any(ch.isspace() for ch in target):
+                self.missing.setdefault(loader, set()).add(target)
             return
         if any(ch.isspace() for ch in target):
             # A fact is space-delimited; no tracked path holds a space today.
             raise RuntimeError(f"load target holds a space: {target!r}")
         self.loads.setdefault(loader, set()).add(target)
+        if inproc:
+            self.inproc.setdefault(loader, set()).add(target)
 
-    def use(self, loader, value, line, kind="path"):
+    def use(self, loader, value, line, kind="path", inproc=False):
         """VALUE used at a call or a command: a load of the file it names,
         or a site when it is anchored and unresolved."""
         if isinstance(value, Str):
             value = norm(value) if "/" in value else None
         if isinstance(value, P):
-            self.edge(loader, value)
+            self.edge(loader, value, inproc)
         elif isinstance(value, U):
             # One name under an unknown base is any folder's file, such as
             # a fixture home's AGENTS.md; a layout names the checkout's.
             if value.copied is not None and "/" in value.copied and value.copied in self.present:
-                self.edge(loader, value.copied)
+                self.edge(loader, value.copied, inproc)
             else:
                 self.site(loader, line, kind, value)
 
@@ -761,7 +786,9 @@ class JsFile:
 
     def load(self, kind, value, line):
         if value != "builtin":
-            self.reading.use(self.path, value, line, kind)
+            # A require, an import or a qml-library load evaluates the file
+            # in this process; any other use runs or reads it.
+            self.reading.use(self.path, value, line, kind, inproc=kind in ("require", "import", "qml-library"))
 
     def scan(self):
         reading, path, code, shape = self.reading, self.path, self.code, self.shape
@@ -812,7 +839,7 @@ class JsFile:
                     for read in re.finditer(r"readFile(?:Sync)?\s*\(", shape[lo:hi]):
                         inner = self.args(lo + read.end() - 1)
                         value = self.value(*inner[0]) if inner else U(P(""))
-                        reading.use(path, value, line, JS_EVAL.get(callee, "eval"))
+                        reading.use(path, value, line, JS_EVAL.get(callee, "eval"), inproc=True)
                 continue
             values = [self.value(lo, hi) if self.may_name(lo, hi) else U() for lo, hi in args]
             if last in JS_ENUMERATE and values and (callee.startswith(("fs.", "fsp.", "promises.")) or callee == last):
@@ -992,7 +1019,7 @@ class PyFile:
     def imported(self, node, name, level, quiet=False):
         target = self.module(name, level)
         if isinstance(target, P):
-            self.reading.edge(self.path, target)
+            self.reading.edge(self.path, target, inproc=True)
         elif target is None and not quiet:
             self.reading.site(self.path, self.line(node), "import")
         return target
@@ -1056,7 +1083,7 @@ class PyFile:
                 argument = self.value(node.args[0]) if node.args else U()
                 target = self.module(argument) if isinstance(argument, Str) else None
                 if isinstance(target, P):
-                    reading.edge(path, target)
+                    reading.edge(path, target, inproc=True)
                 elif target is None:
                     reading.site(path, line, kind)
                 return
@@ -1066,7 +1093,7 @@ class PyFile:
                     argument = keyword.value
             value = self.value(argument) if argument is not None else U(P(""))
             value = norm(value) if isinstance(value, Str) else value
-            reading.use(path, value if value is not None else U(), line, kind)
+            reading.use(path, value if value is not None else U(), line, kind, inproc=True)
             return
         if owner in PY_LOADING_MODULES and name not in PY_SPEC_ONLY:
             reading.site(path, line, owner)
@@ -1076,7 +1103,7 @@ class PyFile:
                 if isinstance(inner, ast.Call) and py_callee(inner)[1] in ("open", "read_text", "read_bytes"):
                     target = self.value(inner.args[0]) if py_callee(inner)[1] == "open" and inner.args else (
                         self.value(inner.func.value) if isinstance(inner.func, ast.Attribute) else U())
-                    reading.use(path, norm(target) if isinstance(target, Str) else target, line, "exec")
+                    reading.use(path, norm(target) if isinstance(target, Str) else target, line, "exec", inproc=True)
             return
         receiver = self.value(node.func.value) if isinstance(node.func, ast.Attribute) and owner not in ("os", "path", "shutil", "glob", "subprocess", "json", "re", "sys") else None
         if name in PY_ENUMERATE:
@@ -1516,9 +1543,12 @@ class BashFile:
             # A copy of the checkout keeps its layout: a path under a base
             # the reading cannot resolve names the repository file it copies.
             for copied in BASH_COPIED.finditer(plain):
-                # A redirect writes its target and reads nothing.
-                if copied.group(1) in reading.present and not re.search(r"[0-9&]?>[>|]?\s*$", plain[:copied.start()]):
-                    reading.edge(path, P(copied.group(1)))
+                # A redirect writes its target and reads nothing. A path
+                # under a folder of the checkout below its root, a file it
+                # lacks, is the layout's too: a missing target.
+                target = norm(copied.group(1))
+                if target and (target in reading.present or ("/" in target and os.path.dirname(target) in reading.folders)) and not re.search(r"[0-9&]?>[>|]?\s*$", plain[:copied.start()]):
+                    reading.edge(path, P(target))
             source = re.match(r"^[ \t]*(?:source[ \t]+(?!=)(\S+)|\.[ \t]+(\S*[/$]\S*|\S+\.(?:sh|bash)))", expanded)
             if source:
                 word = source.group(1) or source.group(2)
@@ -1527,6 +1557,7 @@ class BashFile:
                 copied = re.fullmatch(r"\$\{?[A-Za-z_]\w*\}?/([\w.@+/-]+)", word)
                 if copied and copied.group(1) in reading.present:
                     target = P(copied.group(1))
+                layout = re.fullmatch(r"\$\{?[A-Za-z_]\w*\}?/((?:[\w.@+-]+/)+)(.+)", word)
                 if target is None and not re.search(r"[$`\x01]", word):
                     for base in (self.here, ""):
                         candidate = joined(base, word)
@@ -1534,7 +1565,16 @@ class BashFile:
                             target = candidate
                             break
                 if target is not None:
-                    reading.edge(path, target)
+                    reading.edge(path, target, inproc=True)
+                elif layout and "/" in layout.group(1).rstrip("/") and layout.group(1).rstrip("/") in reading.folders and re.search(r"[$`]", layout.group(2)):
+                    # A computed name under a folder of a copy of the
+                    # checkout: any file that folder holds.
+                    folder = P(layout.group(1).rstrip("/"))
+                    reading.site(path, number, "source", U(folder, glob_of(folder + "/" + re.sub(r"\$\{?\w+\}?|`[^`]*`", "*", layout.group(2)))))
+                elif word.startswith("/") and not re.search(r"[$`\x01]", word):
+                    # An absolute path, such as /dev/stdin, names no
+                    # repository file.
+                    pass
                 elif re.fullmatch(r"\$\{?[A-Za-z_0-9@*#]\w*\}?|\$\(.*\)|`.*`", word) or "\x01" in word or not word.startswith("$"):
                     # A whole computed word, an anchored path or a word
                     # that names no repository file; a path under an
@@ -1721,8 +1761,7 @@ def read_path(reading, path, data):
 def read_files(paths):
     """One worker's reading of PATHS, each file in a reading of its own, so
     its facts and the inventory answers its reading asked are its own: for
-    each file, (path, (loads, patterns, unread, malformed), (present
-    answers, folder answers)). Its failure returns as plain data, naming the
+    each file, (path, its FACTS, (present answers, folder answers)). Its failure returns as plain data, naming the
     file it was reading: an exception whose arguments do not rebuild it
     cannot cross the pool."""
     files, path = [], None
@@ -1730,7 +1769,7 @@ def read_files(paths):
         for path in paths:
             reading = Reading(Asked(PRESENT), Asked(FOLDERS))
             read_path(reading, path, DATA[path])
-            facts = (reading.loads, reading.patterns, reading.unread, reading.malformed)
+            facts = tuple(getattr(reading, name) for name in FACTS)
             other = set().union(*facts) - {path}
             if other:
                 # A stored entry holds the facts of its own file alone.
@@ -1753,10 +1792,11 @@ def read_files(paths):
 # and a hit stands only while each question it recorded answers the same:
 # a file added or removed elsewhere voids only the entries whose reading
 # asked about it.
-# The store holds only the entries of the last reading that read a file,
-# which bounds it; a reading whose every file hit leaves it as it is, so a
-# reading of a few files of the checkout keeps the entries of the last
-# reading of all of them.
+# The store holds, for each file, the entry of the last reading that read
+# it, and only entries of this reader, which bounds it by the files the
+# readings name: a table reading and a smoke reading of other files keep
+# each other's entries, and a reading whose every file hit leaves the store
+# as it is.
 #
 # The store is a memo, never evidence. A store that is missing, unreadable
 # or of another shape, or an entry missing a field, is a miss, and the file
@@ -1771,6 +1811,10 @@ def read_files(paths):
 
 STORE = "vgs-row-loads.json"
 ANSWERS = (("present", "not_present"), ("folders", "not_folders"))
+# A file's facts, each a set per loader in Reading: its loads, the globs of
+# its directives, its unread sites, its malformed directives, the loads it
+# makes in its own process and the resolved targets the tree lacks.
+FACTS = ("loads", "patterns", "unread", "malformed", "inproc", "missing")
 
 
 def store_path():
@@ -1792,12 +1836,12 @@ def load_store(path):
     return store if isinstance(store, dict) else {}
 
 
-def entry_of(facts, answers):
-    """The stored form of one file's FACTS and inventory ANSWERS, each
-    question kept as asked, None as null."""
-    loads, patterns, unread, malformed = facts
-    entry = {"loads": sorted(loads), "patterns": sorted(patterns), "unread": [list(site) for site in sorted(unread)],
-             "malformed": sorted(malformed)}
+def entry_of(reader, path, facts, answers):
+    """The stored form of PATH's FACTS and inventory ANSWERS under READER,
+    each question kept as asked, None as null."""
+    entry = {"reader": reader, "path": path}
+    for name, found in zip(FACTS, facts):
+        entry[name] = sorted(list(site) for site in found) if name == "unread" else sorted(found)
     for asked, (yes, no) in zip(answers, ANSWERS):
         entry[yes] = [value for value, answer in asked.items() if answer]
         entry[no] = [value for value, answer in asked.items() if not answer]
@@ -1809,10 +1853,9 @@ def stored(entry):
     entry_of does not write, a missing field among them: a missing unread
     field read as none would skip a row the file's reading runs."""
     try:
-        facts = (set(entry["loads"]), set(entry["patterns"]), {tuple(site) for site in entry["unread"]},
-                 set(entry["malformed"]))
+        facts = tuple({tuple(site) for site in entry[name]} if name == "unread" else set(entry[name]) for name in FACTS)
         answers = tuple({**dict.fromkeys(entry[yes], True), **dict.fromkeys(entry[no], False)} for yes, no in ANSWERS)
-        return (facts, answers) if entry_of(facts, answers) == entry else None
+        return (facts, answers) if entry_of(entry["reader"], entry["path"], facts, answers) == entry else None
     except (KeyError, TypeError):
         return None
 
@@ -1857,67 +1900,494 @@ def worker_start(reader):
 WORKERS = 4
 
 
-def reading_of(paths):
-    """The reading of PATHS: each file's stored facts where they hold, and
-    a reading of the rest split across at most WORKERS of the cores this
-    process may use (sched_getaffinity, os(3)), in the reader alone for one
-    core or one file, and none when every file's facts hold. fork: a worker
-    inherits the inventory and the files' bytes, and a forkserver or spawn
-    child would run this script's top level again."""
-    builtins = node_builtins()
-    NODE_BUILTINS.update(builtins)
-    reader = hashlib.sha256(hashlib.sha256(READER_BYTES).digest() + sys.version.encode() + b"\0"
-                            + json.dumps(sorted(builtins)).encode()).digest()
-    store_file = store_path() if READER_RUNS else None
-    store = load_store(store_file) if store_file else {}
-    entries, found, keys = {}, {}, {}
-    for path in paths:
-        if named_language(path) is None:
-            continue
-        data = read_bytes(path)
-        # The reader digest has a fixed length and no path holds a NUL, so
-        # no two (path, bytes) pairs share a key's input.
-        key = keys[path] = hashlib.sha256(reader + os.fsencode(path) + b"\0" + data).hexdigest()
-        hit = stored(store.get(key))
-        if hit is not None and held(hit[1]):
-            entries[key], found[path] = store[key], hit[0]
+class Memo:
+    """The reading of files across one process: each file's stored facts
+    where they hold, and a reading of the rest split across at most WORKERS
+    of the cores this process may use (sched_getaffinity, os(3)), in the
+    reader alone for one core or one file, and none when every file's facts
+    hold. fork: a worker inherits the inventory and the files' bytes, and a
+    forkserver or spawn child would run this script's top level again. The
+    store is read once and written once, by close, when a file missed."""
+
+    def __init__(self):
+        builtins = node_builtins()
+        NODE_BUILTINS.update(builtins)
+        self.reader = hashlib.sha256(hashlib.sha256(READER_BYTES).digest() + sys.version.encode() + b"\0"
+                                     + json.dumps(sorted(builtins)).encode()).hexdigest()
+        self.file = store_path() if READER_RUNS else None
+        self.store = load_store(self.file) if self.file else {}
+        self.entries, self.facts, self.missed = {}, {}, False
+
+    def read(self, paths):
+        """Read each of PATHS not yet read into self.facts, path -> FACTS."""
+        keys = {}
+        for path in paths:
+            if path in self.facts or named_language(path) is None:
+                continue
+            data = read_bytes(path)
+            # The reader digest has a fixed length and no path holds a NUL,
+            # so no two (path, bytes) pairs share a key's input.
+            key = keys[path] = hashlib.sha256(self.reader.encode() + os.fsencode(path) + b"\0" + data).hexdigest()
+            hit = stored(self.store.get(key))
+            if hit is not None and held(hit[1]):
+                self.entries[key], self.facts[path] = self.store[key], hit[0]
+            else:
+                DATA[path] = data
+        misses = [path for path in keys if path not in self.facts]
+        workers = min(len(os.sched_getaffinity(0)), WORKERS, len(misses))
+        if not misses:
+            answers = []
+        elif workers <= 1:
+            answers = [read_files(misses)]
         else:
-            DATA[path] = data
-    misses = [path for path in keys if path not in found]
-    workers = min(len(os.sched_getaffinity(0)), WORKERS, len(misses))
-    if not misses:
-        answers = []
-    elif workers <= 1:
-        answers = [read_files(misses)]
-    else:
-        count = min(len(misses), workers * 4)
-        # A worker that dies breaks the pool, which then fails every pending
-        # result (concurrent.futures, BrokenProcessPool), where a
-        # multiprocessing.Pool would wait on it forever.
-        pool = concurrent.futures.ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork"),
-                                                      initializer=worker_start, initargs=(os.getpid(),))
+            count = min(len(misses), workers * 4)
+            # A worker that dies breaks the pool, which then fails every
+            # pending result (concurrent.futures, BrokenProcessPool), where
+            # a multiprocessing.Pool would wait on it forever.
+            pool = concurrent.futures.ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork"),
+                                                          initializer=worker_start, initargs=(os.getpid(),))
+            try:
+                answers = list(pool.map(read_files, [misses[i::count] for i in range(count)]))
+            except concurrent.futures.process.BrokenProcessPool as exc:
+                raise RuntimeError(f"load-reading worker ended: {exc}") from exc
+            finally:
+                pool.shutdown(cancel_futures=True)
+        for kind, *answer in answers:
+            if kind == "unreadable":
+                raise Unreadable(*answer)
+            if kind == "failed":
+                raise ReadFailed(*answer)
+            for path, facts, asked in answer[0]:
+                self.facts[path] = facts
+                self.entries[keys[path]] = entry_of(self.reader, path, facts, asked)
+                DATA.pop(path, None)
+        self.missed = self.missed or bool(misses)
+
+    def close(self):
+        if not (self.file and self.missed):
+            return
+        read = {entry["path"] for entry in self.entries.values()}
+        kept = {key: entry for key, entry in self.store.items()
+                if isinstance(entry, dict) and entry.get("reader") == self.reader and entry.get("path") not in read}
+        write_store(self.file, {**kept, **self.entries})
+
+    def reading(self):
+        """The facts read so far as one Reading."""
+        reading = Reading(PRESENT, FOLDERS)
+        for path, facts in self.facts.items():
+            for name, theirs in zip(FACTS, facts):
+                if theirs:
+                    getattr(reading, name)[path] = set(theirs)
+        return reading
+
+
+# --- The smoke rows ------------------------------------------------------------
+#
+# A nested smoke row's inputs are what its file loads under the table above,
+# walked by these rules (docs/architecture/validation.md § Selection):
+#
+#   kind        edge                                          walked onward
+#   row file    scripts/smoke/rows/<row>.sh, and a row file   yes
+#               it runs through smoke_row that no list names
+#   in-process  source, require, import, a qml-library load   yes, transitively
+#   direct      any other load a file of the row's own        a target with a
+#               in-process closure names                      language: its
+#                                                             in-process closure
+#   recorded    a load of a file a direct target runs         no
+#   plugin      a plugin id word in the row's own files       validate files its
+#                                                             manifest and entries
+#   directive   each `loads:` glob of a walked file           no
+#   missing     a resolved target the tree lacks, a literal   no
+#
+# The walk stops at the harness, whose in-process closure is the harness's
+# own input and never a row's, and at shell/shell.qml, which every started
+# shell loads and the core rows cover. Another listed row's file is an
+# input and never walked: a row is its own command. An unread site or a
+# malformed directive in any walked file leaves the row untraced, so it
+# runs on every change. A row file the shell reader cannot read to its end
+# is `unparsed`: its relation is unknown.
+#
+# A row reads another row, and runs only after it, when it calls a function
+# or reads a variable only that row defines, or when a `loads:` directive of
+# its own files names that row's file alone: state the row leaves.
+
+HARNESS = ("scripts/qml-smoke.sh", "scripts/smoke/row-inputs.sh", "scripts/smoke/harness.sh")
+STARTUP = "shell/shell.qml"
+ROW_FILE = re.compile(r"scripts/smoke/rows/([a-z0-9-]+)\.sh")
+ROW_FILES = "scripts/smoke/rows/*.sh"
+
+
+def shell_reader():
+    """scripts/shell_source.py, which -I keeps off the path."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import shell_source
+    return shell_source
+
+
+def row_path(row):
+    return f"scripts/smoke/rows/{row}.sh"
+
+
+def text_of(path):
+    try:
+        with open(path, encoding="utf-8") as source:
+            return source.read()
+    except (OSError, UnicodeError):
+        return None
+
+
+def state_reads(row, texts):
+    """The rows whose file a `loads:` directive of ROW's TEXTS names alone,
+    read under the directive grammar Reading.read_directives owns."""
+    found = set()
+    for text in texts:
+        if text is None or "loads:" not in text:
+            continue
+        reading = Reading(set(), set())
+        reading.read_directives(row, text, comment_lines("bash", text))
+        for glob in reading.patterns.get(row, ()):
+            named = ROW_FILE.fullmatch(glob)
+            if named and named.group(1) != row:
+                found.add(named.group(1))
+    return found
+
+
+class Rows:
+    """The shell reading of the row files and the harness's definitions:
+    what scripts/validate, scripts/qml-smoke.sh and
+    scripts/check-smoke-readers.py read the row relation from."""
+
+    def __init__(self, listed, extra=None):
+        source = shell_reader()
+        self.source, self.listed = source, list(listed)
+        self.texts, self.side, queue = {}, [], ["scripts/qml-smoke.sh", "scripts/smoke/harness.sh"]
+        while queue:
+            rel = queue.pop(0)
+            if rel not in self.texts:
+                self.texts[rel] = text_of(rel)
+                self.side.append(rel)
+                queue += source.SOURCE.findall(self.texts[rel] or "")
+        for path in sorted(pathlib_glob("scripts/smoke/rows", ".sh")):
+            self.texts.setdefault(path, text_of(path))
+        for path, text in (extra or {}).items():
+            self.texts[path] = text
+
+    @functools.cached_property
+    def scans(self):
+        """Each readable file's shell reading, read on first use: a
+        harness reach that cannot attribute its hunks reads no row."""
+        scans = {}
+        for rel, text in self.texts.items():
+            if text is not None:
+                scan = self.source.Scan(text)
+                if not scan.broken:
+                    scans[rel] = scan
+        return scans
+
+    def unparsed(self):
+        """The files read that the shell reader cannot read to its end; a
+        harness file the tree lacks is no reading of a row's."""
+        return sorted(rel for rel, text in self.texts.items() if text is not None and rel not in self.scans)
+
+    def parts(self, row):
+        """ROW's file and the row files it runs through smoke_row that no
+        list names, which count as its own."""
+        parts, queue = [], [row_path(row)]
+        while queue:
+            rel = queue.pop(0)
+            if rel not in parts and (rel == row_path(row) or rel in self.texts):
+                parts.append(rel)
+                if rel in self.scans:
+                    queue += [row_path(child) for child in self.scans[rel].rows if child not in self.listed]
+        return parts
+
+    def reads(self):
+        """(row, needed, kind) for each row a listed row reads."""
+        head, runs = self.source.head, {}
+        for scan in self.scans.values():
+            runs.update(scan.runners)
+
+        def calls(scan):
+            """The words SCAN runs as commands: each command's first word
+            and, while that word is a runner, the word at its command
+            operand, as expect LABEL WANT CMD... runs CMD."""
+            found = set()
+            for words in scan.commands:
+                at = head(words)
+                while at < len(words):
+                    name = words[at][1]
+                    if name:
+                        found.add(name)
+                    if name not in runs:
+                        break
+                    at += runs[name] + 1
+            return found
+
+        side = {field: set().union(*(getattr(self.scans[rel], field) for rel in self.side if rel in self.scans))
+                for field in ("funcs", "sets")}
+        owned = {}
+        for row in self.listed:
+            scans = [self.scans[rel] for rel in self.parts(row) if rel in self.scans]
+            sets = set().union(*(s.sets for s in scans))
+            # smoke_row sources a row inside its own body, so a name the
+            # row declares local there, and each assignment to it, ends
+            # when the row returns: no later row reads that binding.
+            owned[row] = {"funcs": set().union(*(s.funcs for s in scans)), "sets": sets,
+                          "defines": sets - set().union(*(s.locals for s in scans)),
+                          "calls": set().union(*(calls(s) for s in scans)), "reads": set().union(*(s.reads for s in scans))}
+        found = set()
+        for at, row in enumerate(self.listed):
+            for kind, used, field, defines in (("function", "calls", "funcs", "funcs"), ("variable", "reads", "sets", "defines")):
+                for name in owned[row][used] - owned[row][field] - side[field]:
+                    definers = [other for other in self.listed if other != row and name in owned[other][defines]]
+                    # The rows run in list order, so the definition in
+                    # force when ROW runs is the last one before it: that
+                    # row alone gives a scoped run the full run's state. A
+                    # name no earlier row defines keeps every definer.
+                    earlier = [other for other in definers if self.listed.index(other) < at]
+                    for other in earlier[-1:] or definers:
+                        found.add((row, other, kind))
+            for other in state_reads(row, [self.texts.get(rel) for rel in self.parts(row)]):
+                found.add((row, other, "state"))
+        return sorted(found)
+
+    def harness_reach(self, base, changed):
+        """The rows a change to CHANGED, a harness file, against BASE
+        reaches, or None for every row.
+
+        Conservative word reach over the shell reading, not a row map. Both
+        hunk sides must fit function bodies. Tokens include quoted strings
+        and heredocs, so callbacks and generated helpers count too. A
+        top-level use reaches every row; missing evidence never proves an
+        empty reach. Git's zero-context ranges:
+        https://git-scm.com/docs/diff-format."""
+        Scan, NAME = self.source.Scan, self.source.NAME
         try:
-            answers = list(pool.map(read_files, [misses[i::count] for i in range(count)]))
-        except concurrent.futures.process.BrokenProcessPool as exc:
-            raise RuntimeError(f"load-reading worker ended: {exc}") from exc
-        finally:
-            pool.shutdown(cancel_futures=True)
-    for kind, *answer in answers:
-        if kind == "unreadable":
-            raise Unreadable(*answer)
-        if kind == "failed":
-            raise ReadFailed(*answer)
-        for path, facts, asked in answer[0]:
-            found[path] = facts
-            entries[keys[path]] = entry_of(facts, asked)
-    if store_file and misses:
-        write_store(store_file, entries)
-    reading = Reading(PRESENT, FOLDERS)
-    for path, facts in found.items():
-        for mine, theirs in zip((reading.loads, reading.patterns, reading.unread, reading.malformed), facts):
-            if theirs:
-                mine[path] = set(theirs)
-    return reading
+            old = subprocess.check_output(["git", "show", f"{base}:{changed}"], text=True)
+            new = text_of(changed)
+            if new is None:
+                return None
+            diff = subprocess.check_output(["git", "diff", "--no-ext-diff", "--no-color",
+                                            "--no-textconv", "-U0", base, "--", changed], text=True)
+        except (OSError, UnicodeError, subprocess.CalledProcessError):
+            return None
+        before, after = Scan(old), Scan(new)
+        if before.broken or after.broken or before.partition_broken or after.partition_broken:
+            return None
+
+        def lines(text, scan):
+            result = []
+            for name, start, end in scan.spans:
+                # A line shared with top-level code cannot be attributed to
+                # the function alone, even though Git reports one line.
+                lo, hi = text.rfind("\n", 0, start) + 1, text.find("\n", end)
+                hi = len(text) if hi < 0 else hi
+                if text[lo:start].strip() or text[end:hi].strip():
+                    continue
+                result.append((name, text.count("\n", 0, start) + 1, text.count("\n", 0, end) + 1))
+            return result
+
+        spans = (lines(old, before), lines(new, after))
+        seeds, hunks = set(), 0
+        for line in diff.splitlines():
+            if not line.startswith("@@"):
+                continue
+            match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            if not match:
+                return None
+            hunks += 1
+            a, ac, b, bc = match.groups()
+            for start, count, ranges in ((int(a), int(ac or 1), spans[0]), (int(b), int(bc or 1), spans[1])):
+                # An insertion/deletion also reads the seam on its empty side.
+                end = start + count - 1 if count else start + 1
+                names = {name for name, lo, hi in ranges if lo <= start and end <= hi}
+                if len(names) != 1:
+                    return None
+                seeds |= names
+        if not hunks:
+            return None
+        # A renamed/removed definition can still have old callers.
+        scans, side = dict(self.scans), list(self.side)
+        scans[changed] = after
+        if changed not in side:
+            side.append(changed)
+        if any(rel in side and rel not in scans for rel in self.texts):
+            return None
+        scans[changed + ":before"] = before
+        side.append(changed + ":before")
+
+        def words(scan, lo, hi):
+            return set().union(*(set(NAME.findall(word)) for start, end, word in scan.words if lo <= start and end <= hi))
+
+        functions, top = {}, {}
+        for path, scan in scans.items():
+            if scan.partition_broken:
+                # An unchanged helper we cannot partition is opaque: any
+                # reference to a reached name may be top-level, so it
+                # reaches every row. Do not lose that reference with
+                # partial spans.
+                top[path] = words(scan, 0, scan.n)
+                continue
+            for name, start, end in scan.spans:
+                functions.setdefault(name, set()).update(words(scan, start, end))
+            top[path] = set().union(*(set(NAME.findall(word)) for start, end, word in scan.words
+                                     if not any(lo <= start and end <= hi for _, lo, hi in scan.spans)))
+        reached = set(seeds)
+        while True:
+            callers = {name for name, used in functions.items() if used & reached}
+            if callers <= reached:
+                break
+            reached |= callers
+        if any(top[path] & reached for path in side if path in top):
+            return None
+        found, traced = set(), False
+        for row in self.listed:
+            # Unreadable rows always run. All words in a row count,
+            # including helpers it invokes later and an unlisted part.
+            parts = [scans[rel] for rel in self.parts(row) if rel in scans]
+            if any(words(part, 0, part.n) & reached for part in parts):
+                traced = True
+                found.add(row)
+            elif row_path(row) not in scans:
+                found.add(row)
+        # No named caller is not proof of no caller: a computed dispatch can
+        # hide its name. Keep the full-area answer in that case.
+        return found if traced else None
+
+
+def pathlib_glob(folder, suffix):
+    try:
+        return [os.path.join(folder, name) for name in sorted(os.listdir(folder)) if name.endswith(suffix)]
+    except OSError:
+        return []
+
+
+def harness_reading(memo):
+    """The harness's own inputs: HARNESS and the files they load in their
+    own process, transitively, with the globs of their directives, and the
+    sites and malformed directives among them. Each level of the walk is
+    one memo.read, so a cold store's misses fan out across its workers."""
+    closure, level = [], [path for path in HARNESS if path in PRESENT]
+    while level:
+        level = [path for path in dict.fromkeys(level) if path not in closure]
+        closure += level
+        memo.read(level)
+        level = [target for path in level for target in sorted(dict(zip(FACTS, memo.facts.get(path, ((),) * len(FACTS))))["inproc"])
+                 if target in PRESENT]
+    return closure
+
+
+def smoke_walks(memo, walks, listed, harness, plugins):
+    """Each row's facts, ROW -> (inputs, patterns, plugins, unread,
+    malformed), its file and the parts WALKS gives it walked as its own.
+    The rows walk side by side, one level at a time, and each level of
+    every row is one memo.read, so a cold store's misses fan out across its
+    workers; each row's walk keeps its own first-in-first-out order."""
+    found, queues, seen = {}, {}, {}
+    for row, parts in walks.items():
+        own = row_path(row)
+        queues[row] = [(part, "own") for part in parts if part == own or part in PRESENT]
+        seen[row] = {part for part, _ in queues[row]}
+        found[row] = (set(), set(), set(), set(), set())
+    while any(queues.values()):
+        memo.read(sorted({path for queue in queues.values() for path, _ in queue}))
+        for row, queue in queues.items():
+            inputs, patterns, ids, unread, malformed = found[row]
+            following = []
+            for path, mode in queue:
+                inputs.add(path)
+                if named_language(path) is None:
+                    continue
+                facts = dict(zip(FACTS, memo.facts.get(path, ((),) * len(FACTS))))
+                patterns |= facts["patterns"]
+                unread |= {(path,) + tuple(site) for site in facts["unread"]}
+                malformed |= {(path, number) for number in facts["malformed"]}
+                inputs |= facts["missing"]
+                if mode == "own" and plugins:
+                    ids |= {plugins[word] for word in plugin_words(plugins).findall(text_of(path) or "")}
+                for target in sorted(facts["loads"]):
+                    if target in harness or target == STARTUP:
+                        continue
+                    inputs.add(target)
+                    other = ROW_FILE.fullmatch(target)
+                    if other and other.group(1) in listed:
+                        continue
+                    follow = mode if target in facts["inproc"] else ("run" if mode == "own" else None)
+                    if follow and target not in seen[row]:
+                        seen[row].add(target)
+                        following.append((target, follow))
+            queues[row] = following
+    return found
+
+
+@functools.lru_cache(maxsize=None)
+def plugin_words_cached(names):
+    return re.compile(r"(?<![\w.-])(" + "|".join(re.escape(name) for name in names) + r")(?![\w-])")
+
+
+def plugin_words(plugins):
+    return plugin_words_cached(tuple(sorted(plugins, key=len, reverse=True)))
+
+
+def plugin_folders():
+    """Each plugin id -> its folder: shell/plugins/<id> and the fixture
+    plugins under scripts/smoke/fixtures/plugins/<id> that hold a manifest."""
+    found = {}
+    for root in ("scripts/smoke/fixtures/plugins", "shell/plugins"):
+        for folder in pathlib_glob(root, ""):
+            if os.path.join(folder, "manifest.json") in PRESENT:
+                found[os.path.basename(folder)] = folder
+    return found
+
+
+def print_harness(memo):
+    """Every directive glob of every file of the harness closure is a
+    harness input, wherever in its file the directive stands."""
+    harness = harness_reading(memo)
+    reading = memo.reading()
+    for path in harness:
+        print("harness", path)
+        for glob in sorted(reading.patterns.get(path, ())):
+            print("harness-glob", glob)
+        for number, kind, names in sorted(reading.unread.get(path, ())):
+            # A site that can name only a row file is the walk's row file
+            # edge: smoke_row runs each row, and each row's file is that
+            # row's own input.
+            if names != ROW_FILES:
+                print("harness-unread", path, number, kind, names)
+        for number in sorted(reading.malformed.get(path, ())):
+            print("harness-malformed", path, number)
+
+
+def print_smoke(memo, rows):
+    harness = harness_reading(memo)
+    relation = Rows(rows)
+    for rel in relation.unparsed():
+        print("unparsed", rel)
+    # A row that runs another row's functions reads that row's files, so a
+    # change to them reaches it as well as the row that defines them.
+    defined = {}
+    for row, needed, kind in relation.reads():
+        print("reads", row, needed, kind)
+        if kind != "state":
+            defined.setdefault(row, set()).update(relation.parts(needed))
+    plugins, listed, side = plugin_folders(), set(rows), set(harness)
+    walked = smoke_walks(memo, {row: relation.parts(row) for row in rows}, listed, side, plugins)
+    for row in rows:
+        inputs, patterns, ids, unread, malformed = walked[row]
+        inputs |= {path for path in defined.get(row, ()) if path in PRESENT}
+        for path in sorted(inputs):
+            print("input", row, path)
+        for glob in sorted(patterns):
+            print("pattern", row, glob)
+        for folder in sorted(ids):
+            print("plugin", row, folder)
+        for path, number, kind, names in sorted(unread):
+            print("unread", row, path, number, kind, names)
+        for path, number in sorted(malformed):
+            print("malformed", row, path, number)
 
 
 def print_reading(reading, loads):
@@ -1934,12 +2404,55 @@ def print_reading(reading, loads):
             print("malformed", loader, number)
 
 
+USAGE = """usage: row_loads.py --rows FILE... [--loads FILE...]
+       row_loads.py --smoke ROW...
+       row_loads.py --harness
+       row_loads.py --row-reads ROW... [--unlisted BASE NAME...]
+       row_loads.py --harness-reach BASE PATH ROW..."""
+
+
 def main(arguments):
-    if arguments[:1] != ["--rows"]:
-        print("usage: row_loads.py --rows FILE... [--loads FILE...]", file=sys.stderr)
+    mode = arguments[:1]
+    if mode == ["--row-reads"]:
+        # The row relation alone, which reads no load: scripts/qml-smoke.sh
+        # closes --rows over it. A NAME after --unlisted is a row the list
+        # no longer holds, read from the tree or else from BASE, whose
+        # readers scripts/validate selects.
+        rows, unlisted, base = arguments[1:], [], None
+        if "--unlisted" in rows:
+            at = rows.index("--unlisted")
+            rows, base, unlisted = rows[:at], rows[at + 1], rows[at + 2:]
+        extra = {}
+        for name in unlisted:
+            path = row_path(name)
+            text = text_of(path)
+            if text is None:
+                shown = subprocess.run(["git", "show", f"{base}:{path}"], capture_output=True)
+                if shown.returncode:
+                    print("failed", "operation=git-show", f"path={shlex.quote(path)}", f"status={shown.returncode}")
+                    return 0
+                text = shown.stdout.decode("utf-8", "replace")
+            extra[path] = text
+        relation = Rows(rows + unlisted, extra)
+        for rel in relation.unparsed():
+            print("unparsed", rel)
+        for row, needed, kind in relation.reads():
+            if row in rows and (not unlisted or needed in unlisted):
+                print("reads", row, needed, kind)
+        return 0
+    if mode == ["--harness-reach"] and len(arguments) >= 3:
+        found = Rows(arguments[3:]).harness_reach(arguments[1], arguments[2])
+        if found is None:
+            print("harness")
+        else:
+            for row in sorted(found):
+                print("reach", row)
+        return 0
+    if mode not in (["--rows"], ["--smoke"], ["--harness"]):
+        print(USAGE, file=sys.stderr)
         return 2
     rows, loads = arguments[1:], []
-    if "--loads" in rows:
+    if mode == ["--rows"] and "--loads" in rows:
         at = rows.index("--loads")
         rows, loads = rows[:at], rows[at + 1:]
     operation = "git-ls-files"
@@ -1950,11 +2463,20 @@ def main(arguments):
         listed = set(listed)
         # A file git does not list under that spelling would be read as
         # one no table row names, and its row would pass unread.
-        for path in rows + loads:
+        for path in (rows + loads) if mode == ["--rows"] else [row_path(row) for row in rows]:
             if path not in listed or path not in present:
                 raise Unreadable(path, "not-listed")
         operation = "load-reading"
-        print_reading(reading_of(sorted(set(rows) | set(loads))), set(loads))
+        memo = Memo()
+        if mode != ["--rows"]:
+            try:
+                print_smoke(memo, rows) if mode == ["--smoke"] else print_harness(memo)
+            finally:
+                memo.close()
+            return 0
+        memo.read(sorted(set(rows) | set(loads)))
+        memo.close()
+        print_reading(memo.reading(), set(loads))
     except subprocess.CalledProcessError as exc:
         print("failed", f"operation={operation}", f"status={exc.returncode}", f"cause={shlex.quote(str(exc.stderr).strip())}")
     except Unreadable as exc:

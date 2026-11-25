@@ -131,7 +131,10 @@
 # and reads idle, and a second daemon beside that live one is refused. Its
 # control: a copy of the stand-in that judges the holder by signal 0
 # refuses the daemon beside the same planted holder.
-# inputs: scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml shell/Ui/layout/NavigationRow.qml
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Ui/feedback/shaders/* -- a run-time load by a computed name
+# loads: bin/vgshell-tui -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/LayerHost.qml shell/Hosts/NoticeHost.qml -- a startup file the row observes
 set -euo pipefail
 
 voice_installed="$sandbox/voice-model-installed"

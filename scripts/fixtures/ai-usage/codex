@@ -21,6 +21,7 @@ fs.appendFileSync(path.join(home, "stand-in-calls"), JSON.stringify({ args: proc
 if (process.argv[2] !== "app-server" || process.argv.length !== 3) process.exit(9);
 let mode = "ok";
 try { mode = fs.readFileSync(path.join(home, "stand-in-mode"), "utf8").trim(); } catch (error) { if (error.code !== "ENOENT") throw error; }
+// loads: scripts/fixtures/ai-usage/* -- the stand-in answers with the reply fixtures it names
 const reply = name => JSON.parse(fs.readFileSync(path.join(__dirname, name), "utf8"));
 const send = message => process.stdout.write(JSON.stringify(message) + "\n");
 if (mode === "hang") setInterval(() => {}, 1000);

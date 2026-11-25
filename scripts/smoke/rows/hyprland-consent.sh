@@ -9,7 +9,8 @@
 # unit after restarting. Restoring only the unwired loader must fail the
 # same successor while the welcome-seen marker remains present.
 # leaves: layers options
-# inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell bin/vgshell-tui shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml scripts/smoke/toplevel/* shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/Probe.qml
+# loads: bin/vgshell bin/vgshell-tui -- a load past a process the row runs, or a copy
+# loads: shell/Core/HyprlandLayer.qml config/shell.json shell/Hosts/NoticeHost.qml -- a startup file the row observes
 set -euo pipefail
 if [[ ${hc_running:-false} != true ]]; then
   hc_running=true
@@ -104,7 +105,6 @@ hc_legacy_cause() {
 leak_plugin_setup vgs.themes true || { fail "hyprland-consent: fixture precondition failed"; return 1; }
 
 hypr_lua="$home/.config/hypr/hyprland.lua"
-hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 wire_line="pcall(dofile, \"$hypr_layer\")"
 
 wire_count() { grep -cxF -- "$wire_line" "$hypr_lua" || true; }

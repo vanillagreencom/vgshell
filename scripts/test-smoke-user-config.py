@@ -234,8 +234,6 @@ class RestoreTests(unittest.TestCase):
             text = path.read_text().replace("\r\n", "\n")
             if any(line.startswith("user_config_restore ") for line in text.splitlines()):
                 consumers.add(path.stem)
-                inputs = next(line for line in text.splitlines() if line.startswith("# inputs:"))
-                self.assertIn("scripts/smoke/user-config.sh", inputs.split())
         self.assertTrue(required <= consumers, "a repaired row bypasses the restore owner")
 
 

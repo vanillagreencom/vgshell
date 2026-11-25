@@ -5,7 +5,9 @@
 # the shell process dies. Controls start mutant tree copies: one without the
 # layer-open submap dispatch, one without the layer-closed reset, and one
 # without the hl.bind wrapper that learns the user's focus bind.
-# inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/vgshell -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml -- a startup file the row observes
 set -euo pipefail
 overlay_capture_entry="${leak_starts[-1]}"
 printf 'overlay-capture: entry snapshot=%s\n' "$overlay_capture_entry"

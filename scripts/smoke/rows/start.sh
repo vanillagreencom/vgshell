@@ -8,7 +8,7 @@
 # running-shell check and does not answer `ok running` on the second start.
 # The version contract reads the startup log and IPC answer. Its control
 # changes only the IPC value in the existing skip-running copy.
-# inputs: bin/vgshell shell/shell.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js
+# loads: shell/shell.qml -- a startup file the row observes
 set -euo pipefail
 
 # Ceiling on latency_start_ms, the wall time from `vgshell start` to its

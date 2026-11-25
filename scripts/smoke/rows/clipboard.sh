@@ -65,7 +65,9 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the watcher's return for up to 8 s, and a control that reads nothing
 # happen reads it for 2 s, or for those 8 s where it waits for no watcher.
-# inputs: shell/plugins/vgs.clipboard/* shell/plugins/vgs.keyhints/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/Summon* shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Ui/foundation/KeyNav* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/ContentRow.qml shell/Ui/layout/ScrollArea.qml shell/Ui/controls/TextField.qml shell/Ui/feedback/Dialog.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.launcher/*
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Hosts/Summon* -- a run-time load by a computed name
+# loads: shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml -- a startup file the row observes
 set -euo pipefail
 
 for clip_tool in wl-copy wl-paste; do

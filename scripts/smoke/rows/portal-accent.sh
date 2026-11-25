@@ -19,7 +19,8 @@
 # sends. The keyfile backend's file monitor can hand two close writes to a
 # portal backend as one change, whose keys it signals in any order, so the
 # write order comes from the log, not the signals.
-# inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* themes/targets/gtk-theme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
+# loads: bin/lib/theme-* -- a load past a process the row runs, or a copy
+# loads: themes/targets/accent-color/* themes/targets/color-scheme/* themes/targets/gtk-theme/* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* -- theme package data the row applies by name
 set -euo pipefail
 
 portal_bin=/usr/lib/xdg-desktop-portal

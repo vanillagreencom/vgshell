@@ -39,7 +39,10 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.packages/* shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/NavigationRow.qml shell/Ui/layout/ContentRow.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* -- a run-time load by a computed name
+# loads: config/shell.json shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml -- a startup file the row observes
+# loads: shell/plugins/*/manifest.json -- a catalog read of every plugin's manifest
 set -euo pipefail
 expected_errors+=('system: no section acme[.]nope' 'summon host: vgs[.]system open[(][)] failed: payload ')
 

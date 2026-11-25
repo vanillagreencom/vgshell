@@ -28,6 +28,7 @@ PanelWindow {
 
     Loader {
         anchors.fill: parent
+        // loads: shell/plugins/vgs.greeter/Greeter.qml -- the view VGS_GREETER_VIEW names; bin/vgshell-system and the greeter row name this one
         source: root.view === "" ? "" : "file://" + root.view
         onLoaded: {
             item.screen = Qt.binding(() => root.output);

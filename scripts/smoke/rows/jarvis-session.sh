@@ -7,8 +7,11 @@
 # draws the Home folder and Jarvis session labels where the screenshot
 # scenes' jarvis_label_shot finds them, by displayed words alone.
 # No latency ceiling. Reads poll once per nested IPC round trip.
-# inputs: shell/plugins/vgs.jarvis/* shell/Ui/controls/InfoButton.qml scripts/smoke/Probe.qml shell/plugins/vgs.jarvis/backend/* .agents/skills/jarvis/* scripts/fixtures/jarvis/session-package.py scripts/fixtures/jarvis/home.js shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: .agents/skills/jarvis/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js -- a load past a process the row runs, or a copy
+# loads: scripts/fixtures/jarvis/home.js -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
 # Retained task observations can notify during the real daemon's session

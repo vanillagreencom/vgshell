@@ -10,7 +10,10 @@
 # rows start from the defaults. The vgs.themes
 # block, its watch count block and its wallpaper block follow, each
 # delimited by its own markers.
-# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml shell/Commons/Glass.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml shell/Core/Capabilities.qml shell/shell.qml shell/plugins/vgs.notifications/* scripts/smoke/Probe.qml shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/lib/theme-* -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/BarHost.qml shell/shell.qml -- a startup file the row observes
+# loads: themes/* -- theme package data the row applies by name
 set -euo pipefail
 # A theme document that is not JSON is refused with its parse error.
 expected_errors+=('theme: refused: document reason=not-json JSON[.]parse: Parse error file=.*theme[.]json')

@@ -202,6 +202,7 @@ function world(main) {
 // mutation must break its owning assertion, not merely make a process
 // return nonzero.
 async function mutant(relative, name, needle, replacement, check) {
+    // loads: shell/plugins/vgs.jarvis/* bin/lib/qml-library.js bin/lib/anchored.js bin/lib/account-folders.js bin/lib/codex-account.js shell/Commons/AccountDirectories.js shell/Commons/TuiArguments.js shell/Commons/SettingValues.js -- the plugin files the copy and its mutants read, and core.js's FILES
     const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
     const core = CORE_FILES.includes(relative);
     const source = fs.readFileSync(core ? path.join(tree, relative) : path.join(plugin, relative), "utf8");

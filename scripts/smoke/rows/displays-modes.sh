@@ -31,11 +31,11 @@
 # held and writes no log, and the control reports the defect; with the
 # shipped guard left in place the same check reads `token=claimed
 # log=written` and fails.
-# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/judge-files.js bin/lib/qml-library.js
+# loads: bin/vgshell-greeter-layout -- a load past a process the row runs, or a copy
+# loads: shell/Core/HyprlandLayer.qml -- a startup file the row observes
 set -euo pipefail
 
 user_config="$home/.config/vgshell/shell.json"
-hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 cp -- "$user_config" "$sandbox/shell-before-displays-modes.json"
 
 read_displays() { ipc smoke readInstance service vgs.displays "$1"; }

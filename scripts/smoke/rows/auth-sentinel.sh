@@ -10,7 +10,9 @@
 # sentinel, and that no sentinel was called during the run. Its control:
 # a call through a sentinel after that reading is logged, so an empty log
 # is a run that called none, not a sentinel that logs nothing.
-# inputs: bin/* shell/* scripts/smoke/fixtures/* shell/plugins/vgs.jarvis/backend/skills/*.md
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: bin/* shell/* -- the whole-run judge reads every file
+# loads: scripts/smoke/fixtures/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 # The facts are harness.sh's judges' predicates, which smoke_judge_reading
 # reads at every row's start and end too.

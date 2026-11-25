@@ -168,6 +168,7 @@ for rel in "${install_entries[@]}"; do
   dst="$runtime_root/$rel"
   [[ -f $src || -L $src ]] || continue
   mkdir -p -- "$(dirname -- "$dst")"
+  # loads: bin/* shell/* config/* themes/* packaging/arch/*/.SRCINFO VERSION -- enumerate_tree lists the runtime tree it installs
   cp -Pp -- "$src" "$dst"
 done
 

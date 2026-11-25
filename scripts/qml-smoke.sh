@@ -137,10 +137,12 @@
 # in a live session (scripts/smoke/harness.sh); it needs --first-bar-runs.
 #
 # --rows runs the named rows, each a name --list-rows prints, the core
-# rows, and each row one of those reads: the rows its input line names, and
-# theirs in turn. scripts/smoke/row-inputs.sh holds the core rows and the
-# reader, the ones scripts/validate selects with, so the set it passes on a
-# diff-scoped run is already closed and gains no row here:
+# rows, and each row one of those reads: the rows whose functions or
+# variables it uses or whose state a `loads:` directive of its file names,
+# and theirs in turn. scripts/smoke/row-inputs.sh holds the core rows and
+# scripts/row_loads.py the relation, the ones scripts/validate selects
+# with, so the set it passes on a diff-scoped run is already closed and
+# gains no row here:
 # docs/architecture/validation.md. The rows run in the order
 # scripts/smoke/rows.list fixes, with the harness steps between them;
 # without --rows every row runs. The run prints
@@ -148,13 +150,13 @@
 # harness starts. A name the runner does not hold is refused as
 # `qml-smoke: refused: argument=--rows value=<name> reason=unknown-row`, a
 # core row the list does not hold as `qml-smoke: refused: argument=--rows
-# value=<row> reason=core-row-missing`, and a row whose input line names a
-# row file that the list does not hold and the tree does not have as
-# `qml-smoke: refused: argument=--rows value=<row>
-# reason=reads-unknown-row reads=<name>`, each before anything starts. A row file the tree has and the list does not is
-# one the row runs itself through smoke_row. A row whose input line cannot
-# be read prints `qml-smoke: rows inputs=<fault> row=<row>` on stderr and
-# brings no row. --list-rows prints the rows a run with the same --rows
+# value=<row> reason=core-row-missing`, and a row that reads a row file
+# that the list does not hold and the tree does not have as `qml-smoke:
+# refused: argument=--rows value=<row> reason=reads-unknown-row
+# reads=<name>`, each before anything starts. A row file the tree has and
+# the list does not is one the row runs itself through smoke_row. A
+# relation that cannot be read prints `qml-smoke: rows reads=<fault>` on
+# stderr and brings no row the reading missed. --list-rows prints the rows a run with the same --rows
 # would run, one name per line in run order, and every row without --rows;
 # it starts nothing. qml_smoke_wanted decides both.
 #
@@ -188,7 +190,6 @@
 # cpu_some_pct 33.7 (130 ms), is unmeasured. The inbox default is twice the
 # highest reading of the summoned-panel image-count reader on the same
 # machine on 2026-10-01, at load average 5.58 to 8.80: 651 to 688 ms.
-# loads: scripts/smoke/rows/*.sh -- the row list names the rows it reads
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -268,29 +269,26 @@ if [[ ${#qml_smoke_named[@]} -gt 0 && -n $first_bar_runs ]]; then
   exit 2
 fi
 # The rows --rows names bring the core rows, whose state any row may read,
-# and the rows each of those reads: qml_smoke_reach holds each row
-# reached, and the queue each row whose input line is still to read. A
-# named row file that is no listed row is the reading row's own
-# when the tree has it; one the tree lacks is a row that left or a
-# misspelt name, which would end the run in a command not found.
+# and the rows each of those reads, from the one relation scripts/validate
+# selects with (smoke_row_reads_read): qml_smoke_reach holds each row
+# reached, and the queue each row whose reads are still to close. A read
+# row file that is no listed row is the reading row's own when the tree
+# has it; one the tree lacks is a row that left or a misspelt name, which
+# would end the run in a command not found.
 if [[ ${#qml_smoke_named[@]} -gt 0 ]]; then
   source "$repo/scripts/smoke/row-inputs.sh"
-  declare -A qml_smoke_reach=()
+  declare -A qml_smoke_reach=() smoke_row_reads=()
   for qml_smoke_row in "${smoke_core[@]}"; do
     if [[ " ${qml_smoke_rows[*]} " != *" $qml_smoke_row "* ]]; then printf 'qml-smoke: refused: argument=--rows value=%s reason=core-row-missing\n' "$qml_smoke_row" >&2; exit 2; fi
   done
+  smoke_row_reads_read "$repo" "${qml_smoke_rows[@]}" || printf 'qml-smoke: rows reads=%s\n' "$smoke_row_reads_fault" >&2
   qml_smoke_queue=("${qml_smoke_named[@]}" "${smoke_core[@]}")
   while [[ ${#qml_smoke_queue[@]} -gt 0 ]]; do
     qml_smoke_row="${qml_smoke_queue[0]}"
     qml_smoke_queue=("${qml_smoke_queue[@]:1}")
     [[ -z ${qml_smoke_reach[$qml_smoke_row]-} ]] || continue
     qml_smoke_reach[$qml_smoke_row]=1
-    if ! smoke_inputs_read "$repo/scripts/smoke/rows/$qml_smoke_row.sh"; then
-      printf 'qml-smoke: rows inputs=%s row=%s\n' "$smoke_inputs_fault" "$qml_smoke_row" >&2
-      continue
-    fi
-    smoke_inputs_rows "$qml_smoke_row"
-    for qml_smoke_read in "${smoke_inputs_named[@]}"; do
+    for qml_smoke_read in ${smoke_row_reads[$qml_smoke_row]-}; do
       if [[ " ${qml_smoke_rows[*]} " == *" $qml_smoke_read "* ]]; then
         qml_smoke_queue+=("$qml_smoke_read")
       elif [[ ! -f $repo/scripts/smoke/rows/$qml_smoke_read.sh ]]; then

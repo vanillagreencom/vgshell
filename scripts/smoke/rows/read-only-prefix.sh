@@ -6,7 +6,9 @@
 # under a state home of the row's own: the vgs package names a background,
 # and in the sandbox's shared state directory the repository shell this
 # row restores would draw it, a layer no row before it left.
-# inputs: packaging/* scripts/check-install-tree.sh VERSION LICENSE README.md bin/* shell/* config/* themes/* scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/* scripts/fixtures/jarvis-setup/* scripts/lib/jarvis-env.sh scripts/test-task-event.js scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: packaging/* -- the whole-run judge reads every file
+# loads: scripts/fixtures/jarvis/* scripts/fixtures/jarvis-voice/assertions.js scripts/fixtures/jarvis-voice/guidance.json scripts/fixtures/jarvis-voice/speakable.json scripts/fixtures/jarvis-setup/installed-probe.py scripts/fixtures/jarvis-setup/installer.py scripts/fixtures/jarvis-setup/status.py -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.

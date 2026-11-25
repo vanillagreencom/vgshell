@@ -25,7 +25,7 @@
 # hardware write, so it has no control. The row leaves the fakes up,
 # clears the reply it plants, and leaves the fixture disabled for the
 # System rows.
-# inputs: scripts/smoke/fixtures/devices/* scripts/smoke/fixtures/plugins/acme.devices/*
+# loads: scripts/smoke/fixtures/devices/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 devices_ready device-fakes || return 0
 

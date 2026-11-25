@@ -8,7 +8,7 @@
 
 **Research**: [VGS-2616](https://linear.app/vanillagreen/issue/VGS-2616), [VGS-2605 design review](https://linear.app/vanillagreen/issue/VGS-2605#comment-78adaf5c-0bdf-47e0-b166-2ef48ed0ad9f).
 
-**Refines**: [D100](D100-validation-selects-by-inputs.md)'s static shell-load reach through the capability provider hub. [D117](D117-reuse-rows-on-recorded-passes.md)'s pass reuse is unchanged.
+**Refines**: [D100](D100-validation-selects-by-inputs.md)'s static shell-load reach through the capability provider hub. [D117](D117-reuse-rows-on-recorded-passes.md)'s pass reuse is unchanged. A smoke row's inputs, which these edges extend, are [D143](D143-smoke-row-inputs-are-what-the-row-loads.md)'s.
 
 **Decision**: `smoke_loads_read` derives provider-to-capability edges from `Capabilities.qml`'s factory table, then capability-to-plugin edges from manifests judged by `PluginLogic.js` under node. A provider reaches the plugin source files whose manifests declare its capabilities, then the rows whose inputs name those files. These edges replace the provider's upward edge through `Capabilities.qml`; ordinary static loads, direct row inputs, core rows and row dependencies remain. A manifest-only catalog read does not observe every provider. An unreadable or unattributable provider mapping retains conservative reach. A shared harness input's top-level hunk, a helper every row uses, or unreadable reach still selects every row, because each row executes it or cannot be proved unaffected. A top-level hunk in another shared library keeps whole-file reach through its actual importers.
 

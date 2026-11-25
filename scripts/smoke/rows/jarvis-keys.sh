@@ -2,8 +2,12 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.jarvis/backend/skills/*.md
+# loads: scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/plugins/vgs.notifications/* shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/BarHost.qml -- a startup file the row observes
+# loads: scripts/fixtures/jarvis/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's

@@ -16,7 +16,7 @@
 # The row ends with the fixture disabled and its screen removed, so the
 # later rows' bars and lending records hold nothing of it. rows/settings.sh
 # enables it again to read its Status rows.
-# inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
+# loads: scripts/smoke/rows/plugins.sh -- state another row leaves
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "status: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe

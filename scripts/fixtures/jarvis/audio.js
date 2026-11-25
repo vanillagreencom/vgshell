@@ -79,6 +79,7 @@ function copyBackend(folder) {
     // Backend modules load ../AccountProviders.js, and ../manifest.json for
     // the version floors.
     for (const beside of ["AccountProviders.js", "manifest.json"])
+        // loads: shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.jarvis/backend/* -- the backend folder and the files beside it the copy needs
         fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(folder, "..", beside));
     for (const file of fs.readdirSync(path.join(tree, "shell/plugins/vgs.jarvis/backend")))
         fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis/backend", file), path.join(folder, file), { recursive: true });

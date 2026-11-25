@@ -22,7 +22,7 @@
 # context. Each same-title sibling can retake native keyboard focus. Its
 # control restores window preference in a disposable tree.
 # A place-then-move chooser control must fail the ordinary one-write judge.
-# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/Ui/layout/ContentRow.qml shell/Ui/layout/ListItem.qml shell/Ui/controls/Switch.qml shell/Ui/controls/RowAction.qml shell/Ui/foundation/FocusRing.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/plugins/vgs.bar/Calendar.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
 set -euo pipefail
 
 aw_saved="$sandbox/add-widget-saved.json"

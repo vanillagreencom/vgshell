@@ -9,7 +9,8 @@
 # to qs. The row ends with the tree's shell under the harness's own
 # environment.
 # No latency budget. A start's ping is polled every 0.2 s.
-# inputs: shell/shell.qml bin/vgshell
+# loads: bin/vgshell -- a load past a process the row runs, or a copy
+# loads: shell/shell.qml -- a startup file the row observes
 set -euo pipefail
 
 stop_shell || :

@@ -18,7 +18,7 @@
 # A popover and a dialog in the summoned panel's popup cap their height at
 # their share of the output; copies that find the output as the Qt window's
 # own `screen` cap at the fallback.
-# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Commons/AnchorTracker.qml shell/Ui/qmldir shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml scripts/smoke/rows/plugins.sh
+# loads: shell/Ui/overlay/PassivePopup.qml -- a startup file the row observes
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"

@@ -62,7 +62,10 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
+# loads: scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/vgshell -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/HyprlandLayer.qml -- a startup file the row observes
+# loads: scripts/smoke/fixtures/devices/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 devices_ready sound || return 0
 

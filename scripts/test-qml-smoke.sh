@@ -154,16 +154,14 @@ PY
 preserve_checkout
 core=(bar hyprland-consent start-order auth-sentinel)
 for row in "${core[@]}"; do
-  printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/$row.sh"
+  printf ':\n' >"$tree/scripts/smoke/rows/$row.sh"
 done
 cat >"$tree/scripts/smoke/rows/provider.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 provider_private=restored
 provider_read() { printf '%s\n' "$provider_private"; }
 ok provider-ready
 ROW
 cat >"$tree/scripts/smoke/rows/fatal-unbound.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 fail real-before-fatal-one
 fail real-before-fatal-two
 not_measured "$smoke_row_name" planted-unavailable
@@ -176,21 +174,18 @@ control_output "$sandbox/expected-reset.log"
 printf '%s\n' "$qml_smoke_missing_variable"
 ROW
 cat >"$tree/scripts/smoke/rows/fatal-arithmetic.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 qml_smoke_bad_number=not_a_number
 printf '%s\n' "$((qml_smoke_bad_number + 1))"
 ROW
 cat >"$tree/scripts/smoke/rows/following.sh" <<'ROW'
-# inputs: scripts/smoke/rows/provider.sh
 [[ $(provider_read) == restored ]] || fail following-provider-state
 ok following-ran
 ROW
 cat >"$tree/scripts/smoke/rows/dependent.sh" <<'ROW'
-# inputs: scripts/smoke/rows/fatal-unbound.sh
+# loads: scripts/smoke/rows/fatal-unbound.sh -- the state fatal-unbound leaves
 fail dependent-must-not-run
 ROW
 cat >"$tree/scripts/smoke/rows/ordinary.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 fail planted-assertion-one
 fail planted-assertion-two
 not_measured ordinary planted-unavailable
@@ -213,12 +208,10 @@ path.write_text(json.dumps(doc))
 PY
   cat >"$tree/scripts/smoke/rows/hyprland-consent.sh" <<'ROW'
 # leaves: layers options
-# inputs: scripts/smoke/harness.sh
 expect_poll 'the profile consent notice has the keyboard' true ipc smoke noticeFocused
 hypr_consent_connect 'the idle profile'
 ROW
   cat >"$tree/scripts/smoke/rows/idle-profile.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 expect 'the profile enables Lock as Key Hints does' ok ipc shell setPluginEnabled vgs.lock true
 expect_poll 'the lock service is built before waiting' True record_exists vgs.lock
 idle_profile_measure() {
@@ -285,7 +278,7 @@ finally:
     harness.write_text(original)
 PY
   cp -- "$repo/shell/plugins/vgs.lock/manifest.json" "$tree/shell/plugins/vgs.lock/manifest.json"
-  printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/hyprland-consent.sh"
+  printf ':\n' >"$tree/scripts/smoke/rows/hyprland-consent.sh"
   printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
   [[ $selected_case != idle-lock ]] || end_run
 fi
@@ -397,8 +390,8 @@ recorder = change(recorder, needle, '''            phase_file = pathlib.Path(__f
 '''+needle)
 core = ['bar', 'hyprland-consent', 'start-order', 'auth-sentinel']
 for name in core + ['following']:
-    (tree / f'scripts/smoke/rows/{name}.sh').write_text('# inputs: scripts/smoke/harness.sh\n:\n')
-(tree / 'scripts/smoke/rows/fatal.sh').write_text('# inputs: scripts/smoke/harness.sh\nprintf "%s\\n" "$completion_missing"\n')
+    (tree / f'scripts/smoke/rows/{name}.sh').write_text(':\n')
+(tree / 'scripts/smoke/rows/fatal.sh').write_text('printf "%s\\n" "$completion_missing"\n')
 (tree / 'scripts/smoke/harness.sh').write_text(mini)
 (tree / 'scripts/smoke/teardown.sh').write_text(teardown)
 (tree / 'scripts/smoke/gpu-fence.sh').write_text(fence)
@@ -594,7 +587,7 @@ def unit_stop(label, fence_source, teardown_source, want_close, held=False):
     output = scratch / ('unit-stop-' + label)
     output.mkdir()
     (tree / 'completion-phase').write_text('mid-row\n')
-    (tree / 'scripts/smoke/rows/stop-here.sh').write_text('# inputs: scripts/smoke/harness.sh\nkill "$sink_pid"\nwait "$sink_pid" || :\ncompletion_barrier mid-row\n')
+    (tree / 'scripts/smoke/rows/stop-here.sh').write_text('kill "$sink_pid"\nwait "$sink_pid" || :\ncompletion_barrier mid-row\n')
     (tree / 'scripts/smoke/rows.list').write_text('\n'.join(core + ['stop-here']) + '\n')
     (tree / 'scripts/qml-smoke.sh').write_text(driver)
     (tree / 'scripts/smoke/harness.sh').write_text(stop_harness)
@@ -739,15 +732,13 @@ PY
   hold_reader='hold_events="$smoke_log_dir/hold-events"
 hold_seen() { [[ -f $hold_events ]] && grep -qxF -- "$1" "$hold_events"; }'
   cat >"$tree/scripts/smoke/rows/hold-forever.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 600; }
 smoke_hold hold-forever window hold_forever
 ROW
-  printf '# inputs: scripts/smoke/harness.sh\nsmoke_hold hold-bounded window true\n' >"$tree/scripts/smoke/rows/hold-bounded.sh"
+  printf 'smoke_hold hold-bounded window true\n' >"$tree/scripts/smoke/rows/hold-bounded.sh"
   # The window starts while the other world is in tick-1, and looks for
   # tick-2 starting while it holds.
   cat >"$tree/scripts/smoke/rows/hold-window.sh" <<ROW
-# inputs: scripts/smoke/harness.sh
 $hold_reader
 for _ in \$(seq 1 1200); do hold_seen 'B start 1' && break; sleep 0.1; done
 printf 'A requested\n' >>"\$hold_events"
@@ -761,7 +752,6 @@ ROW
   # tick-1 stays open until the hold is requested, then looks for the
   # window starting before the row ends.
   cat >"$tree/scripts/smoke/rows/tick-1.sh" <<ROW
-# inputs: scripts/smoke/harness.sh
 $hold_reader
 printf 'B start 1\n' >>"\$hold_events"
 for _ in \$(seq 1 1200); do hold_seen 'A requested' && break; sleep 0.1; done
@@ -769,7 +759,7 @@ for _ in \$(seq 1 30); do hold_seen 'A held' && break; sleep 0.1; done
 printf 'B end 1\n' >>"\$hold_events"
 ROW
   for tick in 2 3 4; do
-    printf '# inputs: scripts/smoke/harness.sh\nprintf '\''B start %s\\nB end %s\\n'\'' >>"$smoke_log_dir/hold-events"\n' "$tick" "$tick" >"$tree/scripts/smoke/rows/tick-$tick.sh"
+    printf 'printf '\''B start %s\\nB end %s\\n'\'' >>"$smoke_log_dir/hold-events"\n' "$tick" "$tick" >"$tree/scripts/smoke/rows/tick-$tick.sh"
   done
   printf '%s\n' "${core[@]}" hold-forever hold-bounded hold-window tick-1 tick-2 tick-3 tick-4 >"$tree/scripts/smoke/rows.list"
   cat >"$TMP_ROOT/hold-case.py" <<'PY'
@@ -924,7 +914,10 @@ elif label == 'resume':
     fatal_lines = [number for number, line in enumerate(source, 1) if '"$qml_smoke_missing_variable"' in line]
     assert len(fatal_lines) == 1, fatal_lines
     assert re.search(rf'/fatal-unbound.sh: line {fatal_lines[0]}: qml_smoke_missing_variable: unbound variable', log), log
-    assert re.search(r'/fatal-arithmetic.sh: line 3: not_a_number: unbound variable', log), log
+    source = (root.parent / 'tree/scripts/smoke/rows/fatal-arithmetic.sh').read_text().splitlines()
+    arithmetic_lines = [number for number, line in enumerate(source, 1) if '$((qml_smoke_bad_number + 1))' in line]
+    assert len(arithmetic_lines) == 1, arithmetic_lines
+    assert re.search(rf'/fatal-arithmetic.sh: line {arithmetic_lines[0]}: not_a_number: unbound variable', log), log
     assert by_row['dependent'] == ('blocked', ' producer=fatal-unbound'), by_row
     assert by_row['following'][0] == 'ok', by_row
     assert by_row['provider'][0] == 'ok', by_row
@@ -1017,21 +1010,18 @@ PY
 run_case resume
 if [[ $selected_case == all || $selected_case == cancellation || $selected_case == producer || $selected_case == late-exit ]]; then
   cat >"$tree/scripts/smoke/rows/cancel-fatal.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 printf '%s\n' "$qml_smoke_cancel_missing"
 ROW
   cat >"$tree/scripts/smoke/rows/cancel-wait.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 printf 'cancel-ready root=%s sandbox=%s attempt=%s record=%s\n' "$VGSHELL_WORLD_ROOT" "$sandbox" "$qml_smoke_attempt" "$display_record_dir"
 sleep 300 &
 wait $!
 ROW
   cat >"$tree/scripts/smoke/rows/cancel-forbidden.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 fail cancel-forbidden-ran
 ROW
   if [[ $selected_case == late-exit ]]; then
-    printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/cancel-wait.sh"
+    printf ':\n' >"$tree/scripts/smoke/rows/cancel-wait.sh"
     python3 - "$tree" <<'PY'
 from pathlib import Path
 import sys
@@ -1322,23 +1312,23 @@ cp -- "$repo/scripts/qml-smoke.sh" "$tree/scripts/qml-smoke.sh"
 preserve_checkout
 cp -- "$tree/scripts/smoke/rows/fatal-unbound.sh" "$tree/scripts/smoke/rows/bar.sh"
 run_case fatal-core
-printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/bar.sh"
-printf '# inputs: scripts/smoke/harness.sh\nnot_measured note planted-unavailable\n' >"$tree/scripts/smoke/rows/note.sh"
+printf ':\n' >"$tree/scripts/smoke/rows/bar.sh"
+printf 'not_measured note planted-unavailable\n' >"$tree/scripts/smoke/rows/note.sh"
 printf '%s\n' "${core[@]}" provider note following >"$tree/scripts/smoke/rows.list"
 run_case not-measured
-printf '# inputs: scripts/smoke/harness.sh\n:\n' >"$tree/scripts/smoke/rows/note.sh"
+printf ':\n' >"$tree/scripts/smoke/rows/note.sh"
 run_case good
-printf '# inputs: scripts/smoke/harness.sh\nexit 0\n' >"$tree/scripts/smoke/rows/early-zero.sh"
+printf 'exit 0\n' >"$tree/scripts/smoke/rows/early-zero.sh"
 printf '%s\n' "${core[@]}" provider early-zero following >"$tree/scripts/smoke/rows.list"
 run_case early-zero
-printf '# inputs: scripts/smoke/harness.sh\nexit 1\n' >"$tree/scripts/smoke/rows/stopped.sh"
+printf 'exit 1\n' >"$tree/scripts/smoke/rows/stopped.sh"
 printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 run_case stopped
 # The slow row prints a line every 2 s for 18 s, past the 15 s bound; the
 # hang row then prints one line and goes silent with TERM ignored, as a
 # teardown that hangs on a stop does.
-printf '# inputs: scripts/smoke/harness.sh\nfor i in 1 2 3 4 5 6 7 8 9; do sleep 2; ok "slow line $i"; done\n' >"$tree/scripts/smoke/rows/slow.sh"
-printf '# inputs: scripts/smoke/harness.sh\nok "hang starts"\ntrap "" TERM\nsleep 600\n' >"$tree/scripts/smoke/rows/hang.sh"
+printf 'for i in 1 2 3 4 5 6 7 8 9; do sleep 2; ok "slow line $i"; done\n' >"$tree/scripts/smoke/rows/slow.sh"
+printf 'ok "hang starts"\ntrap "" TERM\nsleep 600\n' >"$tree/scripts/smoke/rows/hang.sh"
 printf '%s\n' "${core[@]}" provider slow hang following >"$tree/scripts/smoke/rows.list"
 (export VGS_SMOKE_IDLE_SECS=15; run_case no-progress)
 printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
@@ -1347,7 +1337,7 @@ unreached_cases=(
   'pre-world|'
   "stopped-unmeasured|${core[*]} provider"
 )
-printf '# inputs: scripts/smoke/harness.sh\nexit 77\n' >"$tree/scripts/smoke/rows/stopped.sh"
+printf 'exit 77\n' >"$tree/scripts/smoke/rows/stopped.sh"
 for unreached_case in "${unreached_cases[@]}"; do
   IFS='|' read -r label completed <<<"$unreached_case"
   if [[ $label == pre-world ]]; then
@@ -1360,7 +1350,6 @@ done
 cp -- "$repo/scripts/smoke/harness.sh" "$tree/scripts/smoke/harness.sh"
 [[ $selected_case != unmeasured ]] || end_run
 cat >"$tree/scripts/smoke/rows/finish-operation.sh" <<'ROW'
-# inputs: scripts/smoke/harness.sh
 sink_check() { [[ -n ${smoke_row_name:-} ]] || fail planted-final-operation; }
 ROW
 printf '%s\n' "${core[@]}" provider following finish-operation >"$tree/scripts/smoke/rows.list"

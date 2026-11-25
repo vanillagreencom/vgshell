@@ -2,13 +2,15 @@
 # physical interface resolver, and a capture probe seam. No capture or host
 # authentication runs. No latency budget: CPU evidence is in the item.
 # Polls use expect_poll. A dropped panel release must fail the lease check.
-# inputs: shell/plugins/vgs.traffic/* shell/plugins/vgs.traffic/tui/* scripts/fixtures/traffic/* scripts/smoke/fixtures/traffic/* scripts/smoke/fixtures/tui/vgs.traffic/tui/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/PluginSlot.qml scripts/smoke/toplevel/* shell/Commons/AnchorTracker.qml
+# loads: shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/PluginSlot.qml -- a startup file the row observes
+# loads: scripts/fixtures/traffic/net-dev-after.txt scripts/fixtures/traffic/ss-after.txt scripts/fixtures/traffic/ss-before.txt scripts/smoke/fixtures/traffic/Service.qml scripts/smoke/fixtures/traffic/allow.sh -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 expected_errors+=('traffic: kill exit=1 kill: sending signal failed: No such process')
 traffic_dir="$sandbox/traffic"
 mkdir -p -- "$traffic_dir"
 cp -- "$home/.config/vgshell/shell.json" "$traffic_dir/shell.json"
 traffic_source="$repo/shell/plugins/vgs.traffic"
+# loads: shell/plugins/vgs.traffic/Service.qml shell/plugins/vgs.traffic/Panel.qml -- the files the row patches
 for file in Service.qml Panel.qml; do cp -- "$traffic_source/$file" "$traffic_dir/$file"; done
 cp -- "$traffic_source/tui/bandwhich.sh" "$traffic_dir/bandwhich.sh"
 cp -- "$repo/scripts/fixtures/traffic/net-dev-before.txt" "$traffic_dir/net-dev"
@@ -428,6 +430,7 @@ traffic_release_control() { (failures=0 behaviour_failures=0; expect "the panel 
 expect "a dropped release breaks the lease test" 1 traffic_release_control
 expect "Traffic disables after its row" ok ipc shell setPluginEnabled vgs.traffic false
 expect_poll "the service is destroyed" False record_exists vgs.traffic
+# loads: shell/plugins/vgs.traffic/Service.qml shell/plugins/vgs.traffic/Panel.qml -- the files the row restores
 for file in Service.qml Panel.qml; do cp -- "$traffic_dir/$file" "$traffic_source/$file"; done
 cp -- "$traffic_dir/bandwhich.sh" "$traffic_source/tui/bandwhich.sh"
 rm -f -- "${shim:?}/bandwhich"

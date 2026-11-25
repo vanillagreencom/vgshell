@@ -12,7 +12,10 @@
 # control, in another copy, parents the Scrim back to the body, so it
 # leaves the dropdown's header and footer undimmed and a click on the
 # Wi-Fi switch turns Wi-Fi off.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/network-dns.sh bin/vgshell-system shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh bin/lib/dbus_wire.py
+# loads: scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh -- state another row leaves
+# loads: bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/dbus_wire.py -- a load past a process the row runs, or a copy
+# loads: shell/Core/* shell/Hosts/* shell/Commons/AccountDirectories.js shell/Commons/Duration.js shell/Commons/SessionLockState.js shell/Commons/TextList.js shell/Commons/Timestamp.js shell/Commons/Workspaces.qml shell/shell.qml config/shell.json -- a startup file the row observes
+# loads: scripts/smoke/fixtures/devices/cups.py scripts/smoke/fixtures/devices/hid-fake.py scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/pipewire/pipewire.conf scripts/smoke/fixtures/devices/wireplumber/90-vgs-smoke.conf scripts/smoke/fixtures/devices/world.py -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 expected_errors+=('NetworkBody[.]qml.*(Unable to assign [[]undefined[]] to QString|TypeError: Cannot read property .width. of null)' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]network')
 devices_ready network || return 0

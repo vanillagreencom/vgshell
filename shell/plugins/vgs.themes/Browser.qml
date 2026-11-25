@@ -62,6 +62,7 @@ Item {
         id: page
         anchors.fill: parent
         focus: true
+        // loads: shell/plugins/vgs.themes/ThemeView.qml shell/plugins/vgs.themes/WallpaperView.qml -- BrowserLogic.VIEWS names each view's source
         source: root.view === "" ? "" : BrowserLogic.viewSource(root.view)
         // A view takes the shell through a binding, so a settings change's
         // new shell object reaches it as it reaches the browser.

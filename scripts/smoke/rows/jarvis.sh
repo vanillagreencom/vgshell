@@ -1,5 +1,8 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh .agents/skills/jarvis/* scripts/smoke/rows/plugins.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# loads: scripts/smoke/rows/plugins.sh -- state another row leaves
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: bin/lib/account-folders.js .agents/skills/jarvis/* -- a load past a process the row runs, or a copy
+# loads: scripts/fixtures/jarvis/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 
 # A fixture selects disposable inputs; the leak owner never restores source

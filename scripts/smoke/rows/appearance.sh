@@ -65,7 +65,8 @@
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
 # hyprland.lua, the plugins directory and every enablement as it found
 # them.
-# inputs: shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.fonts/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.appearance/* shell/Commons/ThemeLogic.js shell/Commons/ThemeSource.qml shell/Commons/Theme.qml shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/Config.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Plugins.qml shell/Hosts/PaneHost.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Slider.qml shell/Ui/controls/SavedSlider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/shell.qml shell/Core/ThemeRunner.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Core/HyprlandLayer.qml shell/Hosts/PaneHost.qml shell/shell.qml shell/Core/ThemeRunner.qml -- a startup file the row observes
 set -euo pipefail
 
 app_file="$home/.config/vgshell/shell.json"

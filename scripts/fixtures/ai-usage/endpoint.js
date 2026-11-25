@@ -45,6 +45,7 @@ function record(request, logFile) {
     fs.appendFileSync(logFile, JSON.stringify(line) + "\n");
     return line;
 }
+// loads: scripts/fixtures/ai-usage/* -- the stand-in answers with the reply fixtures it names
 function relativeClaude(file) {
     const reply = JSON.parse(fs.readFileSync(path.join(__dirname, file), "utf8"));
     const at = ms => new Date(Date.now() + ms).toISOString();

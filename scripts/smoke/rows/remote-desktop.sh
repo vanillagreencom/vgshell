@@ -41,7 +41,6 @@
 # The script's ssh goes through a wrapper that names the sandbox's SSH
 # files, since ssh reads ~/.ssh from the account's home, not HOME.
 # No latency is measured; each reading polls every 200 ms for up to 30 s.
-# inputs: shell/plugins/vgs.remote-desktop/* shell/plugins/vgs.remote-desktop/helper/* shell/plugins/vgs.remote-desktop/tui/* shell/plugins/vgs.launcher/* shell/plugins/vgs.system/* shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/layout/ListItem.qml bin/lib/tui.sh scripts/smoke/shot.sh
 set -euo pipefail
 rd_id=vgs.remote-desktop
 rd_dir="$sandbox/remote-desktop"

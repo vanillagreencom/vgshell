@@ -18,7 +18,7 @@
 # early press would have had. Those margins are not latencies; the exact
 # threshold is proved over injected time in scripts/test-power-logic.js.
 # Run lists poll every 0.2 s (expect_poll).
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.launcher/* scripts/smoke/power-fakes.sh scripts/smoke/pointer/* shell/Hosts/SummonLayer.qml shell/Hosts/PluginSlot.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Ui/layout/ListCursor.qml shell/Ui/layout/ListCursorRow.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/ContentRow.qml shell/Ui/layout/Pane.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/foundation/Scrim.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/BindField.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/KeyField.qml shell/Commons/Theme.qml
+# loads: shell/Hosts/SummonLayer.qml shell/Hosts/PluginSlot.qml -- a startup file the row observes
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 

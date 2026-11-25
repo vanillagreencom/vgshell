@@ -4,8 +4,13 @@
 # and one notice over it; while Jarvis speaks Stop takes Send's place, and
 # voice mute keeps Send available. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
-# inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* .agents/skills/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js shell/plugins/vgs.jarvis/backend/skills/*.md shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
+# loads: scripts/smoke/rows/windows.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load by a computed name
+# loads: .agents/skills/jarvis/* -- a load past a process the row runs, or a copy
+# loads: shell/Commons/Nmcli.js shell/Commons/TextList.js shell/Commons/Workspaces.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml -- a startup file the row observes
+# loads: scripts/fixtures/jarvis/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
 source "$source_repo/scripts/smoke/jarvis-console.sh"
@@ -13,6 +18,7 @@ source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jarvis_console_config="$home/.config/vgshell/shell.json"
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_key_config="$jarvis_console_config"
 jarvis_console_lua="$home/.config/hypr/hyprland.lua"
 jarvis_console_paths() {

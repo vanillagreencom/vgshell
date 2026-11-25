@@ -2516,6 +2516,7 @@ font_copies() { # FONT_ONLY_DIR
     variable="${pair%%:*}"
     font="$shell_dir/assets/fonts/${pair#*:}"
     unset "$variable"
+    # loads: shell/assets/fonts/* -- the fonts the pair table names
     if part="$(mktemp -p "$dir" .copy.XXXXXX 9>&-)" \
       && cp -- "$font" "$part" 9>&- \
       && hash="$(sha256sum -- "$part" 9>&-)" \

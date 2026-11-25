@@ -1,9 +1,8 @@
-# The one reader of a smoke row's input line, the one list of the core
-# rows and of the judge rows, and the one reader of the nested smoke's
-# per-row outcomes, sourced by scripts/validate, which selects rows by
-# them and records each smoke row's outcome, and by scripts/qml-smoke.sh,
-# whose --rows adds the core rows and the rows a row reads and whose
-# driver reports each row's result. The line's form is in scripts/AGENTS.md.
+# The one list of the core rows and of the judge rows and the one reader
+# of the nested smoke's per-row outcomes, sourced by scripts/validate, which
+# selects rows by them and records each smoke row's outcome, and by
+# scripts/qml-smoke.sh, whose --rows adds the core rows and the rows a row
+# reads (smoke_row_reads_read) and whose driver reports each row's result.
 
 # The rows every run that does not run every row runs: the bar the others
 # build on, the consent row that answers the dialog the first shell raises,
@@ -19,38 +18,31 @@ smoke_core=(bar hyprland-consent start-order auth-sentinel)
 # having run after it: smoke_attempt_judged.
 declare -gA smoke_judges=([tui-guard]=refused [auth-sentinel]=calls)
 
-# smoke_inputs_read FILE: read FILE's one `# inputs: GLOB [GLOB...]` line,
-# in its leading comment block (the lines from its first that start with
-# #), into smoke_globs, with the line itself in smoke_inputs_line, and
-# return 0. Otherwise leave smoke_globs empty, set smoke_inputs_fault to
-# unreadable, missing, lines=<count> or empty, and return 1.
-smoke_inputs_read() { # FILE
-  local count=0
-  smoke_globs=()
-  smoke_inputs_fault=""
-  if ! smoke_inputs_line="$(awk '!/^#/ { exit } /^# inputs:/ { print }' "$1")"; then
-    smoke_inputs_fault=unreadable; return 1
+# smoke_row_reads_read ROOT ROW...: fill the associative array
+# smoke_row_reads, ROW -> the rows it reads, space-led, from
+# `scripts/row_loads.py --row-reads` run in the checkout ROOT, the one
+# reader of that relation, whose `--smoke` facts scripts/validate reads:
+# the rows whose functions or variables ROW uses and whose file a `loads:`
+# directive of ROW names alone, the state it leaves. ROW runs only after
+# them. A reading that fails, or a row file the shell reader cannot read to
+# its end, leaves the relation unknown: return 1 with
+# smoke_row_reads_fault naming it.
+smoke_row_reads_read() { # ROOT ROW...
+  local out fact row needed root="$1"
+  shift
+  smoke_row_reads=() smoke_row_reads_fault=""
+  if ! out="$(cd -- "$root" && python3 -I -B scripts/row_loads.py --row-reads "$@")"; then
+    smoke_row_reads_fault=reading-failed; return 1
   fi
-  [[ -z $smoke_inputs_line ]] || count="$(wc -l <<<"$smoke_inputs_line")"
-  if [[ $count -eq 0 ]]; then smoke_inputs_fault=missing; return 1; fi
-  if [[ $count -gt 1 ]]; then smoke_inputs_fault="lines=$count"; return 1; fi
-  read -r -a smoke_globs <<<"${smoke_inputs_line#\# inputs:}"
-  if [[ ${#smoke_globs[@]} -eq 0 ]]; then smoke_inputs_fault=empty; return 1; fi
-}
-
-# smoke_inputs_rows ROW: the row files the globs last read name, as row
-# names in smoke_inputs_named: each glob that is one file under
-# scripts/smoke/rows/ other than ROW's own. ROW reads that row's functions
-# or state and fails without it. A glob with a wildcard names no one row.
-smoke_inputs_rows() { # ROW
-  local glob name
-  smoke_inputs_named=()
-  for glob in "${smoke_globs[@]}"; do
-    name="${glob#scripts/smoke/rows/}"; name="${name%.sh}"
-    if [[ $glob == "scripts/smoke/rows/$name.sh" && $name =~ ^[a-z0-9-]+$ && $name != "$1" ]]; then
-      smoke_inputs_named+=("$name")
-    fi
-  done
+  while read -r fact row needed _; do
+    case "$fact" in
+      '') ;;
+      reads) smoke_row_reads[$row]+=" $needed" ;;
+      unparsed) smoke_row_reads_fault="unparsed path=$row" ;;
+      *) smoke_row_reads_fault="reading-failed fact=$fact"; return 1 ;;
+    esac
+  done <<<"$out"
+  [[ -z $smoke_row_reads_fault ]]
 }
 
 # smoke_attempt_judged ATTEMPT: true when the attempt directory ATTEMPT,

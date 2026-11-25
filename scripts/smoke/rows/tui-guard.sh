@@ -13,7 +13,9 @@
 # and a path that leaves tui/ each run nothing, end with code 0 and add one
 # refusal line each. A planted refusal log naming a made-up script fails
 # the shipped-script reading once.
-# inputs: scripts/smoke/fixtures/tui/* scripts/smoke/fixtures/plugins/*/tui/* shell/plugins/*/tui/* bin/vgshell-tui bin/lib/tui.sh shell/Core/TuiRunner.qml
+# loads: shell/plugins/*/tui/* -- a run-time load by a computed name
+# loads: bin/vgshell-tui bin/lib/tui.sh -- a load past a process the row runs, or a copy
+# loads: scripts/smoke/fixtures/tui/* scripts/smoke/fixtures/plugins/acme.appearance/tui/layer-glass.sh scripts/smoke/fixtures/plugins/acme.rows/tui/add.sh scripts/smoke/fixtures/plugins/acme.rows/tui/remove.sh -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 guard_dir="$sandbox/tui-guard"
 guard_records="$sandbox/tui-guard-records"

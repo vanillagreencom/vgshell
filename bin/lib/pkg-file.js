@@ -245,6 +245,7 @@ function fetch(id, name, dir) {
     const key = path.join(tree, source.key);
     // gpgv(1) --status-fd: `VALIDSIG <fpr> <date> <ts> <expire> <version>
     // <reserved> <pubkey-algo> <hash-algo> <class> <primary-fpr>`.
+    // loads: config/keys/* -- the source's key VGS ships; the package and its signature are downloads
     const gpgv = spawn(["gpgv", "--keyring", key, "--status-fd", "1", "--", fetchedSig, fetched]);
     if (gpgv.status !== 0 || !gpgv.stdout.split("\n").some(line => /^\[GNUPG:\] VALIDSIG /.test(line) && line.split(" ")[11] === source.fingerprint))
         refuse("signature=invalid name=" + name + " fingerprint=" + source.fingerprint, undefined, 1, "The " + name + " file is not signed by " + source.name + "'s key that VGS ships. " + refused + "\n" + (gpgv.stderr || ""));

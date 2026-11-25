@@ -20,7 +20,10 @@
 # Plugins plug in the bar and takes it off again, and leaves each other
 # window's plugin as it found it, hyprland.lua as it found it and no window
 # open. The bar's plug reads Plugins, the title of the window it opens.
-# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.capture/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js shell/Core/Notices.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/settings.sh shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/plugins/vgs.capture/* shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* -- a run-time load by a computed name
+# loads: shell/Hosts/AppWindow.qml -- a startup file the row observes
+# loads: shell/plugins/*/manifest.json -- a catalog read of every plugin's manifest
 set -euo pipefail
 # vgs.jarvis holds `dictation` and the shell finds no voxtype.
 expected_errors+=("${dictation_absent_errors[@]}")

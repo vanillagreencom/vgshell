@@ -18,7 +18,6 @@
 # application moved first. Those three cases carry the old path or the old
 # rule as their control. The row ends with its windows closed, its monitor
 # removed and workspace 1 focused.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/toplevel/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "compositor-reveal: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe

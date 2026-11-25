@@ -25,6 +25,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, sys.argv[1])
+# loads: bin/lib/dbus_wire.py -- the row passes bin/lib as the first argument
 import dbus_wire as wire  # noqa: E402
 
 NAME = "org.freedesktop.ScreenSaver"

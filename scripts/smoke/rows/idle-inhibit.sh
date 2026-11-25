@@ -62,7 +62,8 @@
 # from an input. The two controls that read session idle use copies whose
 # observer and view are edited to 5 s and 4 s, so they wait 5 s. Every other
 # reading polls through expect_poll; no latency budget is claimed.
-# inputs: scripts/smoke/power-fakes.sh bin/vgshell-idle-inhibit bin/lib/dbus_wire.py scripts/smoke/fixtures/idle-inhibit/* scripts/smoke/fixtures/plugins/acme.idlewatch/* scripts/smoke/fixtures/screensaver-ttfx shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/CoverPresentation.qml shell/Hosts/CoverHost.qml shell/plugins/vgs.screensaver/* shell/plugins/*/manifest.json
+# loads: shell/Hosts/CoverHost.qml -- a startup file the row observes
+# loads: shell/plugins/*/manifest.json -- a catalog read of every plugin's manifest
 set -euo pipefail
 ii_bus="unix:path=$rt_dir/bus"
 ii_client="$repo/scripts/smoke/fixtures/idle-inhibit/client.py"

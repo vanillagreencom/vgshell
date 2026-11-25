@@ -17,7 +17,9 @@
 # same screen-centred ModalDialog, closes on Escape and outside press, and
 # releases its surface when its caller is destroyed. A displaced card in
 # the existing focus control must fail the same screen-centre reading.
-# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Core/Compositor.qml shell/Core/HyprlandLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/plugins.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml -- a startup file the row observes
+# loads: scripts/smoke/fixtures/plugins/acme.surfaces/Help.qml scripts/smoke/fixtures/plugins/acme.surfaces/ModalFocus.qml -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 leak_plugin_setup vgs.themes true || { fail "surfaces: fixture precondition failed"; return 1; }
 surf="$home/.config/vgshell/plugins/acme.surfaces"

@@ -67,8 +67,9 @@ parallel_cases() { # WORKER PREFIX SPEC...
 }
 
 # A fresh scratch repository at $1: trunk holds the script and what it
-# sources or runs on every run: the settings loader, the input line reader,
-# the scratch reaper, the harness's input line, the md-refs checker with
+# sources or runs on every run: the settings loader, the core row list,
+# the scratch reaper, the harness's leading comment block with its
+# `loads:` directives, the md-refs checker with
 # the document validate cites and an exclusion list that keeps these
 # borrowed files' own references out of scope, the load reading with the
 # readers it imports, a settings file naming trunk as the base branch, and
@@ -88,7 +89,7 @@ template() {
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
   cp -- "$repo/docs/architecture/validation.md" "$dir/docs/architecture/validation.md"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$repo/scripts/smoke/reap.sh" "$dir/scripts/smoke/"
-  sed -n '/^# inputs:/p' "$repo/scripts/smoke/harness.sh" >"$dir/scripts/smoke/harness.sh"
+  awk '!/^#/ { exit } { print }' "$repo/scripts/smoke/harness.sh" >"$dir/scripts/smoke/harness.sh"
   # Rows run through a transparent world stand-in, and the installed-engine
   # check before the nested smoke row passes.
   printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
@@ -233,12 +234,17 @@ test_args=()
 # and lists the rows of its scripts/smoke/rows.list, skipping comments and
 # blank lines: the core rows, launcher, notifications and other, each
 # reading its own files; no case changes other's, so a plan that reaches
-# every other row still names its rows. Variant loads adds the real updates
-# row, its real input line and the real shell files it matches, with
-# Badge.qml, BarItem.qml and the qs.Ui qmldir; markdown does the same for
-# the real jarvis row; table-owned
-# adds a vpn row whose input line names scripts/fixtures/vpn/*, which the
-# VPN decisions table row owns and the nested smoke table row does not.
+# every other row still names its rows. Variant loads adds an updates row
+# that reads a planted widget drawing a planted BarItem.qml and Badge.qml by
+# a planted qs.Ui qmldir; markdown adds a jarvis row whose directive names a planted
+# plugin's folder, README included; table-owned adds a vpn row that reads
+# scripts/fixtures/vpn/details.txt, which the VPN decisions table row owns
+# and the nested smoke table row does not; plugin adds a widget row that
+# names the planted plugin acme.widget, whose manifest's entry is Panel.qml,
+# beside Other.qml that no entry loads and helper.py, residue, judged by a
+# stand-in PluginLogic.js that accepts a manifest unless it holds
+# `refused`; loader gives the launcher plugin's Panel.qml a Loader whose
+# source is computed.
 smoke_fixture() { # DIR [VARIANT]
   local dir="$1" variant="${2-}" row
   fresh "$dir"
@@ -246,73 +252,56 @@ smoke_fixture() { # DIR [VARIANT]
   printf '%s\n' '# The rows, in run order.' '' bar hyprland-consent launcher notifications other start-order auth-sentinel >"$dir/scripts/smoke/rows.list"
   printf '#!/usr/bin/env bash\nif [[ ${1-} == --list-rows ]]; then awk '"'"'!/^#/ && NF'"'"' "$(dirname -- "$0")/smoke/rows.list"; fi\n' >"$dir/scripts/qml-smoke.sh"
   chmod +x "$dir/scripts/qml-smoke.sh"
-  printf '# The harness.\n# inputs: scripts/smoke/verdict.sh\n' >"$dir/scripts/smoke/harness.sh"
+  printf '# The harness.\n# loads: scripts/smoke/verdict.sh -- the harness reads its verdict\n' >"$dir/scripts/smoke/harness.sh"
   printf 'failures=0\n' >"$dir/scripts/smoke/verdict.sh"
   for row in Bar Consent Start Auth; do printf 'clean\n' >"$dir/shell/Core/$row.qml"; done
   for row in launcher notify other; do printf 'clean\n' >"$dir/shell/plugins/acme.$row/Panel.qml"; done
-  printf '# inputs: shell/Core/Bar.qml\n' >"$dir/scripts/smoke/rows/bar.sh"
-  printf '# inputs: shell/Core/Consent.qml\n' >"$dir/scripts/smoke/rows/hyprland-consent.sh"
-  printf '# inputs: shell/Core/Start.qml\n' >"$dir/scripts/smoke/rows/start-order.sh"
-  printf '# inputs: shell/Core/Auth.qml\n' >"$dir/scripts/smoke/rows/auth-sentinel.sh"
-  printf '# inputs: shell/plugins/acme.launcher/*\n' >"$dir/scripts/smoke/rows/launcher.sh"
-  printf '# inputs: shell/plugins/acme.notify/*\n' >"$dir/scripts/smoke/rows/notifications.sh"
-  printf '# inputs: shell/plugins/acme.other/*\n' >"$dir/scripts/smoke/rows/other.sh"
+  printf '# loads: shell/Core/Bar.qml -- the row reads it\n' >"$dir/scripts/smoke/rows/bar.sh"
+  printf '# loads: shell/Core/Consent.qml -- the row reads it\n' >"$dir/scripts/smoke/rows/hyprland-consent.sh"
+  printf '# loads: shell/Core/Start.qml -- the row reads it\n' >"$dir/scripts/smoke/rows/start-order.sh"
+  printf '# loads: shell/Core/Auth.qml -- the row reads it\n' >"$dir/scripts/smoke/rows/auth-sentinel.sh"
+  printf '# loads: shell/plugins/acme.launcher/* -- the row reads it\n' >"$dir/scripts/smoke/rows/launcher.sh"
+  printf '# loads: shell/plugins/acme.notify/* -- the row reads it\n' >"$dir/scripts/smoke/rows/notifications.sh"
+  printf '# loads: shell/plugins/acme.other/* -- the row reads it\n' >"$dir/scripts/smoke/rows/other.sh"
   if [[ $variant == table-owned ]]; then
     mkdir -p "$dir/scripts/fixtures/vpn"
     printf 'details\n' >"$dir/scripts/fixtures/vpn/details.txt"
-    printf '# inputs: scripts/fixtures/vpn/*\n' >"$dir/scripts/smoke/rows/vpn.sh"
+    cat >"$dir/scripts/smoke/rows/vpn.sh" <<'ROW'
+cat -- "$repo/scripts/fixtures/vpn/details.txt"
+ROW
     sed -i 's/^start-order$/vpn\nstart-order/' "$dir/scripts/smoke/rows.list"
   fi
-  if [[ $variant == loads || $variant == markdown ]]; then
-    local real_row=updates
-    [[ $variant != markdown ]] || real_row=jarvis
-    python3 - "$repo" "$dir" "$real_row" <<'PYLOADS'
-import fnmatch, os, pathlib, sys
-repo, target = map(pathlib.Path, sys.argv[1:3])
-row = sys.argv[3]
-# The named real row's input line, with the real text of each shell file it
-# matches and of the shared component's path through BarItem, so the
-# reading follows the real loads; other files are neutral.
-
-
-def matches(pattern):
-    """The files under the checkout PATTERN matches as validate matches a
-    path, * across a /."""
-    wild = [pattern.index(c) for c in '*?[' if c in pattern]
-    if not wild:
-        return [pattern] if (repo / pattern).is_file() else []
-    found = []
-    for folder, _dirs, names in os.walk(repo / pattern[:min(wild)].rsplit('/', 1)[0]):
-        for name in names:
-            relative = os.path.relpath(os.path.join(folder, name), repo)
-            if fnmatch.fnmatchcase(relative, pattern):
-                found.append(relative)
-    return found
-
-
-lines = [line for line in (repo / f'scripts/smoke/rows/{row}.sh').read_text().splitlines() if line.startswith('# inputs: ')]
-assert len(lines) == 1
-line = lines[0][len('# inputs: '):]
-for pattern in line.split():
-    files = matches(pattern)
-    assert files, pattern
-    for relative in files:
-        original, path = repo / relative, target / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if relative.startswith('shell/'):
-            path.write_bytes(original.read_bytes())
-        elif not path.exists():
-            path.write_text('# neutral input\n')
-(target / f'scripts/smoke/rows/{row}.sh').write_text('# inputs: ' + line + '\n')
-for relative in ('shell/Ui/qmldir', 'shell/Ui/controls/BarItem.qml', 'shell/Ui/feedback/Badge.qml'):
-    path = target / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((repo / relative).read_bytes())
-row_list = target / 'scripts/smoke/rows.list'
-text = row_list.read_text()
-assert text.count('start-order\n') == 1
-row_list.write_text(text.replace('start-order\n', row + '\nstart-order\n'))
-PYLOADS
+  if [[ $variant == loads ]]; then
+    # A planted widget the row reads, which draws a shared BarItem and
+    # through it a Badge, each by the qs.Ui qmldir.
+    mkdir -p "$dir/shell/plugins/acme.updates" "$dir/shell/Ui/controls" "$dir/shell/Ui/feedback"
+    printf 'import qs.Ui\n\nBarItem {}\n' >"$dir/shell/plugins/acme.updates/Widget.qml"
+    printf 'module qs.Ui\nBarItem 1.0 controls/BarItem.qml\nBadge 1.0 feedback/Badge.qml\n' >"$dir/shell/Ui/qmldir"
+    printf 'import QtQuick\nimport qs.Ui\n\nItem {\n    Badge {}\n}\n' >"$dir/shell/Ui/controls/BarItem.qml"
+    printf 'import QtQuick\n\nItem {}\n' >"$dir/shell/Ui/feedback/Badge.qml"
+    printf 'cat -- "$repo/shell/plugins/acme.updates/Widget.qml"\n' >"$dir/scripts/smoke/rows/updates.sh"
+    sed -i 's/^start-order$/updates\nstart-order/' "$dir/scripts/smoke/rows.list"
+  fi
+  if [[ $variant == plugin ]]; then
+    mkdir -p "$dir/shell/plugins/acme.widget" "$dir/bin/lib"
+    printf '{"id": "acme.widget", "entryPoints": {"panel": "Panel.qml"}}\n' >"$dir/shell/plugins/acme.widget/manifest.json"
+    printf 'import QtQuick\n\nItem {}\n' | tee "$dir/shell/plugins/acme.widget/Panel.qml" >"$dir/shell/plugins/acme.widget/Other.qml"
+    printf 'pass\n' >"$dir/shell/plugins/acme.widget/helper.py"
+    printf 'exports.load = file => require(require("path").resolve(file));\n' >"$dir/bin/lib/qml-library.js"
+    printf '%s\n' 'exports.CAPABILITIES = [];' 'exports.validateManifest = (manifest, dir) => manifest.refused ? { ok: false, error: "refused" } : { ok: true, manifest };' >"$dir/shell/Core/PluginLogic.js"
+    printf 'ipc acme.widget open\n' >"$dir/scripts/smoke/rows/widget.sh"
+    sed -i 's/^start-order$/widget\nstart-order/' "$dir/scripts/smoke/rows.list"
+  fi
+  if [[ $variant == loader ]]; then
+    printf 'import QtQuick\n\nLoader {\n    source: view + ".qml"\n}\n' >"$dir/shell/plugins/acme.launcher/Panel.qml"
+  fi
+  if [[ $variant == markdown ]]; then
+    # A planted plugin whose folder the row names, with a README.
+    mkdir -p "$dir/shell/plugins/acme.jarvis"
+    printf 'clean\n' >"$dir/shell/plugins/acme.jarvis/Service.qml"
+    printf '# Jarvis\n' >"$dir/shell/plugins/acme.jarvis/README.md"
+    printf '# loads: shell/plugins/acme.jarvis/* -- the row reads its plugin\n' >"$dir/scripts/smoke/rows/jarvis.sh"
+    sed -i 's/^start-order$/jarvis\nstart-order/' "$dir/scripts/smoke/rows.list"
   fi
   "${base_env[@]}" git -C "$dir" add -A
   # Rows whose command files read the smoke rows run on a change to them;
@@ -326,15 +315,20 @@ smoke_tail='start-order,auth-sentinel'
 smoke_launcher="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_tail"
 smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,$smoke_tail"
 smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,$smoke_tail"
-# name|changed path|wanted plan, empty for no nested smoke|fixture variant
+# name|changed path|wanted plan, empty for no nested smoke|fixture
+# variant|a line its stderr must hold, or empty
 smoke_cases=(
-  "a shared component selects the real rows that draw it through another file|shell/Ui/feedback/Badge.qml|scripts/qml-smoke.sh --rows $smoke_core,updates,$smoke_tail|loads"
-  "a plugin README selects no row whose input names its folder|shell/plugins/vgs.jarvis/README.md||markdown"
-  "a path another table row owns selects the smoke rows that name it|scripts/fixtures/vpn/details.txt|scripts/qml-smoke.sh --rows $smoke_core,vpn,$smoke_tail|table-owned"
+  "a shared component selects the rows that draw it through another file|shell/Ui/feedback/Badge.qml|scripts/qml-smoke.sh --rows $smoke_core,updates,$smoke_tail|loads|"
+  "a plugin README selects no row whose directive names its folder|shell/plugins/acme.jarvis/README.md||markdown|"
+  "a path another table row owns selects the smoke rows that read it|scripts/fixtures/vpn/details.txt|scripts/qml-smoke.sh --rows $smoke_core,vpn,$smoke_tail|table-owned|"
+  "a plugin's entry selects the row that names its id|shell/plugins/acme.widget/Panel.qml|scripts/qml-smoke.sh --rows $smoke_core,widget,$smoke_tail|plugin|"
+  "a plugin's residue selects the row that names its id|shell/plugins/acme.widget/helper.py|scripts/qml-smoke.sh --rows $smoke_core,widget,$smoke_tail|plugin|"
+  "a plugin file no entry loads selects no row that names its id|shell/plugins/acme.widget/Other.qml|scripts/qml-smoke.sh --rows $smoke_core,$smoke_tail|plugin|"
+  "a computed Loader source leaves the rows that load its file untraced|shell/plugins/acme.other/Panel.qml|scripts/qml-smoke.sh --rows $smoke_core,launcher,other,$smoke_tail|loader|validate: load-unread path=shell/plugins/acme.launcher/Panel.qml line=4 site=loader-source"
 )
-for spec in "${smoke_cases[@]}"; do
-  IFS='|' read -r name file wanted variant <<<"$spec"
-  d="$tmp/smoke-rows-$variant"; smoke_fixture "$d" "$variant"
+for i in "${!smoke_cases[@]}"; do
+  IFS='|' read -r name file wanted variant line <<<"${smoke_cases[i]}"
+  d="$tmp/smoke-rows-$i"; smoke_fixture "$d" "$variant"
   # A comment, so the changed stand-in runner still lists its rows.
   printf '# changed\n' >>"$d/$file"
   # These cases prove ordinary input reach, not the text-only exception,
@@ -343,7 +337,77 @@ for spec in "${smoke_cases[@]}"; do
   status=0
   out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml --changed HEAD --list 2>"$tmp/smoke-rows.err")" || status=$?
   plan="$(grep '^scripts/qml-smoke.sh' <<<"$out" || true)"
-  if [[ $status == 0 && $plan == "$wanted" ]]; then ok "$name"; else fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-rows.err"; fi
+  if [[ $status == 0 && $plan == "$wanted" ]] && { [[ -z $line ]] || grep -qxF -e "$line" "$tmp/smoke-rows.err"; }; then
+    ok "$name"
+  else
+    fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-rows.err"
+  fi
+done
+
+# The self-check row `validation inputs are read` (smoke_reads_named), run
+# as validate runs a row. A malformed directive fails it, in a row's file
+# or the harness's, and so does a malformed row directive beside a harness
+# load site no directive covers, which runs every row but leaves the rows
+# read. A manifest the plugin judge refuses leaves the load reading
+# unfinished: exit 77, not a pass.
+# name|fixture variant|harness site, `site` to plant one|file to plant
+# in|line to append|wanted exit|wanted line
+reads_cases=(
+  "the self-check passes the neutral fixture|||||0|"
+  "a malformed harness directive fails the self-check|||scripts/smoke/harness.sh|# loads: scripts/smoke/verdict.sh|1|validate: smoke-input malformed path=scripts/smoke/harness.sh line=3; fix the directive: loads: GLOB [GLOB...] -- REASON"
+  "a malformed row directive beside a harness site fails the self-check||site|scripts/smoke/rows/other.sh|# loads: shell/plugins/acme.other/Panel.qml|1|validate: smoke-input malformed path=scripts/smoke/rows/other.sh line=2; fix the directive: loads: GLOB [GLOB...] -- REASON"
+  "a refused manifest leaves the self-check unfinished|plugin||shell/plugins/acme.widget/manifest.json|{\"refused\": true}|77|"
+)
+for i in "${!reads_cases[@]}"; do
+  IFS='|' read -r name variant site file text wanted line <<<"${reads_cases[i]}"
+  d="$tmp/smoke-reads-$i"; smoke_fixture "$d" "$variant"
+  if [[ $site == site ]]; then
+    printf '%s\n' 'harness_dir="$repo/scripts/smoke"' 'harness_name="$(harness_pick)"' 'python3 "$harness_dir/$harness_name.py"' >>"$d/scripts/smoke/harness.sh"
+  fi
+  if [[ $file == */manifest.json ]]; then printf '%s\n' "$text" >"$d/$file"; elif [[ -n $file ]]; then printf '%s\n' "$text" >>"$d/$file"; fi
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --row HEAD -1 -- smoke_reads_named 2>&1)" || status=$?
+  if [[ $status == "$wanted" ]] && { [[ -z $line ]] || grep -qxF -e "$line" <<<"$out"; } &&
+     { [[ $wanted != 77 ]] || grep -q '^smoke-reads: reading=unfinished reason=qml-loads-failed operation=manifest-judge ' <<<"$out"; }; then
+    ok "$name"
+  else
+    fail "$name: exit=$status want=$wanted"; sed 's/^/        /' <<<"$out"
+  fi
+done
+
+# A load the reading cannot read selects its row. The dyn row runs the
+# stand-in its dyn_pick names, a computed path under scripts/fixtures/vpn/,
+# which the VPN decisions row owns and the nested smoke row's inputs do not
+# hold. Unread, the row's reach cannot be traced: the nested smoke runs it
+# on a change no row's inputs hold and names the site. Covered by a
+# directive, the row is traced: a change to a stand-in selects it, and one
+# to another file of the folder selects no nested smoke.
+# name|directive|changed path|wanted plan|wanted line
+dyn_cases=(
+  "a load the reading cannot read selects its row||scripts/fixtures/vpn/b.py|scripts/qml-smoke.sh --rows $smoke_core,dyn,$smoke_tail|validate: load-unread path=scripts/smoke/rows/dyn.sh line=3 site=path"
+  "a directive over a computed load traces its row|# loads: scripts/fixtures/vpn/*.py -- dyn_pick names the stand-in|scripts/fixtures/vpn/b.py|scripts/qml-smoke.sh --rows $smoke_core,dyn,$smoke_tail|"
+  "a traced row's unread folder file selects no nested smoke|# loads: scripts/fixtures/vpn/*.py -- dyn_pick names the stand-in|scripts/fixtures/vpn/details.txt||"
+)
+for i in "${!dyn_cases[@]}"; do
+  IFS='|' read -r name directive file wanted line <<<"${dyn_cases[i]}"
+  d="$tmp/smoke-dyn-$i"; smoke_fixture "$d"
+  mkdir -p "$d/scripts/fixtures/vpn"
+  printf 'pass\n' | tee "$d/scripts/fixtures/vpn/a.py" >"$d/scripts/fixtures/vpn/b.py"
+  printf 'details\n' >"$d/scripts/fixtures/vpn/details.txt"
+  printf '%s\n' 'dyn_dir="$repo/scripts/fixtures/vpn"' 'dyn_name="$(dyn_pick)"' ${directive:+"$directive"} 'python3 "$dyn_dir/$dyn_name.py"' >"$d/scripts/smoke/rows/dyn.sh"
+  sed -i 's/^start-order$/dyn\nstart-order/' "$d/scripts/smoke/rows.list"
+  "${base_env[@]}" git -C "$d" add -A
+  "${base_env[@]}" git -C "$d" commit -q -m dyn
+  printf '# changed\n' >>"$d/$file"
+  printf '# mixed change\n' >>"$d/kendex.settings.toml"
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml --changed HEAD --list 2>"$tmp/smoke-dyn.err")" || status=$?
+  plan=""
+  if plan="$(sed -n '/^scripts\/qml-smoke.sh/p' <<<"$out")" && [[ $status == 0 && $plan == "$wanted" ]] && { [[ -z $line ]] || grep -qxF -e "$line" "$tmp/smoke-dyn.err"; }; then
+    ok "$name"
+  else
+    fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-dyn.err"
+  fi
 done
 
 # A fix round after a rebase: the lane validated its launcher change at
@@ -644,9 +708,10 @@ parallel_cases restack_case restack "${restack_cases[@]}"
 test_args=()
 
 # The rows a run of the real runner holds, in a scratch tree whose list
-# holds the core rows: top names own's file, own names base's and part's,
-# a row file the tree has and the list does not, which is own's own; the
-# core row start-order names seat's. The tree's fence logs its call and
+# holds the core rows: top calls a function only own defines, own's
+# directives name base's file and part's, a row file the tree has and the
+# list does not, which is own's own; the core row start-order's directive
+# names seat's. The tree's fence logs its call and
 # its harness stands in, printing each row it is handed and answering the
 # step the runner takes after hyprland-consent, so the run starts no
 # compositor and no shell. The run prints the named and the expanded set
@@ -661,13 +726,14 @@ cp -- "$repo/scripts/qml-smoke.sh" "$d/scripts/qml-smoke.sh"
 plant "$d/scripts/qml-smoke.sh" 'if [[ -z ${qml_smoke_attempt:-} ]]; then' 'if false; then'
 plant "$d/scripts/qml-smoke.sh" 'if [[ -n $first_bar_runs || -n ${qml_smoke_attempt:-} ]]; then' 'if true; then'
 cp -- "$repo/scripts/smoke/row-inputs.sh" "$d/scripts/smoke/row-inputs.sh"
+cp -- "$repo/scripts/row_loads.py" "$repo/scripts/shell_source.py" "$d/scripts/"
 printf '%s\n' '# Rows.' bar hyprland-consent seat base own top start-order auth-sentinel >"$d/scripts/smoke/rows.list"
 for smoke_row_name in bar hyprland-consent seat base auth-sentinel; do
-  printf '# inputs: shell/Core/Bar.qml\n' >"$d/scripts/smoke/rows/$smoke_row_name.sh"
+  printf ':\n' >"$d/scripts/smoke/rows/$smoke_row_name.sh"
 done
-printf '# inputs: scripts/smoke/rows/seat.sh\n' >"$d/scripts/smoke/rows/start-order.sh"
-printf '# inputs: scripts/smoke/rows/part.sh scripts/smoke/rows/base.sh\n' >"$d/scripts/smoke/rows/own.sh"
-printf '# inputs: scripts/smoke/rows/own.sh\n' >"$d/scripts/smoke/rows/top.sh"
+printf '# loads: scripts/smoke/rows/seat.sh -- the seat seat leaves\n' >"$d/scripts/smoke/rows/start-order.sh"
+printf '# loads: scripts/smoke/rows/part.sh scripts/smoke/rows/base.sh -- the state base leaves\nown_helper() { :; }\n' >"$d/scripts/smoke/rows/own.sh"
+printf 'own_helper\n' >"$d/scripts/smoke/rows/top.sh"
 printf '# Run by own.sh.\n' >"$d/scripts/smoke/rows/part.sh"
 printf '#!/usr/bin/env bash\necho fence >>"%s"\n' "$d/fence.log" >"$d/scripts/smoke/gpu-fence.sh"
 chmod +x "$d/scripts/smoke/gpu-fence.sh"

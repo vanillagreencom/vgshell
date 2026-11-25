@@ -65,7 +65,10 @@
 # Its displayed name must change without moving the selected row or scroll.
 # Each rule has its own disposable production mutation. Cadence is a view
 # contract, not a machine latency budget. State polling uses expect_poll.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Ui/overlay/Menu.qml shell/Ui/overlay/DismissScope.qml shell/Ui/layout/DeviceRow.qml
+# loads: scripts/smoke/rows/device-fakes.sh -- state another row leaves
+# loads: bin/vgshell-system bin/vgshell-tui -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonPopup.qml shell/Hosts/PaneHost.qml -- a startup file the row observes
+# loads: scripts/smoke/fixtures/devices/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -126,6 +129,7 @@ import dbus
 
 bus_address, path, mode, fixtures = sys.argv[1:]
 sys.path.insert(0, fixtures)
+# loads: scripts/smoke/fixtures/devices/world.py -- FIXTURES is the device fixtures folder
 import world
 
 if mode == "accept":

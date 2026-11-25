@@ -39,7 +39,11 @@
 # change and the held steps, takes harness.sh's quiet-host hold,
 # smoke_hold, since SMT siblings shared with another unit slow it without a
 # wait the pressure file counts (VGS-2768).
-# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/lib/* -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml -- a startup file the row observes
+# loads: themes/* -- theme package data the row applies by name
+# loads: scripts/smoke/theme-latency-stamps.js -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
 # These controls hold dismissal, which is the hide of the browser's window,

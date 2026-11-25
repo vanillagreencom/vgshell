@@ -47,7 +47,9 @@
 # empty. The host's reads wait up to 20 s, 100 reads 0.2 s apart, for a qs
 # start with no compiled QML cache; every other reading is expect_poll's:
 # 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/GreeterSurface.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh bin/vgshell shell/assets/fonts/* scripts/smoke/fonts.sh
+# loads: scripts/smoke/rows/system-steps.sh scripts/smoke/rows/device-fakes.sh -- state another row leaves
+# loads: bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/judge-files.js config/system/greeter/* -- a load past a process the row runs, or a copy
+# loads: scripts/smoke/fixtures/greeter/* scripts/smoke/fixtures/devices/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 source "$repo/scripts/smoke/fonts.sh"
 greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v.get("action"), v.get("available")]))'; }

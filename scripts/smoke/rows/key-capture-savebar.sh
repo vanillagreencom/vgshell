@@ -6,7 +6,8 @@
 # expire it before the original hover and one click at that saved point.
 # The saved user file, not a handler readback, must hold null afterwards.
 # No latency is measured; reported states poll every 200 ms.
-# inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandState.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/feedback/SaveBar.qml shell/Ui/layout/Pane.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/KeyField.qml shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.themes/Background.qml scripts/smoke/rows/hyprland-consent.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Core/HyprlandLayer.qml -- a startup file the row observes
 set -euo pipefail
 
 kcs_overflow() {

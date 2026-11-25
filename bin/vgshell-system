@@ -1073,6 +1073,7 @@ probe_vpn_kill_switch() {
   fi
   for entry in "${kill_switch_files[@]}"; do
     IFS='|' read -r key name dest file_mode <<<"$entry"
+    # loads: config/system/kill-switch/* -- kill_switch_files names each file of the kill switch
     probe_sum "$kill_switch_source/$name" || { set_probe unknown hash-failed; return; }
     status=0
     file_holds "$dest" "$sum" || status=$?

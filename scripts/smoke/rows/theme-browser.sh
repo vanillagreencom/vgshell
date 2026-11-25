@@ -42,7 +42,9 @@
 # Every search line and empty state starts on whole screen rows and
 # columns, in vgs and flexoki-light; a slot copy shifted by a fractional
 # row is that check's control.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: bin/lib/theme-* -- a load past a process the row runs, or a copy
+# loads: themes/catalog/* themes/vgs/preview.jpg themes/vgs/terminal.json themes/vgs/theme.json -- theme package data the row applies by name
 set -euo pipefail
 leak_plugin_setup vgs.themes false || { fail "theme-browser: fixture precondition failed"; return 1; }
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
@@ -629,7 +631,6 @@ arrow_steps="$(held_steps -P Right -s 2000 -p Right)" || fail "the held Right fa
 super_steps="$(held_steps -M logo -P d -s 2000 -p d -m logo)" || fail "the held SUPER+D failed"
 echo "theme-browser: held-steps arrow=${arrow_steps:-none} super=${super_steps:-none}"
 expect "holding SUPER+D steps the rail as holding Right does" match steps_match "${arrow_steps:-0}" "${super_steps:-0}"
-hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 cp -p -- "$hypr_layer" "$sandbox/vgs-layer-before-hold.lua"
 python3 - "$hypr_layer" <<'PY' || fail "control: the layer copy without repeat is made"
 import os, sys

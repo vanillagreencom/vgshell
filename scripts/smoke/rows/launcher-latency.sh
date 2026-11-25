@@ -24,7 +24,6 @@
 # SearchGlyph. Character rectangles bound the discriminator to the first
 # character's columns, excluding the adjacent caret. The measured ceiling
 # above remains the original plain-input calibration.
-# inputs: shell/plugins/vgs.launcher/Launcher.qml shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.launcher/menu.json shell/plugins/vgs.launcher/Service.qml shell/Commons/Theme.qml scripts/smoke/launcher-latency.py scripts/smoke/shot.sh scripts/smoke/keyboard/keyboard.c scripts/smoke/user-config.sh
 set -euo pipefail
 
 launcher_latency_budget_ms=212

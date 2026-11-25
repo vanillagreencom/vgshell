@@ -13,7 +13,10 @@ like a directive from being a load or a directive; the table's other entries are
 the cases they name against a disposable copy of the reader with one rule
 removed, and each must fail there: a copy whose rule is not found once or
 whose reading fails is a failed control, not a kill. REAL holds loads the
-reader must print for the checkout itself.
+reader must print for the checkout itself. SMOKE_CASES hold the smoke
+rows' walk the same way, through --smoke or --row-reads: the plugin id a
+row names, the first process hop and the second, a target the tree lacks,
+and a row-body local no later row reads.
 
 STORE_CASES hold the reuse of stored facts: each reads a file, changes one
 input of its facts, and reads again against the store the first reading
@@ -28,8 +31,8 @@ stay unproved: no case can change the Python that runs the reader, and
 none changes node's built-in list.
 
 Prints `test-row-loads: ok` or a `FAIL` line per finding, and exits 1 on
-any. Arguments name the CASES, MUTANTS, STORE_CASES or STORED to run,
-alone.
+any. Arguments name the CASES, SMOKE_CASES, MUTANTS, STORE_CASES or STORED
+to run, alone.
 """
 import json
 import os
@@ -41,6 +44,8 @@ import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 READER = "scripts/row_loads.py"
+# The shell reader the smoke rows' reading imports from beside the reader.
+SHELL_READER = "scripts/shell_source.py"
 # node on PATH may be a version-manager shim that reads the caller's own
 # configuration, so the reader reaches node through the binary it resolves.
 NODE = subprocess.run(["node", "-e", "process.stdout.write(process.execPath)"], capture_output=True, text=True).stdout
@@ -195,10 +200,41 @@ CASES = {
     }, ["-load scripts/a.js *"]),
 }
 
+# The smoke rows' facts: name: ({path: text}, the reader's arguments,
+# [expectations]), as CASES. A row's file is scripts/smoke/rows/<row>.sh.
+SMOKE_CASES = {
+    "a plugin id a row names": ({
+        "shell/plugins/acme.widget/manifest.json": "{}\n",
+        "shell/plugins/acme.widget-extra/manifest.json": "{}\n",
+        "shell/plugins/acme.bare/Panel.qml": "Item {}\n",
+        "scripts/smoke/rows/a.sh": "ipc acme.widget-extra open\nipc acme.widget-old open\nipc acme.bare open\n",
+    }, ["--smoke", "a"], ["+plugin a shell/plugins/acme.widget-extra", "-plugin a shell/plugins/acme.widget",
+                          "-plugin a shell/plugins/acme.bare"]),
+    "the first process hop and the second": ({
+        "scripts/fixtures/x/run.js": 'require("./lib.js");\nrequire("child_process").spawnSync("node", [__dirname + "/second.js"]);\n',
+        "scripts/fixtures/x/lib.js": "",
+        "scripts/fixtures/x/second.js": 'require("./deep.js");\n',
+        "scripts/fixtures/x/deep.js": "",
+        "scripts/smoke/rows/a.sh": 'node "$repo/scripts/fixtures/x/run.js"\n',
+    }, ["--smoke", "a"], ["+input a scripts/fixtures/x/run.js", "+input a scripts/fixtures/x/lib.js",
+                          "+input a scripts/fixtures/x/second.js", "-input a scripts/fixtures/x/deep.js"]),
+    "a target the tree lacks": ({
+        "scripts/fixtures/x/here.txt": "",
+        "scripts/smoke/rows/a.sh": 'cat "$repo/scripts/fixtures/x/gone.txt"\n',
+    }, ["--smoke", "a"], ["+input a scripts/fixtures/x/gone.txt"]),
+    # smoke_row sources each row in its own body, so a later row reads the
+    # global binding an earlier row leaves, never another row's local.
+    "a row-body local is no later row's definition": ({
+        "scripts/smoke/rows/early.sh": "shared=1\n",
+        "scripts/smoke/rows/local.sh": 'local shared=2\nshared="$shared-more"\n',
+        "scripts/smoke/rows/reader.sh": 'echo "$shared"\n',
+    }, ["--row-reads", "early", "local", "reader"], ["+reads reader early variable", "-reads reader local variable"]),
+}
+
 # name: ((rule text in the reader, its replacement in a disposable copy),
 # cases that must fail there)
 MUTANTS = {
-    "an unresolved require is no site": (("            self.reading.use(self.path, value, line, kind)", "            pass"),
+    "an unresolved require is no site": (("            self.reading.use(self.path, value, line, kind, inproc=kind in (\"require\", \"import\", \"qml-library\"))", "            pass"),
                                          ["js require computed under the root"]),
     "an unresolved source is no site": (('                    reading.site(path, number, "source", U(P(""), glob_of(re.sub(r"\\x01([^\\x02]*)\\x02", r"\\1", re.sub(r"\\$\\{?\\w+\\}?", "*", word))) if "\\x01" in word else None))',
                                          "                    pass"), ["bash source"]),
@@ -291,6 +327,32 @@ REAL = [
 DEADLINE = 300
 
 
+def run_reader(root, arguments):
+    """The reader's facts for ARGUMENTS under ROOT, or None and why."""
+    process = subprocess.Popen(["python3", "-I", "-B", READER] + arguments, cwd=root, env=ENV,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = process.communicate(timeout=DEADLINE)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        return None, f"reading=hung deadline={DEADLINE}s"
+    if process.returncode:
+        return None, out + err
+    return out.split("\n"), None
+
+
+def smoke_case_failures(name, base):
+    files, arguments, expects = SMOKE_CASES[name]
+    root = scratch(files, base)
+    lines, error = run_reader(root, arguments)
+    if lines is None:
+        return [f"reader failed: {error.strip()[-300:]}"]
+    if any(line.startswith(("failed ", "unreadable ")) for line in lines):
+        return [f"reading failed: {[line for line in lines if line.startswith(('failed ', 'unreadable '))][0]}"]
+    return [e for e in expects if holds(lines, e) != e.startswith("+")]
+
+
 def facts(root, reader=READER, rows=None, compiled_from=None):
     """The reading of ROWS under ROOT, every file git lists there by
     default, with the loads of each, running the code compiled from
@@ -336,8 +398,9 @@ def plant(root, path, text):
 def scratch(files, base):
     root = tempfile.mkdtemp(dir=base)
     os.makedirs(os.path.join(root, "scripts"), exist_ok=True)
-    # loads: scripts/row_loads.py -- the scratch copies the reader
-    shutil.copy2(os.path.join(REPO, READER), os.path.join(root, READER))
+    for reader in (READER, SHELL_READER):
+        # loads: scripts/row_loads.py scripts/shell_source.py -- the scratch copies the readers
+        shutil.copy2(os.path.join(REPO, reader), os.path.join(root, reader))
     for path, text in files.items():
         plant(root, path, text)
     subprocess.run(["git", "init", "-q"], cwd=root, env=ENV, check=True)
@@ -465,7 +528,7 @@ def main():
     failures = 0
     base = tempfile.mkdtemp(prefix="test-row-loads.", dir=os.environ.get("TMPDIR"))
     only = set(sys.argv[1:])
-    unknown = only - set(CASES) - set(MUTANTS) - set(STORE_CASES) - {STORED}
+    unknown = only - set(CASES) - set(SMOKE_CASES) - set(MUTANTS) - set(STORE_CASES) - {STORED}
     if unknown:
         print(f"test-row-loads: refused: case={sorted(unknown)[0]}")
         return 2
@@ -473,6 +536,10 @@ def main():
         for name in [n for n in CASES if not only or n in only]:
             missed, error = case_failures(name, base)
             for finding in missed if error is None else [error]:
+                print(f"FAIL {name}: {finding}")
+                failures += 1
+        for name in [n for n in SMOKE_CASES if not only or n in only]:
+            for finding in smoke_case_failures(name, base):
                 print(f"FAIL {name}: {finding}")
                 failures += 1
         for name, (rule, cases) in [(n, m) for n, m in MUTANTS.items() if not only or n in only]:

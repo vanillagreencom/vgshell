@@ -93,7 +93,11 @@
 # early when a frame already in flight swaps after its build. A fresh shell
 # starts with the QML disk cache the earlier shells of its tree left, as a
 # second login does.
-# inputs: scripts/smoke/open-split.py shell/Ui/layout/FirstView.qml shell/Ui/layout/FirstViewLogic.js shell/Ui/layout/FrameLatch.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/SummonPopup.qml shell/Hosts/AppWindow.qml shell/Hosts/PaneHost.qml shell/plugins/* bin/lib/qml-library.js scripts/fixtures/jarvis/* .agents/skills/jarvis/* shell/plugins/vgs.jarvis/backend/skills/*.md scripts/smoke/jarvis-console.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/device-fakes.sh
+# loads: scripts/smoke/rows/device-fakes.sh -- state another row leaves
+# loads: shell/plugins/vgs.jarvis/backend/skills/*.md -- a run-time load: a page, view or entry the core builds by a computed name
+# loads: .agents/skills/jarvis/* -- a load past a process the row runs, or a copy
+# loads: shell/plugins/* -- a startup file the row observes
+# loads: scripts/fixtures/jarvis/* -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 source "$source_repo/scripts/smoke/jarvis-console.sh"
 # The Jarvis fixtures log the set jarvis.sh declares.

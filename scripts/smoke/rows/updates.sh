@@ -65,7 +65,9 @@
 # after each choice. Update all while unanswered opens the offer
 # without a run. Keep and dismissal start the update; VGS only starts it
 # after the held setup terminal ends. A saved answer starts it directly.
-# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
+# loads: scripts/smoke/rows/system-steps.sh -- state another row leaves
+# loads: bin/lib/connectivity.js bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/self.js bin/lib/pkg-file.js bin/lib/judge-files.js -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml -- a startup file the row observes
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -99,6 +101,7 @@ updates_identity() { # NAME OS_ID STAND_INS...
   for tool in bash env readlink dirname flock setsid setpriv timeout mkdir cat sleep seq python3; do ln -sf -- "$(command -v "$tool")" "$dir/bin/$tool"; done
   ln -sf -- "$node_bin" "$dir/bin/node"
   shift 2
+  # loads: scripts/smoke/fixtures/updates-bin/* -- each tool its caller names
   for tool; do cp -- "$updates_fixtures/$tool" "$dir/bin/$tool"; done
 }
 updates_identity arch arch pacman checkupdates paru flatpak mise

@@ -27,6 +27,7 @@ function scratchTree(parent, changes) {
     const root = fs.mkdtempSync(path.join(parent, "core-"));
     for (const name of FILES) {
         fs.mkdirSync(path.join(root, path.dirname(name)), { recursive: true });
+        // loads: bin/lib/qml-library.js bin/lib/anchored.js bin/lib/account-folders.js bin/lib/codex-account.js shell/Commons/AccountDirectories.js shell/Commons/TuiArguments.js shell/Commons/SettingValues.js -- FILES names the core files a scratch tree copies
         fs.writeFileSync(path.join(root, name), changes[name] ?? fs.readFileSync(path.join(tree, name), "utf8"));
     }
     return root;

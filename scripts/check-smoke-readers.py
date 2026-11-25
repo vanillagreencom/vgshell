@@ -25,10 +25,12 @@ program in a row that parses JSON from its stdin is `py_reply`'s program:
   unreachable-leaves the row declares state it leaves on a `# leaves:`
                   line in its leading comment block, and it is no core row,
                   `smoke_core` in scripts/smoke/row-inputs.sh, and no later row in
-                  rows.list beside DIR names its file,
-                  `scripts/smoke/rows/<row>.sh`, as a word of its
-                  `# inputs:` line, the word scripts/validate follows. A scoped run that holds the row and not that reader
-                  would carry the state into rows that do not read it.
+                  rows.list beside DIR reads its state: names its file,
+                  `scripts/smoke/rows/<row>.sh`, alone in a `loads:`
+                  directive, the relation scripts/validate follows
+                  (scripts/row_loads.py state_reads). A scoped run that
+                  holds the row and not that reader would carry the state
+                  into rows that do not read it.
 A read is `json.load(sys.stdin` or `json.loads(sys.stdin`, or any
 `sys.stdin` in a program literal that also parses JSON with `json.load`,
 `json.loads` or `raw_decode`. Its command is the nearest `py_reply` or
@@ -51,15 +53,14 @@ declares.
 """
 import os
 import re
+import subprocess
 import sys
 
 ROWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smoke", "rows")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HARNESS = os.path.join(REPO, "scripts", "smoke", "harness.sh")
 CORE_FILE = os.path.join(REPO, "scripts", "smoke", "row-inputs.sh")
 CORE = re.compile(r"(?m)^smoke_core=\(([^)\n]*)\)$")
 FUNCTION = re.compile(r"(?<![\w=])(?:function\s+)?([A-Za-z_][\w.-]*)\s*\(\s*\)\s*[{(]|\bfunction\s+([A-Za-z_][\w.-]*)\s*[{(]")
-SOURCE = re.compile(r"(?m)^[ \t]*(source|\.)[ \t]+(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;]+))")
 HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
 CASE_WORD = re.compile(r"(case|esac)\b")
 STDIN = re.compile(r"\bsys\.stdin\b")
@@ -200,30 +201,49 @@ def definitions(path, text):
     return code, [(match.group(1) or match.group(2), line_of(text, match.start())) for match in FUNCTION.finditer(code)]
 
 
+def row_reader():
+    """scripts/row_loads.py, the row relation's and the harness closure's
+    reader, imported without writing bytecode into the tree it reads."""
+    sys.dont_write_bytecode = True
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import row_loads
+    return row_loads
+
+
 def harness_functions():
-    functions = {}
-    queue = [HARNESS]
-    seen = set()
-    while queue:
-        path = os.path.abspath(queue.pop(0))
-        if path in seen:
+    """The functions of the harness's Bash files, the closure
+    `scripts/row_loads.py --harness` reads: the files the harness loads in
+    its own process. A source operand the reading cannot resolve refuses
+    the check, since the file it names may define a function; an absolute
+    path outside the checkout, such as /dev/stdin, is runtime data that
+    names no harness file, and a row file is a row's own."""
+    row_loads = row_reader()
+    result = subprocess.run([sys.executable, "-I", "-B", os.path.join(REPO, "scripts", "row_loads.py"), "--harness"],
+                            cwd=REPO, capture_output=True, text=True)
+    if result.returncode:
+        raise Unreadable("scripts/row_loads.py", f"status={result.returncode} {result.stderr.strip()}")
+    functions, closure = {}, []
+    for line in result.stdout.splitlines():
+        fact = line.split()
+        if not fact:
             continue
-        seen.add(path)
+        if fact[0] == "harness":
+            closure.append(os.path.join(REPO, fact[1]))
+        elif fact[0] == "harness-unread" and fact[3] == "source":
+            raise Unreadable(os.path.join(REPO, fact[1]), f"unresolved source at line {fact[2]}")
+        elif fact[0] in ("unreadable", "failed"):
+            raise Unreadable("scripts/row_loads.py", line)
+    if not closure:
+        raise Unreadable("scripts/row_loads.py", "no harness file read")
+    for path in closure:
         text = read_file(path)
-        code, defined = definitions(path, text)
+        if row_loads.language(path, text[:200].encode()) != "bash":
+            continue
+        _, defined = definitions(path, text)
         for name, line in defined:
             functions.setdefault(name, []).append((path, line))
-        for source in SOURCE.finditer(text):
-            if code[source.start(1):source.end(1)] != source.group(1):
-                continue
-            operand = next(value for value in source.groups()[1:] if value is not None)
-            # smoke_row sources this separately checked directory at runtime.
-            if operand.startswith("$smoke_row_dir/"):
-                continue
-            operand = re.sub(r"^\$(?:repo\b|\{repo\})", lambda _: REPO, operand)
-            if "$" in operand or "`" in operand:
-                raise Unreadable(path, f"unresolved source: {operand}")
-            queue.append(os.path.join(REPO, operand))
     return functions
 
 
@@ -282,13 +302,13 @@ def check_leaves(root, texts, findings):
     cores = CORE.findall(read_file(CORE_FILE))
     if len(cores) != 1:
         raise Unreadable(CORE_FILE, f"smoke_core lines={len(cores)}")
+    row_loads = row_reader()
     for name, number in sorted(declared.items()):
         row = name[:-len(".sh")]
         if row in cores[0].split():
             continue
         later = order[order.index(row) + 1:] if row in order else []
-        words = [word for reader in later if reader + ".sh" in texts for line in header(texts[reader + ".sh"]) if line.startswith("# inputs:") for word in line.split()[2:]]
-        if f"scripts/smoke/rows/{name}" not in words:
+        if not any(row in row_loads.state_reads(reader, [texts[reader + ".sh"]]) for reader in later if reader + ".sh" in texts):
             findings.append(f"unreachable-leaves {os.path.join(root, name)}:{number} row={row} is no core row and no later row in rows.list names it")
 
 

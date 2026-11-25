@@ -65,7 +65,9 @@
 # No latency is budgeted: each reading polls through expect_poll every
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
 # the plugins directory and every enablement as it found them.
-# inputs: shell/Core/Sounds.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/assets/sounds/* shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.sounds/* shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.voice/Service.qml shell/plugins/vgs.voice/VoiceLogic.js shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.settings/Window.qml shell/Ui/controls/Select.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/assets/sounds/* -- a run-time load by a computed name
+# loads: shell/Hosts/PaneHost.qml -- a startup file the row observes
 set -euo pipefail
 
 sfx_file="$home/.config/vgshell/shell.json"

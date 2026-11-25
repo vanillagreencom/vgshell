@@ -18,7 +18,9 @@
 # and hands nothing off; the job's own picker is cancelled before reading
 # the app's frame. A tree that hands off any request's screen fails that.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py bin/lib/qml-library.js scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
+# loads: bin/vgshell-share-picker bin/vgshell bin/lib/owned-group.py bin/lib/qml-library.js -- a load past a process the row runs, or a copy
+# loads: shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* -- a startup file the row observes
+# loads: scripts/smoke/fixtures/share-picker/client.conf scripts/smoke/fixtures/share-picker/run-picker.py scripts/smoke/fixtures/share-picker/sheets.py -- a fixture a harness function the row calls starts or reads
 set -euo pipefail
 for ps_required in /usr/lib/xdg-desktop-portal /usr/lib/xdg-desktop-portal-hyprland /usr/lib/xdg-permission-store /usr/bin/gpu-screen-recorder; do
   if [[ ! -x $ps_required ]]; then not_measured picked-screen missing="$ps_required"; return 0; fi
@@ -49,6 +51,7 @@ cc -Wall -Wextra -Werror "$ps_world/mark.c" "$sandbox/xdg-shell-protocol.c" -I"$
 ps_saved_recorder=absent
 if [[ -e $shim/gpu-screen-recorder ]]; then mv -- "$shim/gpu-screen-recorder" "$ps_world/recorder.saved"; ps_saved_recorder=saved; fi
 ps_calls="$ps_world/calls.jsonl"
+# loads: scripts/smoke/rows/picked-screen.sh -- the stand-in this writes imports only the standard library
 cat >"$shim/gpu-screen-recorder" <<PY
 #!/usr/bin/env python3
 import json, os, sys

@@ -51,7 +51,8 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Core/HyprlandLayer.js shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
+# loads: shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml -- a startup file the row observes
 set -euo pipefail
 # The rows' cards hold an image that is not on disk.
 expected_errors+=('MediaSlot[.]qml.*Cannot open: file://' 'QML Loader [(]parent or ancestor of Image[)].*Cannot open: file://')
