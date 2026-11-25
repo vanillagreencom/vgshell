@@ -9,6 +9,10 @@ import qs.Ui
 import "plugins/vgs.voice" as Voice
 import "plugins/vgs.jarvis" as Jarvis
 import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
+import "plugins/vgs.launcher" as Launcher
+import "plugins/vgs.launcher/Appearance.js" as LauncherLook
+import "plugins/vgs.notifications" as Notifications
+import "plugins/vgs.notifications/Appearance.js" as NotificationLook
 
 // One layer, no shell or plugin services, drawing the shader
 // VGS_SHADER_NAME names: VoiceOrb, Voice's plasma orb fed a steady level
@@ -30,11 +34,24 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 // the lens form as the largest plate Jarvis's overlay draws: the card of a
 // held request whose payload fills the room this output leaves under the
 // orb, in the overlay's look. The pass's cost grows with the plate's area,
-// so the largest plate bounds the others.
+// so the largest plate bounds the others. launcher and notification-stack
+// are the glass each of those plugins draws today: GlassSurface's flat
+// form under the plugin's own EdgeLight, at rest, in its look. launcher
+// is the launcher's own card at its tallest, the share of the output its
+// look allows; a picker a caller sizes wider is not drawn.
+// notification-stack is as many toasts at their tallest as fill the
+// stack's room on this output, each with its edge light running, as a
+// stack draws them while the inbox is closed. The light's pass, like the
+// shadow under each card, grows with the cards' area, so the largest
+// card and the fullest stack bound the others. The stack's fade at its
+// scroll edges is not glass and is not drawn.
 // The off scene keeps the same
-// animation and background; only the shader stops drawing. The scene
-// selects the shader's own effect by its pack, so a visual that holds a
-// second effect still measures its own.
+// animation and background; only the shader stops drawing, in each of
+// the scene's effects that draws it. In launcher and notification-stack
+// the off scene also hides each GlassSurface, so the reading is the
+// whole glass, the flat form and its edge light; these two scenes have
+// no costly scene. The scene selects the shader's own effect by its
+// pack, so a visual that holds a second effect still measures its own.
 ShellRoot {
     id: root
     property int frames: 0
@@ -45,7 +62,8 @@ ShellRoot {
     readonly property bool complete: frames >= 730
 
     readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb",
-                                    "radial-backdrop": "radialbackdrop.frag.qsb", "glass-lens": "glasslens.frag.qsb" })
+                                    "radial-backdrop": "radialbackdrop.frag.qsb", "glass-lens": "glasslens.frag.qsb",
+                                    launcher: "edgelight.frag.qsb", "notification-stack": "edgelight.frag.qsb" })
     // The orb style and look a jarvis-orb scene draws, as the runner hands
     // them: empty and "0" for any other scene.
     readonly property string orbStyle: Quickshell.env("VGS_ORB_STYLE")
@@ -55,10 +73,13 @@ ShellRoot {
     function plant(item) {
         // A GlassSurface builds its lens pass in a Loader.
         const effects = item.children.map(child => child instanceof Loader ? child.item : child).filter(child => child instanceof ShaderEffect);
-        const effect = effects.find(child => String(child.fragmentShader).endsWith("/" + root.pack));
-        if (root.shader === "radial-backdrop") effects.filter(child => child !== effect).forEach(child => { child.visible = false; });
-        if (root.mode === "off") effect.visible = false;
-        if (root.mode === "costly") effect.fragmentShader = Qt.resolvedUrl("costly-" + root.shader + ".frag.qsb");
+        const drawn = effects.filter(child => String(child.fragmentShader).endsWith("/" + root.pack));
+        if (root.shader === "radial-backdrop") effects.filter(child => !drawn.includes(child)).forEach(child => { child.visible = false; });
+        if (root.mode === "off") item.children.filter(child => child.glassSurface === true).forEach(child => { child.visible = false; });
+        drawn.forEach(effect => {
+            if (root.mode === "off") effect.visible = false;
+            if (root.mode === "costly") effect.fragmentShader = Qt.resolvedUrl("costly-" + root.shader + ".frag.qsb");
+        });
     }
 
     PanelWindow {
@@ -75,7 +96,8 @@ ShellRoot {
             id: visual
             anchors.fill: parent
             sourceComponent: root.shader === "plasma" || root.shader === "radial-backdrop" ? plasma
-                : root.orbStyle !== "" ? particle : root.shader === "glass-lens" ? plate : orb
+                : root.orbStyle !== "" ? particle : root.shader === "glass-lens" ? plate
+                : root.shader === "launcher" ? launcherCard : root.shader === "notification-stack" ? toastStack : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -145,6 +167,85 @@ ShellRoot {
             standard: ({ background: look.plate.card.base, border: look.plate.card.border, radius: look.plate.card.radius })
             elevation: "none"
             lens: look.plate.lens
+        }
+    }
+    Component {
+        id: launcherCard
+        Item {
+            id: launcher
+            readonly property var look: Theme.appearance(LauncherLook.TOKENS, LauncherLook.LIGHT)
+            // The room the card's shadow reaches past it on each side, so
+            // the layer holds the whole shadow, as the launcher's
+            // output-wide layer does. A RectangularShadow reaches `blur`
+            // plus `spread` past its item, moved by its offset
+            // (https://doc.qt.io/qt-6/qml-qtquick-effects-rectangularshadow.html).
+            readonly property real room: card.shadow.blur + Math.max(0, card.shadow.spread) + Math.abs(card.shadow.offsetY)
+            implicitWidth: card.width + 2 * room
+            implicitHeight: card.height + 2 * room
+            // Launcher.qml's card at rest: the look's width, and the
+            // tallest share of the output its rows may fill.
+            GlassSurface {
+                id: card
+                x: launcher.room
+                y: launcher.room
+                width: launcher.look.card.width
+                height: Math.round(Quickshell.screens[0].height * launcher.look.card.tallest)
+                radius: Math.min(card.height / 2, launcher.look.card.radius)
+                optIn: true
+                fill: launcher.look.card.fill
+                padding: launcher.look.card.padding
+                shadowCached: false
+            }
+            Launcher.EdgeLight {
+                look: launcher.look
+                follow: card
+                visible: card.drawn
+            }
+        }
+    }
+    Component {
+        id: toastStack
+        Item {
+            id: stack
+            readonly property var look: Theme.appearance(NotificationLook.TOKENS, NotificationLook.LIGHT)
+            // Stack.qml's top stack: the first card a slot's gap below the
+            // stack's edge gap, each next one a card and a gap below it,
+            // and as many whole cards as end above the far gap. Each card
+            // is CardFace's glass under a settled toast at the look's
+            // tallest card.
+            readonly property real pitch: look.card.maxHeight + look.card.gap
+            readonly property int cards: Math.floor((implicitHeight - look.stack.edge - look.stack.far) / pitch)
+            // The scroll frame's width, whose side room holds the cards'
+            // shadows (CardScroll.qml).
+            implicitWidth: look.card.width + 2 * look.stack.pad
+            implicitHeight: Quickshell.screens[0].height
+            Repeater {
+                id: plates
+                model: stack.cards
+                GlassSurface {
+                    required property int index
+                    x: stack.look.stack.pad
+                    y: stack.look.stack.edge + stack.look.card.gap + index * stack.pitch
+                    width: stack.look.card.width
+                    height: stack.look.card.maxHeight
+                    radius: stack.look.radius.full
+                    optIn: true
+                    fill: stack.look.card.fill
+                    elevation: "tight"
+                    shadowCached: false
+                }
+            }
+            // The lights are the stack item's own children, as the scene
+            // finds its effects; each starts once its card exists.
+            Repeater {
+                model: plates.count
+                Notifications.EdgeLight {
+                    required property int index
+                    look: stack.look
+                    follow: plates.itemAt(index)
+                    visible: follow.drawn
+                }
+            }
         }
     }
     IpcHandler {

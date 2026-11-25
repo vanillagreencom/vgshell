@@ -20,13 +20,18 @@ file, keeping every other shader's. Every scene in every calibration pass
 needs a quiet .load record; loaded, missing or unreadable records exit 77
 without writing that shader's ceiling. Calibration records each accepted
 scene's CPU pressure, mean foreign GPU load, device-wide mean and peak
-GPU utilization, clock state, and retake flag. Device-wide utilization
-is evidence, not part of admission. Check mode judges one directory.
+GPU utilization, SM clock min/median/max, clock state, and retake flag.
+Device-wide utilization and the SM clock are evidence, not part of
+admission. Check mode judges one directory, and its result carries each
+scene's load record the same way.
 A loaded or unreadable on-scene CPU pressure qualifies only CPU readings.
 A GPU exceedance is not measured if its on or off scene remains loaded
 by foreign GPU use or clocks after a retake, or lacks load evidence.
 A within-ceiling reading keeps its verdict, and costly GPU controls
 must exceed the ceiling at any load.
+Report mode reads one directory of a scene that has no ceiling record:
+its off and on readings and each scene's load, judged against nothing; a
+scene with no quiet attempt exits 77.
 Software devices exit 77; absent samples fail.
 """
 import argparse
@@ -46,6 +51,8 @@ READINGS = ("cpu_sync_ms", "cpu_render_ms", "gpu_cost_ms", "presentation_ms")
 CPU_READINGS = ("cpu_sync_ms", "cpu_render_ms")
 CHECK_MODES = ("off", "on", "costly")
 CALIBRATION_MODES = ("off", "null", "on", "costly")
+# A scene with no ceiling record, measured for its readings alone.
+REPORT_MODES = ("off", "on")
 # QSGRenderThread::syncAndRender truncates CPU times to integer ms and
 # prints GPU timestamps with %.4f ms (Qt 6.11.2 qsgthreadedrenderloop.cpp).
 # Scene.qml's Date.now() presentation clock resolves whole ms.
@@ -136,13 +143,15 @@ def over_ceiling(reading, ceilings, names=READINGS):
             if round(reading[name] / RESOLUTION_MS[name]) > round(ceilings[name] / RESOLUTION_MS[name])]
 
 
-def measure(root, identity=None, *, calibrating=False):
+def measure(root, identity=None, *, calibrating=False, modes=None):
     """Read one pass's scenes at both scales, each scene's backend and
-    device matched to identity when one is given."""
+    device matched to identity when one is given: a calibration's or a
+    check's modes unless MODES names others."""
+    modes = modes or (CALIBRATION_MODES if calibrating else CHECK_MODES)
     scenes = {}
     for scale in (1, 2):
         scenes[scale] = {}
-        for mode in (CALIBRATION_MODES if calibrating else CHECK_MODES):
+        for mode in modes:
             stem = root / f"scale-{scale}-{mode}"
             scenes[scale][mode] = scene(
                 stem.with_suffix(".log").read_text(),
@@ -158,9 +167,10 @@ def measure(root, identity=None, *, calibrating=False):
     return {
         "backend": scenes[1]["on"]["backend"], "device": scenes[1]["on"]["device"],
         "readings": {str(scale): reading(rows["on"], rows["off"]) for scale, rows in scenes.items()},
-        "costly_control": {str(scale): reading(rows["costly"], rows["off"]) for scale, rows in scenes.items()},
+        "costly_control": {str(scale): reading(rows["costly"], rows["off"])
+                           for scale, rows in scenes.items()} if "costly" in modes else {},
         "gpu_null_readings_ms": {str(scale): reading(rows["null"], rows["off"], resolved=False)["gpu_cost_ms"]
-                                 for scale, rows in scenes.items()} if calibrating else {},
+                                 for scale, rows in scenes.items()} if "null" in modes else {},
     }
 
 
@@ -224,7 +234,9 @@ def check(root, baseline, pressure_limit):
         raise Unmeasured("; ".join(reasons))
     return dict(record(run, ceilings), gpu_null_spread_ms=baseline["gpu_null_spread_ms"],
                 readings=run["readings"], costly_control=run["costly_control"],
-                on_cpu_some_pct=run["on_cpu_some_pct"])
+                on_cpu_some_pct=run["on_cpu_some_pct"],
+                scene_loads={scale: {mode: scene_load(root / f"scale-{scale}-{mode}")[1] for mode in ("off", "on", "costly")}
+                             for scale in run["readings"]})
 
 
 def pressure(stem):
@@ -250,24 +262,28 @@ def scene_load(stem):
     cpu_field = r"([0-9]+\.[0-9]|unmeasured)"
     device_field = r"([0-9]{1,3}|unmeasured)"
     quiet = re.fullmatch(rf"quiet cpu={cpu_field} gpu_foreign=([0-9]+) gpu={device_field} "
-                         rf"gpu_peak={device_field} clock=(steady) retaken=(true|false)", state)
+                         rf"gpu_peak={device_field} clock_sm=([1-9][0-9]*/[1-9][0-9]*(?:\.5)?/[1-9][0-9]*) "
+                         rf"clock=(steady) retaken=(true|false)", state)
     if quiet:
-        cpu, foreign, gpu, peak, clock, retaken = quiet.groups()
+        cpu, foreign, gpu, peak, sm, clock, retaken = quiet.groups()
         return "quiet", {"cpu_some_pct": float(cpu) if cpu != "unmeasured" else cpu,
                          "gpu_foreign_pct": int(foreign), "gpu_pct": int(gpu) if gpu != "unmeasured" else gpu,
                          "gpu_peak_pct": int(peak) if peak != "unmeasured" else peak,
-                         "clock": clock, "retaken": retaken == "true"}
-    loaded = re.fullmatch(r"loaded cpu=(\S+) gpu_foreign=(\S+) gpu=(\S+) gpu_peak=(\S+) "
+                         "clock_sm": sm, "clock": clock, "retaken": retaken == "true"}
+    loaded = re.fullmatch(r"loaded cpu=(\S+) gpu_foreign=(\S+) gpu=(\S+) gpu_peak=(\S+) clock_sm=(\S+) "
                           r"clock=(steady|changed|differs|unmeasured)", state)
     if loaded:
-        cpu, foreign, gpu, peak, clock = loaded.groups()
+        cpu, foreign, gpu, peak, sm, clock = loaded.groups()
         state = "loaded"
     else:
         cpu, foreign, gpu, peak = (evidence(stem.with_suffix(suffix))
                                   for suffix in (".cpu", ".gpu-foreign", ".gpu", ".gpu-peak"))
+        sm = re.match(r"clock_sm=(\S+) ", evidence(stem.with_suffix(".gpu-clock")))
+        sm = sm[1] if sm else "unmeasured"
         state = "missing-or-unreadable"
         clock = "unmeasured"
-    return state, {"cpu_some_pct": cpu, "gpu_foreign_pct": foreign, "gpu_pct": gpu, "gpu_peak_pct": peak, "clock": clock}
+    return state, {"cpu_some_pct": cpu, "gpu_foreign_pct": foreign, "gpu_pct": gpu, "gpu_peak_pct": peak,
+                   "clock_sm": sm, "clock": clock}
 
 
 def paired_gpu_load(root, scale):
@@ -286,12 +302,13 @@ def paired_gpu_load(root, scale):
     return " ".join(details)
 
 
-def scene_loads(root, run_name):
-    """Require every scene in a calibration pass to have a quiet attempt."""
+def scene_loads(root, run_name, modes=CALIBRATION_MODES):
+    """Require every scene of a calibration or report pass to have a quiet
+    attempt."""
     loads = {}
     for scale in ("1", "2"):
         loads[scale] = {}
-        for mode in CALIBRATION_MODES:
+        for mode in modes:
             state, readings = scene_load(root / f"scale-{scale}-{mode}")
             if state != "quiet" or readings["cpu_some_pct"] == "unmeasured":
                 values = " ".join(f"{key}={value}" for key, value in readings.items())
@@ -334,6 +351,14 @@ def calibrate(roots):
         for run in runs])
 
 
+def report(root):
+    """Read one quiet pass of a scene that has no ceiling record: its
+    readings, judged against nothing."""
+    loads = scene_loads(root, "/".join(root.parts[-3:]), REPORT_MODES)
+    run = measure(root, modes=REPORT_MODES)
+    return dict(record(run, None), readings=run["readings"], scene_loads=loads)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, nargs="+")
@@ -342,12 +367,18 @@ def main():
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument("--calibrate", type=Path)
     choice.add_argument("--check", type=Path)
+    choice.add_argument("--report", action="store_true")
     args = parser.parse_args()
     if args.check and len(args.directory) != 1:
         print(f"shader-cost: refused directories={len(args.directory)} check=1")
         return 2
+    if args.report and len(args.directory) != 1:
+        print(f"shader-cost: refused directories={len(args.directory)} report=1")
+        return 2
     try:
-        if args.check:
+        if args.report:
+            result = report(args.directory[0])
+        elif args.check:
             records = json.loads(args.check.read_text())["shaders"]
             if args.shader not in records:
                 raise ValueError("baseline=absent")

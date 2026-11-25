@@ -9,7 +9,10 @@
 # scripts/shader/ceilings.json and prove its 256-step control. --shader
 # measures one, voiceorb, plasma, jarvis-orb-STYLE for each option of the
 # Jarvis manifest's Orb style setting, jarvis-orb-reduced, radial-backdrop
-# or glass-lens.
+# or glass-lens. --shader launcher or --shader notification-stack measures
+# the whole glass, flat form and edge light, of the launcher's card or of
+# a stack of notification cards, in its off and on scenes alone, and
+# prints the readings with no ceiling, costly control or calibration.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
 # scale, floored at each stream's instrument resolution and the measured
@@ -31,7 +34,10 @@
 # In check mode an over-limit or unread gate ends a partial run. In either
 # mode the compilation gate can stop the run. Both modes retake a scene
 # once if mean foreign GPU load exceeds its limit or is unread, or if its
-# clocks are unread, change within the window, or differ from its off scene.
+# clock record is unread, its P-state or memory clock changes within the
+# window, or either differs from its off scene's. The core (SM) boost
+# clock moves within one P-state: each scene's load record keeps its
+# min/median/max as evidence, not as a gate.
 # Calibration also retakes for CPU load and refuses a ceiling after a
 # second loaded attempt.
 # Check mode reports an over-ceiling GPU cost as not measured if its on or
@@ -90,6 +96,8 @@ orb_scene() {
     jarvis-orb-*) orb_style="${1#jarvis-orb-}" ;;
   esac
 }
+# Scenes measured for their readings alone, which only --shader names.
+reported=(launcher notification-stack)
 shaders=("${scenes[@]}")
 argv=("$@")
 while (($#)); do
@@ -102,7 +110,7 @@ while (($#)); do
       runs="$2"; shift 2 ;;
     --shader)
       known=false
-      for scene in "${scenes[@]}"; do [[ $# -ge 2 && $2 == "$scene" ]] && known=true; done
+      for scene in "${scenes[@]}" "${reported[@]}"; do [[ $# -ge 2 && $2 == "$scene" ]] && known=true; done
       [[ $known == true ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
       shaders=("$2"); shift 2 ;;
     --keep) keep=true; shift ;;
@@ -117,12 +125,16 @@ fi
 runs="${runs:-1}"
 measure_modes=(off on costly)
 [[ ${choice[0]} != --calibrate ]] || measure_modes=(off null on costly)
+# The shaders whose costly copy the run builds.
+costly=("${shaders[@]}")
+for scene in "${reported[@]}"; do
+  [[ ${shaders[0]} == "$scene" ]] || continue
+  [[ ${choice[0]} != --calibrate ]] || { printf 'shader-cost: refused argument=--calibrate shader=%s\n' "$scene"; exit 2; }
+  choice=(--report) measure_modes=(off on) costly=()
+done
 # The overseer's VGS-2619 ruling bounds GPU use by other processes, not the
 # runner's own launch, pipeline creation or costly control.
 shader_gpu_busy_limit=5
-# The overseer's VGS-2619 ruling allows boost jitter (~2%) but not a
-# P-state drop, whose SM-clock change is far larger.
-shader_clock_tolerance_pct=10
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 world_args=(--out "$repo/tmp/shader-cost" --out "$repo/tmp/display-record" --out "$repo/tmp/qml-smoke")
@@ -209,7 +221,7 @@ cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
 # Every orb style includes orb.glsl, which qsb resolves beside the
 # including source, so it goes beside the costly copies.
 cp -- "$repo/shell/plugins/vgs.jarvis/shaders/orb.glsl" "$sandbox/orb.glsl"
-for shader in "${shaders[@]}"; do
+for shader in "${costly[@]}"; do
   orb_scene "$shader"
   python3 - "$shader" "$repo" "$sandbox/costly-$shader.frag" "$orb_style" <<'PY'
 from pathlib import Path
@@ -278,31 +290,25 @@ shader_window() {
   smoke_hold_end
   return "$status"
 }
-# Compare the observed clock span to its own median and then compare the
-# pair's medians relative to off. Use twice the median to keep half-MHz ties.
+# A window is steady while it holds one P-state and one memory clock, and
+# differs where either is not its off scene's. The owner's delegate's
+# 2026-11-23 ruling refuses a P-state drop but lets the SM boost clock
+# range within one P-state, so no SM figure is judged.
 shader_clock_state() {
-  local stem="$1" off="$2" record sm_mid sm_span mem_min mem_max states off_mid delta
-  local pattern='^clock_sm=([1-9][0-9]*)/([1-9][0-9]*)([.]5)?/([1-9][0-9]*) clock_mem=([1-9][0-9]*)/([1-9][0-9]*) pstates=(P[0-9]+(,P[0-9]+)*) clock_samples=[1-9][0-9]*$'
+  local stem="$1" off="$2" record mem states
+  local pattern='^clock_sm=[1-9][0-9]*/[1-9][0-9]*([.]5)?/[1-9][0-9]* clock_mem=([1-9][0-9]*)/([1-9][0-9]*) pstates=(P[0-9]+(,P[0-9]+)*) clock_samples=[1-9][0-9]*$'
   if ! IFS= read -r record 2>/dev/null <"$stem.gpu-clock" || [[ ! $record =~ $pattern ]]; then
     echo unmeasured; return
   fi
-  sm_mid=$((2 * BASH_REMATCH[2]))
-  [[ ${BASH_REMATCH[3]:-} != .5 ]] || sm_mid=$((sm_mid + 1))
-  sm_span=$((BASH_REMATCH[4] - BASH_REMATCH[1]))
-  mem_min="${BASH_REMATCH[5]}" mem_max="${BASH_REMATCH[6]}" states="${BASH_REMATCH[7]}"
-  if [[ $states == *,* || $mem_min != "$mem_max" ]] || ((200 * sm_span > shader_clock_tolerance_pct * sm_mid)); then
+  mem="${BASH_REMATCH[2]}" states="${BASH_REMATCH[4]}"
+  if [[ $states == *,* || $mem != "${BASH_REMATCH[3]}" ]]; then
     echo changed; return
   fi
   if [[ $stem != "$off" ]]; then
     if ! IFS= read -r record 2>/dev/null <"$off.gpu-clock" || [[ ! $record =~ $pattern ]]; then
       echo unmeasured; return
     fi
-    off_mid=$((2 * BASH_REMATCH[2]))
-    [[ ${BASH_REMATCH[3]:-} != .5 ]] || off_mid=$((off_mid + 1))
-    delta=$((sm_mid - off_mid))
-    ((delta >= 0)) || delta=$((-delta))
-    if [[ $states != "${BASH_REMATCH[7]}" || $mem_min != "${BASH_REMATCH[5]}" || $mem_max != "${BASH_REMATCH[6]}" ]] \
-      || ((100 * delta > shader_clock_tolerance_pct * off_mid)); then
+    if [[ $states != "${BASH_REMATCH[4]}" || $mem != "${BASH_REMATCH[2]}" || $mem != "${BASH_REMATCH[3]}" ]]; then
       echo differs; return
     fi
   fi
@@ -311,10 +317,14 @@ shader_clock_state() {
 shader_attempts() {
   local scale="$1" scene="$2" stem="$3" label="${3#"$logs"/}"
   # Off runs first, so every pair reads the final off record, not its archive.
-  local off="${3%/*}/scale-$1-off" attempt action evidence cpu_quiet clock_state retaken=false
+  local off="${3%/*}/scale-$1-off" attempt action evidence cpu_quiet clock_state clock_sm record retaken=false
   for attempt in 1 2; do
     shader_window "$scale" "$scene" "$stem" "$label"
     clock_state="$(shader_clock_state "$stem" "$off")"
+    clock_sm=unmeasured
+    if IFS= read -r record 2>/dev/null <"$stem.gpu-clock" && [[ $record =~ ^clock_sm=([^ ]+)\  ]]; then
+      clock_sm="${BASH_REMATCH[1]}"
+    fi
     cpu_quiet=true
     if [[ ${choice[0]} == --calibrate ]]; then
       if [[ $gate_result != within || $(latency_pressure_verdict 0 "$scene_cpu_some_pct" 0) != within ]]; then
@@ -323,12 +333,12 @@ shader_attempts() {
     fi
     if [[ $cpu_quiet == true && $scene_gpu_foreign_pct != unmeasured && $clock_state == steady ]] \
       && ((scene_gpu_foreign_pct <= shader_gpu_busy_limit)); then
-      printf 'quiet cpu=%s gpu_foreign=%s gpu=%s gpu_peak=%s clock=%s retaken=%s\n' \
-        "$scene_cpu_some_pct" "$scene_gpu_foreign_pct" "$scene_gpu_pct" "$scene_gpu_peak_pct" "$clock_state" "$retaken" >"$stem.load"
+      printf 'quiet cpu=%s gpu_foreign=%s gpu=%s gpu_peak=%s clock_sm=%s clock=%s retaken=%s\n' \
+        "$scene_cpu_some_pct" "$scene_gpu_foreign_pct" "$scene_gpu_pct" "$scene_gpu_peak_pct" "$clock_sm" "$clock_state" "$retaken" >"$stem.load"
       return 0
     fi
-    printf 'loaded cpu=%s gpu_foreign=%s gpu=%s gpu_peak=%s clock=%s\n' \
-      "$scene_cpu_some_pct" "$scene_gpu_foreign_pct" "$scene_gpu_pct" "$scene_gpu_peak_pct" "$clock_state" >"$stem.load"
+    printf 'loaded cpu=%s gpu_foreign=%s gpu=%s gpu_peak=%s clock_sm=%s clock=%s\n' \
+      "$scene_cpu_some_pct" "$scene_gpu_foreign_pct" "$scene_gpu_pct" "$scene_gpu_peak_pct" "$clock_sm" "$clock_state" >"$stem.load"
     action=retake
     [[ $attempt == 1 ]] || action=none
     printf 'shader-cost: loaded scene=%s attempt=%s cpu_some_pct=%s gpu_foreign_pct=%s gpu_pct=%s gpu_peak_pct=%s gate_cpu_some_pct=%s cpu_limit=%s gpu_limit=%s clock=%s accepted=false action=%s\n' \

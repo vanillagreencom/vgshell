@@ -78,7 +78,8 @@ def fixture(root):
             stem.with_suffix(".gpu-peak").write_text("4\n")
             stem.with_suffix(".gpu-foreign").write_text("1\n")
             stem.with_suffix(".gpu-clock").write_text(STEADY_CLOCK + "\n")
-            stem.with_suffix(".load").write_text("quiet cpu=0.5 gpu_foreign=1 gpu=2 gpu_peak=4 clock=steady retaken=false\n")
+            stem.with_suffix(".load").write_text(
+                "quiet cpu=0.5 gpu_foreign=1 gpu=2 gpu_peak=4 clock_sm=2580/2601.5/2632 clock=steady retaken=false\n")
 
 
 class ShaderReadings(unittest.TestCase):
@@ -186,14 +187,16 @@ class ShaderReadings(unittest.TestCase):
             root.mkdir(parents=True)
             fixture(root)
             marker = root / "scale-2-costly.load"
-            marker.write_text("quiet cpu=1.7 gpu_foreign=3 gpu=unmeasured gpu_peak=unmeasured clock=steady retaken=true\n")
+            marker.write_text("quiet cpu=1.7 gpu_foreign=3 gpu=unmeasured gpu_peak=unmeasured clock_sm=1400/1900/2800 "
+                              "clock=steady retaken=true\n")
             run = reader.calibrate([root])["calibration_runs"][0]
             self.assertEqual(run["cpu_some_pct"], 1.7)
             expected = {scale: {mode: {"cpu_some_pct": 0.5, "gpu_foreign_pct": 1, "gpu_pct": 2,
-                                       "gpu_peak_pct": 4, "clock": "steady", "retaken": False}
+                                       "gpu_peak_pct": 4, "clock_sm": "2580/2601.5/2632", "clock": "steady", "retaken": False}
                                 for mode in ("off", "null", "on", "costly")} for scale in ("1", "2")}
             expected["2"]["costly"] = {"cpu_some_pct": 1.7, "gpu_foreign_pct": 3, "gpu_pct": "unmeasured",
-                                       "gpu_peak_pct": "unmeasured", "clock": "steady", "retaken": True}
+                                       "gpu_peak_pct": "unmeasured", "clock_sm": "1400/1900/2800", "clock": "steady",
+                                       "retaken": True}
             self.assertEqual(run["scene_loads"], expected)
             marker.unlink()
             with self.assertRaisesRegex(reader.Unmeasured, r"scene-load=missing-or-unreadable .*run-2/voiceorb "
@@ -271,7 +274,9 @@ class ShaderReadings(unittest.TestCase):
                     if error:
                         self.assertIn("shader-cost: failed shader=voiceorb " + error, result.stdout)
                     else:
-                        self.assertEqual(json.loads(result.stdout)["ceilings"], baseline["ceilings"])
+                        report = json.loads(result.stdout)
+                        self.assertEqual(report["ceilings"], baseline["ceilings"])
+                        self.assertEqual(report["scene_loads"]["2"]["costly"]["clock_sm"], "2580/2601.5/2632")
 
     def test_check_mode_calibration_identity(self):
         # Every scene is a real producer of device identity, including the
@@ -1068,11 +1073,11 @@ measure_held_scene() {
       fi ;;
     calibration:run-1/glass-lens/scale-1-on)
       if [[ ! -f $home/clock-on-once ]]; then
-        printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P1 clock_samples=4' >"$3.gpu-clock"
+        printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P2 clock_samples=4' >"$3.gpu-clock"
         : >"$home/clock-on-once"
       fi ;;
     clock:run-1/plasma/scale-1-on|weak:run-1/plasma/scale-1-on|weak:run-1/plasma/scale-1-costly)
-      printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P1 clock_samples=4' >"$3.gpu-clock" ;;
+      printf '%s\n' 'clock_sm=1790/1800/1810 clock_mem=13801/13801 pstates=P2 clock_samples=4' >"$3.gpu-clock" ;;
   esac
 }
 '''
@@ -1173,7 +1178,7 @@ measure_held_scene() {
                                      {"cpu", "gpu", "gpu-clock", "gpu-foreign", "gpu-foreign-peers", "gpu-peak",
                                       "json", "load", "log"})
                 self.assertEqual((logs / (plasma + ".load")).read_text(),
-                                 "loaded cpu=0.5 gpu_foreign=6 gpu=8 gpu_peak=9 clock=steady\n")
+                                 "loaded cpu=0.5 gpu_foreign=6 gpu=8 gpu_peak=9 clock_sm=2580/2601.5/2632 clock=steady\n")
                 self.assertIn("scale=1 scene=on cpu_some_pct=0.5 gpu_foreign_pct=6 gpu_pct=8 gpu_peak_pct=9", result.stdout)
                 records = json.loads(output.read_text())["shaders"]
                 self.assertEqual(set(records), set(SCENES) - {"plasma"})
@@ -1182,7 +1187,8 @@ measure_held_scene() {
                                               ("glass-lens", "null", False)):
                     self.assertEqual(records[shader]["calibration_runs"][0]["scene_loads"]["1"][mode],
                                      {"cpu_some_pct": 0.5, "gpu_foreign_pct": 2, "gpu_pct": 8,
-                                      "gpu_peak_pct": 9, "clock": "steady", "retaken": retaken})
+                                      "gpu_peak_pct": 9, "clock_sm": "2580/2601.5/2632", "clock": "steady",
+                                      "retaken": retaken})
 
             measure("calibration", text)
             for case, status, retakes in (("within", 0, (plasma,)), ("loaded", 77, (plasma,)),
@@ -1198,6 +1204,91 @@ measure_held_scene() {
             self.assertNotEqual(without_clock_gate, text)
             with self.assertRaises(AssertionError):
                 measure("without-clock-gate", without_clock_gate, "clock", 77, (plasma,))
+
+    def test_clock_rule(self):
+        # Only the P-state and the memory clock judge a window: the SM boost
+        # clock ranges inside one P-state and is recorded beside the scene.
+        # Every scene reads OFF_CLOCK but the scale-1 on scene, which reads
+        # the row's record, and the real reader writes the calibration.
+        harness = '''
+home="$HOME"; sandbox="$HOME/sandbox"; mkdir -p "$sandbox"
+failures=0; mode_hold=(); latency_pressure_limit=2.8
+first_name() { echo WAYLAND-1; }
+unscaled_mode_of() { echo 1920x1080; }
+hidpi_mode_of() { echo 3840x2160; }
+hold_mode() { mode_hold=("$2" "$3 scale=$4"); }
+release_mode() { mode_hold=(); }
+latency_pressure_verdict() { echo within; }
+cpu_some_pct() { echo 0.5; }
+'''
+        scene = r'''
+measure_held_scene() {
+  scene_cpu_some_pct=0.5 scene_gpu_foreign_pct=1 scene_gpu_pct=8 scene_gpu_peak_pct=9
+  cp "$source_repo/../fixture/scale-$1-$2.log" "$3.log"
+  cp "$source_repo/../fixture/scale-$1-$2.json" "$3.json"
+  printf '%s\n' "$scene_cpu_some_pct" >"$3.cpu"
+  printf '%s\n' "$scene_gpu_foreign_pct" >"$3.gpu-foreign"
+  printf '%s\n' '[]' >"$3.gpu-foreign-peers"
+  printf '%s\n' "$scene_gpu_pct" >"$3.gpu"
+  printf '%s\n' "$scene_gpu_peak_pct" >"$3.gpu-peak"
+  if [[ $1/$2 == 1/on ]]; then
+    printf '%s\n' "$on_clock" >"$3.gpu-clock"
+  else
+    printf '%s\n' 'clock_sm=1410/2100/2790 clock_mem=14001/14001 pstates=P0 clock_samples=20' >"$3.gpu-clock"
+  fi
+}
+'''
+        # Rows: the scale-1 on scene's clock record, its clock state, and
+        # the runner's exit.
+        rows = (
+            ("wide boost", "clock_sm=1400/1900/2800 clock_mem=14001/14001 pstates=P0 clock_samples=20", "steady", 0),
+            ("P-state change", "clock_sm=1400/1900/2800 clock_mem=14001/14001 pstates=P0,P2 clock_samples=20", "changed", 77),
+            ("memory change", "clock_sm=1400/1900/2800 clock_mem=13801/14001 pstates=P0 clock_samples=20", "changed", 77),
+            ("P-state not off's", "clock_sm=1400/1900/2800 clock_mem=14001/14001 pstates=P2 clock_samples=20", "differs", 77),
+            ("memory not off's", "clock_sm=1400/1900/2800 clock_mem=13801/13801 pstates=P0 clock_samples=20", "differs", 77),
+        )
+        text = RUNNER.read_text()
+        gate = '  if [[ $states == *,* || $mem != "${BASH_REMATCH[3]}" ]]; then'
+        pair = '    if [[ $states != "${BASH_REMATCH[4]}" || $mem != "${BASH_REMATCH[2]}" || $mem != "${BASH_REMATCH[3]}" ]]; then'
+        for needle in (gate, pair):
+            self.assertEqual(text.count(needle), 1)
+        # Each plant drops one gate; the row it names must then fail.
+        plants = (
+            ("no P-state gate", text.replace(gate, '  if [[ $mem != "${BASH_REMATCH[3]}" ]]; then'), rows[1]),
+            ("no memory gate", text.replace(gate, '  if [[ $states == *,* ]]; then'), rows[2]),
+            ("no P-state pair", text.replace(pair, '    if [[ $mem != "${BASH_REMATCH[2]}" || $mem != "${BASH_REMATCH[3]}" ]]; then'), rows[3]),
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            fixture_root = Path(scratch) / "fixture"
+            fixture_root.mkdir()
+            fixture(fixture_root)
+
+            def assert_row(name, source, row):
+                _, record, state, status = row
+                root = Path(scratch) / name
+                output = root / "ceilings.json"
+                setup = harness + f"on_clock='{record}'\n"
+                result = self.runner_copy(root, setup, source, ["--shader", "plasma", "--calibrate", str(output)],
+                                          scene, READER.read_text())
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                logs = Path(re.search(r"^shader-cost: logs=(.+)$", result.stdout, re.M)[1])
+                load = (logs / "run-1/plasma/scale-1-on.load").read_text().split()
+                self.assertIn("clock_sm=1400/1900/2800", load)
+                self.assertIn(f"clock={state}", load)
+                if status == 0:
+                    loads = json.loads(output.read_text())["shaders"]["plasma"]["calibration_runs"][0]["scene_loads"]
+                    self.assertEqual((loads["1"]["on"]["clock_sm"], loads["1"]["off"]["clock_sm"]),
+                                     ("1400/1900/2800", "1410/2100/2790"))
+                else:
+                    self.assertIn("scene-load=loaded", result.stdout)
+
+            for row in rows:
+                with self.subTest(row=row[0]):
+                    assert_row(row[0].replace(" ", "-").replace("'", ""), text, row)
+            for name, source, row in plants:
+                self.assertNotEqual(source, text)
+                with self.subTest(plant=name), self.assertRaises(AssertionError):
+                    assert_row(name.replace(" ", "-"), source, row)
 
     def test_verdict_over_shaders(self):
         # Every shader is judged, and a failure outranks a shader that
