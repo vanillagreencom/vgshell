@@ -20,7 +20,7 @@ Quickshell rules for this shell. They add to the rules above.
 - Name the tool and the run behind a ceiling's figures beside the ceiling, in the row header or code comment that holds it, and put the run's evidence on its tracker item, never in `docs/architecture/`; `docs/architecture/validation.md` § Latency budgets owns this rule. A budget without its measurement is a blocker.
 - A smoke row goes under `scripts/smoke/rows/` and follows the `scripts/qml-smoke.sh` header's shape: the ceiling, the machine and date it was measured on, and the poll interval of each latency reading. A new check's row goes in `scripts/validate` with its control (D100).
 - One judge per decision: `shell/Core/PluginLogic.js` for manifests and enablement; `shell/Core/ConfigLogic.js` for the configuration layers, their merge and migration; `shell/Core/Dispatch.js` for every Hyprland request. A script that needs one of those answers runs the file under node.
-- The testing method is in `docs/architecture/validation.md`; a row's `# inputs:` line and the check that holds it are in `scripts/AGENTS.md`.
+- The testing method is in `docs/architecture/validation.md`; a smoke row's `loads:` directives and the check that holds them are in `scripts/AGENTS.md`.
 <!-- kendex:project-instructions:end -->
 
 # Code Quality
