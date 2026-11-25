@@ -20,15 +20,26 @@ Cases, each a JSON line on stdout:
   starts.
 - bounded: a row whose turn wait reaches its bound behind a window that is
   draining another world's row still starts, logging turn=none.
+- toast: A sends a toast inside its row's window while C holds the turn
+  lock and waits for the hold. A's check after the window finds the toast
+  within its 30 s lifetime and logs a downgrade retake, and C's window
+  starts only once A's world, still in its row, is killed. A harness that
+  drops the hold and queues again lets C's window, held past the
+  lifetime, run first, and the toast expires: the notifications row's
+  dismiss failure.
+- unheld: a window whose exclusive wait reaches its bound behind another
+  world's row takes its row's shared lock again, through the turn lock,
+  before the window's command runs.
 - stream: two worlds at once. W opens twelve windows back to back, as
   measure-shader.sh does; R runs four rows, one holding a window of its
-  own. No window overlaps another world's row or window, each wait passes
-  at most one window or row of the other world, and both worlds wait for
-  each other at least once.
+  own. No window overlaps another world's row or window, R's row with a
+  window included, each wait passes at most one window or row of the
+  other world, and both worlds wait for each other at least once.
 
 Usage: scripts/test-smoke-hold.py [--harness FILE]
 --harness drives another copy of harness.sh, such as the base revision's,
-to show that a harness without the turn lock's order fails the order case.
+to show that a harness without the turn lock's order fails the order case,
+or one that drops a window's hold and queues again fails the toast case.
 The lock files each case creates, and the admission lock the order case's
 barriers name, are read from the smoke_lock_take calls of the copy under
 test, so that control fails on the order it asserts.
@@ -48,11 +59,15 @@ import tempfile
 import time
 
 REPO = Path(__file__).resolve().parent.parent
+# NotificationLogic.lifetimeFor's ceiling, MAX_LIFETIME in
+# shell/plugins/vgs.notifications/NotificationLogic.js: a noncritical toast
+# expires at most this long after it is sent.
+TOAST_LIFETIME_MS = 30000
 
 FIXTURE = r'''
 set -euo pipefail
 source "$1"
-name=$2 sandbox=$3 smoke_hold_dir=$4 qml_smoke_idle_secs=$5 role=$6 events=$7
+name=$2 sandbox=$3 smoke_hold_dir=$4 qml_smoke_idle_secs=$5 role=$6 events=$7 toast_lifetime_ms=$8
 mkdir -p "$sandbox"
 now_ms() { printf '%s\n' "$(( ${EPOCHREALTIME/./} / 1000 ))"; }
 fail() { printf 'failure %s\n' "$*"; exit 1; }
@@ -86,6 +101,22 @@ case $role in
       event window-ended
     fi
     if [[ $role == row-window ]]; then smoke_hold_row end "$name"; fi ;;
+  # The notifications row's emoji toast: sent inside a window, dismissed
+  # by a check after it, which finds the card only within the toast's
+  # lifetime.
+  toast)
+    smoke_hold_row begin "$name"
+    event row
+    read -r command
+    event window-request
+    smoke_hold_begin "$name" window
+    sent=$(now_ms)
+    event held
+    read -r command
+    smoke_hold_end
+    if (( $(now_ms) - sent < toast_lifetime_ms )); then event dismissed; else event expired; fi
+    read -r command
+    smoke_hold_row end "$name" ;;
   # Each sleep is the work inside a held section, long enough that two
   # sections the locks failed to exclude would interleave in the file.
   stream-windows)
@@ -155,7 +186,7 @@ class Worlds:
         env.update(LC_ALL='C.UTF-8', VGS_TEST_RUN='1')
         child = subprocess.Popen([UNSHARE, '--user', '--map-current-user', '--pid', '--fork', '--kill-child', '--mount-proc',
                                   BASH, '-c', FIXTURE, '_', str(self.script), name, str(self.folder / name), str(self.locks),
-                                  str(bound), role, str(self.events_file)],
+                                  str(bound), role, str(self.events_file), str(TOAST_LIFETIME_MS)],
                                  env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
         self.children[name] = child
         self.reports[name] = []
@@ -200,8 +231,15 @@ class Worlds:
 
 
 def retake_line(reports, name):
-    pattern = r'qml-smoke: smoke-hold row=' + name + r' window=window lock=shared phase=retake wait_ms=[0-9]+'
-    return any(re.fullmatch(pattern, line) for line in reports[name])
+    """The index in NAME's report of its window's shared retake line and
+    the line's mode, '' for a harness that names none; None without one."""
+    pattern = (r'qml-smoke: smoke-hold row=' + name + r' window=window lock=shared phase=retake wait_ms=[0-9]+'
+               r'(?: mode=([a-z]+))?(?: turn=none cause=\[[^]]*\])?')
+    for index, line in enumerate(reports[name]):
+        match = re.fullmatch(pattern, line)
+        if match:
+            return index, match.group(1) or ''
+    return None
 
 
 def case_order(root, harness):
@@ -233,7 +271,7 @@ def case_order(root, harness):
         worlds.finish()
         for name, lines in worlds.reports.items():
             assert not any('hold=none' in line or worlds.admission + '=none' in line for line in lines), ('order-bound-reached', worlds.reports)
-        assert retake_line(worlds.reports, 'A'), ('order-missing-retake', worlds.reports)
+        assert retake_line(worlds.reports, 'A') is not None, ('order-missing-retake', worlds.reports)
         assert first == 'B row', ('later-window-passed-waiting-row', worlds.events)
         return dict(events=worlds.events)
     finally:
@@ -290,7 +328,77 @@ def case_bounded(root, harness):
             assert not any('hold=none' in line for line in lines), ('bounded-hold-none', worlds.reports)
             if name != 'B':
                 assert not any(worlds.admission + '=none' in line for line in lines), ('bounded-turn-none', worlds.reports)
-        assert retake_line(worlds.reports, 'C'), ('bounded-missing-retake', worlds.reports)
+        assert retake_line(worlds.reports, 'C') is not None, ('bounded-missing-retake', worlds.reports)
+        return dict(events=worlds.events)
+    finally:
+        worlds.close()
+
+
+def case_toast(root, harness):
+    worlds = Worlds(root, harness, 'toast', 150)
+    try:
+        # Every bound outlasts the toast's lifetime, so no wait below ends
+        # at its bound.
+        worlds.start('A', 'toast', 60)
+        worlds.start('C', 'window', 60)
+        worlds.wait_for('A row')
+        worlds.wait_for('C ready')
+        worlds.send('A', 'window')
+        worlds.wait_for('A held')
+        worlds.send('C', 'window')
+        worlds.wait_for('C granted -x ' + worlds.admission)
+        worlds.wait_for('C request -x hold')
+        worlds.send('A', 'release')
+        first = worlds.wait_for('A dismissed', 'A expired', 'C held')
+        if first == 'C held':
+            # C's window stays held past the toast's lifetime, as another
+            # unit's window that holds the lock that long does.
+            time.sleep(TOAST_LIFETIME_MS / 1000 + 1)
+            worlds.send('C', 'release')
+            outcome = worlds.wait_for('A dismissed', 'A expired')
+            assert outcome == 'A dismissed', ('toast-expired', worlds.events)
+            raise AssertionError(('window-held-inside-row', worlds.events))
+        assert first == 'A dismissed', ('toast-expired', worlds.events)
+        mode = retake_line(worlds.reports, 'A')
+        assert mode is not None and mode[1] == 'downgrade', ('toast-retake-mode', mode, worlds.reports)
+        # A pauses while it still owns its row: C's window waits for it.
+        settle = time.monotonic() + 2
+        while time.monotonic() < settle:
+            worlds.read_ready(settle - time.monotonic())
+        assert 'C granted -x hold' not in worlds.events, ('window-held-inside-row', worlds.events)
+        # A's world ends with its converted lock still held; the lock ends
+        # with its namespace.
+        worlds.children['A'].kill()
+        worlds.children['A'].wait(timeout=5)
+        worlds.wait_for('C held')
+        worlds.send('C', 'release')
+        worlds.finish(skip=('A',))
+        assert not any('hold=none' in line or worlds.admission + '=none' in line for line in worlds.reports['C']), ('toast-bound-reached', worlds.reports)
+        return dict(events=worlds.events)
+    finally:
+        worlds.close()
+
+
+def case_unheld(root, harness):
+    worlds = Worlds(root, harness, 'unheld', 30)
+    try:
+        worlds.start('A', 'row', 60)
+        worlds.start('C', 'row-window', 2)
+        worlds.wait_for('C row')
+        worlds.send('A', 'start')
+        worlds.wait_for('A row')
+        worlds.send('C', 'window')
+        worlds.wait_for('C held')
+        worlds.send('C', 'release')
+        worlds.wait_for('C done')
+        worlds.send('A', 'finish')
+        worlds.finish()
+        assert any(line == '  smoke_hold row=C window=window hold=none cause=[wait-bound secs=2 lock=hold mode=-x]' for line in worlds.reports['C']), ('unheld-window-held', worlds.reports)
+        retake = retake_line(worlds.reports, 'C')
+        assert retake is not None, ('unheld-missing-retake', worlds.reports)
+        assert retake[0] < worlds.reports['C'].index('event C held'), ('unheld-retake-after-window', worlds.reports)
+        assert retake[1] == 'queue', ('unheld-retake-mode', retake, worlds.reports)
+        assert not any('hold=none' in line for line in worlds.reports['A']), ('unheld-row-unheld', worlds.reports)
         return dict(events=worlds.events)
     finally:
         worlds.close()
@@ -298,7 +406,9 @@ def case_bounded(root, harness):
 
 def stream_judge(lines):
     """Exclusion, the one-pass bound and mutual waits over the stream's
-    events file: a list of 'NAME KIND N' lines."""
+    events file: a list of 'NAME KIND N' lines. R holds from its window's
+    grant to its row's end without a gap, so one R span runs from 'row' or
+    'held' to 'window-request' or 'row-end'."""
     rows = [line.split() for line in lines]
     assert all(len(row) == 3 for row in rows), ('stream-events-shape', lines)
     window_open = row_open = None
@@ -311,14 +421,14 @@ def stream_judge(lines):
         elif who == 'R' and kind in ('row', 'retaken', 'held'):
             assert window_open is None, ('row-overlaps-window', window_open, kind, n, lines)
             row_open = kind + n
-        elif who == 'R' and kind in ('window-request', 'window-end', 'row-end'):
+        elif who == 'R' and kind in ('window-request', 'row-end'):
             row_open = None
     def span(who, start, end, n):
         first = rows.index([who, start, n])
         last = rows.index([who, end, n])
         assert first < last, ('stream-span-order', who, start, end, n, lines)
         return rows[first + 1:last]
-    waits = [('R', 'request', 'row', j) for j in '1234'] + [('R', 'window-request', 'held', '2'), ('R', 'window-end', 'retaken', '2')]
+    waits = [('R', 'request', 'row', j) for j in '1234'] + [('R', 'window-request', 'held', '2')]
     r_waited = w_waited = False
     for who, start, end, n in waits:
         inside = span(who, start, end, n)
@@ -327,9 +437,9 @@ def stream_judge(lines):
         r_waited = r_waited or any(row[:2] == ['W', 'end'] for row in inside)
     for i in range(1, 13):
         inside = span('W', 'request', 'held', str(i))
-        passed = [row for row in inside if row[0] == 'R' and row[1] in ('row', 'retaken', 'held')]
+        passed = [row for row in inside if row[0] == 'R' and row[1] in ('row', 'held')]
         assert len(passed) <= 1, ('window-passed-by-rows', i, passed, lines)
-        w_waited = w_waited or any(row[0] == 'R' and row[1] in ('row-end', 'window-request', 'window-end') for row in inside)
+        w_waited = w_waited or any(row[0] == 'R' and row[1] in ('row-end', 'window-request') for row in inside)
     assert r_waited and w_waited, ('stream-no-contention', r_waited, w_waited, lines)
 
 
@@ -362,7 +472,8 @@ def main():
     root = Path(tempfile.mkdtemp(prefix='test-smoke-hold.'))
     failed = []
     try:
-        for name, case in (('order', case_order), ('killed', case_killed), ('bounded', case_bounded), ('stream', case_stream)):
+        for name, case in (('order', case_order), ('killed', case_killed), ('bounded', case_bounded), ('toast', case_toast),
+                           ('unheld', case_unheld), ('stream', case_stream)):
             try:
                 result = case(root, harness)
                 print(json.dumps(dict(case=name, result='pass', **result)), flush=True)

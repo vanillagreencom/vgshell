@@ -251,7 +251,9 @@ environment = {key: os.environ[key] for key in
                 "XDG_STATE_HOME", "XDG_CACHE_HOME", "VGSHELL_WORLD_ROOT", "VGS_TEST_RUN")}
 environment["VGS_SMOKE_IDLE_SECS"] = "600"
 # Each row can wait for turn and shared admission; the window can also
-# wait for turn/hold and turn/shared on return. Leave setup/teardown room.
+# wait for turn/hold and, when it runs without the hold, for turn/shared
+# before its command. Its conversion to shared at its end waits on no
+# other world. Leave setup/teardown room.
 row_count = len((tree / "scripts/smoke/rows.list").read_text().splitlines())
 run_bound = 600 * (2 * row_count + 4) + 300
 def run(name, source):
