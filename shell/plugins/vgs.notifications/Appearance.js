@@ -235,8 +235,8 @@ var TOKENS = {
         slide: length(8),
         // Two pill side paddings let text fade out before the first label.
         fadeWidth: length(24),
-        // Leave the text barely visible across the button row, so every
-        // label reads over it; above and below the row the ink returns.
+        // Leave the lines behind the button labels barely visible, so every
+        // label reads over them; the other lines keep their ink.
         fadeAlpha: share(0.18),
         // Only alpha reaches the text's mask; this ink paints no plate.
         fadeInk: color("{text.foreground}")

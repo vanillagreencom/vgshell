@@ -71,6 +71,38 @@ Item {
             return card;
         }
 
+        // The shipped mask's ink over the lines the row's words do not
+        // meet, which a control replaces with an earlier vertical fade.
+        function lineInk() {
+            return "            Rectangle {\n"
+                + "                width: parent.width\n"
+                + "                height: actionMask.band.top\n"
+                + "                color: card.look.tray.fadeInk\n"
+                + "            }\n"
+                + "            Rectangle {\n"
+                + "                y: actionMask.band.bottom\n"
+                + "                width: parent.width\n"
+                + "                height: parent.height - y\n"
+                + "                color: card.look.tray.fadeInk\n"
+                + "            }\n";
+        }
+        // A vertical gradient over the mask, its stops as [position, alpha]
+        // with positions in the mask's pixels.
+        function verticalFade(stops) {
+            return "            Rectangle {\n"
+                + "                anchors.fill: parent\n"
+                + "                gradient: Gradient {\n"
+                + "                    orientation: Gradient.Vertical\n"
+                + stops.map(stop => "                    GradientStop { position: (" + stop[0] + ") / actionMask.height; color: card.maskColor(" + stop[1] + ") }\n").join("")
+                + "                }\n"
+                + "            }\n";
+        }
+        // 28d2bc183's fade: ink from the row's edges to faint at its centre.
+        function rowEdgesFade() {
+            return verticalFade([["0", 1], ["actionMask.rowTop", 1], ["actionMask.rowTop + tray.height / 2", 0],
+                ["actionMask.rowTop + tray.height", 1], ["actionMask.height", 1]]);
+        }
+
         function descendants(item) {
             const found = [];
             for (const child of item.children) found.push(child, ...descendants(child));
@@ -173,7 +205,7 @@ Item {
         function test_action_mask_fades_only_text_alpha_data() {
             const rows = [];
             for (const mode of ["dark", "light"])
-                for (const control of ["", "hard-edge", "clipped-ink", "hidden-text", "missing-mask", "flat-vertical"])
+                for (const control of ["", "hard-edge", "clipped-ink", "hidden-text", "missing-mask", "no-ink-above"])
                     rows.push({ tag: mode + "/" + control, mode: mode, control: control });
             return rows;
         }
@@ -198,8 +230,8 @@ Item {
                         ? alteredCard("1 - tray.opacity * (1 - card.look.tray.fadeAlpha)", "1 - tray.opacity")
                         : row.control === "missing-mask"
                             ? alteredCard("            layer.enabled: card.visible && tray.visible", "            layer.enabled: false && card.visible && tray.visible")
-                            : row.control === "flat-vertical"
-                                ? alteredCard("            Rectangle {\n                anchors.fill: parent\n                gradient: Gradient {", "            Rectangle {\n                opacity: 0\n                anchors.fill: parent\n                gradient: Gradient {") : build(shippedCard);
+                            : row.control === "no-ink-above"
+                                ? alteredCard("                height: actionMask.band.top\n", "                height: 0\n") : build(shippedCard);
             try {
                 // The recording worker's actual Open/Show actions and the
                 // shell Dismiss leave original ink before the fade band.
@@ -231,11 +263,9 @@ Item {
                 const layerAt = layer.mapToItem(scene, 0, 0);
                 const y = Math.floor(rowAt.y + part.tray.height / 2);
                 // The text's own top and bottom edges, which no button
-                // covers, and halfway from its top edge to the row.
+                // covers.
                 const top = Math.ceil(layerAt.y + 1);
                 const bottom = Math.floor(layerAt.y + layer.height - 2);
-                const soft = Math.round((layerAt.y + rowAt.y) / 2);
-                const rowEdge = Math.ceil(rowAt.y + 1);
                 const x = Math.floor(rowAt.x - card.look.tray.fadeWidth / 2);
                 const behindX = Math.ceil(rowAt.x + 2);
                 const beforeX = Math.floor(rowAt.x - card.look.tray.fadeWidth - 2);
@@ -255,9 +285,7 @@ Item {
                     blue: image.blue(x, y),
                     before: image.red(beforeX, y),
                     top: image.red(behindX, top),
-                    bottom: image.red(behindX, bottom),
-                    soft: image.red(behindX, soft),
-                    rowEdge: image.red(behindX, rowEdge)
+                    bottom: image.red(behindX, bottom)
                 };
                 // A planted defect can break more than one alpha reading.
                 // Judge the complete observation once, after all reads,
@@ -268,15 +296,12 @@ Item {
                     softHorizontalBand: Math.abs(observed.middle - expected.middle) <= 12,
                     alphaOnly: observed.green === 0 && observed.blue === observed.middle,
                     originalInk: observed.before === 255,
-                    verticalRecovery: Math.min(observed.top, observed.bottom) > observed.behind + (255 - observed.behind) / 2,
-                    softEdges: observed.soft > observed.behind + 12 && observed.soft < observed.top - 12,
-                    faintRow: Math.abs(observed.rowEdge - observed.behind) <= 12
+                    verticalRecovery: Math.min(observed.top, observed.bottom) > observed.behind + (255 - observed.behind) / 2
                 };
                 if (row.control !== "") expectFail("", row.control + " breaks the rendered text-alpha contract");
                 compare(contract, {
                     clearance: true, faintCentre: true, softHorizontalBand: true,
-                    alphaOnly: true, originalInk: true, verticalRecovery: true,
-                    softEdges: true, faintRow: true
+                    alphaOnly: true, originalInk: true, verticalRecovery: true
                 }, "text-alpha readings " + JSON.stringify({ observed: observed, expected: expected }));
             } finally {
                 card.destroy();
@@ -304,15 +329,7 @@ Item {
             compare(UnitTheme.override({ scheme: { mode: row.mode }, motion: { scale: 0 } }), "ok");
             const base = Qt.color(scene.look.card.base);
             ground.color = "#000000";
-            const card = row.control === "row-edges"
-                ? alteredCard("                    GradientStop { position: actionMask.textTop; color: card.look.tray.fadeInk }\n"
-                    + "                    GradientStop { position: actionMask.fadeTop; color: card.maskColor(0) }\n"
-                    + "                    GradientStop { position: actionMask.fadeBottom; color: card.maskColor(0) }\n"
-                    + "                    GradientStop { position: actionMask.textBottom; color: card.look.tray.fadeInk }",
-                    "                    GradientStop { position: actionMask.fadeTop; color: card.look.tray.fadeInk }\n"
-                    + "                    GradientStop { position: (actionMask.fadeTop + actionMask.fadeBottom) / 2; color: card.maskColor(0) }\n"
-                    + "                    GradientStop { position: actionMask.fadeBottom; color: card.look.tray.fadeInk }")
-                : build(shippedCard);
+            const card = row.control === "row-edges" ? alteredCard(lineInk(), rowEdgesFade()) : build(shippedCard);
             try {
                 card.actions = actions(5);
                 card.showActions = true;
@@ -351,6 +368,82 @@ Item {
                 if (row.control !== "") expectFail("", row.control + " lets the text through the labels");
                 compare(contract, readings.map(r => ({ label: r.label, barelyVisible: true, readable: true })),
                     "label readings " + JSON.stringify({ readings: readings, faint: faint }));
+            } finally {
+                card.destroy();
+                ground.color = Qt.binding(() => scene.look.card.base);
+                UnitTheme.reset();
+            }
+        }
+
+        // No text line is partly faded on the hovered five-action card: a
+        // half-dimmed line reads as a drawing fault. Behind the row each
+        // line's ink rows read one alpha, and the title and the last line,
+        // which the labels' words do not meet, keep their full ink. Each
+        // line's rows are read from the resting text itself. Control: the
+        // fade 75f7c6b64 shipped, which ramped the ink from the text's top
+        // and bottom edges to the row's, through the title and the last
+        // line.
+        function test_each_text_line_fades_whole_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const control of ["", "edge-ramps"])
+                    rows.push({ tag: mode + "/" + (control === "" ? "shipped" : control), mode: mode, control: control });
+            return rows;
+        }
+
+        function test_each_text_line_fades_whole(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, motion: { scale: 0 } }), "ok");
+            const card = row.control === "edge-ramps"
+                ? alteredCard(lineInk(), verticalFade([["0", 1], ["Math.min(actionMask.rowTop, card.pad)", 1], ["actionMask.rowTop", 0],
+                    ["actionMask.rowTop + tray.height", 0], ["Math.max(actionMask.rowTop + tray.height, actionMask.height - card.pad)", 1], ["actionMask.height", 1]]))
+                : build(shippedCard);
+            try {
+                card.actions = actions(5);
+                card.settleHeight();
+                const part = parts(card);
+                const layer = part.body.parent;
+                // The resting text over a ground its ink contrasts with:
+                // the rows each line inks behind where the row draws.
+                ground.color = Qt.color(part.title.color).hslLightness > 0.5 ? "#000000" : "#ffffff";
+                verify(renderedFrame(card));
+                const resting = grabImage(scene);
+                const groundRed = Math.round(ground.color.r * 255);
+                const rowLeft = Math.ceil(card.mapToItem(scene, part.tray.x, 0).x);
+                const rowRight = Math.floor(card.mapToItem(scene, part.tray.x + part.tray.width, 0).x);
+                const layerAt = layer.mapToItem(scene, 0, 0);
+                const lines = [];
+                let open = null;
+                for (let y = Math.max(0, Math.floor(layerAt.y - card.pad)); y < Math.min(scene.height, Math.ceil(layerAt.y + layer.height + card.pad)); y++) {
+                    let inked = false;
+                    for (let x = rowLeft; x < rowRight && !inked; x++) inked = Math.abs(resting.red(x, y) - groundRed) > 48;
+                    if (inked && open === null) lines.push(open = { first: y, last: y });
+                    else if (inked) open.last = y;
+                    else open = null;
+                }
+                compare(lines.length, 1 + part.body.lineCount, "the title and each body line ink their own rows behind the row");
+                card.showActions = true;
+                tryCompare(part.tray, "opacity", 1);
+                card.settleHeight();
+                verify(markerInk.createObject(part.body) !== null);
+                for (const pill of pills(card)) pill.opacity = 0;
+                ground.color = "#000000";
+                verify(renderedFrame(card));
+                const image = grabImage(scene);
+                // The marker ink over black reads the text's alpha, past
+                // the horizontal fade.
+                const x = Math.ceil(part.tray.mapToItem(scene, 0, 0).x + 2);
+                const readings = lines.map(line => {
+                    const alphas = [];
+                    for (let y = line.first; y <= line.last; y++) alphas.push(image.red(x, y));
+                    return { rows: [line.first, line.last], low: Math.min(...alphas), high: Math.max(...alphas) };
+                });
+                const contract = readings.map((r, index) => ({
+                    whole: r.high - r.low <= 12,
+                    fullInk: index === 0 || index === readings.length - 1 ? r.low >= 255 - 12 : true
+                }));
+                if (row.control !== "") expectFail("", row.control + " fades part of a line");
+                compare(contract, readings.map(() => ({ whole: true, fullInk: true })),
+                    "line readings " + JSON.stringify(readings));
             } finally {
                 card.destroy();
                 ground.color = Qt.binding(() => scene.look.card.base);

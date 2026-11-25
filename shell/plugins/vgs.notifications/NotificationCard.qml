@@ -232,11 +232,30 @@ Item {
             readonly property real fadeEnd: Math.max(0, Math.min(1, rowStart / Math.max(1, width)))
             readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
             readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
-            readonly property real fadeTop: Math.max(0, Math.min(1, rowTop / Math.max(1, height)))
-            readonly property real fadeBottom: Math.max(0, Math.min(1, (rowTop + tray.height) / Math.max(1, height)))
-            // The text's own top and bottom edges inside the mask's padding.
-            readonly property real textTop: Math.min(fadeTop, card.pad / Math.max(1, height))
-            readonly property real textBottom: Math.max(fadeBottom, 1 - card.pad / Math.max(1, height))
+            // The line box of the row's words, the labels' or the caption's,
+            // centred in the row as each draws it.
+            readonly property real wordsHeight: card.captionMode ? captionText.height
+                : actionRepeater.count > 0 ? actionRepeater.itemAt(0).contentItem.contentHeight : 0
+            readonly property real wordsTop: rowTop - card.pad + (tray.height - wordsHeight) / 2
+            // The text lines fade whole: a line whose ink meets the words'
+            // box fades, every other line keeps its ink, so the fade's
+            // edges fall between two lines' ink and never cross a glyph.
+            // Each edge sits one pixel past the kept line's ink, short of
+            // the words and of the next line's ink, so the words read over
+            // faded text alone. The band is in this mask's coordinates.
+            readonly property var band: {
+                const lines = textBlock.lines;
+                const wordsBottom = wordsTop + wordsHeight;
+                let top = 0;
+                let bottom = height;
+                for (let i = 0; i < lines.length; i++)
+                    if (lines[i].inkBottom < wordsTop)
+                        top = card.pad + Math.min(lines[i].inkBottom + 1, wordsTop, i + 1 < lines.length ? lines[i + 1].inkTop : Infinity);
+                for (let i = lines.length - 1; i >= 0; i--)
+                    if (lines[i].inkTop > wordsBottom)
+                        bottom = card.pad + Math.max(lines[i].inkTop - 1, wordsBottom, i > 0 ? lines[i - 1].inkBottom : -Infinity);
+                return { top: top, bottom: bottom };
+            }
             visible: false
             layer.enabled: textBlock.layer.enabled
             layer.smooth: true
@@ -247,25 +266,21 @@ Item {
                 GradientStop { position: actionMask.fadeEnd; color: card.maskColor(actionMask.textAlpha) }
                 GradientStop { position: 1; color: card.maskColor(actionMask.textAlpha) }
             }
-            // Compose only texture alpha: the vertical gradient keeps the
-            // text faint across the whole button row, so every label
-            // reads over it, and restores the ink softly from the row's
-            // edges to the text's top and bottom, where no button covers
-            // it, within this same mask layer.
+            // Compose only texture alpha: these keep the ink of the lines
+            // above and below the band within this same mask layer.
             // Qt layers capture the subtree, and child rectangles blend
             // above the parent's horizontal gradient, not above the card.
             // https://doc.qt.io/qt-6/qml-qtquick-item.html#item-layers
             Rectangle {
-                anchors.fill: parent
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop { position: 0; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.textTop; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.fadeTop; color: card.maskColor(0) }
-                    GradientStop { position: actionMask.fadeBottom; color: card.maskColor(0) }
-                    GradientStop { position: actionMask.textBottom; color: card.look.tray.fadeInk }
-                    GradientStop { position: 1; color: card.look.tray.fadeInk }
-                }
+                width: parent.width
+                height: actionMask.band.top
+                color: card.look.tray.fadeInk
+            }
+            Rectangle {
+                y: actionMask.band.bottom
+                width: parent.width
+                height: parent.height - y
+                color: card.look.tray.fadeInk
             }
         }
 

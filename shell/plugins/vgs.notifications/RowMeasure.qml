@@ -66,27 +66,36 @@ ColumnLayout {
         ensurePolished();
         inset.settle();
     }
+    // Each drawn line's ink, top to bottom, as { inkTop, inkBottom }.
     // Ink belongs to this layout's coordinates, including the positions
     // its nested layouts assign. Logical content flags also hold while
-    // the shared model measurer inherits visible=false.
-    readonly property real inkAbove: {
-        let first = Infinity;
+    // the shared model measurer inherits visible=false. The title's line
+    // holds the badge. The body's lines share one font and line box, so
+    // each takes the first line's ink top and the last line's ink bottom
+    // inside its own box.
+    readonly property var lines: {
+        const found = [];
         if (rowCard.summary.length > 0) {
-            first = summaryRow.y + titleText.y + titleText.inkAbove;
-            if (rowCard.showsBadge) first = Math.min(first, summaryRow.y + workspaceBadge.y);
+            let inkTop = summaryRow.y + titleText.y + titleText.inkAbove;
+            let inkBottom = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
+            if (rowCard.showsBadge) {
+                inkTop = Math.min(inkTop, summaryRow.y + workspaceBadge.y);
+                inkBottom = Math.max(inkBottom, summaryRow.y + workspaceBadge.y + workspaceBadge.height);
+            }
+            found.push({ inkTop: inkTop, inkBottom: inkBottom });
         }
-        if (!rowCard.singleLine) first = Math.min(first, bodyText.y + bodyText.inkAbove);
-        return first === Infinity ? 0 : first;
-    }
-    readonly property real inkBelow: {
-        let last = -Infinity;
-        if (rowCard.summary.length > 0) {
-            last = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
-            if (rowCard.showsBadge) last = Math.max(last, summaryRow.y + workspaceBadge.y + workspaceBadge.height);
+        if (!rowCard.singleLine) {
+            const count = Math.max(1, bodyText.lineCount);
+            for (let i = 0; i < count; i++)
+                found.push({
+                    inkTop: bodyText.y + bodyText.height * i / count + bodyText.inkAbove,
+                    inkBottom: bodyText.y + bodyText.height * (i + 1) / count - bodyText.inkBelow
+                });
         }
-        if (!rowCard.singleLine) last = Math.max(last, bodyText.y + bodyText.height - bodyText.inkBelow);
-        return last === -Infinity ? 0 : height - last;
+        return found;
     }
+    readonly property real inkAbove: lines.length > 0 ? lines[0].inkTop : 0
+    readonly property real inkBelow: lines.length > 0 ? height - lines[lines.length - 1].inkBottom : 0
     ClearingInset {
         id: inset
         pad: root.rowCard.pad
