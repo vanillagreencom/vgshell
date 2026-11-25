@@ -232,14 +232,12 @@ Item {
             readonly property real fadeEnd: Math.max(0, Math.min(1, rowStart / Math.max(1, width)))
             readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
             readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
-            // The line box of the row's words, the labels' or the caption's,
-            // centred in the row as each draws it.
-            readonly property real wordsHeight: card.captionMode ? captionText.height
-                : actionRepeater.count > 0 ? actionRepeater.itemAt(0).contentItem.contentHeight : 0
-            readonly property real wordsTop: rowTop - card.pad + (tray.height - wordsHeight) / 2
-            // The text lines fade whole: a line whose ink meets the words'
-            // box fades, every other line keeps its ink, so the fade's
-            // edges fall between two lines' ink and never cross a glyph.
+            // The text lines fade whole: a line whose ink meets the ink of
+            // the row's words, the labels' glyphs or the caption's, fades,
+            // and every other line keeps its ink. A words' line box would
+            // reach past its glyphs into the clear space under the line
+            // above and fade a line no word covers. The fade's edges fall
+            // between two lines' ink and never cross a glyph.
             // Each edge sits one pixel past the kept line's ink, short of
             // the words and of the next line's ink, so the words read over
             // faded text alone. The edges are in this mask's coordinates.
@@ -267,7 +265,22 @@ Item {
                         inkTop: textBlock.bodyInkTop + i * textBlock.bodyPitch,
                         inkBottom: textBlock.bodyInkBottom - (count - 1 - i) * textBlock.bodyPitch
                     });
-                const wordsBottom = wordsTop + wordsHeight;
+                // The words' ink, in the text layout's coordinates.
+                const row = rowTop - card.pad;
+                let wordsTop = row + tray.height / 2;
+                let wordsBottom = wordsTop;
+                if (card.captionMode) {
+                    wordsTop = row + captionText.y + captionText.inkAbove;
+                    wordsBottom = row + captionText.y + captionText.height - captionText.inkBelow;
+                } else if (actionRepeater.count > 0) {
+                    wordsTop = Infinity;
+                    wordsBottom = -Infinity;
+                    for (let i = 0; i < actionRepeater.count; i++) {
+                        const pill = actionRepeater.itemAt(i);
+                        wordsTop = Math.min(wordsTop, row + actionRow.y + pill.y + pill.inkTop);
+                        wordsBottom = Math.max(wordsBottom, row + actionRow.y + pill.y + pill.inkBottom);
+                    }
+                }
                 let top = 0;
                 let bottom = height;
                 for (let i = 0; i < lines.length; i++)

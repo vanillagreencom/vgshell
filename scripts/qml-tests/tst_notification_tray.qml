@@ -337,7 +337,7 @@ Item {
                 tryCompare(part.tray, "opacity", 1);
                 card.settleHeight();
                 verify(markerInk.createObject(part.body) !== null);
-                // Each label's words, its ink and its pill's fill, read
+                // Each label's box, its ink and its pill's fill, read
                 // while the pills draw.
                 const labels = pills(card).map(pill => {
                     const label = pill.contentItem;
@@ -346,6 +346,25 @@ Item {
                         ink: Qt.color(label.color), opacity: label.opacity, fill: Qt.color(pill.background.color) };
                 });
                 compare(labels.length, 3);
+                // The rows each label's glyphs draw, read from the frame
+                // with and without the labels: its words, not its line
+                // box's leading.
+                verify(renderedFrame(card));
+                const worded = grabImage(scene);
+                for (const pill of pills(card)) pill.contentItem.opacity = 0;
+                verify(renderedFrame(card));
+                const bare = grabImage(scene);
+                for (const each of labels) {
+                    const inked = [];
+                    for (let y = Math.ceil(each.box.y); y < Math.floor(each.box.y + each.box.height); y++)
+                        for (let x = Math.ceil(each.box.x); x < Math.floor(each.box.x + each.box.width); x++)
+                            if (Math.abs(worded.red(x, y) - bare.red(x, y)) + Math.abs(worded.green(x, y) - bare.green(x, y)) > 16) {
+                                inked.push(y);
+                                break;
+                            }
+                    verify(inked.length > 0, each.text + " draws its words");
+                    each.box = Qt.rect(each.box.x, inked[0], each.box.width, inked[inked.length - 1] + 1 - inked[0]);
+                }
                 for (const pill of pills(card)) pill.opacity = 0;
                 verify(renderedFrame(card));
                 const image = grabImage(scene);
