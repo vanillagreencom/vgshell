@@ -244,18 +244,18 @@ Item {
             // the words and of the next line's ink, so the words read over
             // faded text alone. The edges are in this mask's coordinates.
             //
-            // place() writes them; no binding computes them. While a card is
+            // The band binds only once the card is built. While it is
             // built, reading a property whose binding has not run yet runs
             // it (QObjectWrapper::getProperty calls
-            // QQmlData::flushPendingBinding), so one binding over these
-            // many inputs moved an input it had already read and re-entered
-            // itself. Qt's finalize runs every pending binding before it
-            // emits completed, so the inputs connect to place() only then.
+            // QQmlData::flushPendingBinding), so a declared binding over
+            // these many inputs moved an input it had already read and
+            // re-entered itself. Qt's finalize runs every pending binding
+            // before it emits completed, and a binding made then still
+            // follows every input bandOf() reads.
             // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qml/jsruntime/qv4qobjectwrapper.cpp#L370
             // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qml/qml/qqmlobjectcreator.cpp#L1698
-            property real bandTop: 0
-            property real bandBottom: 0
-            function place() {
+            property var band: ({ top: 0, bottom: 0 })
+            function bandOf() {
                 // Each line's ink, top to bottom. The body's lines share
                 // one font and line box, so each sits one pitch from the
                 // next, with the first line's ink top and the last's bottom.
@@ -276,16 +276,9 @@ Item {
                 for (let i = lines.length - 1; i >= 0; i--)
                     if (lines[i].inkTop > wordsBottom)
                         bottom = card.pad + Math.max(lines[i].inkTop - 1, wordsBottom, i > 0 ? lines[i - 1].inkBottom : -Infinity);
-                bandTop = top;
-                bandBottom = bottom;
+                return { top: top, bottom: bottom };
             }
-            Component.onCompleted: {
-                place();
-                for (const changed of [card.summaryChanged, textBlock.inkAboveChanged, textBlock.titleInkBottomChanged,
-                        textBlock.bodyInkTopChanged, textBlock.bodyInkBottomChanged, textBlock.bodyPitchChanged,
-                        textBlock.bodyLineCountChanged, actionMask.wordsTopChanged, actionMask.wordsHeightChanged, actionMask.heightChanged])
-                    changed.connect(actionMask.place);
-            }
+            Component.onCompleted: band = Qt.binding(bandOf)
             visible: false
             layer.enabled: textBlock.layer.enabled
             layer.smooth: true
@@ -303,11 +296,11 @@ Item {
             // https://doc.qt.io/qt-6/qml-qtquick-item.html#item-layers
             Rectangle {
                 width: parent.width
-                height: actionMask.bandTop
+                height: actionMask.band.top
                 color: card.look.tray.fadeInk
             }
             Rectangle {
-                y: actionMask.bandBottom
+                y: actionMask.band.bottom
                 width: parent.width
                 height: parent.height - y
                 color: card.look.tray.fadeInk

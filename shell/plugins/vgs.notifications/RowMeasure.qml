@@ -91,8 +91,8 @@ ColumnLayout {
     // places the text reads: the title's ink bottom, the body's first ink
     // top and last ink bottom, each making only the reads the paddings'
     // ink above makes, and the body's line pitch from its font, with its
-    // line count from its height. The card's place() combines them after
-    // creation; see its comment for why no binding does.
+    // line count from its height. The card's bandOf() combines them in a
+    // binding made after creation; its comment says why.
     readonly property real titleInkBottom: {
         if (rowCard.summary.length === 0) return 0;
         const bottom = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
