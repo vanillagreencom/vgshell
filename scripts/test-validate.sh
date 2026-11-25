@@ -213,21 +213,43 @@ test_area=all test_args=(--changed HEAD --list)
 row "mixed README selection retains the folder's readers and starts no shell" "$d" 0 "" \
   'scripts/test-keyboard-ui.sh' '!scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh'
 
-# The runner self-tests run only on a change to what they read: a product
-# file selects the nested smoke and neither self-test, and a product smoke
-# row's file selects no fatal row control.
+# The runner controls select by the harness files they exercise. Plant
+# controls that copy product fixtures, just as the shipped controls do.
 d="$tmp/plan-product"; fresh "$d"
 mkdir -p "$d/shell/plugins/acme.widget"
+for control in test-qml-smoke.sh test-gpu-fence.sh test-qml-unit.sh; do
+  printf '#!/bin/bash\ncp shell/plugins/acme.widget/Panel.qml "$TMPDIR/panel.qml"\n' >"$d/scripts/$control"
+done
+printf '#!/bin/bash\n' >"$d/scripts/qml-unit.sh"
+printf '#!/bin/bash\n' >"$d/scripts/qml-smoke.sh"
+printf 'Item {}\n' >"$d/shell/plugins/acme.widget/Panel.qml"
+commit "$d" controls
 printf 'changed\n' >"$d/shell/plugins/acme.widget/Panel.qml"
 test_area=all test_args=(--changed HEAD --list)
-row "product boot selects nested smoke without runner self-tests" "$d" 0 "" \
-  "scripts/qml-smoke.sh" "!scripts/test-qml-smoke.sh" "!scripts/test-validate.sh"
+row "product boot selects smoke without harness controls" "$d" 0 "" \
+  "scripts/qml-smoke.sh" "!scripts/test-qml-smoke.sh" "!scripts/test-qml-unit.sh" "!scripts/test-gpu-fence.sh" "!scripts/test-validate.sh"
+for spec in 'qml-smoke.sh test-qml-smoke.sh' 'smoke/gpu-fence.sh test-gpu-fence.sh' 'qml-unit.sh test-qml-unit.sh'; do
+  read -r runner control <<<"$spec"
+  "${base_env[@]}" git -C "$d" restore --worktree -- scripts shell
+  printf '# harness change\n' >>"$d/scripts/$runner"
+  row "$runner selects its harness control" "$d" 0 "" "scripts/$control"
+done
 d="$tmp/plan-runner-updates"; fresh "$d"
 mkdir -p "$d/scripts/smoke/rows"
 printf '# changed\n' >"$d/scripts/smoke/rows/updates.sh"
 test_area=qml test_args=(--changed HEAD --list)
 row "updates retains only reached runner controls" "$d" 0 "" '!scripts/test-qml-smoke.sh'
 test_args=()
+
+# Give the VPN decisions row command files that read the named fixtures.
+vpn_table_owner() { # DIR FILE...
+  local dir="$1"
+  shift
+  {
+    printf 'const fs = require("node:fs");\n'
+    printf 'fs.readFileSync("scripts/fixtures/vpn/%s");\n' "$@"
+  } >"$dir/scripts/test-vpn-logic.js"
+}
 
 # Nested smoke row selection, read through the qml-smoke.sh command a
 # `--list` prints. The fixture's runner stands in for scripts/qml-smoke.sh
@@ -266,6 +288,7 @@ smoke_fixture() { # DIR [VARIANT]
   if [[ $variant == table-owned ]]; then
     mkdir -p "$dir/scripts/fixtures/vpn"
     printf 'details\n' >"$dir/scripts/fixtures/vpn/details.txt"
+    vpn_table_owner "$dir" details.txt
     cat >"$dir/scripts/smoke/rows/vpn.sh" <<'ROW'
 cat -- "$repo/scripts/fixtures/vpn/details.txt"
 ROW
@@ -344,31 +367,39 @@ for i in "${!smoke_cases[@]}"; do
   fi
 done
 
-# The self-check row `validation inputs are read` (smoke_reads_named), run
-# as validate runs a row. A malformed directive fails it, in a row's file
-# or the harness's, and so does a malformed row directive beside a harness
-# load site no directive covers, which runs every row but leaves the rows
-# read. A manifest the plugin judge refuses leaves the load reading
-# unfinished: exit 77, not a pass.
-# name|fixture variant|harness site, `site` to plant one|file to plant
+# The self-check row `validation inputs are read` sees malformed smoke
+# directives and unexplained table patterns. It prints the operation that
+# fails if the capability judge refuses a manifest or node is missing.
+# name|fixture variant|control to plant, if any|file to plant
 # in|line to append|wanted exit|wanted line
 reads_cases=(
   "the self-check passes the neutral fixture|||||0|"
   "a malformed harness directive fails the self-check|||scripts/smoke/harness.sh|# loads: scripts/smoke/verdict.sh|1|validate: smoke-input malformed path=scripts/smoke/harness.sh line=3; fix the directive: loads: GLOB [GLOB...] -- REASON"
   "a malformed row directive beside a harness site fails the self-check||site|scripts/smoke/rows/other.sh|# loads: shell/plugins/acme.other/Panel.qml|1|validate: smoke-input malformed path=scripts/smoke/rows/other.sh line=2; fix the directive: loads: GLOB [GLOB...] -- REASON"
-  "a refused manifest leaves the self-check unfinished|plugin||shell/plugins/acme.widget/manifest.json|{\"refused\": true}|77|"
+  "a manual table input needs a reason||reason|||1|validate: table-input row=unreasoned control reason=missing"
+  "a refused manifest reports the capability judge's exit|plugin||shell/plugins/acme.widget/manifest.json|{\"refused\": true}|77|smoke-reads: reading=unfinished reason=qml-loads-failed operation=capability-manifests status=1 "
+  "missing node names the capability judge operation|plugin|no-node|||77|smoke-reads: reading=unfinished reason=qml-loads-failed operation=capability-manifests cause=node-missing"
 )
 for i in "${!reads_cases[@]}"; do
   IFS='|' read -r name variant site file text wanted line <<<"${reads_cases[i]}"
   d="$tmp/smoke-reads-$i"; smoke_fixture "$d" "$variant"
+  extra_env=()
   if [[ $site == site ]]; then
     printf '%s\n' 'harness_dir="$repo/scripts/smoke"' 'harness_name="$(harness_pick)"' 'python3 "$harness_dir/$harness_name.py"' >>"$d/scripts/smoke/harness.sh"
+  elif [[ $site == reason ]]; then
+    plant "$d/scripts/validate" $'rows=(\n' $'rows=(\n  "logic|unreasoned control|true|scripts/fixtures/probe.py"\n'
+  elif [[ $site == no-node ]]; then
+    tool_bin="$tmp/path-without-node"
+    mkdir -p "$tool_bin"
+    for tool in awk bash dirname env git mktemp nproc python3 readlink sed; do
+      ln -s -- "$(command -v "$tool")" "$tool_bin/$tool"
+    done
+    extra_env=(PATH="$tool_bin")
   fi
   if [[ $file == */manifest.json ]]; then printf '%s\n' "$text" >"$d/$file"; elif [[ -n $file ]]; then printf '%s\n' "$text" >>"$d/$file"; fi
   status=0
-  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --row HEAD -1 -- smoke_reads_named 2>&1)" || status=$?
-  if [[ $status == "$wanted" ]] && { [[ -z $line ]] || grep -qxF -e "$line" <<<"$out"; } &&
-     { [[ $wanted != 77 ]] || grep -q '^smoke-reads: reading=unfinished reason=qml-loads-failed operation=manifest-judge ' <<<"$out"; }; then
+  out="$(cd -- "$d" && "${base_env[@]}" "${extra_env[@]}" bash scripts/validate --row HEAD -1 -- smoke_reads_named 2>&1)" || status=$?
+  if [[ $status == "$wanted" ]] && { [[ -z $line ]] || grep -qF -e "$line" <<<"$out"; }; then
     ok "$name"
   else
     fail "$name: exit=$status want=$wanted"; sed 's/^/        /' <<<"$out"
@@ -394,6 +425,7 @@ for i in "${!dyn_cases[@]}"; do
   mkdir -p "$d/scripts/fixtures/vpn"
   printf 'pass\n' | tee "$d/scripts/fixtures/vpn/a.py" >"$d/scripts/fixtures/vpn/b.py"
   printf 'details\n' >"$d/scripts/fixtures/vpn/details.txt"
+  vpn_table_owner "$d" a.py b.py details.txt
   printf '%s\n' 'dyn_dir="$repo/scripts/fixtures/vpn"' 'dyn_name="$(dyn_pick)"' ${directive:+"$directive"} 'python3 "$dyn_dir/$dyn_name.py"' >"$d/scripts/smoke/rows/dyn.sh"
   sed -i 's/^start-order$/dyn\nstart-order/' "$d/scripts/smoke/rows.list"
   "${base_env[@]}" git -C "$d" add -A
@@ -812,6 +844,65 @@ PY
   "${base_env[@]}" git -C "$dir" commit -q -m jobs-rows
 }
 
+# The table selector adds the first run and copy inputs and walks sources
+# and imports in process. The last row maps the fixtures so a missing
+# dependency cannot pass via the unmapped-path full selection.
+d="$tmp/derived-table"
+jobs_fixture "$d" selector.sh \
+  '"tools|source and boundaries|scripts/selector.sh|"' \
+  '"tools|JavaScript loads|node scripts/selector/main.js|"' \
+  '"tools|Python loads|python3 scripts/selector/main.py|"' \
+  '"tools|QML loads|qml shell/Selector/Entry.qml|"' \
+  '"tools|fixture owner|true|scripts/selector/* shell/Selector/*"' <<'SH'
+#!/bin/bash
+source scripts/selector/source.sh
+bash scripts/selector/child.sh
+cp shell/Selector/Copy.qml "$TMPDIR/copy.qml"
+SH
+mkdir -p "$d/scripts/selector" "$d/shell/Selector"
+cat >"$d/scripts/selector/source.sh" <<'SH'
+source scripts/selector/source-leaf.sh
+# loads: scripts/selector/declared-input.sh -- selector_helper names this fixture
+source "$selector_helper"
+SH
+printf 'source scripts/selector/child-leaf.sh\n' >"$d/scripts/selector/child.sh"
+printf 'require("./bridge.js");\n' >"$d/scripts/selector/main.js"
+printf 'require("./node-leaf.js");\n' >"$d/scripts/selector/bridge.js"
+printf 'import bridge\n' >"$d/scripts/selector/main.py"
+printf 'import py_leaf\n' >"$d/scripts/selector/bridge.py"
+printf 'import QtQuick\nNamed {}\n' >"$d/shell/Selector/Entry.qml"
+printf 'import "qml-leaf.js" as Library\nItem {}\n' >"$d/shell/Selector/Named.qml"
+printf 'import "copy-leaf.js" as Library\nItem {}\n' >"$d/shell/Selector/Copy.qml"
+touch "$d/scripts/selector/"{source-leaf.sh,declared-input.sh,child-leaf.sh,node-leaf.js,py_leaf.py} "$d/shell/Selector/"{qml-leaf.js,copy-leaf.js}
+commit "$d" modules
+test_area=tools test_args=(--changed HEAD --list)
+for spec in \
+  'scripts/selector/source-leaf.sh|scripts/selector.sh' \
+  'scripts/selector/declared-input.sh|scripts/selector.sh' \
+  'scripts/selector/child.sh|scripts/selector.sh' \
+  'scripts/selector/child-leaf.sh|!scripts/selector.sh' \
+  'shell/Selector/Copy.qml|scripts/selector.sh' \
+  'shell/Selector/copy-leaf.js|!scripts/selector.sh' \
+  'scripts/selector/node-leaf.js|node scripts/selector/main.js' \
+  'scripts/selector/py_leaf.py|python3 scripts/selector/main.py' \
+  'shell/Selector/qml-leaf.js|qml shell/Selector/Entry.qml'; do
+  IFS='|' read -r file command <<<"$spec"
+  "${base_env[@]}" git -C "$d" restore --worktree -- scripts/selector shell/Selector
+  printf '\n# change\n' >>"$d/$file"
+  row "table reach of ${file##*/}" "$d" 0 "" "$command" "!validate: selection=full"
+done
+"${base_env[@]}" git -C "$d" restore --worktree -- scripts/selector shell/Selector
+"${base_env[@]}" git -C "$d" rm -q -- scripts/selector/node-leaf.js
+row "a removed literal in-process dependency still reaches its row" "$d" 0 "" \
+  "node scripts/selector/main.js" "!validate: selection=full"
+"${base_env[@]}" git -C "$d" restore --source=HEAD --staged --worktree -- scripts/selector/node-leaf.js
+printf 'source "$selector_uncovered"\n' >>"$d/scripts/selector/source.sh"
+commit "$d" unread-source
+printf '\n# unrelated\n' >>"$d/scripts/selector/child-leaf.sh"
+row "an unread sourced dependency requires its row" "$d" 0 "" "scripts/selector.sh" \
+  "validate: load-unread path=scripts/selector/source.sh line=4 site=source"
+test_args=()
+
 # Rows start while their weights fit the core count, which OMP_NUM_THREADS
 # sets for nproc, and VGS_VALIDATE_JOBS=32 never binds. Each row adds the
 # weight its arguments name to the weight in flight under a lock, records
@@ -873,7 +964,7 @@ flock 9
 sleep 14
 SH
 mkdir -p "$d/tmp"
-(cd -- "$d" && exec "${base_env[@]}" TMPDIR="$d/tmp" VGS_VALIDATE_JOBS=2 setsid bash scripts/validate tools --full) >"$d.out" 2>&1 &
+(cd -- "$d" && exec "${base_env[@]}" TMPDIR="$d/tmp" OMP_NUM_THREADS=2 VGS_VALIDATE_JOBS=2 setsid bash scripts/validate tools --full) >"$d.out" 2>&1 &
 pid=$!
 for _ in $(seq 1 100); do
   [[ -e $d/.git/ready-a && -e $d/.git/ready-b ]] && break

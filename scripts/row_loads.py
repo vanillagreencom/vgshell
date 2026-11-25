@@ -3,7 +3,7 @@
 and the one reader of the relation between smoke rows.
 
 Run from the repository root as `python3 -I -B scripts/row_loads.py --rows
-FILE... [--loads FILE...]`, `--smoke ROW...`, `--harness`, `--row-reads
+FILE... [--loads FILE...]`, `--table FILE...`, `--smoke ROW...`, `--harness`, `--row-reads
 ROW... [--unlisted BASE NAME...]` or `--harness-reach BASE PATH ROW...`. It reads each FILE, a table row's command file,
 under the loading boundary table below, and never a file those load in
 turn. For each FILE it prints `unread FILE LINE KIND GLOB` for a load site
@@ -11,8 +11,14 @@ no `loads:` directive covers, with `-` for a value whose glob it cannot
 tell, and `malformed FILE LINE` for a malformed directive. For each FILE
 named after --loads as well it prints `load FILE TARGET` for each tracked
 file a load operation of FILE names, and `pattern FILE GLOB` for each glob
-of its directives. scripts/validate is the caller: table_unread_read reads
-the unread facts and table_cover the loads.
+of its directives. This is the direct reading exercised by
+scripts/test-row-loads.py.
+
+--table prints `load COMMAND TARGET`, `pattern COMMAND GLOB`,
+`unread COMMAND FILE LINE KIND GLOB` and `malformed COMMAND FILE LINE`
+for a command file's direct loads and its in-process reading. A file
+executed in a child or copied is itself an input of the file that names
+it, and the walk ends at that file.
 
 --smoke prints each listed ROW's facts, walked as § The smoke rows below
 gives: `input ROW PATH`, `pattern ROW GLOB`, `plugin ROW FOLDER`, `reads
@@ -38,6 +44,8 @@ inventory answer its reading asked are unchanged: § The stored reading
 below. A store it cannot read or write is no fault and prints nothing.
 """
 import ast, bisect, concurrent.futures, ctypes, fnmatch, functools, json, multiprocessing, os, re, shlex, signal, subprocess, sys, tokenize, io, hashlib, tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # The reader's own bytes, part of every stored fact's key. Python compiled
 # this module from an earlier read of the file, so an edit between that read
@@ -101,7 +109,7 @@ def decoded(path, data):
 #
 # Each operation below resolves to a `load` of a tracked file, or it is
 # `unread`: a load site the reading cannot follow, which makes the row
-# whose command names the file run on every change (table_unread_read in
+# whose command names the file run on every change (rows_index_read in
 # scripts/validate). A `loads: GLOB... -- REASON` comment line (`#`, or
 # `//` in JavaScript) directly above a site covers it; a directive whose
 # globs use only `*` and hold every path the site can name covers it from
@@ -160,13 +168,15 @@ def decoded(path, data):
 # repository root, a file's folder or __dirname, with a known part that
 # names a folder the inventory holds. A value with no such part, such as a
 # path under a temporary copy, names no repository file; the copy is a load
-# where it is made. A literal path word anywhere else, in a comment, a
-# message, a data table, a Bash array element or quoted word, or a
-# fixture's text, is no load.
+# where it is made. A literal path in a comment, a message, a data table,
+# a fixture's text, a Bash array element or an assignment's quoted value
+# is no load. Bash also ignores a quoted word in command position, but
+# includes quoted operands of recognized commands, such as the script in
+# node "scripts/x.js".
 #
-# The gaps, which review holds: what a file the command files load loads in
-# turn; a folder's members a call enumerates; a data file read through a
-# computed path no load site names; and a load through an operation this
+# The gaps, which review holds: what a file started or copied by a
+# command loads in turn; a folder's members a call enumerates; a data file
+# read through a computed path no load site names; and a load through an operation this
 # table does not name, such as a Bash function that runs its arguments.
 # ---------------------------------------------------------------------------
 
@@ -378,14 +388,16 @@ class Reading:
     def edge(self, loader, target, inproc=False):
         """A load of TARGET when it is a tracked file, in the loader's own
         process when INPROC: a source, an import or a require. A folder
-        loads nothing. A target the tree lacks is `missing`: the smoke
-        reading keeps it as a literal input, so the change that removed a
-        file a row still names reaches the row."""
+        loads nothing. A target the tree lacks is `missing`: the reading
+        keeps it as a literal input, including in the in-process closure,
+        so removing a file a row still names reaches the row."""
         if target is None or target == loader:
             return
         if target not in self.present:
             if target and target not in self.folders and not GLOB.search(target) and not any(ch.isspace() for ch in target):
                 self.missing.setdefault(loader, set()).add(target)
+                if inproc:
+                    self.inproc.setdefault(loader, set()).add(target)
             return
         if any(ch.isspace() for ch in target):
             # A fact is space-delimited; no tracked path holds a space today.
@@ -1981,6 +1993,68 @@ class Memo:
         return reading
 
 
+# --- QML imports and types ----------------------------------------------------
+
+# A file imports its own directory's types, each .qml file whose name
+# starts with an uppercase letter, and `import qs[.<Dir>...]` names a
+# directory under the shell root, shell/: Implicit imports and Manual
+# imports, https://quickshell.org/docs/v0.3.1/guide/qml-language.
+IMPORT = re.compile(r'^[ \t]*\.?import[ \t]+(?:"([^"\n]*)"|(qs(?:\.\w+)*)\b)(?:[ \t]+[\d.]+)?(?:[ \t]+as[ \t]+(\w+))?', re.M)
+WORD = re.compile(r"[A-Za-z_]\w*")
+
+class QmlLoads:
+    """The static imports and named types a shell source sees. Selection's
+    smoke walk supplies capability edges separately from ordinary imports."""
+
+    def __init__(self, paths):
+        self.files, self.tables = {}, {}
+        for path in paths:
+            folder, name = os.path.split(path)
+            if name.endswith(".qml") and name[:1].isupper():
+                self.files.setdefault(folder, {}).setdefault(name[:-4], set()).add(path)
+
+    def named(self, folder):
+        """The types and the qmldir consulted by an import of FOLDER."""
+        from qml_controls import qmldir_exports
+
+        if folder not in self.tables:
+            table = {name: set(paths) for name, paths in self.files.get(folder, {}).items()}
+            consulted = set()
+            qmldir = os.path.join(folder, "qmldir")
+            if os.path.isfile(qmldir):
+                consulted.add(qmldir)
+                for name, path in qmldir_exports("", folder, every=True):
+                    table.setdefault(name, set()).add(os.path.normpath(path))
+            self.tables[folder] = table, consulted
+        return self.tables[folder]
+
+    def inputs(self, path, text):
+        here = os.path.dirname(path)
+        # Stateless/importing JS resources inherit no QML imports:
+        # https://doc.qt.io/qt-6/qtqml-javascript-imports.html
+        # (Imports Within JavaScript Resources).
+        isolated_js = path.endswith(".js") and re.search(r"^\s*\.(?:pragma\s+library|import)\b", text, re.M)
+        seen, loads = ([] if isolated_js else [self.named(here)]), set()
+        aliases = set()
+        for relative, module, alias in IMPORT.findall(text):
+            target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
+            if alias:
+                aliases.add(alias)
+            if os.path.isdir(target):
+                seen.append(self.named(target))
+            elif not module:
+                loads.add(target)
+        # An import filename or namespace declaration is no type use:
+        # https://quickshell.org/docs/v0.3.1/guide/qml-language (Manual imports).
+        words = set(WORD.findall(IMPORT.sub("", text))) - aliases
+        for table, consulted in seen:
+            loads |= consulted
+            for name in words.intersection(table):
+                loads |= table[name]
+        loads.discard(path)
+        return loads, words
+
+
 # --- The smoke rows ------------------------------------------------------------
 #
 # A nested smoke row's inputs are what its file loads under the table above,
@@ -2404,7 +2478,56 @@ def print_reading(reading, loads):
             print("malformed", loader, number)
 
 
+def table_walks(memo, files):
+    from qml_source import blank_comments
+
+    qml = QmlLoads(PRESENT)
+
+    @functools.cache
+    def qml_inputs(path):
+        if not path.endswith((".qml", ".js")) or path not in PRESENT:
+            return ()
+        data = read_bytes(path)
+        if path.endswith(".js") and b"import" not in data:
+            return ()
+        text = blank_comments(decoded(path, data))
+        return qml.inputs(path, text)[0] if path.endswith(".qml") or IMPORT.search(text) else ()
+
+    queues = {root: {root} for root in files}
+    seen = {root: set() for root in files}
+    targets = {root: set() for root in files}
+    while any(queues.values()):
+        memo.read(sorted({path for queue in queues.values() for path in queue if path in PRESENT}))
+        for root, queue in queues.items():
+            following = set()
+            for path in sorted(queue):
+                facts = dict(zip(FACTS, memo.facts.get(path, ((),) * len(FACTS))))
+                seen[root].add(path)
+                following.update(facts["inproc"])
+                following.update(qml_inputs(path))
+                if path == root:
+                    targets[root].update(facts["loads"])
+                    targets[root].update(facts["missing"])
+                for glob in sorted(facts["patterns"]):
+                    print("pattern", root, glob)
+                for number, kind, names in sorted(facts["unread"]):
+                    # A generic path use in a library may be in a function
+                    # this command never calls. A computed run or copy at
+                    # that boundary belongs to the command that invokes it.
+                    if path == root or kind not in ("path", "enumerate"):
+                        print("unread", root, path, number, kind, names)
+                for number in sorted(facts["malformed"]):
+                    print("malformed", root, path, number)
+            targets[root].update(following)
+            queues[root] = following - seen[root]
+    for root, paths in targets.items():
+        paths.discard(root)
+        for path in sorted(paths):
+            print("load", root, path)
+
+
 USAGE = """usage: row_loads.py --rows FILE... [--loads FILE...]
+       row_loads.py --table FILE...
        row_loads.py --smoke ROW...
        row_loads.py --harness
        row_loads.py --row-reads ROW... [--unlisted BASE NAME...]
@@ -2448,7 +2571,7 @@ def main(arguments):
             for row in sorted(found):
                 print("reach", row)
         return 0
-    if mode not in (["--rows"], ["--smoke"], ["--harness"]):
+    if mode not in (["--rows"], ["--table"], ["--smoke"], ["--harness"]):
         print(USAGE, file=sys.stderr)
         return 2
     rows, loads = arguments[1:], []
@@ -2463,20 +2586,23 @@ def main(arguments):
         listed = set(listed)
         # A file git does not list under that spelling would be read as
         # one no table row names, and its row would pass unread.
-        for path in (rows + loads) if mode == ["--rows"] else [row_path(row) for row in rows]:
+        for path in ([row_path(row) for row in rows] if mode == ["--smoke"] else rows + loads):
             if path not in listed or path not in present:
                 raise Unreadable(path, "not-listed")
         operation = "load-reading"
         memo = Memo()
-        if mode != ["--rows"]:
-            try:
-                print_smoke(memo, rows) if mode == ["--smoke"] else print_harness(memo)
-            finally:
-                memo.close()
-            return 0
-        memo.read(sorted(set(rows) | set(loads)))
-        memo.close()
-        print_reading(memo.reading(), set(loads))
+        try:
+            if mode == ["--table"]:
+                table_walks(memo, rows)
+            elif mode == ["--smoke"]:
+                print_smoke(memo, rows)
+            elif mode == ["--harness"]:
+                print_harness(memo)
+            else:
+                memo.read(sorted(set(rows) | set(loads)))
+                print_reading(memo.reading(), set(loads))
+        finally:
+            memo.close()
     except subprocess.CalledProcessError as exc:
         print("failed", f"operation={operation}", f"status={exc.returncode}", f"cause={shlex.quote(str(exc.stderr).strip())}")
     except Unreadable as exc:
