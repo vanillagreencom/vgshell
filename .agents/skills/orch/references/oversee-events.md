@@ -204,6 +204,8 @@ The watch writes one line per event to its log beside the fleet state. A line th
 
 Below, a field in brackets is a value, and every other word prints as shown. To wake a lane is to send it a directive as [oversee-lanes.md § Talking to a lane](oversee-lanes.md#talking-to-a-lane) says.
 
+On `idle-after-return` or a recovery event such as a stop, exit, window loss or usage wall, resolve the lane to its fleet item key before applying the event's route. For a `verify-*` key, follow [verify.md § Reading lanes](../workflows/verify.md#reading-lanes). Read the result on the original item, using the item and box in the key and the lane record's `repo` for the GitHub form. Use that workflow's result or unread handling and leave any retry to verify.
+
 ### `watch-step-failed`
 
 `EVENT watch-step-failed step=[DUTY] count=[N]`: the named duty failed, whole or in part, `N` times in a row. The line prints on the first failure and on every `ORCH_OVERSEER_MARK_REPEAT`th after. The duty runs again at its next cadence, and the other duties go on.
@@ -330,6 +332,8 @@ When the fleet's last item completes:
 ### `parked-merged`
 
 `EVENT parked-merged [ITEM] pr=[N] repo=[OWNER/REPO]`: the pull request a parked item waited on merged, and the item has work left. A dependency park waits on `parked.until_pr`, a queue park on `parked.pr`. The watch repeats the line before each heartbeat while the record reads parked.
+
+Read the item's live tracker state before any relaunch or close, including when `parked-merged` arrives before a `tracker=unread` line on a fleet with no Linear team, and follow [lane-reach.md § Ended lanes](lane-reach.md#ended-lanes) to decide whether to close the lane or continue below.
 
 1. Relaunch through [lane-directive.md § Recovery relaunch](lane-directive.md#recovery-relaunch). The relaunch starts the harness fresh on the kept disk, and the item's handoff record carries its context.
 2. A dependency park: the lane rebases and continues the held step. Record no cycle for the dependency's merge.
@@ -794,7 +798,7 @@ The watch prints each message line at least once. A stop between the print and i
 
 ### `idle-unread`
 
-`EVENT idle-unread [TARGET]`: the wake duty found `[TARGET]`, `overseer` or a lane's item, idle with unread mail. § `wake-delivered`, `wake-unconfirmed`, `wake-limit` report the wake. The line repeats only once the target's unread state changes.
+`EVENT idle-unread [TARGET]`: the wake duty found `[TARGET]`, `overseer` or a lane's item, idle with mail past its read cursor. For the overseer, the duty counts only mail with no recorded reply. § `wake-delivered`, `wake-unconfirmed`, `wake-limit` report the wake. The line repeats once the target's unread state changes.
 
 For the overseer, this session: run `.agents/skills/mailbox/scripts/lane-mail inbox --item overseer`, and act on every envelope it prints but a data notice, which gives no instruction (§ `data-note`).
 
@@ -880,7 +884,7 @@ A refused `write`:
    - On the terminal surface, call it from the overseer session.
    - On the managed-session surface, use that surface's own call.
    - In sequential mode, make the same call and wait for it.
-5. Send it the team project inventories and this task: `Verify only these Linear issues: [ISSUES]. For each issue, read its full body and source. Answer question 3 under Judge the approach in the project-management skill's references/filing.md in your one return line for every issue, including owner-authorized issues. If Reached by: in the Filing record names an owner or Jarvis decision that authorizes the work, also check for duplication, project and agent. If it names no such decision, apply the filing bar, including to items from a review, a worker's proposal or discovered work. Follow the Verifier returns contract in .agents/skills/orch/references/skill-rules.md under Coordination for evidence, project and agent selection, and the final return.` That contract ([skill-rules.md § Coordination](skill-rules.md#coordination)) governs the task and its acceptance.
+5. Send it the team project inventories and this task: `Verify only these Linear issues: [ISSUES]. For each issue, read its full body and source. Answer question 3 under Judge the approach in the project-management skill's references/filing.md in your one return line for every issue, including owner-authorized issues. Reached by: in the Filing record names the behavior the item reaches. If Owner: in the Filing record names a decision that authorizes the work (the owner's note or ask, or a Jarvis decision), skip the filing bar and check for duplication, project and agent. Otherwise, apply the filing bar, including to items from a review, a worker's proposal or discovered work. Follow the Verifier returns contract in .agents/skills/orch/references/skill-rules.md under Coordination for evidence, project and agent selection, and the final return.` That contract ([skill-rules.md § Coordination](skill-rules.md#coordination)) governs the task and its acceptance.
 6. Capture only its single final return ([skill-rules.md § Single Return Message](skill-rules.md#single-return-message)).
    - Once it is captured, or on any failure after the launch, retire the verifier through the surface's own shut-down call before any further launch.
 7. Validate the return against that contract. On a launch, capture, parse or validation failure, stop without writing `triaged`.
