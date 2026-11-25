@@ -244,7 +244,7 @@ Item {
             // the words and of the next line's ink, so the words read over
             // faded text alone. The band is in this mask's coordinates.
             readonly property var band: {
-                const lines = textBlock.lines;
+                const lines = textBlock.inkLines;
                 const wordsBottom = wordsTop + wordsHeight;
                 let top = 0;
                 let bottom = height;

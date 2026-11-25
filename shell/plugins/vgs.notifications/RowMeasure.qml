@@ -66,14 +66,35 @@ ColumnLayout {
         ensurePolished();
         inset.settle();
     }
-    // Each drawn line's ink, top to bottom, as { inkTop, inkBottom }.
     // Ink belongs to this layout's coordinates, including the positions
     // its nested layouts assign. Logical content flags also hold while
-    // the shared model measurer inherits visible=false. The title's line
+    // the shared model measurer inherits visible=false.
+    readonly property real inkAbove: {
+        let first = Infinity;
+        if (rowCard.summary.length > 0) {
+            first = summaryRow.y + titleText.y + titleText.inkAbove;
+            if (rowCard.showsBadge) first = Math.min(first, summaryRow.y + workspaceBadge.y);
+        }
+        if (!rowCard.singleLine) first = Math.min(first, bodyText.y + bodyText.inkAbove);
+        return first === Infinity ? 0 : first;
+    }
+    readonly property real inkBelow: {
+        let last = -Infinity;
+        if (rowCard.summary.length > 0) {
+            last = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
+            if (rowCard.showsBadge) last = Math.max(last, summaryRow.y + workspaceBadge.y + workspaceBadge.height);
+        }
+        if (!rowCard.singleLine) last = Math.max(last, bodyText.y + bodyText.height - bodyText.inkBelow);
+        return last === -Infinity ? 0 : height - last;
+    }
+    // Each drawn line's ink, top to bottom, as { inkTop, inkBottom }, for
+    // the card's action fade alone. Deriving the paddings' ink above
+    // from this list loops this binding, so they keep their own sources
+    // and nothing that sizes or places the text reads it. The title's line
     // holds the badge. The body's lines share one font and line box, so
     // each takes the first line's ink top and the last line's ink bottom
     // inside its own box.
-    readonly property var lines: {
+    readonly property var inkLines: {
         const found = [];
         if (rowCard.summary.length > 0) {
             let inkTop = summaryRow.y + titleText.y + titleText.inkAbove;
@@ -94,8 +115,6 @@ ColumnLayout {
         }
         return found;
     }
-    readonly property real inkAbove: lines.length > 0 ? lines[0].inkTop : 0
-    readonly property real inkBelow: lines.length > 0 ? height - lines[lines.length - 1].inkBottom : 0
     ClearingInset {
         id: inset
         pad: root.rowCard.pad
