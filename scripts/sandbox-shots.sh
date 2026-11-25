@@ -5128,9 +5128,10 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
 # The jarvis-speech-only scene: Chat over the scripted daemon fixture under
 # a voice that takes speech only, with the pointer on the locked message
 # box, its reason shown, then at rest. Jarvis's AI model is an Anthropic
-# key, whose fixed model list (AccountProviders.js) the console reads with
-# no key and no network, so the model and effort row stands under the
-# notice as a signed-in user's does.
+# key with a saved model and effort, whose fixed model list
+# (AccountProviders.js) the console reads with no key and no network, so
+# the model and effort row stands under the notice as a signed-in user's
+# does. The row follows the sign-in, whatever the voice.
 scene_jarvis-speech-only() { # MODE
   local backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
   local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
@@ -5161,7 +5162,19 @@ PY
     fail "the account helper lists no id for the Anthropic key"
   jarvis_setup_requirements
   jarvis_asks_fixture "$checkout"
-  outdated_brain "$home/.config/vgshell/shell.json" "$brain"
+  # The key with a saved model and effort, as a user who chose them has:
+  # the console shows that choice alone until its list read answers, and
+  # the list's choices after (AccountProviders.modelChoice).
+  python3 - "$home/.config/vgshell/shell.json" "$brain" <<'PY' || fail "the Jarvis AI model settings are not written"
+import json,sys
+value=json.load(open(sys.argv[1]))
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row.update({"brain": sys.argv[2], "model": "claude-opus-5-5", "effort": "high"})
+open(sys.argv[1],"w").write(json.dumps(value))
+PY
+  expect "the Jarvis AI model settings are delivered" ok ipc shell reloadConfig
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --duplex
   tree_rescan "the Jarvis speech-only daemon is scanned"
   expect "enabling vgs.jarvis for the speech-only images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
