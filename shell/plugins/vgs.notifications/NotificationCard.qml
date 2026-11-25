@@ -244,7 +244,17 @@ Item {
             // the words and of the next line's ink, so the words read over
             // faded text alone. The band is in this mask's coordinates.
             readonly property var band: {
-                const lines = textBlock.inkLines;
+                // Each line's ink, top to bottom. The body's lines share
+                // one font and line box, so each sits one pitch from the
+                // next, with the first line's ink top and the last's bottom.
+                const lines = [];
+                if (card.summary.length > 0) lines.push({ inkTop: textBlock.inkAbove, inkBottom: textBlock.titleInkBottom });
+                const count = textBlock.bodyLineCount;
+                for (let i = 0; i < count; i++)
+                    lines.push({
+                        inkTop: textBlock.bodyInkTop + i * textBlock.bodyPitch,
+                        inkBottom: textBlock.bodyInkBottom - (count - 1 - i) * textBlock.bodyPitch
+                    });
                 const wordsBottom = wordsTop + wordsHeight;
                 let top = 0;
                 let bottom = height;

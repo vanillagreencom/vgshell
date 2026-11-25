@@ -87,33 +87,27 @@ ColumnLayout {
         if (!rowCard.singleLine) last = Math.max(last, bodyText.y + bodyText.height - bodyText.inkBelow);
         return last === -Infinity ? 0 : height - last;
     }
-    // Each drawn line's ink, top to bottom, as { inkTop, inkBottom }, for
-    // the card's action fade alone. Deriving the paddings' ink above
-    // from this list loops this binding, so they keep their own sources
-    // and nothing that sizes or places the text reads it. The title's line
-    // holds the badge. The body's lines share one font and line box, so
-    // each takes the first line's ink top and the last line's ink bottom
-    // inside its own box.
-    readonly property var inkLines: {
-        const found = [];
-        if (rowCard.summary.length > 0) {
-            let inkTop = summaryRow.y + titleText.y + titleText.inkAbove;
-            let inkBottom = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
-            if (rowCard.showsBadge) {
-                inkTop = Math.min(inkTop, summaryRow.y + workspaceBadge.y);
-                inkBottom = Math.max(inkBottom, summaryRow.y + workspaceBadge.y + workspaceBadge.height);
-            }
-            found.push({ inkTop: inkTop, inkBottom: inkBottom });
-        }
-        if (!rowCard.singleLine) {
-            const count = Math.max(1, bodyText.lineCount);
-            for (let i = 0; i < count; i++)
-                found.push({
-                    inkTop: bodyText.y + bodyText.height * i / count + bodyText.inkAbove,
-                    inkBottom: bodyText.y + bodyText.height * (i + 1) / count - bodyText.inkBelow
-                });
-        }
-        return found;
+    // For the card's action fade alone, which nothing that sizes or
+    // places the text reads: the title's ink bottom, the body's first ink
+    // top and last ink bottom, each making only the reads the paddings'
+    // ink above makes, and the body's line pitch from its font, with its
+    // line count from its height. One list binding that also read the
+    // body's lineCount looped at every card's creation, so none reads it.
+    readonly property real titleInkBottom: {
+        if (rowCard.summary.length === 0) return 0;
+        const bottom = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
+        return rowCard.showsBadge ? Math.max(bottom, summaryRow.y + workspaceBadge.y + workspaceBadge.height) : bottom;
+    }
+    readonly property real bodyInkTop: rowCard.singleLine ? 0 : bodyText.y + bodyText.inkAbove
+    readonly property real bodyInkBottom: rowCard.singleLine ? 0 : bodyText.y + bodyText.height - bodyText.inkBelow
+    // A wrapped line is its font's ascent plus descent, rounded up
+    // (Qt 6.12.0 QTextLine::height):
+    // https://github.com/qt/qtbase/blob/v6.12.0/src/gui/text/qtextlayout.cpp#L1547
+    readonly property real bodyPitch: Math.ceil(bodyMetrics.height)
+    readonly property int bodyLineCount: rowCard.singleLine ? 0 : Math.max(1, Math.round(bodyText.height / Math.max(1, bodyPitch)))
+    FontMetrics {
+        id: bodyMetrics
+        font: bodyText.font
     }
     ClearingInset {
         id: inset
