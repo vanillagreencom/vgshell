@@ -146,7 +146,14 @@ if(name==="makepkg"){
 }
 if(name==="claude"||name==="codex"){
  const reviewDir=/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1],listed=reviewDir&&path.join(reviewDir,"packages.txt");
- log("agent",{cwd:process.cwd(),reviewDir,packages:listed&&fs.existsSync(listed)?fs.readFileSync(listed,"utf8").split("\n").filter(Boolean):null});
+ // Each harness's account variable as the agent received it, null when unset.
+ const harnesses=require("../../../bin/lib/qml-library.js").load(path.resolve(__dirname,"../../../shell/Commons/AccountDirectories.js")).HARNESSES;
+ const accounts=Object.fromEntries(harnesses.map(row=>[row.variable,process.env[row.variable]??null]));
+ // Whether a provider switch and a credential the harness ranks above a
+ // folder's sign-in, and an unrelated variable, reached the agent; never
+ // their values.
+ const inherited=Object.fromEntries(["CLAUDE_CODE_USE_BEDROCK","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","VGS_TEST_UNRELATED"].map(name=>[name,Object.hasOwn(process.env,name)]));
+ log("agent",{cwd:process.cwd(),reviewDir,accounts,inherited,packages:listed&&fs.existsSync(listed)?fs.readFileSync(listed,"utf8").split("\n").filter(Boolean):null});
  // The owner's Ctrl-C reaches the agent, which ends by the signal.
  if(fs.existsSync(path.join(root,"agent-interrupted")))process.kill(process.pid,"SIGINT");
  if(reviewDir){
@@ -172,7 +179,7 @@ if(name==="claude"||name==="codex"){
   setTimeout(()=>{log("agent-unsignalled");process.exit(0);},20000);
   return;
  }
- if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude"){
+ if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude"||fs.existsSync(path.join(root,"agent-fails-all"))){
   if(fs.existsSync(path.join(root,"agent-mutates"))){
    const base=fs.readdirSync(path.join(reviewDir,"build"))[0];
    fs.appendFileSync(path.join(reviewDir,"build",base,"PKGBUILD"),"\nAGENT_MUTATION\n");

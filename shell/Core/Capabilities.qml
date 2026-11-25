@@ -522,9 +522,7 @@ Singleton {
     // The same guarded writer used by the terminal editor confirms the
     // disk bytes before replying; Automatic removes the optional choice.
     function managerPackageReview(key, value) {
-        const settings = Logic.clone(Config.effective.packages?.review || {});
-        if (key === "enabled" && value === null) delete settings.enabled;
-        else settings[key] = value;
+        const settings = PackageReview.reviewChange(Config.effective.packages?.review || {}, key, value);
         return Config.packageReviewWrite(JSON.stringify({ expectedText: Config.userText, settings: settings }));
     }
 

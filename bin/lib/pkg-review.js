@@ -159,13 +159,14 @@ function terminalChild(argv, cwd, { stderr, env } = {}) {
         });
     });
 }
-// Foreground interactive children keep the user's terminal. The recorded
-// signal cancels the phase; a signal is never converted into a successful
-// review decision, even if the child exits zero.
+// Foreground interactive children keep the user's terminal and, unless
+// OPTIONS.env names one, this process's environment. The recorded signal
+// cancels the phase; a signal is never converted into a successful review
+// decision, even if the child exits zero.
 function interactive(argv, options = {}) {
     return new Promise(resolve => {
         let stdout = "", failed = null;
-        const child = cp.spawn(argv[0], argv.slice(1), { cwd: options.cwd || home(), stdio: ["inherit", options.output ? "pipe" : "inherit", "inherit"] });
+        const child = cp.spawn(argv[0], argv.slice(1), { cwd: options.cwd || home(), env: options.env, stdio: ["inherit", options.output ? "pipe" : "inherit", "inherit"] });
         const slot = ownForeground(child);
         if (child.stdout) child.stdout.on("data", data => {
             stdout += data.toString();
@@ -589,19 +590,97 @@ function processSubject() {
     const fields = fs.readFileSync("/proc/self/stat", "utf8").replace(/^.*\) /s, "").split(" ");
     return process.pid + "," + fields[19] + "," + process.getuid();
 }
+// The account discovery, loaded on the review's path alone: the other
+// verbs that load this file, such as self.js's customMode and orphan-info,
+// read no account.
+let accounts = null;
+function accountOwners() {
+    return accounts ||= { rule: load(path.join(repo, "shell/Commons/AccountDirectories.js")), folders: require("./account-folders.js").accountFolders };
+}
+// The harness itself follows a linked account folder, so discovery does
+// too; it reads no sign-in.
+function discoveredFolders() {
+    const h = home(), { rule: accountRule, folders: accountFolders } = accountOwners();
+    return accountFolders({ home: h, config: process.env.XDG_CONFIG_HOME || path.join(h, ".config"),
+        data: process.env.XDG_DATA_HOME || path.join(h, ".local/share"), env: accountRule.accountVariables(name => process.env[name]), followLinks: true }).folders;
+}
+// The account PLAN's agent runs on, read where the agent starts, in paru's
+// file-manager step.
+function agentAccount(plan, saved) { return judge.reviewAccount(plan.agent, saved, discoveredFolders()); }
+// The environment AGENT starts with on ACCOUNT, from ENV: unchanged
+// without an account, else without the variables its harness ranks above
+// a chosen folder's sign-in, or only its strays on automatic, and with the
+// harness's account variable naming the folder. Its default folder takes the variable unset: Claude Code keeps a
+// default account's .claude.json, which holds its account details, in the
+// home folder, and moves it under CLAUDE_CONFIG_DIR when the variable is set
+// (code.claude.com/docs/en/claude-directory).
+function agentEnvironment(agent, account, env) {
+    if (account.state !== "account") return env;
+    const row = accountOwners().rule.harness(agent), out = { ...env };
+    for (const name of (account.chosen ? row.outranks : row.strays) || []) delete out[name];
+    if (account.source === "default") delete out[row.variable];
+    else out[row.variable] = account.directory;
+    return out;
+}
+// The review settings' account offers for SETTINGS' agent, the one the
+// review would start: each { directory, shown } discovery lists for it.
+function accountChoices(settings) {
+    const plan = judge.reviewPlan(settings, foundAgents(settings));
+    return plan.agent === null ? [] : discoveredFolders().filter(folder => folder.provider === plan.agent)
+        .map(folder => ({ directory: folder.directory, shown: shownFolder(folder.directory) }));
+}
+// How the review would read SETTINGS' saved account, for the editor's
+// summary: "chosen" or "missing" with that folder as shown, or
+// "automatic", also for a folder another agent's discovery lists, which
+// PackageReview.reviewAccount leaves this agent automatic for.
+function savedAccount(settings) {
+    const saved = settings.account || "";
+    if (saved === "") return { state: "automatic" };
+    const plan = judge.reviewPlan(settings, foundAgents(settings));
+    const account = judge.reviewAccount(plan.agent, saved, discoveredFolders());
+    if (account.state === "missing") return { state: "missing", shown: shownFolder(saved) };
+    return account.state === "account" && account.directory === saved ? { state: "chosen", shown: shownFolder(saved) } : { state: "automatic" };
+}
+// A folder as the owner reads it: under the home folder, from ~.
+function shownFolder(dir) {
+    const h = home();
+    return dir === h ? "~" : dir.startsWith(h + "/") ? "~" + dir.slice(h.length) : dir;
+}
+// The one sentence for an agent that gave no verdict: why, on which
+// account, and the next step. KIND is "unrun", the agent could not run or
+// ended with a failed status, or "no-verdict", an exit 0 with no verdict,
+// as an interactive agent the owner quits after its sign-in fails ends.
+function failureSentence(plan, account, kind) {
+    const what = kind === "unrun" ? " could not run" : " gave no review verdict";
+    if (account.state === "none") return plan.label + what + ". Check the review command in the review settings.";
+    if (account.directory === null) return plan.label + " has no account VGS can find. Choose an account in the review settings.";
+    const on = what + " on the account in " + shownFolder(account.directory);
+    return kind === "unrun" ? plan.label + on + ". Sign in to it, or choose another account in the review settings."
+        : plan.label + on + ". Check that you are signed in to it, or choose another account in the review settings.";
+}
+// The sentence when no review agent is left to offer.
+const NO_AGENT = "No review agent could run.";
 // The statuses of the agent-run wrapper whose agent ended by Ctrl-C, a
 // hangup or TERM, 128 plus the signal's number, as bash reports them.
 const STOP_STATUSES = new Set(["SIGINT", "SIGHUP", "SIGTERM"].map(name => 128 + os.constants.signals[name]));
-// { cancelled, status }, { verdict } or { failure }, a sentence naming
-// why the agent gave no verdict.
-async function agentAttempt(run, pristine, plan, names) {
+// { cancelled, status }, { verdict } or { failure }, failureSentence's
+// sentence. The agent starts with the one variable of its ACCOUNT's
+// harness set to that folder, beside the user's own environment; the
+// agent's raw last line and the verdict's problem go to the log alone.
+async function agentAttempt(run, pristine, plan, names, account) {
+    const diagnostic = fields => process.stderr.write("vgshell: review-diagnostic: agent=" + (plan.agent || "command") + " " + fields + "\n");
+    if (account.state === "missing") {
+        diagnostic("account=missing");
+        return { failure: failureSentence(plan, account, "unrun") };
+    }
     const evidence = fs.mkdtempSync(path.join(workRoot(true), "evidence-"));
     const capture = path.join(run, path.basename(evidence) + ".output");
     try {
         fs.cpSync(pristine, evidence, { recursive: true });
         const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", evidence);
         const launch = judge.reviewCommand(plan, { home: agentHome(), evidence });
-        const shown = await ui("show", "Reviewing AUR build files as your user", ...launch.argv);
+        const env = agentEnvironment(plan.agent, account, process.env);
+        const shown = await ui("show", "Reviewing AUR build files as your user" + (account.state === "account" ? ", on the account in " + shownFolder(account.directory) : ""), ...launch.argv);
         if (shown.cancelled) return shown;
         // An earlier paru step's elevation can leave an authorization this
         // user's later processes reuse. No agent runs while one is live:
@@ -625,21 +704,19 @@ async function agentAttempt(run, pristine, plan, names) {
             throw new Error("VGS could not end the saved " + elevator + " authorization before the review.", { cause: step + "=" + (failed.error ? "unstarted error=" + failed.error.code
                 : "status=" + (failed.status ?? failed.signal) + (failed.stderr.trim() ? " " + failed.stderr.trim().replace(/\s+/g, " ") : "")) });
         }
-        const ended = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "agent-run", capture, ...launch.argv, prompt], { cwd: launch.cwd });
+        const ended = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "agent-run", capture, ...launch.argv, prompt], { cwd: launch.cwd, env });
         if (ended.signal) return { cancelled: true, status: 128 + (os.constants.signals[ended.signal] || 2) };
         if (STOP_STATUSES.has(ended.status)) return { cancelled: true, status: ended.status };
-        // The wrapper leaves no capture when it could not cut the output.
-        let said = "";
-        try {
-            const last = judge.failureLines(privateFile(capture, false)).at(-1);
-            if (last) said = " Its last line: " + last + (/[.!?]$/.test(last) ? "" : ".");
-        } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-            said = " VGS could not read its output.";
-        }
-        if (ended.error || ended.status !== 0) return { failure: "The " + plan.label + " review stopped without a result." + said };
-        const verdict = readVerdict(path.join(evidence, "verdict"), names);
-        return verdict.ok ? { verdict } : { failure: "The " + plan.label + " review's verdict " + verdict.problem + "." + said };
+        const unrun = ended.error || ended.status !== 0;
+        const verdict = unrun ? null : readVerdict(path.join(evidence, "verdict"), names);
+        if (verdict?.ok) return { verdict };
+        // The wrapper leaves no capture when it could not cut the output,
+        // and says so on its own diagnostic line.
+        let last = "";
+        try { last = judge.failureLines(privateFile(capture, false)).at(-1) || ""; }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+        diagnostic((unrun ? "status=" + (ended.error ? "unstarted error=" + ended.error : ended.status) : "verdict=" + JSON.stringify(verdict.problem)) + " last-line=" + JSON.stringify(last));
+        return { failure: failureSentence(plan, account, unrun ? "unrun" : "no-verdict") };
     } finally {
         fs.rmSync(evidence, { recursive: true, force: true });
         fs.rmSync(capture, { force: true });
@@ -690,25 +767,32 @@ async function reviewFiles(run, view, config, bootstrapClone = null) {
         }
         if (answer.value !== "Review") refuse("review=choice-invalid");
         let plan = judge.reviewPlan(settings, foundAgents(settings));
+        let saved = settings.account || "";
         let verdict = null;
+        // The agents this review already tried, never offered again.
+        const tried = [];
         for (;;) {
             let failure;
             if (["agent", "command"].includes(plan.state)) {
-                const attempt = await agentAttempt(run, pristine, plan, names);
+                const attempt = await agentAttempt(run, pristine, plan, names, agentAccount(plan, saved));
                 if (attempt.cancelled) return cancelled(run, attempt.status);
                 if (attempt.verdict) { verdict = attempt.verdict; break; }
                 failure = attempt.failure;
             } else failure = plan.state === "missing" ? plan.label + " is not installed." : "No review agent is installed.";
-            const other = judge.REVIEW_AGENTS.find(agent => agent.id !== plan.agent && available(agent.id));
-            answer = await ui("agent-failed", failure, other ? other.label : "");
+            if (plan.agent !== null) tried.push(plan.agent);
+            const other = judge.REVIEW_AGENTS.find(agent => !tried.includes(agent.id) && available(agent.id));
+            const none = other === undefined && plan.state !== "none" ? NO_AGENT : "";
+            answer = await ui("agent-failed", failure, other ? other.label : "", none);
             if (answer.cancelled) return cancelled(run, answer.status);
             if (other && answer.value === "Use " + other.label) {
                 plan = judge.reviewPlan({ agent: other.id, command: "" }, foundAgents({}));
+                saved = "";
                 continue;
             }
             if (answer.value === "Install without review") break;
             if (answer.value !== "Skip AUR packages") refuse("review=choice-invalid");
-            return outcome(run, { kind: "skipped", sentence: failure + " You chose to skip the AUR packages." });
+            // A line of its own: failureLines cuts one line at FAILURE_LINE_MAX.
+            return outcome(run, { kind: "skipped", sentence: (none || failure) + "\nYou chose to skip the AUR packages." });
         }
         const concerns = new Map();
         for (const flag of [...(verdict?.flags || []), ...deterministic]) {
@@ -862,5 +946,5 @@ async function bootstrap(tree) {
         return result === null ? null : finalOutcome("aur", "makepkg", result, ["paru"]);
     } finally { fs.rmSync(run, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, buildRoot, customMode, judge, settingsRead, settingsWrite, createRun, withReview, reviewFiles,
+module.exports = { accountChoices, available, savedAccount, bootstrap, buildRoot, customMode, judge, settingsRead, settingsWrite, createRun, withReview, reviewFiles,
     refuseFileManagerFlags, resultLine, terminalChild, workRoot, ownedDirectory, privateFile, ui, orphanInfo, unavailableCustom };

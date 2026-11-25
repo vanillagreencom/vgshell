@@ -95,7 +95,8 @@
 //       of its packages is installed.
 //   vgshell-pkg review-settings
 //       open System Settings at Packages on a desktop; without a desktop,
-//       edit the shared review preference, agent and command in this terminal.
+//       edit the shared review preference, agent, account and command in
+//       this terminal.
 //       Config owns a live save; the offline writer compares original bytes.
 //   vgshell-pkg settled --manager <id> <name>...
 //       read-only installed-name postcheck; exits 1 if any name is missing.
@@ -899,6 +900,27 @@ main(async () => {
         // One line per agent for the editor: id, label and found or missing, tab-separated.
         const { judge, available } = require("./lib/pkg-review.js");
         process.stdout.write(judge.REVIEW_AGENTS.map(a => [a.id, a.label, available(a.id) ? "found" : "missing"].join("\t") + "\n").join("")); break;
+    }
+    case "review-settings-accounts": {
+        // One line per account the editor offers for the choices' agent:
+        // its folder and the folder as shown, tab-separated.
+        if (args.length !== 1) usage("review-settings-accounts=arguments");
+        const accounts = require("./lib/pkg-review.js").accountChoices(JSON.parse(args[0]));
+        process.stdout.write(accounts.map(account => account.directory + "\t" + account.shown + "\n").join("")); break;
+    }
+    case "review-settings-account": {
+        // The saved account as the review reads it: `chosen` or `missing`,
+        // a tab and the folder as shown, or `automatic`.
+        if (args.length !== 1) usage("review-settings-account=arguments");
+        const saved = require("./lib/pkg-review.js").savedAccount(JSON.parse(args[0]));
+        process.stdout.write(saved.state + (saved.shown === undefined ? "" : "\t" + saved.shown) + "\n"); break;
+    }
+    case "review-settings-change": {
+        // The editor's choices with one field changed by
+        // PackageReview.reviewChange, the rule both editors share. VALUE is JSON.
+        if (args.length !== 3) usage("review-settings-change=arguments");
+        const judge = require("./lib/pkg-review.js").judge;
+        process.stdout.write(JSON.stringify(judge.reviewChange(JSON.parse(args[0]), args[1], JSON.parse(args[2]))) + "\n"); break;
     }
     case "review-settings-presets": {
         const judge = require("./lib/pkg-review.js").judge;

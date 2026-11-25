@@ -55,11 +55,11 @@ These are not signals:
    - line 1 is `verdict clean` when no package shows a signal, else `verdict flagged`;
    - after a `verdict flagged` line, one line `flag <package> <concern>` per package that shows a signal, the package named as its `aur` line in `packages.txt` names it. The concern is one plain sentence on one line that names the signal, the file and the line. A signal in a split package's recipe flags each listed package that recipe builds.
 
-4. Tell the user: "The review is done. Exit the agent to see the summary and installation choices." VGS displays one summary grouped by verdict. Do not repeat the package list or print a result for each package.
+4. Tell the user: "The review is done." If the user can talk to you in this terminal, also tell them: "Exit the agent to see the summary and installation choices." VGS displays one summary grouped by verdict. Do not repeat the package list or print a result for each package.
 
 ## User questions
 
-The user can talk to you in this terminal. Answer their questions. Change the verdict only when they show you that a concern is wrong.
+If the user can talk to you in this terminal, answer their questions. Change the verdict only when they show you that a concern is wrong.
 
 ## Authorization
 

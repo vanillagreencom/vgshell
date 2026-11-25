@@ -179,33 +179,97 @@ try{
    for(const agent of agents(world))assert.ok(!store.startsWith(agent.reviewDir+"/")&&!store.startsWith(agent.cwd+"/"),name+": store outside every agent working root");
   }
  }
- // Agent failures choose the other installed agent first. Skipping the AUR
- // skips the step, status 0, as a Skip of every named package does. A
- // missing agent is never started, and a signal during the agent cancels
- // the step with no further question. OWNER, when given, is a control's
- // copy of bin/vgshell-pkg.
+ // Agent failures choose the other installed agent first, and never offer
+ // an agent this review already tried. Each failure is one sentence that
+ // names the agent, its account and the next step; the agent's raw last
+ // line is on its review-diagnostic line alone. Skipping the AUR skips the
+ // step, status 0, as a Skip of every named package does. A missing agent
+ // or account is never started, and a signal during the agent cancels the
+ // step with no further question. OWNER, when given, is a control's copy
+ // of bin/vgshell-pkg.
  const otherAgent=["other-agent","agent-failed-once",["Review","@selected"],2,2,0,1,{}];
+ const allFailed=["all-failed","agent-fails-all",["Review","@selected","Skip AUR packages"],2,3,0,0,{}];
+ const accountRow=["account",null,["Review"],1,1,0,1,{}];
+ const defaultRow=["saved-default",null,["Review"],1,1,0,1,{}];
+ const automaticRow=["automatic-provider",null,["Review"],1,1,0,1,{}];
+ const noVerdict=["no-verdict","agent-no-verdict",["Review","Skip AUR packages"],1,2,0,0,{}];
  // command.js's agent-failed-once output, and that line as failureLines
  // masks a URL's user and password and a token (failure-test.js rows).
  const agentLine="agent limit https://user:secret@example.org/ ghp_12345678901234567890",shownLine="agent limit https://\u2026@example.org/ \u2026";
+ // The sentences Updates puts on its result list (pipeline.sh
+ // _updates_review_of reads the package-review line) and the offer shows.
+ const unrun=(agent,folder)=>agent+" could not run on the account in "+folder+". Sign in to it, or choose another account in the review settings.";
+ const unanswered=(agent,folder)=>agent+" gave no review verdict on the account in "+folder+". Check that you are signed in to it, or choose another account in the review settings.";
+ const skipped=" You chose to skip the AUR packages.";
+ // Each harness's account variable an agent starts with: VARIABLE set to
+ // FOLDER under the world's home, every other one unset; with no VARIABLE,
+ // every one unset, as a harness's default folder starts.
+ const accountsWith=(world,variable,folder)=>({CLAUDE_CONFIG_DIR:null,CODEX_HOME:null,COPILOT_HOME:null,PI_CODING_AGENT_DIR:null,...(variable?{[variable]:path.join(world.env.HOME,folder)}:{})});
+ // The credentials the account, saved-default and automatic-provider rows'
+ // terminal carries, as an agent-runtime session or a shell with Jarvis's
+ // key exports them, beside a Bedrock user's provider switch.
+ const credentials={CLAUDE_CODE_USE_BEDROCK:"1",ANTHROPIC_API_KEY:"sk-ant-fixture",CLAUDE_CODE_OAUTH_TOKEN:"fixture-token",VGS_TEST_UNRELATED:"kept"};
+ // What reached a chosen folder's agent: no credential its harness ranks
+ // above that folder's sign-in.
+ const chosenOnly={CLAUDE_CODE_USE_BEDROCK:false,ANTHROPIC_API_KEY:false,CLAUDE_CODE_OAUTH_TOKEN:false,VGS_TEST_UNRELATED:true};
  function agentFailure([name,marker,choices,expected,offerCount,status,built,options],folder=name,owner=undefined){
   const world=create(path.join(scratch,folder),{choices,...options});
   if(owner!==undefined)world.owner=owner;
   for(const file of [].concat(marker??[]))write(world,file,"");
   if(name==="other-agent")write(world,"agent-mutates","");
-  const result=tty(world,["run","install","--manager","aur","widget"]);
+  // The review settings choose a second Claude account, one whose folder is
+  // gone, or the default one while the terminal names another. Automatic
+  // runs where the terminal carries a provider switch and stray credentials.
+  const extra=name==="automatic-provider"?{...credentials}:{};
+  if(name==="account"||name==="account-gone"||name==="saved-default"){
+   const account=path.join(world.env.HOME,{account:".claude-work","account-gone":".claude-gone","saved-default":".claude"}[name]);
+   if(name==="account")fs.mkdirSync(account);
+   if(name!=="account-gone")Object.assign(extra,credentials);
+   if(name==="saved-default")extra.CLAUDE_CONFIG_DIR=path.join(world.env.HOME,".claude-env");
+   write(world,"config/vgshell/shell.json",{version:6,disabledPlugins:["vgs.updates"],packages:{review:{agent:"claude",command:"",account}}});
+  }
+  const result=tty(world,["run","install","--manager","aur","widget"],extra);
   assert.equal(result.status,status,name+": "+result.stdout+result.stderr);
   assert.equal(agents(world).length,expected,name);
   assert.equal(offers(world).length,offerCount,name+": review questions");
+  const lines=judge.transcriptLines(result.stdout),delivered=lines.join(" ").replace(/\s+/g," ");
+  // Array.from: keyed's array belongs to the judge's own context.
+  const reviewed=Array.from(keyed(result,"package-review"),line=>line.slice("vgshell: package-review: ".length));
   if(name==="missing-agent")assert.deepEqual(offers(world)[1].offered,["Install without review","Skip AUR packages"],name+": no other agent to offer");
-  // The question after the failed agent, shown once its own output ends,
-  // names that agent and holds its last line.
   if(name==="other-agent"){
-   const delivered=judge.transcriptLines(result.stdout).join(" ").replace(/\s+/g," "),ended=delivered.indexOf(agentLine);
+   const ended=lines.findIndex(line=>line.includes(agentLine));
    assert.ok(ended>=0,name+": the agent's own output reaches the terminal");
-   const after=ended+agentLine.length,shown=delivered.indexOf(shownLine,after);
-   assert.ok(shown>=0,name+": the offer shows the agent's last line");
-   assert.ok(delivered.slice(after,shown).includes("Claude Code"),name+": the offer names the failed agent");
+   const after=lines.slice(ended+1),shown=after.filter(line=>!line.startsWith("vgshell: review-diagnostic: ")).join(" ").replace(/\s+/g," ");
+   assert.ok(shown.includes(unrun("Claude Code","~/.claude")),name+": one sentence names the agent, its account and the next step");
+   assert.ok(!shown.includes("agent limit"),name+": the agent's raw last line stays in the log");
+   assert.ok(keyed(result,"review-diagnostic").some(line=>line.startsWith("vgshell: review-diagnostic: agent=claude status=4 ")&&line.includes(shownLine)),name+": the log holds the agent's masked last line");
+   assert.deepEqual(agents(world).map(call=>call.accounts),[accountsWith(world),accountsWith(world)],name+": each agent's default account starts with its variable unset");
+  }
+  if(name==="all-failed"){
+   assert.deepEqual(offers(world)[2].offered,["Install without review","Skip AUR packages"],name+": an agent that failed is not offered again");
+   assert.ok(delivered.includes(unrun("Codex","~/.codex")),name+": the second agent's sentence names its account");
+   assert.deepEqual(reviewed,["No review agent could run."+skipped],name+": one sentence says no review agent could run");
+  }
+  if(name==="skip-aur")assert.deepEqual(reviewed,[unrun("Claude Code","~/.claude")+skipped],name+": the skip keeps the agent's sentence");
+  if(name==="no-verdict"){
+   assert.deepEqual(reviewed,[unanswered("Claude Code","~/.claude")+skipped],name+": the sentence names the agent, its account and the next step");
+   assert.ok(keyed(result,"review-diagnostic").some(line=>line.startsWith('vgshell: review-diagnostic: agent=claude verdict="is missing" ')),name+": the verdict's problem is on the log line");
+  }
+  if(name==="account"){
+   assert.deepEqual(agents(world)[0].accounts,accountsWith(world,"CLAUDE_CONFIG_DIR",".claude-work"),name+": the agent starts on the chosen account alone");
+   assert.deepEqual(agents(world)[0].inherited,chosenOnly,name+": no inherited credential outranks the chosen account");
+   assert.ok(delivered.includes("Reviewing AUR build files as your user, on the account in ~/.claude-work"),name+": the command block names the account");
+  }
+  if(name==="saved-default"){
+   assert.deepEqual(agents(world)[0].accounts,accountsWith(world),name+": the default account starts with its variable unset");
+   assert.deepEqual(agents(world)[0].inherited,chosenOnly,name+": no inherited credential outranks the default account");
+  }
+  if(name==="automatic-provider")assert.deepEqual(agents(world)[0].inherited,{CLAUDE_CODE_USE_BEDROCK:true,ANTHROPIC_API_KEY:false,CLAUDE_CODE_OAUTH_TOKEN:false,VGS_TEST_UNRELATED:true},
+   name+": automatic keeps the harness's own provider switch and drops stray credentials");
+  if(name==="account-gone"){
+   assert.ok(offers(world)[1].offered.includes("Use Codex"),name+": the other agent is offered");
+   assert.deepEqual(reviewed,[unrun("Claude Code","~/.claude-gone")+skipped],name+": the sentence names the chosen account");
+   assert.ok(keyed(result,"review-diagnostic").includes("vgshell: review-diagnostic: agent=claude account=missing"),name+": the missing account is on the log line");
   }
   // A drop that could not run lets the review go on only when polkit
   // answers that nothing is held; any other failed drop ends it, with the
@@ -214,7 +278,7 @@ try{
   if(name==="drop-failed")assert.ok(keyed(result,"review-diagnostic").some(line=>line.includes("Error revoking temporary authorizations")),name+": the drop's own cause");
   if(name==="owner-terminated")assert.deepEqual(world.calls().filter(call=>call.kind.startsWith("agent-")&&call.kind!=="agent-edit").map(call=>call.kind),["agent-term"],name+": the TERM sent to the owner reaches the agent");
   if(status===0&&built===0)assert.equal(keyed(result,"package-review").length,1,name+": the skip is the step's one review result");
-  if(expected===2){
+  if(name==="other-agent"){
    assert.deepEqual(agents(world).map(call=>call.name),["claude","codex"],name);
    assert.equal(world.calls().filter(call=>call.kind==="agent-edit").length,1,name+": first agent changed its own recipe copy");
    const first=fs.readFileSync(path.join(world.root,"agent-evidence/0/build/widget/PKGBUILD"),"utf8");
@@ -228,8 +292,13 @@ try{
  }
  for(const row of [
   otherAgent,
+  allFailed,
+  accountRow,
+  defaultRow,
+  automaticRow,
+  ["account-gone",null,["Review","Skip AUR packages"],0,2,0,0,{}],
   ["skip-aur","agent-failed-once",["Review","Skip AUR packages"],1,2,0,0,{}],
-  ["no-verdict","agent-no-verdict",["Review","Skip AUR packages"],1,2,0,0,{}],
+  noVerdict,
   ["unsafe-verdict","agent-unsafe",["Review","Skip AUR packages"],1,2,0,0,{}],
   ["missing-agent",null,["Review","Skip AUR packages"],0,2,0,0,{agents:false}],
   ["agent-interrupted","agent-interrupted",["Review"],1,1,130,0,{}],
@@ -329,6 +398,37 @@ try{
   const result=cp.spawnSync(process.execPath,[path.join(__dirname,"settings.js"),world.root,mode],{env:world.env,encoding:"utf8",timeout:30000});
   assert.equal(result.status,0,result.stdout+result.stderr);
  }
+ // The editors' owner verbs. The account offers are each folder discovery
+ // lists for the choices' agent, its default first, as the editor shows
+ // it. The saved account reads as the review would use it: a folder that
+ // is gone is not found, and one discovery lists for another agent leaves
+ // this agent automatic. A change goes through PackageReview.reviewChange,
+ // so another agent drops the saved account. OWNER, when given, is a
+ // control's copy of bin/vgshell-pkg.
+ function editorVerbs(folder="settings-editor",owner=undefined){
+  const world=create(path.join(scratch,folder));
+  if(owner!==undefined)world.owner=owner;
+  const verb=(...args)=>{
+   const read=cp.spawnSync(process.execPath,[world.owner,...args],{env:world.env,encoding:"utf8",timeout:30000});
+   assert.equal(read.status,0,"review settings "+args[0]+": "+read.stderr);
+   return read.stdout;
+  };
+  const home=world.env.HOME,work=path.join(home,".claude-work");
+  for(const name of [".claude-work",".2codex"])fs.mkdirSync(path.join(home,name));
+  for(const [agent,want] of [["claude",[".claude",".claude-work"]],["codex",[".codex",".2codex"]]])
+   assert.deepEqual(verb("review-settings-accounts",JSON.stringify({agent,command:""})).split("\n").filter(Boolean).map(line=>line.split("\t")),
+    want.map(name=>[path.join(home,name),"~/"+name]),"review settings accounts: "+agent);
+  for(const [name,settings,want] of [
+   ["automatic",{agent:"claude",command:""},"automatic"],
+   ["chosen",{agent:"claude",command:"",account:work},"chosen\t~/.claude-work"],
+   ["gone",{agent:"claude",command:"",account:path.join(home,".claude-gone")},"missing\t~/.claude-gone"],
+   ["another agent's folder",{agent:"codex",command:"",account:work},"automatic"]
+  ])assert.equal(verb("review-settings-account",JSON.stringify(settings)).trim(),want,"review settings account: "+name);
+  const change=(settings,key,value)=>JSON.parse(verb("review-settings-change",JSON.stringify(settings),key,JSON.stringify(value)));
+  assert.deepEqual(change({agent:"claude",command:"",account:work},"agent","codex"),{agent:"codex",command:""},"review settings change: another agent drops the account");
+  assert.deepEqual(change({agent:"claude",command:"",account:work},"agent","claude"),{agent:"claude",command:"",account:work},"review settings change: the same agent keeps the account");
+ }
+ editorVerbs();
  // Controls: a copy of the owner with one rule of pkg-review.js, or of
  // FILE, removed fails the case that holds the rule, at that rule's own
  // assertion. The copy's bin/ is its own, so the launcher paru runs is the
@@ -348,8 +448,19 @@ try{
   ["tracking-old-shape","!Array.isArray(state[base])","!Array.isArray(state[base]?.repos)",owner=>devel(develCurrent,"control-tracking-old-shape",owner),/^devel-paru-2.2.0: untracked devel base result$/,"bin/vgshell-pkg"],
   // helperReviewCovered's named-target branch, which reinstall takes.
   ["reinstall-reviewed","let targets = names;","let targets = [];",owner=>bypass(publisherReinstall,"control-reinstall-reviewed",owner),/^publisher-reinstall: (?:agent count|review questions|helper review choice)$/],
-  ["unnamed-agent",'"The " + plan.label + " review stopped without a result."','"The review stopped without a result."',owner=>agentFailure(otherAgent,"control-unnamed-agent",owner),/^other-agent: the offer names the failed agent$/],
-  ["unsaid-line",'if (last) said = " Its last line: "','if (false) said = " Its last line: "',owner=>agentFailure(otherAgent,"control-unsaid-line",owner),/^other-agent: the offer shows the agent's last line$/],
+  ["unnamed-account",'" on the account in " + shownFolder(account.directory)','""',owner=>agentFailure(otherAgent,"control-unnamed-account",owner),/^other-agent: one sentence names the agent, its account and the next step$/],
+  ["raw-line-shown",'return { failure: failureSentence(plan, account, unrun ? "unrun" : "no-verdict") };','return { failure: failureSentence(plan, account, unrun ? "unrun" : "no-verdict") + " Its last line: " + last };',owner=>agentFailure(otherAgent,"control-raw-line-shown",owner),/^other-agent: the agent's raw last line stays in the log$/],
+  ["account-variable","else out[row.variable] = account.directory;","else delete out[row.variable];",owner=>agentFailure(accountRow,"control-account-variable",owner),/^account: the agent starts on the chosen account alone$/],
+  ["outranking-kept","for (const name of (account.chosen ? row.outranks : row.strays) || []) delete out[name];","void row;",owner=>agentFailure(accountRow,"control-outranking-kept",owner),/^account: no inherited credential outranks the chosen account$/],
+  ["automatic-strips-provider","(account.chosen ? row.outranks : row.strays)","row.outranks",owner=>agentFailure(automaticRow,"control-automatic-strips-provider",owner),/^automatic-provider: automatic keeps the harness's own provider switch and drops stray credentials$/],
+  ["automatic-keeps-strays","(account.chosen ? row.outranks : row.strays)","(account.chosen ? row.outranks : [])",owner=>agentFailure(automaticRow,"control-automatic-keeps-strays",owner),/^automatic-provider: automatic keeps the harness's own provider switch and drops stray credentials$/],
+  ["default-variable-set",'if (account.source === "default") delete out[row.variable];\n    else out[row.variable] = account.directory;',"out[row.variable] = account.directory;",owner=>agentFailure(defaultRow,"control-default-variable-set",owner),/^saved-default: the default account starts with its variable unset$/],
+  ["no-verdict-next-step",'". Check that you are signed in to it, or choose another account in the review settings."','"."',owner=>agentFailure(noVerdict,"control-no-verdict-next-step",owner),/^no-verdict: the sentence names the agent, its account and the next step$/],
+  ["skip-one-line",'"\\nYou chose to skip the AUR packages."','" You chose to skip the AUR packages."',owner=>agentFailure(noVerdict,"control-skip-one-line",owner),/^no-verdict: the sentence names the agent, its account and the next step$/],
+  ["editor-own-change","judge.reviewChange(JSON.parse(args[0]), args[1], JSON.parse(args[2]))","{ ...JSON.parse(args[0]), [args[1]]: JSON.parse(args[2]) }",owner=>editorVerbs("control-editor-own-change",owner),/^review settings change: another agent drops the account$/,"bin/vgshell-pkg"],
+  ["editor-other-agent-not-found",'account.state === "account" && account.directory === saved ?','account.state === "account" ?',owner=>editorVerbs("control-editor-other-agent-not-found",owner),/^review settings account: another agent's folder$/],
+  ["failed-offered-again","!tried.includes(agent.id) && available(agent.id)","agent.id !== plan.agent && available(agent.id)",owner=>agentFailure(allFailed,"control-failed-offered-again",owner),/^all-failed: an agent that failed is not offered again$/],
+  ["no-agent-sentence",'const none = other === undefined && plan.state !== "none" ? NO_AGENT : "";','const none = "";',owner=>agentFailure(allFailed,"control-no-agent-sentence",owner),/^all-failed: one sentence says no review agent could run$/],
   ["upgrade-unclassified",'["install", "reinstall", "update", "upgrade"].includes(r.plan.action)','["install", "reinstall", "update"].includes(r.plan.action)',owner=>upgradeRetry("control-upgrade-unclassified",owner),/^upgrade retry: /,"bin/vgshell-pkg"],
   ["tracking-error-unread",'if (status !== 0 || review.judge.transcriptLines(stderr).some(line => line.startsWith("error:")))','if (status !== 0)',owner=>devel(develError,"control-tracking-error-unread",owner),/^devel-error: the tracking error is one result line$/,"bin/vgshell-pkg"]
  ]){

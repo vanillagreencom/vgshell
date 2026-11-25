@@ -4,7 +4,7 @@
 const assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {load}=require("../../../bin/lib/qml-library.js");
 const file=path.join(__dirname,"../../../shell/Core/PackageReview.js");
-const same=(a,b)=>assert.deepEqual(JSON.parse(JSON.stringify(a)),b);
+const same=(a,b,message)=>assert.deepEqual(JSON.parse(JSON.stringify(a)),b,message);
 // The 1password install script at AUR commit e4388fb, 8.12.38, which
 // d0a8a7e, 8.12.40, ships unchanged. It sets a setgid bit and adds a group.
 const ONEPASSWORD_INSTALL = `# Do not add your user, or any others, to this group.
@@ -109,8 +109,9 @@ function verify(logic) {
   same(logic.commandWords(' cmd "word quoted" $(literal)'),["cmd",'"word','quoted"',"$(literal)"]);
   assert.equal(logic.reviewPlan({agent:"codex"},["claude"]).state,"missing");
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
-  const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk","--no-chrome"];
-  same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
+  // Claude runs in print mode, -p, which asks no workspace trust question.
+  const claudeWords=["claude","-p","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk","--no-chrome"];
+  same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords,"claude command line");
   const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","-c","default_permissions=:workspace","--ask-for-approval","never"];
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,codexWords);
   // [settings, found, the launch of the review whose evidence folder is
@@ -127,6 +128,42 @@ function verify(logic) {
     [{command:"claude --model opus"},["claude"],{argv:["claude","--model","opus"],cwd:"/run/work/agent"}],
     [{command:"opencode run"},["opencode"],{argv:["opencode","run"],cwd:"/run/work/review-a/evidence"}]
   ])same(logic.reviewCommand(logic.reviewPlan(settings,found),review),want);
+  // [name, agent, saved account, account folders as bin/lib/account-folders.js
+  // lists them, the account the review runs on]. Automatic takes the folder
+  // the harness's variable names, else its default, never a sibling, and
+  // keeps the source discovery listed it under and whether SAVED chose it.
+  const folder=(provider,directory,source)=>({provider,directory,label:"x",source});
+  const listed=[folder("claude","/h/.claude","default"),folder("codex","/h/.codex","default"),folder("claude","/h/.claude-work","folder"),folder("codex","/h/.2codex","folder")];
+  for(const [name,agent,saved,folders,want] of [
+    ["automatic",  "claude","",listed,{state:"account",directory:"/h/.claude",source:"default",chosen:false}],
+    ["automatic codex","codex","",listed,{state:"account",directory:"/h/.codex",source:"default",chosen:false}],
+    ["the variable's folder first","claude","",[folder("claude","/x/claude-env","explicit"),...listed],{state:"account",directory:"/x/claude-env",source:"explicit",chosen:false}],
+    ["a saved sibling","claude","/h/.claude-work",listed,{state:"account",directory:"/h/.claude-work",source:"folder",chosen:true}],
+    ["a saved default under a variable","claude","/h/.claude",[folder("claude","/x/claude-env","explicit"),...listed],{state:"account",directory:"/h/.claude",source:"default",chosen:true}],
+    ["a saved folder that is gone","claude","/h/.claude-gone",listed,{state:"missing",directory:"/h/.claude-gone"}],
+    ["another agent's saved folder","codex","/h/.claude-work",listed,{state:"account",directory:"/h/.codex",source:"default",chosen:false}],
+    ["no default, only a sibling","claude","",listed.filter(row=>row.source==="folder"),{state:"missing",directory:null}],
+    ["no folders","claude","",[],{state:"missing",directory:null}],
+    ["a command no row names","opencode","",listed,{state:"none"}],
+    ["no agent",null,"",listed,{state:"none"}]
+  ])same(logic.reviewAccount(agent,saved,folders),want,"review account: "+name);
+  // [name, saved settings, the editor's key and value, the settings it
+  // writes]. An account belongs to the agent it was chosen for.
+  for(const [name,saved,key,value,want] of [
+    ["another agent drops the account",{agent:"claude",account:"/h/.claude-work",command:""},"agent","codex",{agent:"codex",command:""}],
+    ["automatic drops a named agent's account",{agent:"claude",account:"/h/.claude-work"},"agent","",{agent:""}],
+    ["an agent drops automatic's account",{account:"/h/.claude-work"},"agent","claude",{agent:"claude"}],
+    ["the same agent keeps the account",{agent:"claude",account:"/h/.claude-work"},"agent","claude",{agent:"claude",account:"/h/.claude-work"}],
+    ["automatic again keeps the account",{account:"/h/.claude-work"},"agent","",{account:"/h/.claude-work",agent:""}],
+    ["an account is chosen",{agent:"codex"},"account","/h/.2codex",{agent:"codex",account:"/h/.2codex"}],
+    ["a command keeps the account",{agent:"claude",account:"/h/.claude-work"},"command","claude -p",{agent:"claude",account:"/h/.claude-work",command:"claude -p"}],
+    ["automatic before installing removes the preference",{enabled:true,account:"/h/.claude-work"},"enabled",null,{account:"/h/.claude-work"}],
+    ["no saved settings",{},"account","",{account:""}]
+  ]){
+    const before=JSON.stringify(saved);
+    same(logic.reviewChange(saved,key,value),want,"review change: "+name);
+    assert.equal(JSON.stringify(saved),before,"review change keeps its input: "+name);
+  }
   // [name, verdict text, the packages reviewed, the judgement]
   const verdictRows = [
     ["clean", "verdict clean\n", ["a"], { ok: true, verdict: "clean", flags: [] }],
@@ -190,7 +227,11 @@ try {
   ["verdict","reviewed.indexOf(m[1]) < 0 || ","",/line=2/],
   ["publisher","if (viaAur !== true) return \"third-party\";\n","",/publisher: vgshell-git from a repository/],
   ["ask","ask: !hasOwn(s, \"enabled\") };","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };",/"enabled":true/],
-  ["architecture","var selected = own.length > 0 ? own : inherited;","var selected = inherited;",/recipe architecture: split override/]
+  ["architecture","var selected = own.length > 0 ? own : inherited;","var selected = inherited;",/recipe architecture: split override/],
+  ["print mode",'command: ["claude", "-p", "--model"','command: ["claude", "--model"',/claude command line/],
+  ["automatic sibling",'function (folder) { return folder.source !== "folder"; }','function (folder) { return true; }',/review account: no default, only a sibling/],
+  ["agent change keeps the account",'    if (key === "agent" && value !== (hasOwn(out, "agent") ? out.agent : "")) delete out.account;\n','',/review change: another agent drops the account/],
+  ["gone account",'if (saved !== "" && !own.some(listed) && !folders.some(listed)) return { state: "missing", directory: saved };\n','',/review account: a saved folder that is gone/]
  ]){
   assert.equal(source.split(needle).length-1,1,label);
   const mutant=path.join(scratch,"PackageReview-"+label+".js");fs.writeFileSync(mutant,source.replace(needle,replacement));

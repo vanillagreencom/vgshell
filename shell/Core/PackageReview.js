@@ -20,10 +20,13 @@ var REVIEW_AGENTS = [
     // takes Claude's `//path` form for an absolute path. --tools takes every
     // following word, so other flags follow it; each access word is one
     // `--flag=value` word, so the prompt after it stays positional.
-    // Claude asks its folder-trust question in every folder it has not
-    // trusted (VGS-2448), so it and a saved command whose first word is
-    // claude start in the stable agent home, trusted once, not in a new
-    // evidence folder per review. Read, Glob and Grep prompt for a path
+    // -p runs Claude's print mode, which shows no workspace trust question
+    // on any account (security docs, Trust verification: "A `-p` session
+    // shows neither prompt"); the interactive mode asks it in every folder
+    // the account has not trusted (VGS-2448). Claude and a saved command
+    // whose first word is claude start in the stable agent home, not in a
+    // new evidence folder per review, so a saved command without -p asks
+    // that question once per account. Read, Glob and Grep prompt for a path
     // outside the working directories (tools-reference), which dontAsk
     // denies, hence the added evidence folder. Claude reads an added
     // folder's own .claude configuration; VGS alone writes the evidence
@@ -37,8 +40,9 @@ var REVIEW_AGENTS = [
     // Code 2.1.321 showed the question without the flag and not with it
     // (VGS-2513).
     // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference,
-    // https://code.claude.com/docs/en/tools-reference, https://code.claude.com/docs/en/chrome
-    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
+    // https://code.claude.com/docs/en/tools-reference, https://code.claude.com/docs/en/chrome,
+    // https://code.claude.com/docs/en/security
+    { id: "claude", label: "Claude Code", command: ["claude", "-p", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
         "--strict-mcp-config", "--permission-mode", "dontAsk", "--no-chrome"], access: ["--add-dir={evidence}", "--allowedTools=Edit(/{evidence}/verdict)"], startsInHome: true },
     // workspace-write lets Codex's shell write only in its working directory,
     // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
@@ -164,6 +168,47 @@ function reviewCommand(plan, review) {
     var argv = plan.state === "agent" && row !== null && hasOwn(row, "access")
         ? plan.command.concat(row.access.map(function (word) { return word.split("{evidence}").join(review.evidence); })) : plan.command.slice();
     return { argv: argv, cwd: row !== null && row.startsInHome === true ? review.home : review.evidence };
+}
+
+// The account folder AGENT's review runs on, from SAVED, the review
+// settings' account folder, "" for automatic, and FOLDERS, the account
+// folders bin/lib/account-folders.js lists, in its order:
+//   { state: "account", directory, source, chosen }
+//                                    the folder it starts on, with the source
+//                                    discovery listed it under: "default"
+//                                    is the harness's own folder, which it
+//                                    finds with its variable unset; chosen
+//                                    is true for SAVED, false for automatic
+//   { state: "none" }                AGENT is no REVIEW_AGENTS row, so no
+//                                    account rule names its folder
+//   { state: "missing", directory }  SAVED is not listed, or automatic finds
+//                                    no folder; directory is SAVED or null
+// Automatic takes the harness's own choice: the folder its variable names
+// in this environment, else its default. A saved folder listed for another
+// agent belongs to that agent, so it leaves this one automatic. A saved
+// folder that is gone never selects another account.
+function reviewAccount(agent, saved, folders) {
+    if (reviewAgentRow(agent) === null) return { state: "none" };
+    var own = folders.filter(function (folder) { return folder.provider === agent; });
+    var listed = function (folder) { return folder.directory === saved; };
+    if (saved !== "" && !own.some(listed) && !folders.some(listed)) return { state: "missing", directory: saved };
+    var chosen = own.filter(saved !== "" && own.some(listed) ? listed : function (folder) { return folder.source !== "folder"; });
+    return chosen.length > 0 ? { state: "account", directory: chosen[0].directory, source: chosen[0].source, chosen: saved !== "" && own.some(listed) }
+        : { state: "missing", directory: null };
+}
+
+// The review settings SETTINGS with KEY set to VALUE, as one editor choice
+// writes them; an `enabled` of null removes the optional preference. An
+// account folder belongs to one agent (reviewAccount), so choosing another
+// agent drops the saved account.
+function reviewChange(settings, key, value) {
+    var out = {};
+    var keys = isPlainObject(settings) ? Object.keys(settings) : [];
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = settings[keys[i]];
+    if (key === "agent" && value !== (hasOwn(out, "agent") ? out.agent : "")) delete out.account;
+    if (key === "enabled" && value === null) delete out.enabled;
+    else out[key] = value;
+    return out;
 }
 
 // A saved enabled choice answers the offer in either direction. Without

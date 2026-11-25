@@ -14,8 +14,23 @@
 // `~/.spi/agent` for its work account, so Pi sibling roots use accountSubdir
 // for their existing agent directory. `home` is each default folder under HOME.
 // `marker` is the file each harness writes once it is signed in.
+// `outranks` names the environment variables the harness uses in place of
+// the sign-in its folder holds, which a launch on a chosen folder clears:
+// Claude Code's cloud provider switches, bearer token, API key (always used
+// under -p), long-lived OAuth token, named profile and federation pair
+// (code.claude.com/docs/en/authentication § Authentication precedence and
+// § Anthropic profiles and federation credentials). `strays` are the ones
+// an automatic launch, on the harness's own choice of folder, clears: an
+// API key, which -p uses with no approval, and the OAuth token an
+// agent-runtime session exports for its own account. The provider
+// switches, bearer token, named profile and federation pair stay, since
+// for that user they are the account itself. No source read names such a
+// variable for another harness, so the other rows name none.
 var HARNESSES = [
-    { id: "claude", folder: "claude", home: ".claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json" },
+    { id: "claude", folder: "claude", home: ".claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json",
+        outranks: ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
+            "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID"],
+        strays: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] },
     { id: "codex", folder: "codex", home: ".codex", variable: "CODEX_HOME", marker: "auth.json" },
     { id: "copilot", folder: "copilot", home: ".copilot", variable: "COPILOT_HOME", marker: "config.json" },
     { id: "pi", folder: "pi", accountSubdir: "agent", home: ".pi/agent", variable: "PI_CODING_AGENT_DIR", marker: "auth.json" }

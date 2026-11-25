@@ -2006,7 +2006,11 @@ function suite(ctx, configLogic, check) {
         check("review transfer retains unrelated moved layout key " + version, movedLayout.config.plugins[0], { id: source, keep: 9 });
         check("review transfer removes layout fields " + version, movedLayout.config.bar.layout.right, [{ id: source }]);
     }
-    for (const bad of [null, [], { enabled: null }, { enabled: "false" }, { agent: false }, { command: [] }, { extra: 1 }]) {
+    // The review settings keep the account folder its agent runs on.
+    const withAccount = configLogic.withPackageReview(null, { agent: "claude", account: "/home/u/.claude-work" });
+    check("review account saved", withAccount.ok && withAccount.config.packages.review, { agent: "claude", account: "/home/u/.claude-work" });
+    check("review account judged", configLogic.configError(withAccount.config), "");
+    for (const bad of [null, [], { enabled: null }, { enabled: "false" }, { agent: false }, { command: [] }, { account: 1 }, { extra: 1 }]) {
         check("invalid review editor refused: " + JSON.stringify(bad), configLogic.withPackageReview(null, bad).ok, false);
         check("invalid review config refused: " + JSON.stringify(bad), configLogic.configError({ packages: { review: bad } }) !== "", true);
     }
@@ -4067,6 +4071,7 @@ const CONFIG_CONTROLS = [
     ["retired conversation fields leave", "delete row[migration.mode];", "row[migration.mode] = oldMode;", "conversation migration:"],
     ["retired microphone keys leave", "delete row.keys[migration.retiredKey];", "row.keys[migration.retiredKey] = row.keys[migration.retiredKey];", "conversation migration:"],
     ["automatic voice keeps the prior Always mode", "oldMode !== \"always\" && typeof account === \"string\"", "typeof account === \"string\"", "conversation migration:"],
+    ["the review settings keep an account", '["enabled", "agent", "command", "account"]', '["enabled", "agent", "command"]', "review account saved"],
     ["review destination presence wins", "if (!hasOwn(out.packages.review, key)) out.packages.review[key] = row[old];", "if (!out.packages.review[key]) out.packages.review[key] = row[old];", "review transfer:"],
     ["a split always records its target", "        rows.push(target);", "        if (source) rows.push(target);", "splitPlugins:"],
     ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],

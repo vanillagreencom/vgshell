@@ -408,7 +408,9 @@ function packageReviewError(settings) {
     var keys = Object.keys(settings);
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
-        if (["enabled", "agent", "command"].indexOf(key) < 0) return "packages.review has unknown field " + key;
+        // account: the account folder the review agent runs on, "" for
+        // automatic (PackageReview.reviewAccount).
+        if (["enabled", "agent", "command", "account"].indexOf(key) < 0) return "packages.review has unknown field " + key;
         if (typeof settings[key] !== (key === "enabled" ? "boolean" : "string")) return "packages.review." + key + " has invalid type";
     }
     return "";

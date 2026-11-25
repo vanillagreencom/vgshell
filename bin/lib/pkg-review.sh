@@ -85,9 +85,10 @@ case "$kind" in
     vgs_tui_step 'Review result' >&2
     vgs_tui_text "$1" >&2
     vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes ;;
-  agent-failed) # WHY OTHER_LABEL
+  agent-failed) # WHY OTHER_LABEL [NO_AGENT]
     vgs_tui_step 'Review result' >&2
     vgs_tui_warn "$1" >&2
+    [[ -z ${3:-} ]] || vgs_tui_warn "$3" >&2
     if [[ -n ${2:-} ]]; then
       vgs_pkg_review_choose 'Review AUR packages' --selected "Use $2" -- "Use $2" 'Install without review' 'Skip AUR packages'
     else

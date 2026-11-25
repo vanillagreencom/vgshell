@@ -13758,6 +13758,7 @@ scene_package-review-terminal() { # MODE
 case "${1:-}" in
   review-settings-read) printf '%s\n' '{"version":1,"text":null,"settings":{"agent":"","command":""}}' ;;
   review-settings-agents) printf 'claude\tClaude Code\tfound\ncodex\tCodex\tfound\n' ;;
+  review-settings-account) printf 'automatic\n' ;;
   *) exit 70 ;;
 esac
 REVIEWOWNER
