@@ -35,6 +35,10 @@
 # (latency_hide_order). A held-answer reading after
 # the six, outside their median, holds the judge's exit while the browser
 # must close on the publish alone.
+# Each judged window, the warm opens, the six theme changes, the wallpaper
+# change and the held steps, takes harness.sh's quiet-host hold,
+# smoke_hold, since SMT siblings shared with another unit slow it without a
+# wait the pressure file counts (VGS-2768).
 # inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
@@ -328,14 +332,24 @@ latency_split_line() { # VALUE
 }
 latency_read() { ipc theme-latency themeLatencyRead; }
 latency_done() { latency_read | py_reply 'import json,sys; print("drawn" if "drawn" in json.load(sys.stdin) else "pending")'; }
-latency_report() {
-  local value end_ms pressure host_pressure resources memory_pressure io_pressure contention cpu_end host_end
+# latency_window_end: the reading and the counters that close a timed
+# window, kept for latency_report, so a held window ends before its verdict.
+latency_end_value="" latency_end_cpu="" latency_end_host="" latency_end_ms="" latency_end_resources=()
+latency_window_end() {
+  local value
+  latency_end_value=""
   value="$(latency_read)" || return 1
-  mapfile -t resources < <(latency_memory_io_us)
-  cpu_end="$(cpu_some_us)"
-  host_end="$(host_cpu_some_us)"
+  mapfile -t latency_end_resources < <(latency_memory_io_us)
+  latency_end_cpu="$(cpu_some_us)"
+  latency_end_host="$(host_cpu_some_us)"
   # The window closes at the reading, before the verdict reads its pressure.
-  end_ms="$(now_ms)"
+  latency_end_ms="$(now_ms)"
+  latency_end_value=$value
+}
+latency_report() {
+  local value="$latency_end_value" end_ms="$latency_end_ms" pressure host_pressure memory_pressure io_pressure contention
+  local cpu_end="$latency_end_cpu" host_end="$latency_end_host" resources=("${latency_end_resources[@]}")
+  [[ -n $value ]] || return 1
   pressure="$(cpu_some_pct "$latency_cpu_start" "$cpu_end" "$((end_ms - latency_window_start))")"
   host_pressure="$(cpu_some_pct "$latency_host_start" "$host_end" "$((end_ms - latency_window_start))")"
   memory_pressure="$(cpu_some_pct "$latency_memory_start" "${resources[0]}" "$((end_ms - latency_window_start))")"
@@ -520,10 +534,13 @@ expect_poll "the catalog answer is held behind installed rows" held latency_cata
 
 printf 'theme-latency: host=%s date=%s warm_samples=6 ipc_poll=back-to-back compositor_logs=on\n' "$(hostname)" "$(date -u +%Y-%m-%d)"
 for temperature in cold warm warm warm warm warm warm; do
+  [[ $temperature == cold ]] || smoke_hold_begin theme-latency open_warm
   latency_pressure_start
   expect "the $temperature open reader arms" ok ipc theme-latency themeLatencyBegin open "$temperature" ''
   type_keys -M logo -M shift -k t -m shift -m logo || fail "the theme open key failed"
   expect_poll "the $temperature browser draws and takes keys" drawn latency_done
+  latency_window_end
+  [[ $temperature == cold ]] || smoke_hold_end
   latency_report "open-$temperature"
   if [[ $temperature == cold ]]; then
     expect "cold open draws the shell-known installed theme" True latency_installed
@@ -544,9 +561,11 @@ done
 type_keys -M logo -M shift -k t -m shift -m logo || fail "the held theme browser open failed"
 expect_poll "the held theme browser takes keys" true latency_theme_value activeFocus
 expect_poll "the held theme selected picture has drawn before arming" ready ipc theme-latency selectedPictureReady
+smoke_hold_begin theme-latency theme_steps
 expect "the held theme frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
 type_keys -P Right -s 900 -p Right || fail "the held theme key failed"
 expect "held theme steps keep the selected picture ready" ready latency_steps
+smoke_hold_end
 type_keys -k Escape || fail "the held theme browser close failed"
 expect_poll "the held theme browser closes" 0 layer_count vgs:overlay
 
@@ -603,10 +622,13 @@ expect "a read-only queue change starts behind the held catalog" ok ipc theme-la
 expect "a read-only queue change leaves apply state unchanged" "$latency_read_last" latency_service_value themeLastText
 expect "a read-only queue change leaves the browser revision unchanged" "$latency_read_revision" latency_service_value dataRevision
 expect "a read-only queue change leaves precomputed cards unchanged" "$latency_read_cards" latency_service_value cards
+smoke_hold_begin theme-latency theme_apply
 latency_pressure_start
 expect "the theme change reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
 type_keys -k Return || fail "the apply key failed"
 expect_poll "the desktop presents the applied theme" drawn latency_done
+latency_window_end
+smoke_hold_end
 latency_report theme
 touch -- "$latency_gate"
 expect_poll "the apply browser closes" 0 layer_count vgs:overlay
@@ -621,10 +643,13 @@ for latency_package in sample-peer latency sample-peer latency sample-peer; do
   type_keys "$latency_package" || fail "the repeated apply filter failed"
   expect_poll "the repeated apply card is selected" "\"$latency_package\"" latency_theme_value selectedName
   expect "the next sample starts from a different published theme" "$latency_previous" ipc smoke themeName
+  smoke_hold_begin theme-latency theme_apply
   latency_pressure_start
   expect "the repeated theme reader arms" ok ipc theme-latency themeLatencyBegin theme "$latency_package" "file://$home/.config/vgshell/themes/$latency_package/backgrounds/a.jpg"
   type_keys -k Return || fail "the repeated theme apply key failed"
   expect_poll "the repeated desktop presents the changed theme" drawn latency_done
+  latency_window_end
+  smoke_hold_end
   latency_report theme
   expect_poll "the repeated apply browser closes" 0 layer_count vgs:overlay
   expect "the queue settles after the repeated theme apply" idle theme_idle
@@ -668,19 +693,24 @@ type_keys -M logo -M shift -k w -m shift -m logo || fail "the wallpaper browser 
 expect_poll "the wallpaper browser reads cards" true latency_wall_value loaded
 expect_poll "the wallpaper browser holds the keyboard" true latency_wall_value activeFocus
 type_keys -k Right || fail "the wallpaper selection key failed"
+smoke_hold_begin theme-latency wallpaper
 latency_pressure_start
 expect "the wallpaper change reader arms" ok ipc theme-latency themeLatencyBegin wallpaper "file://$home/.config/vgshell/themes/$latency_previous/backgrounds/b.jpg" ''
 type_keys -k Return || fail "the wallpaper apply key failed"
 expect_poll "the desktop presents the selected wallpaper" drawn latency_done
+latency_window_end
+smoke_hold_end
 latency_report wallpaper
 expect_poll "the wallpaper browser closes" 0 layer_count vgs:overlay
 
 type_keys -M logo -M shift -k w -m shift -m logo || fail "held wallpaper browser failed"
 expect_poll "the held-key browser takes keys" true latency_wall_value activeFocus
 expect_poll "the held wallpaper selected picture has drawn before arming" ready ipc theme-latency selectedPictureReady
+smoke_hold_begin theme-latency wallpaper_steps
 expect "the held-key frame observer arms" ok ipc theme-latency themeLatencyBegin step '' ''
 type_keys -P Right -s 900 -p Right || fail "the held wallpaper key failed"
 expect "held wallpaper steps keep the selected picture ready" ready latency_steps
+smoke_hold_end
 type_keys -k Escape || fail "the held-key browser close failed"
 expect_poll "the held-key browser closes" 0 layer_count vgs:overlay
 

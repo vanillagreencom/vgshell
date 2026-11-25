@@ -34,6 +34,8 @@
 # The hundred-row panel's timed opens and switches run under harness.sh's
 # quiet-host hold, smoke_hold, since other lanes' SMT contention read the
 # opens over budget at low world pressure (VGS-2530 holds the readings).
+# The emoji toast reading takes it too, since SMT siblings shared with
+# another unit slow it without a wait the pressure file counts (VGS-2768).
 # A scoped retry names `scripts/qml-smoke.sh --rows notifications`. The
 # existing input reader adds the core and declared producer rows:
 # docs/architecture/validation.md § Selection.
@@ -2133,6 +2135,7 @@ latency_traceback_control() { (failures=0 behaviour_failures=0; latency_since "t
 expect "control: a latency reader that raises fails once and reads -1" "1 -1" latency_traceback_control
 expect "control: the failed latency reading names the reader's traceback" 1 grep -c -F -- "the planted latency reader: the reader raised a Python traceback" "$sandbox/latency-traceback-control.log"
 notify_now() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify Slack 0 "" "$1" "$emoji_body" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; }
+smoke_hold_begin notifications emoji_toast
 cpu_start="$(cpu_some_us)"
 host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
@@ -2140,6 +2143,7 @@ notify_now "[acme] in latency"
 latency_since "the emoji toast latency reader" "$start" "$monitors" toast_images
 emoji_toast_ms="$latency_ms"
 path_pressure emoji_toast "$cpu_start" "$host_start" "$start"
+smoke_hold_end
 latency_pressure_check notifications emoji_toast "$emoji_toast_ms" "$path_pressure_pct" "$emoji_toast_budget_ms"
 # The control for harness.sh's pressure gate: both pressure files are
 # planted, each reading a stall total at a window's start and another at

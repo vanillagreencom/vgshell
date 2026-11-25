@@ -16,6 +16,10 @@
 # A trial whose world CPU pressure is above harness.sh's shared 2.8% limit
 # is not measured; host pressure and load are recorded beside it. An
 # unread or busy population cannot pass. All raw samples stay retained.
+# The normal source's presses take harness.sh's quiet-host hold,
+# smoke_hold, since SMT siblings shared with another unit slow them without
+# a wait the pressure file counts (VGS-2768). The slow control must read
+# over, which contention cannot undo, so it runs unheld.
 # The plain TextInput's box starts at the query, after the separate
 # SearchGlyph. Character rectangles bound the discriminator to the first
 # character's columns, excluding the adjacent caret. The measured ceiling
@@ -69,7 +73,9 @@ launcher_latency_measure() { # normal|slow
   rect="$(ipc smoke windowGeometry overlay vgs.launcher QQuickTextInput "")" || return 1
   surface="$(surface_box vgs:overlay)" || return 1
   output="$smoke_log_dir/launcher-latency-$kind"
-  "${shell_env[@]}" python3 "$repo/scripts/smoke/launcher-latency.py" measure \
+  local -a hold=()
+  [[ $kind != normal ]] || hold=(smoke_hold launcher-latency short_press_normal)
+  "${hold[@]}" "${shell_env[@]}" python3 "$repo/scripts/smoke/launcher-latency.py" measure \
     "$sandbox/keyboard" "$shell_qs_pid" "$socket" "$rect" "$surface" "$world_pressure_file" "$output" || return 1
   cp -- "$instance_log" "$output/shell.log" || return 1
   cp -- "$sandbox/tree-launcher-latency-$kind/shell/Commons/Theme.qml" "$output/Theme.qml" || return 1
