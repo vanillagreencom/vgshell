@@ -6,8 +6,15 @@ const SessionCommand = require("./SessionCommand.js");
 
 const COMMAND_MS = 15000;
 const OUTPUT_BYTES = 128 * 1024;
-// Refresh interval chosen for cross-machine changes, not a latency claim.
-const REFRESH_MS = 30000;
+// Periodic reads pick up cross-machine changes; they are not a latency
+// claim. With the console open a read is at most a minute old, the package's
+// own reuse window for an unchanged list (COLLECTION_SECONDS, 60 s, in
+// .agents/skills/jarvis/references/owner-asks.md § Pages), so a shorter
+// period would only rerun the package to answer the same collection. With it
+// closed the list is not on screen, so the read slows to five minutes. A Chat
+// open and Refresh read at once either way.
+const CLOSED_REFRESH_MS = 300000;
+const OPEN_REFRESH_MS = 60000;
 const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: handle => clearTimeout(handle) };
 
 function create({ Protocol, environment, publish, answer, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
@@ -17,6 +24,10 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
     let timer = null;
     let closed = false;
     let activeRequest = null;
+    let consoleShown = false;
+    // The last list failure logged for this home, so a failing periodic
+    // read logs once per cause rather than at every poll.
+    let listCause = null;
     let snapshot = { kind: "unavailable", cause: "Choose a Jarvis home folder to read your asks." };
     let cursors = { active: null, snoozed: null };
     // A refresh the shell asked for republishes its result even when
@@ -46,9 +57,21 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
     }
 
     const live = token => !closed && token.home === home && token.generation === generation && !token.signal.aborted;
+    function schedule() {
+        timer = clock.set(() => { timer = null; refresh(false); }, consoleShown ? OPEN_REFRESH_MS : CLOSED_REFRESH_MS);
+    }
     function later(token) {
         if (!live(token) || home === null) return;
-        timer = clock.set(() => { timer = null; refresh(false); }, REFRESH_MS);
+        schedule();
+    }
+    // A list failure logs on a change of cause and once at the next complete
+    // read (cause null). Actions are the user's own presses, so each failed
+    // action logs.
+    function report(token, verb, cause) {
+        if (verb !== "list") { log("jarvis: owner-asks=" + verb + " cause=" + cause); return; }
+        if (!live(token) || cause === listCause) return;
+        listCause = cause;
+        log("jarvis: owner-asks=list " + (cause === null ? "recovered" : "cause=" + cause));
     }
     function track(work, token, completed) {
         const settled = work.catch(error => {
@@ -68,7 +91,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
         let location;
         try { location = place(token.home, environment.HOME); }
         catch (error) {
-            log("jarvis: owner-asks=" + verb + " cause=home-unreadable");
+            report(token, verb, "home-unreadable");
             return { kind: "unavailable" };
         }
         if (location.kind === "blocked") return { kind: "unavailable" };
@@ -81,7 +104,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
                 input, deadline: COMMAND_MS, limit: OUTPUT_BYTES, group: true, signal: token.signal
             });
         } catch (error) {
-            log("jarvis: owner-asks=" + verb + " cause=child-error");
+            report(token, verb, "child-error");
             return { kind: verb === "list" ? "unavailable" : "unknown" };
         }
         if (!live(token)) return { kind: "stale" };
@@ -90,7 +113,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
             // ordinary argument refusal. That is unavailable, not a fault
             // in the otherwise usable voice session.
             if (!(verb === "list" && result.kind === "exited" && result.code === 2))
-                log("jarvis: owner-asks=" + verb + " cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
+                report(token, verb, result.kind === "exited" ? "exit-" + result.code : result.reason);
             return { kind: verb === "list" ? "unavailable" : "unknown" };
         }
         try {
@@ -112,11 +135,12 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
             }
             try { pages[view] = Protocol.ownerAsksPage(result.value, view, cursor); }
             catch (error) {
-                log("jarvis: owner-asks=list cause=unaccepted");
+                report(token, "list", "unaccepted");
                 show({ kind: "unavailable", cause: "The ask list could not be read. Press Refresh to start again." });
                 return;
             }
         }
+        report(token, "list", null);
         const a = pages.active, s = pages.snoozed;
         if (a.homeId !== s.homeId || a.revision !== s.revision || a.activeCount !== s.activeCount || a.snoozedCount !== s.snoozedCount
                 || expectedRevision !== null && a.revision !== expectedRevision) {
@@ -198,16 +222,25 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
 
     function setHome(value) {
         if (closed || value === home && generation > 0) return;
-        if (value !== home) snapshot = { kind: "reading" };
+        if (value !== home) { snapshot = { kind: "reading" }; listCause = null; }
         home = value;
         activeRequest = null;
         return refresh();
+    }
+    // A change of state moves the pending periodic read to the new period
+    // from now; a read in flight schedules its successor when it ends.
+    function setConsole(shown) {
+        if (closed || shown === consoleShown) return;
+        consoleShown = shown;
+        if (timer === null) return;
+        clock.clear(timer);
+        schedule();
     }
     function close() {
         if (!closed) { closed = true; begin(); }
         return Promise.allSettled(Array.from(pending));
     }
-    return { setHome, refresh, page, act, close };
+    return { setHome, setConsole, refresh, page, act, close };
 }
 
-module.exports = { create, COMMAND_MS, OUTPUT_BYTES, REFRESH_MS };
+module.exports = { create, COMMAND_MS, OUTPUT_BYTES, CLOSED_REFRESH_MS, OPEN_REFRESH_MS };

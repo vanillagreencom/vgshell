@@ -775,6 +775,14 @@ Item {
         sendIntent("home-drift");
     }
 
+    // The console's open state sets the daemon's owner-asks read period
+    // (OwnerAsks.setConsole). A new daemon starts closed and is not ready
+    // until its status answers, so the state goes to each daemon once it is
+    // ready, and again at each open or close. A repeat changes nothing there.
+    readonly property string consoleIntent: shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running ? ""
+        : accountReader.consoleShown ? "console-shown" : "console-hidden"
+    onConsoleIntentChanged: if (consoleIntent !== "") sendIntent(consoleIntent)
+
     function memoryIntent(name, text) {
         if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running)
             return "refused: jarvis=not-ready";

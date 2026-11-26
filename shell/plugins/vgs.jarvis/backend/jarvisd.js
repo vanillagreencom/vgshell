@@ -568,7 +568,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             tail = framed.tail;
             for (const line of framed.lines) {
                 const message = Protocol.accept(line, "shell");
-                if (message.type === "intent" && ["owner-asks-refresh", "owner-asks-page", "owner-ask-action"].includes(message.intent)) {
+                // The Jarvis console's open state sets the owner-asks read period
+                // (OwnerAsks.setConsole).
+                if (message.type === "intent" && ["owner-asks-refresh", "owner-asks-page", "owner-ask-action", "console-shown", "console-hidden"].includes(message.intent)) {
                     intentIdentity(message);
                     if (message.intent === "owner-ask-action") {
                         if (context.locked) write({ v: 1, type: "owner-ask-answer", gen: runner.state.gen, revision: context.revision,
@@ -576,6 +578,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                                 cause: "Unlock your session before answering an ask." } });
                         else ownerAsks.act(message.request);
                     } else if (message.intent === "owner-asks-page") ownerAsks.page(message.view, message.cursor, message.expectedRevision);
+                    else if (message.intent === "console-shown" || message.intent === "console-hidden") ownerAsks.setConsole(message.intent === "console-shown");
                     else ownerAsks.refresh();
                     continue;
                 }

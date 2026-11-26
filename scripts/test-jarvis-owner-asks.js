@@ -78,10 +78,17 @@ function home(name, count) {
     fs.copyFileSync(fixture, command); fs.chmodSync(command, 0o700);
     return folder;
 }
+// Timers keep their period; scheduled() resolves at the next set, so a test
+// awaits the read that schedules it rather than a sleep.
 function clock() {
     let serial = 0;
-    const timers = new Map();
-    return { timers, set(fn) { timers.set(++serial, fn); return serial; }, clear(id) { timers.delete(id); } };
+    const timers = new Map(), waiters = [];
+    return { timers,
+        set(fn, ms) { timers.set(++serial, { fn, ms }); for (const resolve of waiters.splice(0)) resolve({ id: serial, ms }); return serial; },
+        clear(id) { timers.delete(id); },
+        scheduled: () => new Promise(resolve => waiters.push(resolve)),
+        pending() { assert.equal(timers.size, 1, "one periodic read is pending"); return timers.values().next().value.ms; },
+        fire() { const [id, entry] = timers.entries().next().value; timers.delete(id); entry.fn(); } };
 }
 function client(extra = {}) {
     const snapshots = [], answers = [], logs = [], time = clock();
@@ -196,6 +203,58 @@ function client(extra = {}) {
     assert.equal(backlog.current().active[0].id, "ask-3");
     assert.equal(backlog.current().activeCount, 70);
     await backlog.owner.close();
+
+    // The console's open state sets the period of the one periodic read.
+    const cadenceHome = home("cadence", 3), cadence = client();
+    await cadence.owner.setHome(cadenceHome);
+    assert.equal(cadence.time.pending(), 300000, "with the console closed the list is read every five minutes");
+    cadence.owner.setConsole(true);
+    assert.equal(cadence.time.pending(), 60000, "opening the console moves the pending read to the open period");
+    let scheduled = cadence.time.scheduled();
+    cadence.time.fire();
+    assert.equal((await scheduled).ms, 60000, "while open each periodic read schedules the next a minute on");
+    cadence.owner.setConsole(false);
+    assert.equal(cadence.time.pending(), 300000, "closing the console returns the pending read to five minutes");
+    scheduled = cadence.time.scheduled();
+    cadence.time.fire();
+    cadence.owner.setConsole(true);
+    assert.equal((await scheduled).ms, 60000, "a read in flight schedules its successor at the period set meanwhile");
+    const listCalls = () => fs.readFileSync(path.join(cadenceHome, ".owner-asks-fixture-calls.jsonl"), "utf8").trim().split("\n")
+        .map(JSON.parse).filter(call => call.argv[1] === "list").length;
+    const listed = listCalls();
+    await cadence.owner.refresh();
+    assert.ok(listCalls() > listed, "Refresh reads at once while a periodic read is pending");
+    assert.equal(cadence.time.pending(), 60000);
+    await cadence.owner.close();
+    assert.equal(cadence.time.timers.size, 0);
+
+    // A failing periodic list logs once per change of cause and once when it
+    // reads again; the state the user sees stays unavailable meanwhile.
+    let failure = { kind: "exited", code: 1, stdout: "", stderr: "" };
+    const noisy = client({ run: (file, argv, options) => failure === null ? Child.run(file, argv, options) : Promise.resolve(failure) });
+    await noisy.owner.setHome(home("failing-list", 3));
+    for (let poll = 0; poll < 3; poll++) {
+        await noisy.owner.refresh(false);
+        assert.equal(noisy.current().kind, "unavailable", "a failing list still reads unavailable");
+    }
+    assert.deepEqual(noisy.logs, ["jarvis: owner-asks=list cause=exit-1"], "polls failing with one cause log once");
+    failure = { kind: "exited", code: 3, stdout: "", stderr: "" };
+    await noisy.owner.refresh(false); await noisy.owner.refresh(false);
+    assert.deepEqual(noisy.logs.slice(1), ["jarvis: owner-asks=list cause=exit-3"], "a new cause logs once");
+    failure = null;
+    await noisy.owner.refresh(false); await noisy.owner.refresh(false);
+    assert.equal(noisy.current().kind, "ready");
+    assert.deepEqual(noisy.logs.slice(2), ["jarvis: owner-asks=list recovered"], "the first complete read after a failure logs once");
+    failure = { kind: "exited", code: 1, stdout: "", stderr: "" };
+    await noisy.owner.refresh(false);
+    assert.deepEqual(noisy.logs.slice(3), ["jarvis: owner-asks=list cause=exit-1"], "a failure after recovery logs again");
+    await noisy.owner.setHome(home("failing-other", 3));
+    assert.deepEqual(noisy.logs.slice(4), ["jarvis: owner-asks=list cause=exit-1"], "another home's failure is its own");
+    for (const requestId of ["failing-done-1", "failing-done-2"])
+        await noisy.owner.act({ action: "done", id: "tracker-design", requestId, expectedRevision: "1", text: "", until: null });
+    assert.deepEqual(noisy.logs.slice(5), ["jarvis: owner-asks=done cause=exit-1", "jarvis: owner-asks=done cause=exit-1"],
+        "each failed action the user pressed logs");
+    await noisy.owner.close();
 
     // The package has acted before either losing its acknowledgement or
     // reaching the child's deadline. Only a judged package receipt can

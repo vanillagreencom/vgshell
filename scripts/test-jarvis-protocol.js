@@ -566,7 +566,7 @@ rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: {
         ["silent-device", { sound: { kind: "silent", device: "" } }], ["quiet-time", { quiet: { ...s.quiet, deadline: -1 } }]])
         rejected(Protocol, [name, JSON.stringify({ ...silent, state: { ...silent.state, ...patch } }), "daemon", "state"]);
 }
-for (const name of ["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check"])
+for (const name of ["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check", "console-shown", "console-hidden"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 rejected(Protocol, ["new-conversation-extra", changed(intent, { intent: "new-conversation", text: "discarded" }), "shell", "shape-intent"]);
 for (const history of [{ kind: "current", epoch: 7 }, { kind: "reset", epoch: 8, reason: "requested" }, { kind: "reset", epoch: 9, reason: "turn-limit" }]) {
@@ -868,7 +868,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift", "console-shown", "console-hidden"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],
