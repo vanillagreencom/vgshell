@@ -1226,7 +1226,9 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
             snippet: outcome === "succeeded" ? "" : snippet
         });
         writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "ended")), JSON.stringify(ended) + "\n", 0o600);
-        const end = notify(Logic.notificationFor("end", automation, ended, streak), shown, env);
+        // Successful output is available to the notice while its run still holds the snippet.
+        const noticeRecord = Object.assign({}, ended, { snippet: snippet });
+        const end = notify(Logic.notificationFor("end", automation, noticeRecord, streak), shown, env);
         writeStreak(id, Logic.streakAfter(ended, streak, end.notice, end.delivered));
         const days = settingsDays();
         if (days.ok) prune(days.days, id);

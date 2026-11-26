@@ -1177,7 +1177,7 @@ function outcomeOf(ending, context) {
     return NM_CONNECTIVITY_OFFLINE.indexOf(reading) !== -1 ? { outcome: "skipped", reason: "network-offline" } : failed;
 }
 
-// The error notification's snippet: the last stderr lines, or the last
+// A run's snippet: the last stderr lines, or the last
 // stdout lines when the command wrote nothing to stderr, at most
 // SNIPPET_LINES non-blank lines and SNIPPET_CHARS characters, the newest
 // kept, each as plain text (plainOutput).
@@ -1399,14 +1399,13 @@ function notificationFor(event, automation, rec, streak) {
         return { summary: automation.name + " started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" };
     }
     if (event !== "end") throw new Error("automations: notification event " + JSON.stringify(event) + " is not start or end");
-    var finished = "Finished in " + Commons.Duration.format(Math.round(rec.durationMs / 1000));
     if (rec.outcome === "succeeded") {
-        if (streak !== null)
-            return { summary: automation.name + " recovered", body: finished + " after " + streak.failures + (streak.failures === 1 ? " failed run" : " failed runs"), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
-        if (automation.notifyEveryRun !== true) return null;
-        return { summary: automation.name + " finished", body: finished, urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
+        if (streak === null && automation.notifyEveryRun !== true) return null;
+        var summary = automation.name + (streak === null ? " finished" : " succeeded again");
+        return { summary: summary, body: lastOutputLine(rec.snippet), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
     }
-    var body = streak === null ? failureLine(rec) : "Failed " + (streak.failures + 1) + " times since " + sinceText(streak.since, rec.startedAt) + "\n" + failureLine(rec);
+    var body = failureLine(rec);
+    if (streak !== null) body += " (" + (streak.failures + 1) + " failed runs since " + sinceText(streak.since, rec.startedAt) + ")";
     var urgency = "critical";
     if (!alertDue(rec, streak)) {
         if (automation.notifyEveryRun !== true) return null;

@@ -245,7 +245,8 @@
 # notification as the tree's engine sends it, read off the stand-in
 # notify-send and sent to the sandbox's notification server as it was
 # written: its toast under the pointer, so its actions show, its Inbox row
-# selected, and that row with the arrow key on its first action.
+# selected, and that row with the arrow key on its first action. The tree's
+# notice logic supplies three more toasts from fixed run records.
 # notification-limits, taken only when named, is the long notices of
 # twenty-one senders, as each sender's own code words and hints them, on
 # screen in batches of seven, with the pointer on a short and on a wide
@@ -12023,23 +12024,18 @@ PYSKIP
   automations_stand_ins_restore "$auto_stub"
 }
 
-# A failed run of the tree's own engine over the stand-ins: the run's
-# notification is the last argv the stand-in notify-send logged, sent on to
-# the sandbox's server with its hints and body unchanged. A --rev tree's
-# engine sends that revision's text and hints, which its card draws.
+# A failed run of the tree's own engine over the stand-ins, then notices
+# from fixed run records. Replay the tree's notify-send arguments through
+# the sandbox's server so the archived and current cards use their own text.
 scene_automation-failure() { # MODE
   local stub="$sandbox/shots-automation-failure-$1" engine="$repo/shell/plugins/vgs.automations/bin/automations"
-  local notif_found shell_path at id
+  local notif_found at id notice example
   notif_found="$(plugin_enabled vgs.notifications)" || notif_found=unread
   [[ $notif_found == True || $notif_found == False ]] || fail "vgs.notifications' enablement is unreadable before the failure scene: $notif_found"
   automations_stand_ins "$stub"
-  shell_path="$(tr '\0' '\n' <"/proc/$shell_qs_pid/environ" | sed -n 's/^PATH=//p')"
-  failure_engine() { "${shell_env[@]}" PATH="$shell_path" "$engine" --tree "$repo" "$@"; }
-  # The last notification the engine sent, as gdbus's Notify arguments:
-  # app name, summary, body and the hints as GVariant text.
-  failure_notice() {
-    [[ -f $stub/notify-send.calls ]] || { echo absent; return; }
-    tail -n 1 -- "$stub/notify-send.calls" | py_reply 'import json,sys
+  failure_engine() { "${shell_env[@]}" PATH="$shell_start_path" "$engine" --tree "$repo" "$@"; }
+  failure_notice() { # notify-send argv as JSON on stdin
+    py_reply 'import json,sys
 argv = json.load(sys.stdin)
 at = argv.index("--")
 opts, text = argv[:at], argv[at + 1:]
@@ -12052,7 +12048,47 @@ for a in opts:
         hints.append("%s: <%s>" % (json.dumps(name), json.dumps(value, ensure_ascii=False)))
 print(json.dumps([app, text[0], text[1], "{" + ", ".join(hints) + "}"]))'
   }
-  failure_summary() { failure_notice | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.loads(t)[1] if t.startswith("[") else t)'; }
+  failure_last_notice() {
+    [[ -f $stub/notify-send.calls ]] || { echo absent; return; }
+    tail -n 1 -- "$stub/notify-send.calls" | failure_notice
+  }
+  failure_summary() { failure_last_notice | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.loads(t)[1] if t.startswith("[") else t)'; }
+  failure_send() { # NOTICE: keep the multiline body in one gdbus argument
+    local -a args=()
+    mapfile -t args < <(py_reply 'import json,sys
+app, summary, body, hints = json.load(sys.stdin)
+print(*(json.dumps(s, ensure_ascii=False) for s in (app, summary, body)), hints, sep="\n")' <<<"$1")
+    [[ ${#args[@]} -eq 4 ]] || return 1
+    notify "${args[0]}" "${args[1]}" "${args[2]}" '[]' "${args[3]}"
+  }
+  failure_close() {
+    "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$1" >/dev/null
+  }
+  failure_fixture() { # CASE
+    "${shell_env[@]}" TZ=UTC "$node_bin" - "$repo" "$1" "$stub/run.log" <<'JS'
+const path = require("node:path");
+const [repo, example, transcript] = process.argv.slice(2);
+const { load } = require(path.join(repo, "bin/lib/qml-library.js"));
+const Duration = load(path.join(repo, "shell/Commons/Duration.js"));
+const logic = load(path.join(repo, "shell/plugins/vgs.automations/AutomationsLogic.js"), { "qs.Commons 1.0": { Duration } });
+const since = Date.UTC(2026, 0, 5, 7);
+const startedAt = Date.UTC(2026, 0, 5, 9);
+const durationMs = 4000;
+const record = { transcript, startedAt, durationMs, endedAt: startedAt + durationMs, signal: null };
+const streak = { notice: null, failures: 2, since, alertedAt: since + durationMs };
+const cases = {
+    // Notify every run lets a same-day failure end its start notice.
+    "repeat-failure": [true, { ...record, outcome: "failed", snippet: "Fetching origin\nrefused: Local edits block the update." }, streak],
+    recovery: [false, { ...record, outcome: "succeeded", snippet: "Fetching origin\nUpdated 3 files." }, streak],
+    success: [true, { ...record, outcome: "succeeded", snippet: "" }, null]
+};
+const [notifyEveryRun, ended, before] = cases[example];
+const notice = logic.notificationFor("end", { name: "Pull dotfiles", notifyEveryRun }, ended, before);
+if (notice === null) throw new Error("No automation notification for " + example);
+console.log(JSON.stringify(logic.notifySendArgs(notice, null)));
+JS
+  }
   failure_pills() {
     ipc smoke "$1" vgs.notifications CardSlot summary,actions | py_reply 'import json,sys
 rows = json.load(sys.stdin)
@@ -12067,10 +12103,8 @@ print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in rows if
   expect "failure notifications are not silenced" off notes silence off
   failure_engine run-now pull-dotfiles >/dev/null || fail "the failing automation's run did not start"
   expect_poll "the failed run sent its notification" "Pull dotfiles failed" failure_summary
-  local args=()
-  mapfile -t args < <(failure_notice | py_reply 'import json,sys; print("\n".join(json.load(sys.stdin)))')
-  [[ ${#args[@]} -eq 4 ]] || fail "the failed run's notification is unreadable"
-  id="$(notify "${args[0]}" "${args[1]}" "${args[2]}" '[]' "${args[3]}")" || fail "sending the failed run's notification failed"
+  notice="$(failure_last_notice)" || fail "the failed run's notification is unreadable"
+  id="$(failure_send "$notice")" || fail "sending the failed run's notification failed"
   expect_poll "the failed run's toast is on screen" 1 on_screen
   at="$(card_centre "Pull dotfiles failed")" || at=""
   if [[ -n $at ]]; then
@@ -12090,8 +12124,16 @@ print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in rows if
   # The arrow key draws the focus ring on the action, which this shot shows.
   take_posed "automation-failure-$1-inbox-action"
   expect "the inbox closes after the failure scene" ok notes close
-  "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
-    --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing the failed run's notification failed"
+  failure_close "$id" || fail "closing the failed run's notification failed"
+  expect_poll "the failed run's toast leaves" 0 on_screen
+  for example in repeat-failure recovery success; do
+    notice="$(failure_fixture "$example" | failure_notice)" || { fail "the $example notification is unreadable"; break; }
+    id="$(failure_send "$notice")" || { fail "sending the $example notification failed"; break; }
+    expect_poll "the $example toast is on screen" 1 on_screen
+    take "automation-failure-$1-$example"
+    failure_close "$id" || { fail "closing the $example notification failed"; break; }
+    expect_poll "the $example toast leaves" 0 on_screen
+  done
   expect "the failure scene's history clears" ok notes clear-history
   failure_engine remove pull-dotfiles >/dev/null || fail "the failing automation was not removed"
   if [[ $notif_found == False ]]; then

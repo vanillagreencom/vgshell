@@ -348,9 +348,10 @@ const CASES = {
         const id = add(w, engine, { notifyEveryRun: true });
         assert.equal(manual(w, engine, id).status, 0);
         const rec = ended(w, id);
+        assert.equal(rec.snippet, "", "the successful record keeps its snippet empty");
         same(calls(w, "notify-send"), [
             ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:play", "--hint=string:x-vgs-tone:warning", "--hint=string:x-vgs-click:none", "--", "Job started", "The automation is running."],
-            ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:circle-check", "--hint=string:x-vgs-tone:success", "--hint=string:x-vgs-click:open", "--hint=string:x-vgs-open:" + rec.transcript, "--replace-id=41", "--", "Job finished", "Finished in 0s"]
+            ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:circle-check", "--hint=string:x-vgs-tone:success", "--hint=string:x-vgs-click:open", "--hint=string:x-vgs-open:" + rec.transcript, "--replace-id=41", "--", "Job finished", "done"]
         ]);
     },
 
@@ -359,11 +360,11 @@ const CASES = {
         const w = world({ nowMs: start + 1000 });
         const flag = path.join(w.root, "fail");
         const streakFile = id => path.join(w.home, ".local", "state", "vgshell", "automations", "streak", id + ".json");
-        const sends = () => calls(w, "notify-send").map(c => [c.filter(a => /^--(urgency|replace-id)=/.test(a)), c.slice(-2)[0], c.slice(-1)[0].split("\n")[0]]);
+        const sends = () => calls(w, "notify-send").map(c => [c.filter(a => /^--(urgency|replace-id)=/.test(a)), ...c.slice(-2)]);
         const scheduled = id => cli(w, engine, ["run", "--scheduled", id]);
         const at = (ms, run) => { clockAt(w, ms, 0); return run(); };
         write(flag, "");
-        const quiet = add(w, engine, { name: "Pull", command: "test ! -e " + JSON.stringify(flag), schedule: { frequency: "minutely", interval: 10, start: "2026-11-11", end: { type: "never" }, zone: "utc" } });
+        const quiet = add(w, engine, { name: "Pull", command: "test ! -e " + JSON.stringify(flag) + " && echo 'Updated 3 files.'", schedule: { frequency: "minutely", interval: 10, start: "2026-11-11", end: { type: "never" }, zone: "utc" } });
         const failure = "The automation failed. Open Automations to read its output.";
         // The clock stands still while a command runs, so each run starts
         // and ends a second after its slot.
@@ -377,8 +378,8 @@ const CASES = {
         assert.equal(at(start + DAY + 10 * 60000 + 1000, () => scheduled(quiet)).status, 0);
         assert.equal(fs.existsSync(streakFile(quiet)), false, "a success closes the streak");
         same(sends().slice(1), [
-            [["--urgency=critical", "--replace-id=41"], "Pull failed", "Failed 4 times since Wed 11 Nov 2026 09:10"],
-            [["--urgency=low", "--replace-id=41"], "Pull recovered", "Finished in 0s after 4 failed runs"]
+            [["--urgency=critical", "--replace-id=41"], "Pull failed", failure + " (4 failed runs since Wed 11 Nov 2026 09:10)"],
+            [["--urgency=low", "--replace-id=41"], "Pull succeeded again", "Updated 3 files."]
         ], "a new day's failure reminds and a success recovers, each in the alert's place");
         // An alert notify-send could not deliver stays due: the next failure
         // that day alerts.
@@ -407,7 +408,7 @@ const CASES = {
             [["--urgency=low", "--replace-id=41"], "Loud started"],
             [["--urgency=normal", "--replace-id=41"], "Loud failed"],
             [["--urgency=low", "--replace-id=41"], "Loud started"],
-            [["--urgency=low", "--replace-id=41"], "Loud recovered"]
+            [["--urgency=low", "--replace-id=41"], "Loud succeeded again"]
         ]);
         write(flag, "");
         assert.equal(manual(w, engine, loud).status, 1);
@@ -870,7 +871,8 @@ const CASES = {
             same([again.status, latestEnded(w).outcome, latestEnded(w).reason, checks(w)], [1, "failed", "", 1 + 2 * k], "DNS failure " + (k + 1) + " in a row fails");
             same(journalNetwork(again.stderr).map(out => [out.operation, out.category, out.connectivity]), [["get-property", "connectivity", 4], ["get-property", "connectivity", 4]], "the admission read and the re-check's read");
         }
-        same(calls(w, "notify-send").map(c => c.slice(-1)[0].split("\n")[0]), ["fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", "Failed 2 times since Sat 31 Oct 2026 09:05"], "each failure alerts");
+        const diagnostic = "fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com";
+        same(calls(w, "notify-send").map(c => c.at(-1)), [diagnostic, diagnostic + " (2 failed runs since Sat 31 Oct 2026 09:05)"], "each failure alerts");
         const other = networkWorld(engine, { value: "4", command: "echo 'rsync: Permission denied' >&2; exit 23" });
         plant(other.w, other.id, other.due - DAY);
         const failed = cli(other.w, engine, ["run", "--scheduled", other.id]);
@@ -1549,14 +1551,14 @@ const CONTROLS = [
     ["a disabled timer is stopped", "edit, disable, enable and remove follow the store", "if (timersGone.length > 0) systemctl([\"disable\", \"--now\"].concat(timersGone));", ""],
     ["the started record comes before the command", "a run that succeeds writes both records and its transcript", "writeAtomic(path.join(runsDir, Logic.runFile(id, runId, \"started\")), JSON.stringify(started) + \"\\n\", 0o600);", ""],
     ["a record lands by rename", "a run that succeeds writes both records and its transcript", "    fs.renameSync(temp, file);\n}", "}"],
-    ["an error notifies", "a failing run sends the error notification whatever the toggle", "notify(Logic.notificationFor(\"end\", automation, ended, streak), shown, env)", "({ delivered: false, notice: null })"],
-    ["the finish replaces the start", "notifyEveryRun sends the start, then replaces it with the finish", "ended, streak), shown, env)", "ended, streak), null, env)"],
+    ["an error notifies", "a failing run sends the error notification whatever the toggle", "notify(Logic.notificationFor(\"end\", automation, noticeRecord, streak), shown, env)", "({ delivered: false, notice: null })"],
+    ["the finish replaces the start", "notifyEveryRun sends the start, then replaces it with the finish", "noticeRecord, streak), shown, env)", "noticeRecord, streak), null, env)"],
     ["the start replaces the open failure notice", "failed scheduled runs alert once a day and a success recovers", "streak === null ? null : streak.notice, env).notice;", "null, env).notice;"],
     ["a notice is replaced on its own server alone", "a notice from another notification server is never replaced", "Logic.notifySendArgs(n, Logic.replaceIdFor(notice, server))", "Logic.notifySendArgs(n, notice === null ? null : notice.id)"],
     ["the server names the name's owner", "a notice from another notification server is never replaced", "ask(\"GetNameOwner\", [\"s\", \"org.freedesktop.Notifications\"])", "JSON.stringify({ type: \"s\", data: [\":1.7\"] })"],
     ["the server names the bus", "a notice from another notification server is never replaced", "Logic.notificationServer(ask(\"GetId\", [])", "Logic.notificationServer(JSON.stringify({ type: \"s\", data: [\"b\"] })"],
     ["a notice keeps its server", "failed scheduled runs alert once a day and a success recovers", "{ id: id, server: server }", "{ id: id, server: \"s\" }"],
-    ["the end reads the streak", "failed scheduled runs alert once a day and a success recovers", "Logic.notificationFor(\"end\", automation, ended, streak)", "Logic.notificationFor(\"end\", automation, ended, null)"],
+    ["the end reads the streak", "failed scheduled runs alert once a day and a success recovers", "Logic.notificationFor(\"end\", automation, noticeRecord, streak)", "Logic.notificationFor(\"end\", automation, noticeRecord, null)"],
     ["the runner keeps the streak", "failed scheduled runs alert once a day and a success recovers", "else writeAtomic(streakFile(id), Logic.serializeStreak(streak), 0o600);", "else return;"],
     ["a delivered alert is recorded", "failed scheduled runs alert once a day and a success recovers", "Logic.streakAfter(ended, streak, end.notice, end.delivered)", "Logic.streakAfter(ended, streak, end.notice, false)"],
     ["a refused alert stays due", "failed scheduled runs alert once a day and a success recovers", "JSON.stringify(firstLine(out.stderr)));\n        return { delivered: false, notice: null };\n    }\n    const id", "JSON.stringify(firstLine(out.stderr)));\n        return { delivered: true, notice: null };\n    }\n    const id"],
