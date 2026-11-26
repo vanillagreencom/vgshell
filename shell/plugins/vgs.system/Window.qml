@@ -278,9 +278,13 @@ FocusScope {
                 id: mountBox
                 readonly property Item mounted: children.length > 0 ? children[children.length - 1] : null
                 width: page.contentWidth
-                // The page goes first when the window is torn down while a
-                // section still changes its height.
-                height: mounted === null || page === null ? 0 : Math.max(page.bodyRoom, mounted.implicitHeight)
+                // Teardown can still change the children after the binding's
+                // scope object is gone. From Qt 6.12.1 a name found on that
+                // object then throws ReferenceError (qtdeclarative 1365c04223),
+                // while an id reads null, as the footer binding above reads
+                // mountBox. So the binding names its objects and tests them
+                // first.
+                height: page === null || mountBox === null || mountBox.mounted === null ? 0 : Math.max(page.bodyRoom, mountBox.mounted.implicitHeight)
             }
         }
     }
