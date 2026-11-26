@@ -375,7 +375,10 @@ class Controls(unittest.TestCase):
         ("context failure", "if not context:", "if False:", "test_missing_context"),
         ("include failure", 'lib.xkb_context_include_path_append(context, SYSTEM_XKB_ROOT.encode("utf-8")) != 1',
          "False", "test_missing_data"),
-        ("keymap failure", "if not keymap:", "if False:", "test_unsupported_layout"),
+        # Skipping the check would pass a null keymap to XKB and crash Python,
+        # so the plant answers success where the refusal stood.
+        ("keymap failure", 'raise Refusal("xkb-keymap")', 'return {"ok": True, "keys": []}',
+         "test_unsupported_layout"),
         ("compiled layout bound", "layout >= lib.xkb_keymap_num_layouts(keymap)",
          "False", "test_compiled_layout_index"),
         ("JSON duplicates", "if len(value) != len(pairs):", "if False:", "test_json"),
