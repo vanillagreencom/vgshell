@@ -32,6 +32,23 @@ T.Button {
         verticalAlignment: Text.AlignVCenter
     }
 
+    // The label's glyphs, top and bottom, in this button's coordinates:
+    // the card's fade counts a text line as covered only where they meet
+    // it. Text.baselineOffset includes the label's vertical centring
+    // (Qt 6.12.0 QQuickTextPrivate::updateBaseline), and FontMetrics
+    // methods capture no property, so the reading follows the font.
+    // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/quick/items/qquicktext.cpp#L406
+    readonly property rect labelInk: {
+        void labelMetrics.font;
+        return labelMetrics.tightBoundingRect(text);
+    }
+    readonly property real inkTop: contentItem.y + contentItem.baselineOffset + labelInk.y
+    readonly property real inkBottom: inkTop + labelInk.height
+    FontMetrics {
+        id: labelMetrics
+        font: pill.contentItem.font
+    }
+
     background: Rectangle {
         radius: pill.look.radius.full
         scale: pill.down ? pill.look.pill.pressScale : 1

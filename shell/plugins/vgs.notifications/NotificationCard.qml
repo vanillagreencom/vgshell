@@ -232,9 +232,66 @@ Item {
             readonly property real fadeEnd: Math.max(0, Math.min(1, rowStart / Math.max(1, width)))
             readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
             readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
-            readonly property real fadeTop: Math.max(0, Math.min(1, rowTop / Math.max(1, height)))
-            readonly property real fadeMiddle: Math.max(0, Math.min(1, (rowTop + tray.height / 2) / Math.max(1, height)))
-            readonly property real fadeBottom: Math.max(0, Math.min(1, (rowTop + tray.height) / Math.max(1, height)))
+            // The text lines fade whole: a line whose ink meets the ink of
+            // the row's words, the labels' glyphs or the caption's, fades,
+            // and every other line keeps its ink. A words' line box would
+            // reach past its glyphs into the clear space under the line
+            // above and fade a line no word covers. The fade's edges fall
+            // between two lines' ink and never cross a glyph.
+            // Each edge sits one pixel past the kept line's ink, short of
+            // the words and of the next line's ink, so the words read over
+            // faded text alone. The edges are in this mask's coordinates.
+            //
+            // The band binds only once the card is built. While it is
+            // built, reading a property whose binding has not run yet runs
+            // it (QObjectWrapper::getProperty calls
+            // QQmlData::flushPendingBinding), so a declared binding over
+            // these many inputs moved an input it had already read and
+            // re-entered itself. Qt's finalize runs every pending binding
+            // before it emits completed, and a binding made then still
+            // follows every input bandOf() reads.
+            // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qml/jsruntime/qv4qobjectwrapper.cpp#L370
+            // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qml/qml/qqmlobjectcreator.cpp#L1698
+            property var band: ({ top: 0, bottom: 0 })
+            function bandOf() {
+                // Each line's ink, top to bottom. The body's lines share
+                // one font and line box, so each sits one pitch from the
+                // next, with the first line's ink top and the last's bottom.
+                const lines = [];
+                if (card.summary.length > 0) lines.push({ inkTop: textBlock.inkAbove, inkBottom: textBlock.titleInkBottom });
+                const count = textBlock.bodyLineCount;
+                for (let i = 0; i < count; i++)
+                    lines.push({
+                        inkTop: textBlock.bodyInkTop + i * textBlock.bodyPitch,
+                        inkBottom: textBlock.bodyInkBottom - (count - 1 - i) * textBlock.bodyPitch
+                    });
+                // The words' ink, in the text layout's coordinates.
+                const row = rowTop - card.pad;
+                let wordsTop = row + tray.height / 2;
+                let wordsBottom = wordsTop;
+                if (card.captionMode) {
+                    wordsTop = row + captionText.y + captionText.inkAbove;
+                    wordsBottom = row + captionText.y + captionText.height - captionText.inkBelow;
+                } else if (actionRepeater.count > 0) {
+                    wordsTop = Infinity;
+                    wordsBottom = -Infinity;
+                    for (let i = 0; i < actionRepeater.count; i++) {
+                        const pill = actionRepeater.itemAt(i);
+                        wordsTop = Math.min(wordsTop, row + actionRow.y + pill.y + pill.inkTop);
+                        wordsBottom = Math.max(wordsBottom, row + actionRow.y + pill.y + pill.inkBottom);
+                    }
+                }
+                let top = 0;
+                let bottom = height;
+                for (let i = 0; i < lines.length; i++)
+                    if (lines[i].inkBottom < wordsTop)
+                        top = card.pad + Math.min(lines[i].inkBottom + 1, wordsTop, i + 1 < lines.length ? lines[i + 1].inkTop : Infinity);
+                for (let i = lines.length - 1; i >= 0; i--)
+                    if (lines[i].inkTop > wordsBottom)
+                        bottom = card.pad + Math.max(lines[i].inkTop - 1, wordsBottom, i > 0 ? lines[i - 1].inkBottom : -Infinity);
+                return { top: top, bottom: bottom };
+            }
+            Component.onCompleted: band = Qt.binding(bandOf)
             visible: false
             layer.enabled: textBlock.layer.enabled
             layer.smooth: true
@@ -245,21 +302,21 @@ Item {
                 GradientStop { position: actionMask.fadeEnd; color: card.maskColor(actionMask.textAlpha) }
                 GradientStop { position: 1; color: card.maskColor(actionMask.textAlpha) }
             }
-            // Compose only texture alpha: the vertical gradient restores
-            // ink above and below the buttons within this same mask layer.
+            // Compose only texture alpha: these keep the ink of the lines
+            // above and below the band within this same mask layer.
             // Qt layers capture the subtree, and child rectangles blend
             // above the parent's horizontal gradient, not above the card.
             // https://doc.qt.io/qt-6/qml-qtquick-item.html#item-layers
             Rectangle {
-                anchors.fill: parent
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop { position: 0; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.fadeTop; color: card.look.tray.fadeInk }
-                    GradientStop { position: actionMask.fadeMiddle; color: card.maskColor(0) }
-                    GradientStop { position: actionMask.fadeBottom; color: card.look.tray.fadeInk }
-                    GradientStop { position: 1; color: card.look.tray.fadeInk }
-                }
+                width: parent.width
+                height: actionMask.band.top
+                color: card.look.tray.fadeInk
+            }
+            Rectangle {
+                y: actionMask.band.bottom
+                width: parent.width
+                height: parent.height - y
+                color: card.look.tray.fadeInk
             }
         }
 

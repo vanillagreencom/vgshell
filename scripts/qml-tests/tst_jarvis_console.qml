@@ -7,7 +7,8 @@ import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // The message box keeps a visible keyboard target as typing turns off and
-// on, and leaves another tab or control's focus alone. Each History task
+// on, and leaves another tab or control's focus alone, and its locked
+// reason opens inside the box, off the notice above it. Each History task
 // row offers its own Open and Stop, with no selection.
 Item {
     id: root
@@ -469,6 +470,110 @@ Item {
             verify(controls.entry.visible);
             controls.entry.text = "Fixture message";
             compare(controls.send.disabledReason, "", "system microphone mute cannot refuse typed input");
+        }
+
+        // Under a voice that takes speech only, the locked message box's
+        // reason measures from the box's frame, which fills the window's
+        // width under the speech-only notice, and so opens inside the box,
+        // beside its text and clear of the model and effort choices, never
+        // on the notice above the box.
+        function test_the_locked_message_box_reason_opens_inside_the_box() {
+            compare(UnitTheme.override({ tooltip: { delay: 50 } }), "ok");
+            const values = root.values({ engine: { kind: "duplex" } });
+            values.models = [{ label: "Opus", value: "opus" }];
+            values.modelShown = "opus";
+            values.efforts = [{ label: "High", value: "high" }];
+            jarvisConsole.shell = root.shellWith(values);
+            compare(jarvisConsole.speechOnly, true);
+            const entry = composerControls().entry;
+            const frame = entry.lock.frame;
+            verify(frame !== null && frame !== undefined, "the message box's frame is its reason's frame");
+            const all = collect(jarvisConsole, n => n.visible, []);
+            const notice = all.find(n => n.plate === true && n.text === jarvisConsole.speechOnlyText);
+            verify(notice !== undefined, "the speech-only notice shows");
+            const choices = all.filter(n => n.objectName === "modelSelect" || n.objectName === "effortSelect");
+            compare(choices.length, 2);
+            const box = item => {
+                const at = item.mapToItem(root, 0, 0);
+                return Qt.rect(at.x, at.y, item.width, item.height);
+            };
+            const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+            // tryVerify builds its message before it waits; this reads the
+            // state when the wait gives up.
+            const waitFor = (holds, timeout) => {
+                for (let left = timeout; left > 0 && !holds(); left -= 50) wait(50);
+                return holds();
+            };
+            // The notice and the choices show in this turn; the console
+            // places them, and so the box, in later polish passes and as
+            // the notice's padding settles, and until then the box can
+            // read below the window. Hover only once the box rests inside
+            // the window.
+            let rest = null;
+            const rests = () => {
+                const now = box(entry);
+                const still = rest !== null && now.x === rest.x && now.y === rest.y;
+                rest = now;
+                return still && now.y >= 0 && now.y + now.height <= root.height;
+            };
+            verify(waitFor(rests, 2000), "the message box rests inside the window: " + JSON.stringify({ box: box(entry), window: [root.width, root.height] }));
+            mouseMove(entry, entry.width / 2, entry.height / 2);
+            const tip = collect(entry, n => n.objectName === "disabledReasonTip", [])[0];
+            verify(tip !== undefined, "the locked box holds its reason");
+            // The scroll area the box's text lies in, which the reason's
+            // anchor tracker reads the text's view from.
+            let scroll = entry.parent;
+            while (scroll !== null && scroll.contentY === undefined) scroll = scroll.parent;
+            verify(scroll !== null, "the box's text lies in a scroll area");
+            // The items under the pointer, bottom to top in paint order,
+            // as the window's hit test walks them: a clipping item hides
+            // what lies outside it.
+            const pointer = entry.mapToItem(null, entry.width / 2, entry.height / 2);
+            const under = (item, out) => {
+                if (!item.visible) return out;
+                const at = item.mapFromItem(null, pointer.x, pointer.y);
+                const inside = at.x >= 0 && at.y >= 0 && at.x < item.width && at.y < item.height;
+                if (item.clip && !inside) return out;
+                if (inside) out.push(item);
+                const children = Array.from(item.children).map((child, order) => ({ child, order }))
+                    .sort((a, b) => a.child.z - b.child.z || a.order - b.order);
+                for (const each of children) under(each.child, out);
+                return out;
+            };
+            const state = () => {
+                const hits = under(root, []);
+                return JSON.stringify({
+                    shown: tip.shown, resting: tip.resting, opened: tip.opened,
+                    live: tip.live, hovered: tip.hover !== null && tip.hover.hovered, unpressed: tip.unpressed,
+                    tracker: tip.tracker === null ? "no-popup" : tip.tracker.anchorInView() ? "in-view" : "hidden",
+                    contentY: scroll.contentY, overlaysOpen: OverlayState.open,
+                    pointer: [pointer.x, pointer.y], entryUnder: hits.indexOf(entry) !== -1,
+                    top: hits.slice(-3).map(item => String(item))
+                });
+            };
+            try {
+                verify(waitFor(() => tip.resting, 1000), "the pointer rests on the box: " + state());
+                verify(waitFor(() => tip.opened, 5000), "the reason opens: " + state());
+                // Long enough for another tooltip's delay or the tracker's
+                // next follow to close it.
+                wait(2 * Theme.tooltip.delay);
+                verify(tip.opened, "opened then closed: " + state());
+                const sees = tip.scene.anchor;
+                compare(Qt.rect(sees.x, sees.y, sees.width, sees.height), box(frame), "the reason measures from the frame");
+                const at = entry.mapToItem(root, tip.placed.x, tip.placed.y);
+                const place = Qt.rect(at.x, at.y, tip.placed.width, tip.placed.height);
+                const faults = [];
+                if (overlap(place, box(notice)) > 0) faults.push("covers the notice");
+                if (choices.some(choice => overlap(place, box(choice)) > 0)) faults.push("covers a choice");
+                if (overlap(place, box(entry)) > 0) faults.push("covers the text");
+                const f = box(frame);
+                if (place.x < f.x || place.y < f.y || place.x + place.width > f.x + f.width || place.y + place.height > f.y + f.height) faults.push("leaves the box");
+                compare(faults, [], "the reason's place " + JSON.stringify(place));
+            } finally {
+                tip.shown = false;
+                tryCompare(tip, "opened", false);
+                mouseMove(root, root.width - 1, root.height - 1);
+            }
         }
 
         function test_cloud_voice_keeps_its_own_guidance_data() {

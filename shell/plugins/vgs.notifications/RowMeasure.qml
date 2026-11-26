@@ -87,6 +87,28 @@ ColumnLayout {
         if (!rowCard.singleLine) last = Math.max(last, bodyText.y + bodyText.height - bodyText.inkBelow);
         return last === -Infinity ? 0 : height - last;
     }
+    // For the card's action fade alone, which nothing that sizes or
+    // places the text reads: the title's ink bottom, the body's first ink
+    // top and last ink bottom, each making only the reads the paddings'
+    // ink above makes, and the body's line pitch from its font, with its
+    // line count from its height. The card's bandOf() combines them in a
+    // binding made after creation; its comment says why.
+    readonly property real titleInkBottom: {
+        if (rowCard.summary.length === 0) return 0;
+        const bottom = summaryRow.y + titleText.y + titleText.height - titleText.inkBelow;
+        return rowCard.showsBadge ? Math.max(bottom, summaryRow.y + workspaceBadge.y + workspaceBadge.height) : bottom;
+    }
+    readonly property real bodyInkTop: rowCard.singleLine ? 0 : bodyText.y + bodyText.inkAbove
+    readonly property real bodyInkBottom: rowCard.singleLine ? 0 : bodyText.y + bodyText.height - bodyText.inkBelow
+    // A wrapped line is its font's ascent plus descent, rounded up
+    // (Qt 6.12.0 QTextLine::height):
+    // https://github.com/qt/qtbase/blob/v6.12.0/src/gui/text/qtextlayout.cpp#L1547
+    readonly property real bodyPitch: Math.ceil(bodyMetrics.height)
+    readonly property int bodyLineCount: rowCard.singleLine ? 0 : Math.max(1, Math.round(bodyText.height / Math.max(1, bodyPitch)))
+    FontMetrics {
+        id: bodyMetrics
+        font: bodyText.font
+    }
     ClearingInset {
         id: inset
         pad: root.rowCard.pad

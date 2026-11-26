@@ -8,11 +8,13 @@ import "../../shell/plugins/vgs.tailscale" as Tailscale
 import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as TailscaleLogic
 
 // A disabled control's reason (DisabledReason, Tooltip's "clear" side)
-// opens where it covers no text, icon or Tab stop of its window, inside
-// the box the window's content spans, and is no wider than that box. An
-// unlock mark's reason covers its toggle neither. Where no place is free,
-// it takes the place that covers the least, one that covers no Tab stop
-// first.
+// opens where it covers no text, icon, Tab stop or notice plate of its
+// window, inside the box the window's content spans, and is no wider than
+// that box, and its popup first shows at that place. A frameless text
+// area's reason opens beside its FieldFrame, else beside the text inside
+// that frame. An unlock mark's reason covers its toggle neither. Where no
+// place is free, it takes the place that covers the least, one that
+// covers no Tab stop first, then the least plate.
 // Every visible item of this window is an obstacle, so each test shows
 // one fixture. The stand-in popup positions nothing: the box a tooltip
 // takes is read from the anchor the popup is handed, as the compositor
@@ -21,7 +23,7 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as TailscaleLogic
 Item {
     id: root
     width: 480
-    height: 260
+    height: 320
 
     readonly property string reason: "Sign in to your VPN account to turn on this switch"
     readonly property int inset: 16
@@ -258,6 +260,101 @@ Item {
         }
     }
 
+    // A message box under a notice, as Jarvis's composer draws it under a
+    // voice that takes speech only: a locked frameless TextArea over a row
+    // of two quiet selects, all in one FieldFrame that fills the content
+    // width. `below` sets what lies under the frame: "end", the window's
+    // edge `inset` under it, as in Jarvis; "room", free room, then a short
+    // line on the start edge; "card", a Card under the frame's start
+    // third, free room after it, then that line; "stops", a row of small
+    // buttons across the frame's width, then that line. `filled` puts a
+    // line of words beside the selects, under the text.
+    Item {
+        id: composer
+        visible: false
+        width: 400
+        height: composerBox.y + composerBox.height + (below === "end" ? root.inset : 96)
+
+        property string below: "end"
+        property bool filled: false
+        readonly property rect content: Qt.rect(root.inset, root.inset, width - 2 * root.inset, height - 2 * root.inset)
+
+        Callout {
+            id: notice
+            x: root.inset
+            y: root.inset
+            width: composer.content.width
+            level: "raised"
+            text: "This voice takes speech only. Press the talk key to talk."
+            linkText: "Voice settings"
+        }
+        Item {
+            id: composerBox
+            x: root.inset
+            y: notice.y + notice.height + Theme.stack.group
+            width: composer.content.width
+            height: lockedArea.height + composerRow.height + Theme.textField.paddingX
+
+            FieldFrame { anchors.fill: parent; target: lockedArea }
+            TextArea {
+                id: lockedArea
+                width: parent.width
+                framed: false
+                minimumHeight: 0
+                placeholderText: "Message Jarvis"
+                disabledReason: "Typing is off for this voice."
+            }
+            Item {
+                id: composerRow
+                x: Theme.textField.paddingX
+                y: lockedArea.height
+                width: parent.width - 2 * Theme.textField.paddingX
+                height: choices.height
+                Row {
+                    id: choices
+                    spacing: Theme.stack.inline
+                    Select { id: modelChoice; quiet: true; textRole: "label"; model: [{ label: "Opus", value: "opus" }]; currentIndex: 0 }
+                    Select { id: effortChoice; quiet: true; textRole: "label"; model: [{ label: "High", value: "high" }]; currentIndex: 0 }
+                }
+                Label {
+                    id: composerWords
+                    visible: composer.filled
+                    x: choices.width + Theme.stack.inline
+                    width: parent.width - x
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                    text: "Model and effort apply to the next typed message and its answer"
+                }
+            }
+        }
+        Card {
+            id: underCard
+            visible: composer.below === "card"
+            x: root.inset
+            y: composerBox.y + composerBox.height + 2 * Theme.tooltip.gap
+            width: Math.round(composerBox.width / 3)
+            Label { text: "Last reply" }
+        }
+        Row {
+            id: stops
+            visible: composer.below === "stops"
+            x: root.inset
+            y: composerBox.y + composerBox.height + 2 * Theme.tooltip.gap
+            spacing: Math.floor((composerBox.width - 8 * Theme.size.control.sm) / 7)
+            Repeater {
+                model: 8
+                IconButton { size: "sm"; iconName: "x"; label: "Clear" }
+            }
+        }
+        Label {
+            id: tail
+            visible: composer.below !== "end"
+            x: root.inset
+            y: composer.height - root.inset - height
+            text: "Saved"
+        }
+    }
+
     UnitCase {
         name: "reasontip"
         when: windowShown
@@ -269,7 +366,7 @@ Item {
         }
 
         function cleanup() {
-            for (const control of [locked, crowded, iconLocked]) {
+            for (const control of [locked, crowded, iconLocked, lockedArea]) {
                 const tip = reasonTip(control);
                 if (tip === null) continue;
                 tip.shown = false;
@@ -300,6 +397,10 @@ Item {
             iconed.visible = false;
             packed.visible = false;
             repeated.visible = false;
+            composer.visible = false;
+            composer.below = "end";
+            composer.filled = false;
+            mouseMove(root, root.width - 1, root.height - 1);
         }
 
         function descendants(node) {
@@ -366,6 +467,16 @@ Item {
         function openReason(control) {
             control.forceActiveFocus(Qt.TabFocusReason);
             compare(control.visualFocus, true);
+            const tip = reasonTip(control);
+            verify(tip !== null, "the locked control holds its reason");
+            tryCompare(tip, "opened", true);
+            return tip;
+        }
+
+        // Opens the control's reason the way the pointer does: a TextArea
+        // reports no keyboard focus apart from its focus (FocusRing).
+        function hoverReason(control) {
+            mouseMove(control, control.width / 2, control.height / 2);
             const tip = reasonTip(control);
             verify(tip !== null, "the locked control holds its reason");
             tryCompare(tip, "opened", true);
@@ -576,6 +687,66 @@ Item {
             for (const y of [Math.ceil(a.y + a.height + gap), Math.floor(a.y - gap - h)]) for (const x of xs) out.push(Qt.rect(x, y, w, h));
             for (const x of [Math.ceil(a.x + a.width + gap), Math.floor(a.x - gap - w)]) for (const y of ys) out.push(Qt.rect(x, y, w, h));
             return out;
+        }
+
+        // A locked frameless text area's reason measures from the FieldFrame
+        // round it and keeps off the notice above it, in three steps: a
+        // free place beside the frame, else a free place beside the text
+        // inside the frame, else the place that covers the least, which
+        // covers a plate before a Tab stop. The window's edge `inset` under
+        // the frame and no words beside the selects is Jarvis's composer
+        // under a speech-only notice.
+        function test_a_framed_reason_opens_beside_the_frame_the_user_sees_data() {
+            return [
+                { tag: "free room under the frame", below: "room", filled: false, step: "frame" },
+                { tag: "a card under the frame's start", below: "card", filled: false, step: "frame" },
+                { tag: "the Jarvis composer", below: "end", filled: false, step: "inside" },
+                { tag: "no free place", below: "stops", filled: true, step: "least" }
+            ];
+        }
+
+        function test_a_framed_reason_opens_beside_the_frame_the_user_sees(data) {
+            composer.below = data.below;
+            composer.filled = data.filled;
+            composer.visible = true;
+            const tip = hoverReason(lockedArea);
+            const place = placedBox(tip);
+            const frame = box(composerBox);
+            const sees = tip.scene.anchor;
+            compare(Qt.rect(sees.x, sees.y, sees.width, sees.height), frame, "the reason measures from the frame");
+            const stopsShown = data.below === "stops" ? descendants(stops).filter(item => item.iconName === "x" && item.label === "Clear") : [];
+            if (data.below === "stops") compare(stopsShown.length, 8, "the fixture's buttons are found");
+            const faults = [];
+            if (overlap(place, box(lockedArea)) > 0) faults.push("covers its text area");
+            for (const choice of [modelChoice, effortChoice]) if (overlap(place, box(choice)) > 0) faults.push("covers a select");
+            if (overlap(place, words(tail)) > 0 && tail.visible) faults.push("covers the line under the frame");
+            if (data.below === "card" && overlap(place, box(underCard)) > 0) faults.push("covers the card");
+            if (stopsShown.some(stop => overlap(place, box(stop)) > 0)) faults.push("covers a Tab stop");
+            if (!inside(place, Qt.rect(0, 0, composer.width, composer.height))) faults.push("leaves its window");
+            if (data.step !== "least" && overlap(place, box(notice)) > 0) faults.push("covers the notice");
+            if (data.step === "frame" && overlap(place, frame) > 0) faults.push("stands in the frame");
+            if (data.step === "inside" && !inside(place, frame)) faults.push("leaves the frame");
+            compare(faults, [], "the reason's place " + JSON.stringify(place));
+            if (data.step !== "least") return;
+            // Every place inside the window covers a Tab stop or the
+            // notice: the reason covers the notice, though a place on a
+            // small button covers less.
+            verify(overlap(place, box(notice)) > 0, "the reason covers the notice");
+            const all = places(frame, Qt.rect(0, 0, composer.width, composer.height), place.width, place.height, Theme.tooltip.gap).filter(p => inside(p, Qt.rect(0, 0, composer.width, composer.height)));
+            const cover = p => overlap(p, box(notice)) + stopsShown.reduce((sum, stop) => sum + overlap(p, box(stop)), 0);
+            const least = all.reduce((best, p) => cover(p) < cover(best) ? p : best);
+            verify(stopsShown.some(stop => overlap(least, box(stop)) > 0), "the place that covers the least covers a Tab stop: " + JSON.stringify(least));
+        }
+
+        // The popup shows first at the place and the size it keeps.
+        function test_a_reason_shows_first_at_its_final_place() {
+            narrow.where = "start";
+            narrow.visible = true;
+            const tip = openReason(locked);
+            const popup = tip.tracker.popup;
+            verify(popup.firstShown !== null, "the popup has shown");
+            compare(popup.firstShown, { x: tip.placed.x, y: tip.placed.y, width: tip.placed.width, height: tip.placed.height, popupWidth: popup.width, popupHeight: popup.height });
+            verify(tip.placed.width > 1 && tip.placed.height > 1, "the place has the tooltip's size");
         }
 
         function test_with_no_free_place_a_reason_covers_the_least_and_no_tab_stop_data() {

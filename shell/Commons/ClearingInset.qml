@@ -22,6 +22,10 @@ QtObject {
     property real top: 0
     property real inset: pad
     property bool settlePending: false
+    // Whether a settle has found the paddings and the inset at rest: it
+    // published nothing that asked for another settle. It stays true
+    // after, so a window sized from them can show once it is (Tooltip).
+    property bool settledOnce: false
     property bool alive: true
 
     // Ink can read a child's assigned geometry, which reads these paddings
@@ -51,7 +55,12 @@ QtObject {
         topInk = observedTopInk;
         bottomInk = observedBottomInk;
         const next = targetInset();
-        if (Math.abs(inset - next) <= 0.01) return;
+        if (Math.abs(inset - next) <= 0.01) {
+            // The inks just assigned can move the height or the ink, which
+            // schedules another settle.
+            if (!settlePending) settledOnce = true;
+            return;
+        }
         inset = next;
         scheduleSettle();
     }
