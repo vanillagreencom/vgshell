@@ -3386,10 +3386,12 @@ notification_header_shot() { # NAME
 # notification_header_shots MODE: the open inbox's header in each state of
 # its controls, then the History's. A tree whose header holds the Sound
 # and Do Not Disturb icons takes their four pairs; an older one takes its
-# Silence switch off and on.
+# Silence switch on and off. The inbox opens with Sound on and Do Not
+# Disturb off, so that state comes last: each step changes the header
+# and the shot's stale-frame guard holds for every one.
 notification_header_shots() { # MODE
-  local state sound dnd states=(:off :on)
-  ! tree_has shell/plugins/vgs.notifications/InboxHeader.qml "signal soundRequested" || states=(on:off off:off on:on off:on)
+  local state sound dnd states=(:on :off)
+  ! tree_has shell/plugins/vgs.notifications/InboxHeader.qml "signal soundRequested" || states=(off:off on:on off:on on:off)
   for state in "${states[@]}"; do
     sound="${state%%:*}" dnd="${state#*:}"
     if [[ -n $sound ]]; then
