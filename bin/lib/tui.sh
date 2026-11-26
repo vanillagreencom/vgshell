@@ -21,8 +21,8 @@
 #                                    the terminal
 #   vgs_tui_clear                    clear the screen; the next block starts
 #                                    on its first row, with no blank row
-#   vgs_tui_text TEXT                TEXT in the terminal's own colour, each of
-#                                    its lines wrapped at the content edges
+#   vgs_tui_text TEXT                paragraphs in the terminal's own colour,
+#                                    wrapped at the content edges
 #   vgs_tui_commands COMMAND...      a left-marked block, one blank marked row
 #                                    between commands; wraps at spaces with
 #                                    a continuation mark, never inside a word
@@ -72,6 +72,8 @@
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
 #                                    COMMAND's status
+#   vgs_tui_logged_text FILE COMMAND [ARG...]
+#                                    show the successful command's stdout as text
 #   vgs_tui_split FILE KEY COMMAND [ARG...]
 #                                    run COMMAND with stdout and stderr merged; append
 #                                    lines that start with `KEY: ` to FILE, and show
@@ -264,9 +266,9 @@ _vgs_tui_visible() { # VAR TEXT: TEXT's columns, its SGR escapes taking none
 
 # ARRAY gets TEXT's lines broken to WIDTH columns at the last space that
 # fits. The spaces at a break are dropped, so no continuation starts with
-# one; a line's own leading spaces stay, and a word wider than WIDTH breaks
-# inside it, unless MODE is commands, which keeps each word whole. Such a
-# word breaks after the last slash in the row, so a path's file name stays
+# one. Prose lines start at the content edge. MODE commands keeps leading
+# spaces and whole words, and MODE output keeps leading spaces. A word wider
+# than WIDTH in other modes breaks after the last slash in the row, so a path's file name stays
 # whole, when the part after that slash, to the next slash or the word's
 # end, fits a row; otherwise at WIDTH.
 # _vgs_tui_wrapped records which rows continue a width break.
@@ -279,8 +281,9 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
   while (( more )); do
     line="${text%%$'\n'*}"
     if [[ $text == *$'\n'* ]]; then text="${text#*$'\n'}"; else more=0; fi
-    lead="${line%%[! ]*}"
+    lead="${line%%[!$' \t']*}"
     rest="${line#"$lead"}"
+    [[ ${4:-text} != text ]] || lead=""
     cur="$lead" cur_n=${#lead} started="" gap="" wrapped=0
     while [[ -n $rest ]]; do
       word="${rest%% *}"
@@ -321,12 +324,13 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
 
 # Each line of TEXT, wrapped to WIDTH or the terminal's, at the content
 # edge in the SGR escape; an empty line has no indent.
-_vgs_tui_print() { # SGR TEXT [WIDTH]
-  local lines=() line pad
-  _vgs_tui_lines lines "${3:-$(_vgs_tui_width)}" "$2"
+_vgs_tui_print() { # SGR TEXT [WIDTH] [MODE]
+  local lines=() line pad blank=""
+  _vgs_tui_lines lines "${3:-$(_vgs_tui_width)}" "$2" "${4:-text}"
   for line in "${lines[@]}"; do
-    pad=""
-    [[ -z $line ]] || printf -v pad '%*s' "$_vgs_tui_edge" ''
+    if [[ -z $line && ${4:-text} == text ]]; then blank=1; continue; fi
+    if [[ -n $blank ]]; then printf '\n'; blank=""; fi
+    printf -v pad '%*s' "$(( ${#line} > 0 ? _vgs_tui_edge : 0 ))" ''
     if [[ -n $1 ]]; then printf '%s%s%s\033[0m\n' "$pad" "$1" "$line"; else printf '%s%s\n' "$pad" "$line"; fi
   done
 }
@@ -336,23 +340,34 @@ _vgs_tui_print() { # SGR TEXT [WIDTH]
 # beside the border and padding, 6 columns, gives the box the terminal's
 # width: gum 2.0.2 counts the border and padding inside --width and wraps the
 # lines at word boundaries within it. A box that fits keeps its own width.
-vgs_tui_header() { # TITLE [LINE...]
-  local columns line title title_line width=()
+vgs_tui_header() { # TITLE [PARAGRAPH...]
+  local columns line title title_line width=() body=()
   columns="$(vgs_tui_columns)"
   title_line="$1"
   shift
-  for line in "$title_line" "$@"; do
+  for line; do
+    line="${line#"${line%%[!$' \t']*}"}"
+    [[ -n $line ]] || continue
+    (( ${#body[@]} == 0 )) || body+=("")
+    body+=("$line")
+  done
+  for line in "$title_line" "${body[@]}"; do
     if (( ${#line} + 6 > columns )); then width=(--width "$columns"); break; fi
   done
   printf -v title '\033[1m%s\033[0m' "$title_line"
   _vgs_tui_gap
-  gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
+  gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "${body[@]}"
 }
 
-vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_mark top; }
+vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_text_seen=""; _vgs_tui_mark top; }
 
+_vgs_tui_text_seen=""
 vgs_tui_text() { # TEXT
-  _vgs_tui_print "" "$*"
+  local text="$*"
+  [[ -n ${text//[$' \t\n']/} ]] || return 0
+  [[ -z $_vgs_tui_text_seen ]] || _vgs_tui_gap
+  _vgs_tui_text_seen=1
+  _vgs_tui_print "" "$text"
 }
 
 vgs_tui_commands() { # COMMAND...
@@ -849,6 +864,12 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   "$@" 2>>"$file"
 }
 
+vgs_tui_logged_text() { # FILE COMMAND [ARG...]
+  local output
+  output="$(vgs_tui_logged "$@")" || return
+  vgs_tui_text "$output"
+}
+
 # A line ended by a newline that no carriage return came before is shown
 # through _vgs_tui_print; a carriage-return segment, as a progress line
 # redraws, and the newline that ends it pass as they are, since a wrap
@@ -873,7 +894,7 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
           elif [[ $terminator == $'\r' || -n $redrawn ]]; then
             printf '%s%s' "$segment" "$terminator" || exit 1
           else
-            _vgs_tui_print "" "$segment" "$width" || exit 1
+            _vgs_tui_print "" "$segment" "$width" output || exit 1
           fi
           [[ $terminator == $'\n' ]] && redrawn="" || redrawn=1
           segment=""
@@ -898,11 +919,11 @@ _vgs_tui_keyed() { printf '%s\n' "$1" >&2; }
 vgs_tui_note() { vgs_tui_logged "$1" _vgs_tui_keyed "$2"; } # FILE LINE
 
 vgs_tui_failed() { # FILE LINE...
-  local file="$1" line
+  local file="$1" text
   shift
+  printf -v text '%s\n\n' "$@" "The details are in ${file/#"$HOME"/\~}."
   _vgs_tui_gap >&2
-  for line; do vgs_tui_error "$line"; done
-  vgs_tui_error "The details are in ${file/#"$HOME"/\~}."
+  vgs_tui_error "${text%$'\n\n'}"
 }
 
 vgs_tui_refuse() { # FILE STATUS KEY_LINE SENTENCE...

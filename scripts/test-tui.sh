@@ -62,6 +62,12 @@ esc=$'\033'
 # The content edge: the header's border and left padding.
 edge="   "
 
+paragraph_row() {
+  run 'vgs_tui_columns() { echo 20; }; vgs_tui_text "$(printf "  First paragraph wraps here.\n\n\n\tSecond paragraph.")"'
+  [[ $status == 0 ]] && diff -u <(printf '%s\n' '   First' '   paragraph' '   wraps here.' '' '   Second' '   paragraph.') "$tmp/out"
+}
+check "prose keeps one indent and one blank between paragraphs" paragraph_row
+
 # Colours: a #rrggbb value becomes a truecolor escape, anything else the
 # ANSI fallback.
 # Rows: value | fallback | escape after ESC[
@@ -1192,6 +1198,70 @@ for cols in 60 80 100; do
   check "a header wider than $cols columns wraps inside its border" header_row "$cols" FILLS
 done
 check "a header that fits 100 columns keeps its own width" header_row 100 FITS
+
+# Exercise the shipped setup scripts with only their backend work replaced.
+jarvis_setup_tree="$tmp/jarvis-setup"
+mkdir -p "$jarvis_setup_tree/bin/lib" "$jarvis_setup_tree/tools"
+cat >"$jarvis_setup_tree/bin/vgshell" <<'SH'
+#!/bin/sh
+[ "$*" = "plugin settings vgs.jarvis" ] || exit 65
+printf '{}\n'
+SH
+cat >"$jarvis_setup_tree/tools/node" <<'SH'
+#!/bin/sh
+case "${1##*/}:$2" in
+  echo-cancel-setup.js:plan) printf '{}\n' ;;
+  echo-cancel-setup.js:describe) printf 'Microphone: Test microphone\nSpeaker: Test speaker\nFile: ~/.config/pipewire/echo-cancel.conf\n' ;;
+  echo-cancel-setup.js:install) printf 'Installed: ~/.config/pipewire/echo-cancel.conf\n' ;;
+  browser-setup.js:verify) exit 0 ;;
+  *) exit 65 ;;
+esac
+SH
+printf '#!/bin/sh\nexit 65\n' >"$jarvis_setup_tree/tools/agent-browser"
+chmod +x "$jarvis_setup_tree/bin/vgshell" "$jarvis_setup_tree/tools/"{node,agent-browser}
+
+jarvis_setup_row() { # SCRIPT COLS LABEL
+  local script="$1" cols="$2" label="$3" output="$tmp/jarvis-$1-$2-$3"
+  cp -- "$LIB" "$jarvis_setup_tree/bin/lib/tui.sh" || return
+  "${base_env[@]}" PATH="$jarvis_setup_tree/tools:$tmp/real-gum:$base_path" SHELL="$BASH" TERM=dumb \
+    VGS_TUI_LIB="$jarvis_setup_tree/bin/lib/tui.sh" VGS_PLUGIN_DIR="$repo/shell/plugins/vgs.jarvis" \
+    VGS_PLUGIN_ID=vgs.jarvis VGS_TUI_UNATTENDED=1 XDG_STATE_HOME="$tmp/home/.local/state" \
+    script -qec "$(printf 'stty cols %q; exec %q %q' "$cols" "$BASH" "$repo/shell/plugins/vgs.jarvis/tui/setup-$script.sh")" \
+    /dev/null </dev/null >"$output" 2>&1 || return
+  python3 - "$output" "$script" "$cols" "$label" <<'PY'
+import pathlib
+import re
+import sys
+
+path, screen, columns, label = sys.argv[1:]
+text = re.sub(r"\x1b\[[0-9;:]*m", "", pathlib.Path(path).read_text())
+rows = text.splitlines()
+print(f"Jarvis {screen} | {columns} columns | {label}\n{text}", end="")
+assert all(len(row) <= int(columns) for row in rows), rows
+body = []
+for row in rows:
+    if row.startswith(("┌", "└")):
+        continue
+    if row.startswith("│"):
+        assert row.endswith("│"), row
+        row = " " + row[1:-1]
+    row = row.rstrip()
+    assert not row or re.match(r"^ {3}\S", row), row
+    body.append(row)
+if screen == "browser":
+    first = next(i for i, row in enumerate(body) if "blank page." in row)
+else:
+    assert any(row.startswith("   Microphone:") for row in body), body
+    assert any(row.startswith("   Installed:") for row in body), body
+    first = next(i for i, row in enumerate(body) if row.endswith("stays on."))
+assert not body[first + 1].strip() and body[first + 2].strip(), body
+PY
+}
+for script in echo-cancel browser; do
+  for cols in 54 132; do
+    check "Jarvis $script setup text aligns at $cols columns" jarvis_setup_row "$script" "$cols" after
+  done
+done
 # gum's words: each exported colour or bold variable gum reads, an empty
 # colour, gum's no colour, included, and TERM and COLORTERM, value for
 # value; never a gum behaviour option, a VGS_TUI_
@@ -1250,6 +1320,18 @@ control() { # NAME NEEDLE REPLACEMENT: LIB names the copy
   copy_with "$1" "$lib" "$2" "$3"
   LIB="$copy"
 }
+control old-paragraph-indent '[[ ${4:-text} != text ]] || lead=""' ':'
+check "the old leading indent fails the two-paragraph row" test "$(paragraph_row >/dev/null && echo green || echo red)" == red
+control old-echo-results '  vgs_tui_text "$output"' '  printf '\''%s\n'\'' "$output"'
+for cols in 54 132; do
+  if jarvis_setup_row echo-cancel "$cols" before; then fail "the old echo cancellation layout passed at $cols columns"
+  else ok "the old echo cancellation layout fails at $cols columns"; fi
+done
+control old-header-spacing '    (( ${#body[@]} == 0 )) || body+=("")' '    :'
+for cols in 54 132; do
+  if jarvis_setup_row browser "$cols" before; then fail "the old browser setup layout passed at $cols columns"
+  else ok "the old browser setup layout fails at $cols columns"; fi
+done
 control bare-commands "printf '%s│ %s%s\\n'" "printf '%s%s%s\\n'"
 check "the old bare form fails the command block contract" test "$(command_rows quiet && echo green || echo red)" == red
 control single-command-mark '[[ ${_vgs_tui_wrapped[i]} == 1 ]]' '[[ $i != 0 ]]'
@@ -1277,7 +1359,7 @@ check "the no-bold-header mutant fails the header argv row" test "$(cat "$tmp/gu
 control captured-gum-header "printf -v title '\\033[1m%s\\033[0m' \"\$title_line\"" 'title="$(gum style --bold -- "$title_line")"'
 run 'vgs_tui_header "-Title" "a line"'
 check "the captured-gum-header mutant fails the header argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
-control no-header-width '"${width[@]}" -- "$title" "$@"' '-- "$title" "$@"'
+control no-header-width '"${width[@]}" -- "$title" "${body[@]}"' '-- "$title" "${body[@]}"'
 check "the no-header-width mutant breaks the border at 60 columns" test "$(header_row 60 FILLS && echo green || echo red)" == red
 control columns-loud-without-terminal 'size="$(stty size 2>/dev/null </dev/tty)"' 'size="$(stty size </dev/tty 2>/dev/null)"'
 run 'vgs_tui_header "-Title" "a line"'
@@ -1324,9 +1406,9 @@ control confirm-margins-at-zero 'margin="0 0 0 $_vgs_tui_edge"' 'margin="0 0 0 0
 check "the confirm-margins-at-zero mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
 control question-unwrapped '_vgs_tui_lines lines "$(_vgs_tui_width)" "$question"' 'lines=("$question")'
 check "the question-unwrapped mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
-control split-passes-through '_vgs_tui_print "" "$segment" "$width" || exit 1' 'printf '\''%s\n'\'' "$segment" || exit 1'
+control split-passes-through '_vgs_tui_print "" "$segment" "$width" output || exit 1' 'printf '\''%s\n'\'' "$segment" || exit 1'
 check "the split-passes-through mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
-control text-unwrapped '_vgs_tui_print "" "$*"' 'printf '\''%s\n'\'' "$*"'
+control text-unwrapped '_vgs_tui_print "" "$text"' 'printf '\''%s\n'\'' "$text"'
 check "the text-unwrapped mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 for mode in choose input filter; do
   control "$mode-unpadded" "_vgs_tui_ask $mode --padding \"0 0 0 \$_vgs_tui_edge\"" "_vgs_tui_ask $mode"
@@ -1361,7 +1443,7 @@ control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '( "$@" ) 2>&1'
 check "the split-fd-inherited mutant fails the split descriptor row" test "$(split_fd_row && echo green || echo red)" == red
 control split-line-buffered 'while LC_ALL=C IFS= read -r -N 1 char; do' 'while IFS= read -r char; do'
 check "the split-line-buffered mutant fails the segment row" test "$(split_segment_row "$copy" && echo green || echo red)" == red
-control split-terminal-ignored '_vgs_tui_print "" "$segment" "$width" || exit 1' '_vgs_tui_print "" "$segment" "$width"'
+control split-terminal-ignored '_vgs_tui_print "" "$segment" "$width" output || exit 1' '_vgs_tui_print "" "$segment" "$width" output'
 check "the split-terminal-ignored mutant fails the closed terminal row" test "$(split_closed_row "$copy" && echo green || echo red)" == red
 control split-redraw-terminal-ignored 'printf '\''%s%s'\'' "$segment" "$terminator" || exit 1' 'printf '\''%s%s'\'' "$segment" "$terminator"'
 check "the split-redraw-terminal-ignored mutant fails the redrawn closed terminal row" test "$(split_closed_row "$copy" r && echo green || echo red)" == red

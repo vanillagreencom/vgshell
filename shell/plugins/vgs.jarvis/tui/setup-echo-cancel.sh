@@ -21,7 +21,7 @@ plan="$(vgs_tui_logged "$log" node "$helper" plan "$tree" <<<"$settings")" || {
     "Jarvis could not prepare echo cancellation. Choose a physical microphone and speaker on the Jarvis page, then try again." \
     "An existing file changed by another program or a linked path is kept." || exit
 }
-vgs_tui_logged "$log" node "$helper" describe "$tree" <<<"$plan" || {
+vgs_tui_logged_text "$log" node "$helper" describe "$tree" <<<"$plan" || {
   vgs_tui_failed "$log"
   exit 1
 }
@@ -32,7 +32,7 @@ if ! vgs_tui_confirm "Write this echo cancellation setup?"; then
   exit 130
 fi
 vgs_tui_step "Writing echo cancellation setup"
-if ! vgs_tui_logged "$log" node "$helper" install "$tree" <<<"$plan"; then
+if ! vgs_tui_logged_text "$log" node "$helper" install "$tree" <<<"$plan"; then
   vgs_tui_refuse "$log" 1 "jarvis-echo-cancel: install=failed" \
     "Jarvis could not write its echo cancellation file. An existing file changed by another program is kept." || exit
 fi
