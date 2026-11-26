@@ -85,8 +85,8 @@
 # variable name is refused (exit 2):
 #   qml-unit: refused: pragma=unparsed file=<path> line=<n>
 #
-# The shader tests, which read pixels a MultiEffect draws, run under
-# xvfb-run, which picks the first display whose
+# The shader tests, which read pixels a MultiEffect draws, run on the xcb
+# platform under xvfb-run, which picks the first display whose
 # /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once
 # can pick one display and the second Xvfb fails. The world has private /tmp, so
 # every run holds /tmp/.vgshell-qml-unit-xvfb.lock with flock for its whole
@@ -397,11 +397,20 @@ for file in "${files[@]}"; do
   judge_bare_wait "$file" || file_status=1
   render_command=(env -i)
   render_environment=()
+  platform_environment=(QT_QPA_PLATFORM="offscreen:configfile=$root/screens.json" QT_SCREEN_SCALE_FACTORS="one=1;two=2")
   if [[ ${file##*/} == tst_notification_scroll.qml || ${file##*/} == tst_notification_tray.qml || ${file##*/} == tst_scroll.qml || ${file##*/} == tst_settings_window_height.qml || ${file##*/} == tst_radialbackdrop.qml || ${file##*/} == tst_jarvis_plates.qml ]]; then
     # Offscreen defaults to Qt's Software renderer, which cannot paint
     # MultiEffect. An isolated X display supplies a software OpenGL
     # context for these shader tests. xvfb-run owns its auth file and
     # display cleanup; no caller display or Wayland socket enters Qt.
+    # They draw in xcb windows on that display, not offscreen's: from Qt
+    # 6.12.1 (qtbase 1522bd5a) the offscreen GLX context is first made
+    # current on its 100x100 stand-in window, and Mesa's software GLX
+    # sizes that drawable once and re-reads its size only on a swap, which
+    # offscreen never makes, so every read past 100x100 returned zeros.
+    # An xcb window swaps each frame. None of these files opens a window
+    # on offscreen's 2x screen, and the display's one screen holds the
+    # largest test window, 1200x1200.
     for tool in Xvfb xvfb-run xauth flock; do
       if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'qml-unit: status=not-measured file=%s missing=%s\n' "${file##*/}" "$tool"
@@ -409,13 +418,14 @@ for file in "${files[@]}"; do
       fi
     done
     # -o leaves the lock's descriptor out of xvfb-run and its X server.
-    render_command=(flock -o /tmp/.vgshell-qml-unit-xvfb.lock xvfb-run --auto-servernum --server-args='-screen 0 800x600x24 -nolisten tcp'
+    render_command=(flock -o /tmp/.vgshell-qml-unit-xvfb.lock xvfb-run --auto-servernum --server-args='-screen 0 1920x1280x24 -nolisten tcp'
       sh -c 'exec env -i DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "$@"' qml-unit-shader)
     render_environment=(QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl LIBGL_ALWAYS_SOFTWARE=1)
+    platform_environment=(QT_QPA_PLATFORM=xcb)
   fi
   out="$("${render_command[@]}" HOME="$root/home" PATH="/usr/bin:/usr/lib/qt6/bin" LC_ALL=C.UTF-8 \
     "${render_environment[@]}" "${engine_environment[@]}" \
-    QT_QPA_PLATFORM="offscreen:configfile=$root/screens.json" QT_SCREEN_SCALE_FACTORS="one=1;two=2" XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
+    "${platform_environment[@]}" XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
     QT_FORCE_STDERR_LOGGING=1 QT_MESSAGE_PATTERN='%{if-warning}warning: %{endif}%{if-critical}critical: %{endif}%{if-category}%{category}: %{endif}%{message}' \
     "$runner" -import "$imports" -input "$file" 2>&1)" || file_status=$?
   # grep exits 1 when every line was filtered, which is the quiet pass.
