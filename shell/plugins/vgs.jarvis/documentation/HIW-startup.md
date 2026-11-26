@@ -33,7 +33,7 @@ A folder that Setup has not set up cannot run Jarvis or Jarvis Voice. Set up in 
 
 ## Your choices
 
-A change to Account or Home folder while Jarvis runs is checked first. When the new choice passes, VGS stops that session and starts Jarvis with the new choice; when it fails, the running session stays and the row names the cause.
+A change to Home folder while Jarvis runs is checked first. When the new choice passes, VGS stops that session and starts Jarvis with the new choice; when it fails, the running session stays and the row names the cause.
 
 ## Related pages
 

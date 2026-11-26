@@ -2,9 +2,8 @@
 // Login tokens belong to the vendor program, never to the key picker. A cli
 // row's id names its harness in shell/Commons/AccountDirectories.js, the
 // core's account rule, which holds its folder, variable and marker. A key
-// row's keyPage is the vendor's page that creates an API key, keyPageName
-// that page's own name, which Add key
-// names beside a provider it offers. A key row's models, where it has them,
+// row's keyPage is the vendor's page that creates an API key, which the
+// key editor offers beside its provider. A key row's models, where it has them,
 // are the models its account runs, as the Jarvis page offers them.
 var PROVIDERS = [
     { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"], signIn: ["claude", "auth", "login"] },
@@ -22,9 +21,9 @@ var PROVIDERS = [
     // list proves a setup.
     { id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",
         "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },
-    { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys", keyPageName: "OpenAI API keys",
+    { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys", keyPageName: "Anthropic Console",
+    { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",
         probe: { driver: "messages", path: "/v1/messages", model: "claude-haiku-4-5", header: "x-api-key", prefix: "" },
         // A fixed list (2026-10-10): the models backend/AnthropicMessages.js
         // runs, each with the effort levels the Messages API takes for it
@@ -34,19 +33,19 @@ var PROVIDERS = [
             { value: "claude-opus-5-5", label: "Claude Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "medium", own: false },
             { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "high", own: false },
             { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", efforts: [], effort: "", own: false }] },
-    { id: "openrouter", label: "OpenRouter", kind: "key", variable: "OPENROUTER_API_KEY", origin: "https://openrouter.ai", keyPage: "https://openrouter.ai/keys", keyPageName: "OpenRouter keys",
+    { id: "openrouter", label: "OpenRouter", kind: "key", variable: "OPENROUTER_API_KEY", origin: "https://openrouter.ai", keyPage: "https://openrouter.ai/keys",
         probe: { driver: "chat", path: "/api/v1/chat/completions", model: "openai/gpt-4.1-nano", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys", keyPageName: "GroqCloud keys",
+    { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys",
         probe: { driver: "chat", path: "/openai/v1/chat/completions", model: "llama-3.1-8b-instant", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "cerebras", label: "Cerebras", kind: "key", variable: "CEREBRAS_API_KEY", origin: "https://api.cerebras.ai",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "mistral", label: "Mistral", kind: "key", variable: "MISTRAL_API_KEY", origin: "https://api.mistral.ai", keyPage: "https://console.mistral.ai/api-keys", keyPageName: "Mistral API keys",
+    { id: "mistral", label: "Mistral", kind: "key", variable: "MISTRAL_API_KEY", origin: "https://api.mistral.ai", keyPage: "https://console.mistral.ai/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "mistral-small-latest", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey", keyPageName: "Google AI Studio",
+    { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey",
         probe: { driver: "chat", path: "/v1beta/openai/chat/completions", model: "gemini-2.5-flash-lite", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     // A speech key: it serves the ElevenLabs voice, never an AI model.
     { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io",
-        keyPage: "https://elevenlabs.io/app/settings/api-keys", keyPageName: "ElevenLabs API keys" },
+        keyPage: "https://elevenlabs.io/app/settings/api-keys" },
     { id: "ollama", label: "Ollama", kind: "local", port: 11434, origin: "http://127.0.0.1:11434",
         probe: { driver: "ollama", path: "/api/generate", model: "" } },
     { id: "llama-server", label: "llama-server", kind: "local", port: 8080, origin: "http://127.0.0.1:8080",
@@ -290,6 +289,19 @@ function providerChoices(kind, width, pages) {
     });
 }
 
+// The Provider choices of the Providers and keys editor (the manifest's
+// `keyProviders`): each key provider Jarvis stores a key of, by its
+// label, with its key page as the link the editor offers beside it, the
+// one route by which adding a key opens the browser, as the keys rules
+// of docs/architecture/jarvis.md state.
+function keyProviderChoices() {
+    return PROVIDERS.filter(storedKeyProvider).map(function (row) {
+        var choice = { value: row.id, label: row.label };
+        if (row.keyPage !== undefined) choice.link = { text: row.label + " key page", url: row.keyPage };
+        return choice;
+    });
+}
+
 // The account CLI and its QML reader share this exact safe error protocol.
 // Only producer-owned keys can leave stderr; values and native errors cannot.
 var FAILURE_KEYS = {
@@ -347,5 +359,5 @@ function probeFailure(completion, diagnostic) {
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, cloudVoice: cloudVoice, runtimeDirectory: runtimeDirectory,
     keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, storedKeyProvider: storedKeyProvider, unlistedChoice: unlistedChoice, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
-    providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
+    providerChoices: providerChoices, keyProviderChoices: keyProviderChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

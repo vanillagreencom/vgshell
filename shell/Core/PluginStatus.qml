@@ -42,6 +42,13 @@ Singleton {
     property var viewing: ({ id: "", tab: "" })
     readonly property string viewed: viewing.id
     function view(id, tab) {
+        // A plugin's editor open (openEditor) belongs to the visit of its
+        // page that asked for it.
+        if (viewing.id !== id && Logic.hasOwn(editors, viewing.id)) {
+            const rest = Object.assign({}, editors);
+            delete rest[viewing.id];
+            editors = rest;
+        }
         viewing = { id: id, tab: tab };
     }
     // The tab plugin ID's page shows, "" while another page or none is
@@ -148,6 +155,63 @@ Singleton {
         if (!Logic.hasOwn(choosers, id) || !Logic.hasOwn(choosers[id], key)) return "none";
         choosers[id][key](value, previous);
         return "ok";
+    }
+
+    // Plugin id -> { "" -> handler }: what each plugin runs for a press of
+    // one of its status actions of route `handler` (Capabilities
+    // managerStep), the save and cancel of its rows editor, and the Add of
+    // a field whose `addChoice` names `handler`. A handler lives with the
+    // instance that registered it.
+    property var actors: ({})
+
+    // Register `handler` for the instance `ctx` belongs to as its plugin's
+    // one action handler, released with the instance: `ok`, or
+    // `refused: status=actions reason=held` while another instance's
+    // handler holds it. The handler takes one press, { key, action, row }
+    // for an action, { key, action: "save", row, choice, name, target,
+    // secret } with a second argument `done`, called once with { ok, text }
+    // as the save ends, or { key, action: "cancel", row, target }, and
+    // answers a keyed reply.
+    function handleActions(ctx, handler) {
+        if (typeof handler !== "function")
+            throw new Error("refused: status=actions handler=not-a-function");
+        return holdHandler("actors", ctx, "", handler);
+    }
+
+    // Hand PRESS to plugin `id`'s action handler, with DONE for a save:
+    // its reply, or `refused: action=<key> reason=no-handler` when no
+    // instance registered one, as while the plugin is off.
+    function act(id, press, done) {
+        if (!Logic.hasOwn(actors, id) || !Logic.hasOwn(actors[id], ""))
+            return "refused: action=" + press.key + " reason=no-handler";
+        return String(actors[id][""](press, done));
+    }
+
+    // Plugin id -> the open of its rows editor it asked for last, { serial,
+    // form } (PluginLogic.editorOpenRequest), which the Settings page
+    // showing the plugin opens once per serial, until that page is no
+    // longer shown (view). A plugin asks only while its page shows, after
+    // the user's own press there.
+    property var editors: ({})
+    property int editorSerial: 0
+
+    // Ask the Settings page, which shows plugin ctx's page now, to open its
+    // rows editor KEY for FORM: `ok`, editorOpenRequest's refusal, or
+    // `refused: editor=<key> reason=unviewed` while the page is not shown.
+    function openEditor(ctx, key, form) {
+        if (viewing.id !== ctx.id) return Logic.editorRefusal(key, "unviewed");
+        const request = Logic.editorOpenRequest(ctx.manifest, valuesOf(ctx.id), key, form);
+        if (!request.ok) return request.answer;
+        editorSerial += 1;
+        const next = Object.assign({}, editors);
+        next[ctx.id] = Logic.frozenJson({ serial: editorSerial, form: request.form });
+        editors = next;
+        return "ok";
+    }
+
+    // The last editor open plugin ID asked for, or null.
+    function editorOf(id) {
+        return Logic.hasOwn(editors, id) ? editors[id] : null;
     }
 
     // Run plugin `id`'s handler for its choices entry `key`: `ok`, or

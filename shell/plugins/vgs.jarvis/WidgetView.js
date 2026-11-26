@@ -39,12 +39,12 @@ var WORK_TEXT = {
 // the engine's order, and what the bar says while one is still to do.
 var SETUP_TEXT = [
     ["setupVoice", { title: "Jarvis needs local voice", action: "Set it up in [Setup > Voice](page:vgs.jarvis/Setup/setupVoice)." }],
-    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one in [Account under AI model](page:vgs.jarvis/Settings/brain)." }]
+    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one in [Provider and key under AI model](page:vgs.jarvis/Settings/brain)." }]
 ];
 // The Voice step's state while the cloud voice has no key, or refused the
 // one it has (SetupGate.voiceStep), and what the bar says then.
-var VOICE_KEY_TEXT = { title: "Jarvis needs a voice key", action: "Add a key in [Voice key](page:vgs.jarvis/Settings/voiceAccount)." };
-var KEY_REFUSED_ACTION = "Add a new key in [Voice key](page:vgs.jarvis/Settings/voiceAccount).";
+var VOICE_KEY_TEXT = { title: "Jarvis needs a voice key", action: "Add one in [API key](page:vgs.jarvis/Settings/voiceAccount)." };
+var KEY_REFUSED_ACTION = "Add a new key in [API key](page:vgs.jarvis/Settings/voiceAccount).";
 // What the bar says of a refused key, naming the company of VOICE, the
 // chosen cloud voice (AccountProviders.cloudVoice); null once the user has
 // left the cloud voice whose refusal still stands.
@@ -103,7 +103,7 @@ var FAULT_TEXT = {
     "account": { title: "The AI account refused the request", action: "Check your [AI model account](page:vgs.jarvis/Settings/brain)." },
     "setup": { title: "The AI model is not set up correctly", action: "Check [AI model settings](page:vgs.jarvis/Settings/brain)." },
     "voiceConnection": { title: "The voice service could not finish the request", action: "Talk to Jarvis again, or check [Jarvis settings](page:vgs.jarvis/Settings)." },
-    "voiceAccount": { title: "The voice account refused the request", action: "Check your account under [Voice key](page:vgs.jarvis/Settings/voiceAccount)." },
+    "voiceAccount": { title: "The voice account refused the request", action: "Check your key under [API key](page:vgs.jarvis/Settings/voiceAccount)." },
     "voiceSetup": { title: "The voice service is not set up correctly", action: "Check [Voice settings](page:vgs.jarvis/Settings/voice)." },
     "voiceNetwork": { title: "Jarvis Voice lost its connection", action: "Check your network, then talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
     "voiceInput": { title: "Jarvis Voice could not send your speech", action: "Talk to Jarvis again. See [Jarvis settings](page:vgs.jarvis/Settings)." },
@@ -252,7 +252,7 @@ function faultText(fault, engine, voice) {
     var kind = faultKind(fault);
     if (kind === "keyRefused") return keyRefusedText(voice);
     if (kind === "elevenlabs" && fault.category === "account") return { title: FAULT_TEXT.elevenlabs.title,
-        action: "Check your key and credits under [Voice key](page:vgs.jarvis/Settings/voiceAccount)." };
+        action: "Check your key and credits under [API key](page:vgs.jarvis/Settings/voiceAccount)." };
     if (kind === "elevenlabs" && fault.category === "setup") return { title: FAULT_TEXT.elevenlabs.title,
         action: "Check the voice and key in [Voice settings](page:vgs.jarvis/Settings/voice)." };
     if (kind === "device" && engine === "dictation") kind = "defaultDevice";

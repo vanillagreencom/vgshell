@@ -35,7 +35,7 @@ On a Jarvis satellite, a forward sends your request's words to Jarvis main throu
 
 ## Your choices
 
-Account and Voice provider on Settings choose who receives your conversation. Screen to cloud and Private windows choose what a screen read may send.
+Provider and key under AI model, and Provider under Voice, on Settings choose who receives your conversation. Screen to cloud and Private windows choose what a screen read may send.
 
 ## Related pages
 

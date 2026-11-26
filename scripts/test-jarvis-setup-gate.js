@@ -154,11 +154,16 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
 }
 
 // A step the user may take sits on Setup as an Optional step, never as a
-// fact on Details: the installs, API keys, Account search and Instructions.
+// fact on Details: the installs and Instructions. Providers and keys, and
+// Apps and local models, are lists of their own on Setup, with Add API key
+// and Find apps and local models under them.
 {
+    const lists = judge.statusRows(manifest, { providerKeys: [], apps: [] });
+    assert.deepEqual(Array.from(settings.rowsEntries(lists, "Setup"), entry => [entry.key, entry.label, entry.action.label]),
+        [["providerKeys", "Providers and keys", "Add API key"], ["apps", "Apps and local models", "Find apps and local models"]], "the Setup lists");
+    assert.deepEqual(Array.from(settings.rowsEntries(lists, "Details"), entry => entry.key).filter(key => ["providerKeys", "apps"].includes(key)), [],
+        "neither list is a Details reading");
     const OPTIONAL = [
-        ["keyStore", "Add key"],
-        ["accountSearch", "Accounts"],
         ["instructions", "Edit"],
         ["input", "Check input"],
         ["browser", "Set up browser"],
@@ -424,7 +429,9 @@ const HOME_CAUSE_ACTIONS = { "home=text": "agents", "guidance=home-skills-too-la
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out",
     "brain=pi-update"];
 // The TUI each of the AI model's named actions opens, from the manifest.
-const MODEL_TUI = { key: "add-key", signIn: "sign-in" };
+// The AI model step's Add API key runs in the plugin (route handler), so
+// its button names no script; Sign in names its own.
+const MODEL_TUI = { key: "", signIn: "sign-in" };
 const plain = value => JSON.parse(JSON.stringify(value));
 const readiness = (gate, answer) => gate.readiness(answer, { kind: "ready", path: "/home/user/Fixture" });
 // The voice the daemon hears of: [label, the settings a user changed over the
@@ -803,36 +810,31 @@ const localRuntimeFile = path.join(path.dirname(file), "LocalRuntime.qml");
 const providersFile = path.join(path.dirname(file), "AccountProviders.js");
 const { cloudVoice } = require(providersFile);
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
-// Remove key draws on the API keys row beside Add key, in the danger tone
-// that leads with the trash mark, while a key is stored, and never on a
-// More settings row: [where it draws on the page, its tone] for MANIFEST, a
-// judged manifest, and the keyStore value of WORDS.keysValue's OUTCOME.
-function removeKeyPlacement(judged, outcome) {
-    const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) });
-    const tuis = judge.listedTuis(judged);
-    const rows = settingsRows(settings.setupSections(tuis, status)).filter(item => item.step && item.aside !== null)
-        .map(item => ["row " + item.key + " beside " + item.button.label, item.aside.label, item.aside.tone]);
-    const more = Array.from(settings.freeScreens(tuis, status, "Settings", jarvisOn)).filter(button => button.name === "remove-key")
-        .map(button => ["More settings", button.label, button.tone]);
-    return rows.concat(more);
+// A key row of Providers and keys draws Edit and Check as small buttons and
+// Remove in the row's menu, led by the trash mark; Check and Remove each
+// ask in place first, the question naming the key (Jarvis decision,
+// VGS-2335). [buttons, menu] for MANIFEST, a judged manifest, each action
+// as [text, asks, question title].
+function keyRowControls(judged) {
+    const row = { id: "keyring:a", label: "OpenAI", secondary: "Used by AI model", state: { tone: "info", text: "Not checked yet" },
+        actions: ["edit", "check", "remove"], choice: "openai",
+        confirm: { check: "Jarvis sends one short request to OpenAI with gpt-4.1-nano. It can cost a small amount.", remove: "The key is deleted from your keyring." } };
+    const entry = Array.from(judge.statusRows(judged, { providerKeys: [row] })).find(item => item.key === "providerKeys");
+    const view = settings.rowsView(entry, jarvisOn).rows[0];
+    const shape = button => [button.text, button.confirm, button.confirm ? button.title : ""];
+    return plain([view.buttons.map(shape), view.menu.map(shape)]);
 }
 {
-    const key = { label: "OpenAI / fixture", value: "present" };
-    for (const [label, outcome, want] of [
-        ["two keys stored", { kind: "listed", rows: [key, Object.assign({}, key, { label: "Gemini / fixture" })] }, [["row keyStore beside Add key", "Remove key", "danger"]]],
-        ["one key stored", { kind: "listed", rows: [key] }, [["row keyStore beside Add key", "Remove key", "danger"]]],
-        ["no key stored", { kind: "listed", rows: [] }, []],
-        ["the keyring unread", { kind: "failed" }, []]])
-        assert.deepEqual(removeKeyPlacement(manifest, outcome), want, label + ": Remove key draws on the API keys row alone");
-    // Its control: the remove-key screen marked as a More settings screen and
-    // the API keys row with no aside, which draws it on More settings.
+    assert.deepEqual(keyRowControls(manifest), [[["Edit", false, ""], ["Check", true, "Check OpenAI?"]], [["Remove", true, "Remove OpenAI?"]]],
+        "a key row's controls");
+    // Its control: Remove without its danger tone draws as a button, out of
+    // the row's menu, and without confirm it asks nothing.
     const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-    raw.tui["remove-key"].entry.settings = true;
-    delete raw.status.keyStore.aside;
-    const unaside = judge.validateManifest(raw, path.dirname(file));
-    assert.equal(unaside.ok, true, "the control's manifest is judged");
-    assert.deepEqual(removeKeyPlacement(unaside.manifest, { kind: "listed", rows: [key] }), [["More settings", "Remove key", ""]],
-        "control: with no aside Remove key draws on More settings and not on the API keys row");
+    delete raw.status.providerKeys.rowActions.remove.tone;
+    delete raw.status.providerKeys.rowActions.remove.confirm;
+    const plainRemove = judge.validateManifest(raw, path.dirname(file));
+    assert.equal(plainRemove.ok, true, "the control's manifest is judged");
+    assert.notDeepEqual(keyRowControls(plainRemove.manifest), keyRowControls(manifest), "control: a plain Remove draws apart");
 }
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
@@ -950,10 +952,10 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             values[key] = value;
             return "ok";
         } } };
-        const root = { shell, modelAccess: { kind: "checking" }, pending: false, removedFrom: undefined, addedFrom: undefined,
+        const apps = row.apps.map((app, index) => ({ id: "app-" + index, label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app }));
+        const root = { shell, modelAccess: { kind: "checking" }, pending: false, voiceCleared: false, keyList: undefined,
             completion: { kind: "exited", code: row.code ?? 0 }, diagnostic: { kind: "collected", text: "" },
-            output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app })),
-                brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
+            output: JSON.stringify({ accounts: apps, brains: [], voiceAccounts: [], keys: [], apps, search: { partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, PageReference: pageReference, Providers: { cloudVoice, probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
         vm.runInNewContext("(" + publishSetup[0] + ")", { ...SERVICE_IMPORTS, Gate: gate, shell, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, voiceProvider: shell.settings.voiceProvider, accountReader: root, localRuntime: { setupCause: "", republish: () => true }, localTier: TIER_IDLE, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
@@ -1082,9 +1084,9 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                     values[key] = value;
                     return "ok";
                 } } };
-            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", providers: "unread", pending: false, removedFrom: undefined, addedFrom: undefined,
+            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", keyList: "unread", providers: "unread", pending: false, voiceCleared: false,
                 completion: { kind: "exited", code: offered === null ? 1 : 0 }, diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
-                output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
+                output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], keys: [], apps: [], search: { partial: "" } }) };
             const run = () => vm.runInNewContext(publishAccounts[0],
                 { root, Gate: gate, Words: words, PageReference: pageReference, Providers: { cloudVoice, probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
             run();
@@ -1098,14 +1100,16 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const GEMINI_TWO = [...GEMINI_KEY, { value: "gemini-2", label: "Gemini / second", provider: "gemini" }];
         for (const [label, offered, settings, choices, writes] of VOICE_KEY_CHOICE(GEMINI_TWO))
             assert.deepEqual(publication(label, settings, offered), { choices, writes }, label);
-        // The Voice key field: no hint and no link (the hint rule); its list
-        // ends with Add a key, which opens the add-key window for the chosen
-        // cloud voice. Its help sits behind the info button. No status row
+        // The API key field: no hint and no link (the hint rule); its list
+        // ends with Add API key, which the plugin answers by opening the
+        // key editor for the chosen cloud voice (KeyEditor.openVoice), no
+        // terminal. Its help sits behind the info button. No status row
         // repeats the key or the preview.
         const field = manifest.schema.voiceAccount;
-        assert.deepEqual([field.description, field.link, field.addChoice === undefined ? null : plain(field.addChoice)], [undefined, undefined, { label: "Add a key", tui: "add-voice-key" }],
-            "the Voice key field has no hint or link and ends with Add a key");
-        assert.deepEqual(plain(manifest.tui["add-voice-key"]).args, ["voice"], "Add a key opens the add-key window for the chosen voice");
+        assert.deepEqual([field.label, field.description, field.link, field.addChoice === undefined ? null : plain(field.addChoice)], ["API key", undefined, undefined, { label: "Add API key", handler: true }],
+            "the API key field has no hint or link and ends with Add API key");
+        assert.deepEqual(plain(judge.addChoiceRequest(manifest, "vgs.jarvis", true, "voiceAccount")),
+            { ok: true, kind: "handler", key: "voiceAccount", action: "add", row: "" }, "Add API key is the plugin's own press");
         assert.deepEqual([field, manifest.schema.voice, manifest.schema.voiceProvider].map(entry => typeof entry.info === "string" && entry.info !== ""),
             [true, true, true], "each voice entry keeps its longer help behind the info button");
         assert.equal(manifest.schema.voice.preview, true, "the Voice list plays each voice");
@@ -2178,13 +2182,13 @@ function verifyLocalSetup(gate) {
     // One choice opens one window. [label, before, after, ready, keys, window]
     const elevenKey = { value: "elevenlabs-1", label: "ElevenLabs, key 1", provider: "elevenlabs" };
     for (const [label, before, after, ready, keys, window] of [
-        ["ElevenLabs with no tier ready and no key", "gemini", "elevenlabs", null, [], "add-voice-key"],
+        ["ElevenLabs with no tier ready and no key", "gemini", "elevenlabs", null, [], "key-editor"],
         ["ElevenLabs with no tier ready beside its key", "gemini", "elevenlabs", null, [elevenKey], "setup-local"],
         ["ElevenLabs with no tier ready before the keys are read", "gemini", "elevenlabs", null, undefined, "setup-local"],
-        ["ElevenLabs beside a ready tier with no key", "gemini", "elevenlabs", "small", [], "add-voice-key"],
+        ["ElevenLabs beside a ready tier with no key", "gemini", "elevenlabs", "small", [], "key-editor"],
         ["Local with no tier ready", "realtime", "local", null, [], "setup-local"],
         ["Local beside a ready tier", "realtime", "local", "small", [], null],
-        ["a cloud voice with no key", "local", "gemini", null, [elevenKey], "add-voice-key"],
+        ["a cloud voice with no key", "local", "gemini", null, [elevenKey], "key-editor"],
         ["a cloud voice before the keys are read", "local", "gemini", null, undefined, null]
     ]) assert.equal(gate.providerWindow(before, after, { pick: "small", ready, choices: [] }, keys, cloudVoice(after)), window, "the one window: " + label);
     verifyLocalTierRuns(gate);
@@ -2226,30 +2230,31 @@ function verifyLocalTierRuns(gate) {
 }
 
 // The service hands each page choice of the Local voice model to
-// LocalTier, and a page choice of a Voice provider opens the one window
-// SetupGate.providerWindow names: Add a key, or LocalTier's download. Only
-// the choice hook opens either (ruling 7): no other code of the service
-// runs Add a key.
+// LocalTier, and a page choice of a Voice provider starts the one step
+// SetupGate.providerWindow names: the key editor, with the choice it
+// replaced to put back on Cancel, or LocalTier's download. Only the choice
+// hook starts either (ruling 7), and no choice opens a terminal.
 function verifyVoiceChoices(gate, serviceSource) {
     const registration = serviceSource.match(/^            for \(const key of \["localTier", "voiceProvider"\]\) \{\n[\s\S]*?^            \}$/m);
     const chooser = serviceSource.match(/^    function voiceChosen\(key, value, previous\) \{\n[\s\S]*?^    \}$/m);
     assert.ok(registration !== null && chooser !== null, "the service's choice registration and handler");
-    assert.equal(serviceSource.split('shell.tui.run("add-voice-key"').length - 1, 1, "one place opens Add a key");
-    assert.ok(chooser[0].includes('shell.tui.run("add-voice-key"'), "the choice handler opens Add a key");
+    assert.equal(serviceSource.split("keyEditor.providerNeedsKey(").length - 1, 1, "one place opens the key editor for a provider");
+    assert.ok(chooser[0].includes("keyEditor.providerNeedsKey(previous)"), "the choice handler opens the key editor");
     const gemini = { value: "gemini-1", label: "Gemini, key 1", provider: "gemini" };
     // [label, keys read, tier ready, choices, LocalTier calls, windows]
     for (const [label, keys, ready, choices, tiers, windows] of [
         ["Local and a model", [], null, [["localTier", "medium", "auto"], ["voiceProvider", "local", "realtime"]],
             [["chosen", "medium"], ["setUp"]], []],
         ["Local beside a ready tier", [], "small", [["voiceProvider", "local", "realtime"]], [], []],
-        ["a cloud voice with no key", [], null, [["voiceProvider", "gemini", "local"]], [], [["add-voice-key"]]],
+        ["a cloud voice with no key", [], null, [["voiceProvider", "gemini", "local"]], [], [["local"]]],
         ["a cloud voice whose key is stored", [gemini], null, [["voiceProvider", "gemini", "local"]], [], []],
-        ["another cloud voice than the key's", [gemini], null, [["voiceProvider", "realtime", "gemini"]], [], [["add-voice-key"]]],
+        ["another cloud voice than the key's", [gemini], null, [["voiceProvider", "realtime", "gemini"]], [], [["gemini"]]],
         ["keys not read yet", undefined, null, [["voiceProvider", "gemini", "local"]], [], []],
-        ["ElevenLabs with no tier ready and no key opens Add a key alone", [gemini], null, [["voiceProvider", "elevenlabs", "gemini"]], [], [["add-voice-key"]]]
+        ["ElevenLabs with no tier ready and no key opens the key editor alone", [gemini], null, [["voiceProvider", "elevenlabs", "gemini"]], [], [["gemini"]]]
     ]) {
         const handlers = {}, chosen = [], runs = [];
         const scope = { ...SERVICE_IMPORTS, Gate: gate, accountReader: { voiceKeys: keys }, console: { warn: () => {} },
+            keyEditor: { providerNeedsKey: previous => runs.push([previous]) },
             localTier: { reading: { pick: "small", ready, choices: [] }, chosen: value => chosen.push(["chosen", value]), setUp: () => chosen.push(["setUp"]) },
             shell: { tui: { run: (name, args) => { runs.push([name, ...args]); return "ok"; } },
                 status: { handleChoice: (key, handler) => { handlers[key] = handler; return "ok"; } } } };
@@ -2257,7 +2262,7 @@ function verifyVoiceChoices(gate, serviceSource) {
         vm.runInNewContext(registration[0], scope);
         for (const [key, value, previous] of choices) handlers[key](value, previous);
         assert.deepEqual(plain(chosen), tiers, label + ": LocalTier's runs");
-        assert.deepEqual(plain(runs), windows, label + ": Add a key");
+        assert.deepEqual(plain(runs), windows, label + ": the key editor, with the provider Cancel puts back");
     }
 }
 
@@ -2390,13 +2395,14 @@ function verifyLimitPresentation(gate) {
     assert.equal(typeof skills.info === "string" && skills.info.length > 0, true, "the skill-entry refusal has a reason info");
     assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: skills }, "setupHome")),
         { ok: true, kind: "file", path: home.path + "/skills/" }, "the skill-entry refusal has a file action");
+    // A search that stopped at a limit says why under its row, and the
+    // list keeps Find apps and local models, its recovery action.
     for (const partial of ["entry-limit", "account-limit"]) {
-        const value = words.searchValue({ kind: "found", found: 2, partial }, pageReference);
-        assert.equal(value.action, true, partial + ": account search keeps its recovery action");
-        assert.equal(typeof value.info === "string" && value.info.length > 0, true, partial + ": account search has a reason info");
-        assert.equal(judge.statusWrite(manifest, {}, "accountSearch", value).ok, true, partial + ": accepted account limit info");
-        if (partial === "entry-limit") assert.equal(pageReference.file(pageReference.parse(value.info).page), "~/",
-            "account search links the user's home, not the chosen Jarvis home");
+        const value = words.appRows([], { kind: "found", partial });
+        assert.equal(value.length, 1, partial + ": the search's own row");
+        assert.ok(/ so | keeps /.test(value[0].secondary), partial + ": the row says why the limit holds");
+        assert.equal(judge.statusWrite(manifest, {}, "apps", plain(value)).ok, true, partial + ": accepted search row");
+        assert.equal(judge.statusRows(manifest, { apps: plain(value) }).find(entry => entry.key === "apps").action.offered, true, partial + ": Find stays offered");
     }
     const voice = gate.voiceCheck(gate.DONE, { kind: "recording" });
     assert.equal(typeof voice.info === "string" && voice.info.length > 0, true, "the microphone duration has a reason info");
@@ -2783,7 +2789,7 @@ const CONTROLS = [
     ["the session warning links Settings", "var SESSION_FAULT = \"[Jarvis session cannot start](page:vgs.jarvis/Setup/sessionStart)\";", "var SESSION_FAULT = \"[Jarvis session cannot start](page:vgs.jarvis/Settings)\";", "the session hint links its row"],
     ["the missing tmux hint links Optional tools", 'on the Setup tab](page:vgs.jarvis/Setup)" }', 'on the Setup tab](page:vgs.jarvis/Details)" }', "the session hint links its row"],
     ["a one-sentence hint ends with a full stop", '"brain=models-reading": "Jarvis is reading the local server model list",', '"brain=models-reading": "Jarvis is reading the local server model list.",', "ends as the copy rule says"],
-    ["a longer hint leaves its last full stop off", 'Add a key with Add key to use an AI model."', 'Add a key with Add key to use an AI model"',
+    ["a longer hint leaves its last full stop off", 'Add a key with Add API key to use an AI model."', 'Add a key with Add API key to use an AI model"',
         "ends as the copy rule says"],
     ["the stopped notice takes the hint's one sentence as it is", "message: sentence(problem.action),", "message: problem.action,", "notice's message ends as a sentence"],
     ["joined hints run on with no full stop between them", "hints.map(sentence).join", "hints.join", "keeps the summary and its caution, a sentence of its own"],
@@ -2845,20 +2851,20 @@ try {
     console.log("test-jarvis-setup-gate: case=voice-field passed=true");
     const serviceSource = fs.readFileSync(serviceFile, "utf8");
     verifyDictationStart(serviceSource);
-    // Its controls: a judge that opens Add a key beside a stored key, and a
-    // choice handler that opens the download beside Add a key.
+    // Its controls: a judge that opens the key editor beside a stored key,
+    // and a choice handler that opens the download beside the editor.
     const gateSource = fs.readFileSync(file, "utf8");
-    const keyNeedle = "keys !== undefined && voiceKeys(keys, voice).length === 0) return \"add-voice-key\";";
-    assert.equal(gateSource.split(keyNeedle).length, 2, "the key window control's text occurs once");
+    const keyNeedle = "keys !== undefined && voiceKeys(keys, voice).length === 0) return \"key-editor\";";
+    assert.equal(gateSource.split(keyNeedle).length, 2, "the key editor control's text occurs once");
     const keyCopy = path.join(temp, "voice-key-window-SetupGate.js");
-    fs.writeFileSync(keyCopy, gateSource.replace(keyNeedle, "keys !== undefined) return \"add-voice-key\";"));
-    assert.throws(() => verifyVoiceChoices(load(keyCopy), serviceSource), assert.AssertionError, "a stored key keeps Add a key closed");
+    fs.writeFileSync(keyCopy, gateSource.replace(keyNeedle, "keys !== undefined) return \"key-editor\";"));
+    assert.throws(() => verifyVoiceChoices(load(keyCopy), serviceSource), assert.AssertionError, "a stored key keeps the key editor closed");
     console.log("test-jarvis-setup-gate: control=voice-key-window rejected=true");
-    const bothNeedle = '            if (answer !== "ok") console.warn("jarvis: add-voice-key=" + answer);\n            return;';
-    assert.equal(serviceSource.split(bothNeedle).length, 2, "the one-window control's text occurs once");
+    const bothNeedle = '            keyEditor.providerNeedsKey(previous);\n            return;';
+    assert.equal(serviceSource.split(bothNeedle).length, 2, "the one-step control's text occurs once");
     assert.throws(() => verifyVoiceChoices(load(file), serviceSource.replace(bothNeedle,
-        '            if (answer !== "ok") console.warn("jarvis: add-voice-key=" + answer);\n            if (Gate.localVoiceChosen(previous, value, localTier.reading)) localTier.setUp();\n            return;')),
-        assert.AssertionError, "one choice opens one window");
+        '            keyEditor.providerNeedsKey(previous);\n            if (Gate.localVoiceChosen(previous, value, localTier.reading)) localTier.setUp();\n            return;')),
+        assert.AssertionError, "one choice starts one step");
     console.log("test-jarvis-setup-gate: control=voice-one-window rejected=true");
     console.log("test-jarvis-setup-gate: case=dictation-start passed=true");
     for (const [label, needle, replacement] of [
@@ -2997,7 +3003,7 @@ try {
         ["Service.qml", serviceSource, "voiceProvider: provider, dictation", 'voiceProvider: "local", dictation'],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
-        ["Accounts.qml", accountsSource, "let chosen = pending ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);", "let chosen = null;"],
+        ["Accounts.qml", accountsSource, 'const chosen = pending || voiceCleared && shell.settings.voiceAccount === "" ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);', "const chosen = null;"],
         ["Accounts.qml", accountsSource, "const voiceChoices = Gate.voiceKeys(keys, voice);", 'const voiceChoices = keys.filter(key => key.provider === "openai").map(key => ({ value: key.value, label: key.label }));'],
         ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
         ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"],
@@ -3582,11 +3588,11 @@ function verifyPathForm(gate) {
         ["brain=unselected", "vgs.jarvis", "Settings/brain"],
         ["brain=model-required", "vgs.jarvis", "Settings/model"],
         ...["models-unavailable", "model-unavailable", "signed-out"].map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
-        ["brain=account-unavailable", "vgs.jarvis", "Setup/keyStore"],
+        ["brain=account-unavailable", "vgs.jarvis", "Setup/providerKeys"],
         ["brain=pi-update", "vgs.jarvis", "Setup"],
-        ["speech=live-account-unselected", "vgs.jarvis", "Setup/keyStore"],
-        ["speech=live-account-unreadable", "vgs.jarvis", "Setup/accountSearch"],
-        ["speech=live-key-required", "vgs.jarvis", "Settings"],
+        ["speech=live-account-unselected", "vgs.jarvis", "Setup/providerKeys"],
+        ["speech=live-account-unreadable", "vgs.jarvis", "Setup/providerKeys"],
+        ["speech=live-key-required", "vgs.jarvis", "Settings/voiceAccount"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup/setupVoice"],
         ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
         ["speech=dictation-device", "vgs.voice", "Settings"],

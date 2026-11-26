@@ -76,6 +76,7 @@ Item {
         property string actionReply: "ok"
         function rescan() { return "ok"; }
         function viewPage(id) {}
+        function editorOf(id) { return null; }
         function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return "ok"; }
         function act(id, key, row, rowAction) { acts = acts.concat([[id, key, row, rowAction]]); return actionReply; }
     }

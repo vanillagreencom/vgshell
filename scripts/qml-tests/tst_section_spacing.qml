@@ -58,6 +58,7 @@ Item {
         function openPlugin() { return "ok"; }
         function leave(next) { next(); }
         function replyOf() { return ""; }
+        function editorOf() { return null; }
         function tuiKey(name) { return "tui:" + name; }
         function sourceKey(account) { return "source:" + account; }
         function stepKey(pluginId, key, account) { return [pluginId, key, account].join(":"); }

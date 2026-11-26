@@ -31,13 +31,13 @@ gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }
 # secret value enters the shell.
 accounts() { vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" "$@"; }
 choose() { vgs_tui_choose --label-delimiter=$'\t' "$@"; }
-vgs_tui_header "Jarvis accounts" "The accounts Jarvis can use as its AI model." \
-  "Signed in does not prove that the AI answers. Verify checks that."
+vgs_tui_header "Jarvis apps and local models" "The apps, local models and keys Jarvis can use as its AI model." \
+  "Signed in does not prove that the AI answers. Check sends a request to find out."
 # Each action with one line that says what it does.
 actions="Show accounts      See each account Jarvis found and its status."$'\t'show
 actions+=$'\n'"Add directory      Add a Claude Code, Codex, Copilot or Pi folder Jarvis did not find."$'\t'add
 actions+=$'\n'"Use keyring item   Use an API key you saved in your keyring before."$'\t'item
-actions+=$'\n'"Verify             Send one small paid request to check an account."$'\t'verify
+actions+=$'\n'"Check              Send one small paid request to check an account."$'\t'verify
 actions+=$'\n'"Close              Close this window."$'\t'close
 while true; do
   action="$(choose --header "Select an action." <<<"$actions")" || exit 130
@@ -48,7 +48,7 @@ while true; do
         { vgs_tui_failed "$log" "Jarvis could not read your accounts. Close this window and try again."; continue; }
       if [[ -z $table ]]; then
         vgs_tui_warn "Jarvis found no account."
-        vgs_tui_warn "Add a folder with Add directory, or a key with Add key."
+        vgs_tui_warn "Add a folder with Add directory, or a key with Add API key on the Jarvis Setup tab."
       else
         gum table --print <<<"$table"
       fi
@@ -69,7 +69,7 @@ while true; do
     item)
       choices="$(accounts items "$columns")" ||
         { vgs_tui_failed "$log" "Jarvis could not read your keyring. Unlock it, then try again."; continue; }
-      [[ -n $choices ]] || { vgs_tui_warn "Your keyring has no API key that Jarvis can use. Add one with Add key."; continue; }
+      [[ -n $choices ]] || { vgs_tui_warn "Your keyring has no API key that Jarvis can use. Add one with Add API key on the Jarvis Setup tab."; continue; }
       item="$(choose --header "Select the keyring item that holds the API key." <<<"$choices")" || exit 130
       providers="$(accounts providers key "$columns")" ||
         { vgs_tui_failed "$log" "Jarvis could not list the providers. Close this window and try again."; continue; }
@@ -78,7 +78,7 @@ while true; do
       if accounts remember "$item" "$selected" "$label" >>"$log"; then
         vgs_tui_success "Jarvis can use the key now."
       else
-        vgs_tui_failed "$log" "Jarvis could not use this keyring item." "Select a different item, or add the key with Add key."
+        vgs_tui_failed "$log" "Jarvis could not use this keyring item." "Select a different item, or add the key with Add API key on the Jarvis Setup tab."
       fi
       ;;
     verify)

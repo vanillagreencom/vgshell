@@ -201,6 +201,7 @@ Item {
         function rescan() { return "ok"; }
         function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return enableReply; }
         function viewPage(id) {}
+        function editorOf(id) { return null; }
         function installRequirements(id) { installs = installs.concat([id]); return installReply; }
         function update(id) { updates = updates.concat([id]); return "ok"; }
         function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }

@@ -116,6 +116,7 @@ Item {
         function openTui() { return "ok"; }
         function act() { return "ok"; }
         function replyOf() { return ""; }
+        function editorOf() { return null; }
         function headReplies() { return []; }
         // No key write runs, and a key's source keeps its reply apart, as
         // the Settings window's do.

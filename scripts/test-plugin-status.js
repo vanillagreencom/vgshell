@@ -169,7 +169,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             const make = saved => configuredWorld(logic, enabled, replaced, saved, path.join(scratch, "settings-" + sequence++ + ".json"));
             const keys = [{ label: "Fixture voice", value: "openai-fixture", provider: "openai" }];
             let world = make({ voiceProvider: "realtime", voiceAccount: "" });
-            let root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, pending: false, removedFrom: undefined, addedFrom: undefined,
+            let root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, pending: false, voiceCleared: false,
                 console: { warn: value => { throw new Error(value); } } }, sources.Accounts, ["publishVoice"]);
             const voice = root.publishVoice(keys);
             const disk = JSON.parse(fs.readFileSync(world.config.userPath, "utf8"));
@@ -215,9 +215,9 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 const probe = {};
                 Object.defineProperty(probe, "running", { get: () => running, set: value => { running = value; if (value) starts++; } });
                 root = { shell: world.shell, Gate: GATE, Words: WORDS, PageReference: PAGE_REFERENCE, Providers: PROVIDERS, pending: true,
-                    probe, reader: probe, program: "/fixture/reader", removedFrom: undefined,
+                    probe, reader: probe, program: "/fixture/reader", voiceCleared: false,
                     completion: { kind: "exited", code: failed ? 1 : 0 }, diagnostic: { kind: "collected", text: "" }, code: failed ? 1 : 0,
-                    output: name === "Accounts" ? JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: keys, search: { found: 1, partial: "" } })
+                    output: name === "Accounts" ? JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: keys, keys: [], apps: [], search: { partial: "" } })
                         : name === "Keys" ? "[]" : JSON.stringify({ pick: "large", ready: "small", choices: [] }),
                     refreshed: () => refreshes++, Qt: { callLater: fn => queue.push(fn) }, console: { warn: value => warnings.push(value) },
                     Quickshell: { shellDir: "/fixture/shell", env: () => "" } };
@@ -538,25 +538,30 @@ function suite(ctx, check) {
     check("manager setup: a script that requires nothing runs while a required command is missing", ctx.tuiRunFor(needless.manifest, true, "/sources", runner, "setup", ["acme-sync"]).key, "acme.status/setup");
     check("a row offers a TUI that requires nothing", ctx.statusRows(needless.manifest, { token: "absent" }).find(row => row.key === "token").action.label, "Set up token");
 
-    // Jarvis's key and account steps, offered whatever is missing: a press
-    // without the keyring command, which both need, asks for it first. No
-    // text of the page names a step it does not offer.
-    const jarvisPage = { keyStore: { tone: "info", text: "No key stored", action: true },
-        accountSearch: { tone: "warning", text: "2 accounts found. Add an account by hand with Accounts.", lines: ["Accounts lists them"], action: true } };
-    const pageRows = ctx.statusRows(jarvis, jarvisPage).filter(row => row.key === "keyStore" || row.key === "accountSearch");
+    // Jarvis's Providers and keys, and Apps and local models, lists offer
+    // their actions whatever is missing: Add API key runs in the plugin, and
+    // a press of Find apps and local models without the keyring command it
+    // needs asks for it first. No text of the page names a step it does not
+    // offer.
+    const jarvisPage = { providerKeys: [], apps: [{ id: "search", label: "Search stopped at 10,000 folder entries",
+        secondary: "Add a missed folder with Find apps and local models.", state: { tone: "warning", text: "Some may be missing" } }] };
+    const pageRows = ctx.statusRows(jarvis, jarvisPage).filter(row => row.key === "providerKeys" || row.key === "apps");
     const unoffered = rows => {
         const offered = rows.filter(row => row.action.offered).map(row => row.action.label);
-        const texts = [].concat(...rows.map(row => [row.hint, row.value.text].concat(row.value.lines || [])));
-        return ["Add key", "Accounts"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
+        const texts = [].concat(...rows.map(row => [row.hint].concat((row.value || []).map(item => item.label + " " + item.secondary))));
+        return ["Add API key", "Find apps and local models"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
     };
-    check("Jarvis offers Add key and Accounts", pageRows.map(row => row.action), [{ label: "Add key", icon: "", tone: "", offered: true, tui: "add-key" }, { label: "Accounts", icon: "", tone: "", offered: true, tui: "accounts" }]);
-    check("Jarvis opens add-key while only tesseract is missing",
-        ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract"]).key, "vgs.jarvis/add-key");
-    check("Jarvis's Add key asks for secret-tool alone while it and tesseract are missing",
-        ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract", "secret-tool"]), { ok: true, kind: "install", commands: ["secret-tool"] });
+    check("Jarvis offers Add API key and Find apps and local models", pageRows.map(row => row.action),
+        [{ label: "Add API key", icon: "", tone: "", offered: true, tui: "" }, { label: "Find apps and local models", icon: "", tone: "", offered: true, tui: "accounts" }]);
+    check("Jarvis's Add API key is the plugin's own press", ctx.statusActionRequest(jarvis, "vgs.jarvis", true, jarvisPage, "providerKeys"),
+        { ok: true, kind: "handler", key: "providerKeys", action: "", row: "" });
+    check("Jarvis opens accounts while only tesseract is missing",
+        ctx.tuiRunFor(jarvis, true, "/sources", runner, "accounts", ["tesseract"]).key, "vgs.jarvis/accounts");
+    check("Jarvis's Find apps and local models asks for secret-tool alone while it and tesseract are missing",
+        ctx.tuiRunFor(jarvis, true, "/sources", runner, "accounts", ["tesseract", "secret-tool"]), { ok: true, kind: "install", commands: ["secret-tool"] });
     check("no text names a step the page does not offer", unoffered(pageRows), []);
     check("the named-step read sees a step the page lacks",
-        unoffered([{ action: { label: "Accounts", offered: true }, hint: "", value: { text: "Use Add key" } }]), ["Add key"]);
+        unoffered([{ action: { label: "Add API key", offered: true }, hint: "Use Find apps and local models", value: [] }]), ["Find apps and local models"]);
 
     check("an unreported entry offers no step",
         ctx.statusRows(m, {})[0].action.offered, false);
@@ -731,7 +736,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: "required", placement: "setup", setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, sourceAction: null, declaredTuis: ["setup"], systemStep: false, action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: "required", placement: "setup", setting: "", step: "", settings: false, tab: "", editor: null, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, sourceAction: null, declaredTuis: ["setup"], systemStep: false, action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -741,7 +746,7 @@ function suite(ctx, check) {
     check("statusRows: state guidance reaches the plain hint", [guidanceRow.hint, guidanceRow.value.lines], ["Try again.", undefined]);
     check("statusRows: an unreported state retains declaration help", ctx.statusRows(m, {}).find(r => r.key === "check").hint, "Check information");
     check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values).find(r => r.key === "check").hint, "Check information");
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: "", placement: "details", setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, sourceAction: null, declaredTuis: [], systemStep: false, action: null, aside: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: "", placement: "details", setting: "", step: "", settings: false, tab: "", editor: null, icon: "", hint: "", info: "", link: null, secrets: false, sourceAction: null, declaredTuis: [], systemStep: false, action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -1311,7 +1316,7 @@ const CONTROLS = [
     ["a clear needs a stored key", "clear: [\"disconnect\"]", "clear: [\"connect\", \"disconnect\"]"],
     ["the stored keys' entry is a presence list", "secrets: entry.type === \"presenceList\" && manifest.secrets !== undefined,", "secrets: manifest.secrets !== undefined,"],
     ["the stored keys' entry needs declared secrets", "secrets: entry.type === \"presenceList\" && manifest.secrets !== undefined,", "secrets: entry.type === \"presenceList\","],
-    ["a secret is judged", "if (!secretValueValid(secret))", "if (false)"],
+    ["a secret is judged", "if (!secretValueValid(secret))\n        return refused(\"value\");", "if (false)\n        return refused(\"value\");"],
     ["a secret has a ceiling", "secret.length <= SECRET_VALUE_MAX &&", ""],
     ["a secret goes on stdin, never the argv", ".concat(attributes), input: secret };", ".concat(attributes, [secret]), input: secret };"],
     ["an offered system action applies its own step", "return { ok: true, kind: \"system\", args: [\"apply\", action.system] };", "return { ok: true, kind: \"system\", args: [action.system] };"],

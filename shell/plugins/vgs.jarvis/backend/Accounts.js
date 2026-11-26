@@ -96,19 +96,33 @@ function accepted(resolved, state, model, listed = { kind: "none" }) {
 // The label an account reads by on the Jarvis page, in the account
 // window and on the session row: its provider, then for an app account its
 // sign-in email, the provider alone while that email is unknown, since a
-// folder's name is no name the user gave the account; a key reads by the
-// name it was stored under. "Claude Code, beijuan@vanillagreen.com".
+// folder's name is no name the user gave the account. A stored key reads
+// by the name it was stored under alone, which a new key takes from its
+// provider, so "OpenAI" never reads "OpenAI, OpenAI" (Jarvis decision,
+// VGS-2335). "Claude Code, beijuan@vanillagreen.com".
 function accountLabel(item) {
+    if (item.source.kind === "keyring") return item.label.slice(0, 60);
     const name = item.source.kind === "cli" ? item.email || "" : item.label;
     return (provider(item.provider).label + (name === "" ? "" : ", " + name)).slice(0, 60);
 }
 
-// Each of ITEMS' labels (accountLabel), by item: accounts that would read
-// the same, such as two Pi folders or two Codex logins with no email, read
-// by their place among them in ITEMS' order, "Pi, account 2", so the user
-// can tell the account a choice stores, still without a folder's name.
+// Each of ITEMS' labels (accountLabel), by item. A stored key whose name
+// another label of ITEMS shares adds its provider in brackets, "Work
+// (OpenAI)", unless its name holds the provider's name already, so a
+// label never names its provider twice. Accounts that still read the same,
+// such as two Pi folders or two Codex logins with no email, read by their
+// place among them in ITEMS' order, "Pi, account 2", so the user can tell
+// the account a choice stores, still without a folder's name.
 function accountLabels(items) {
-    const plain = items.map(accountLabel);
+    const names = items.map(accountLabel);
+    const plain = items.map((item, index) => {
+        const label = names[index];
+        const company = provider(item.provider).label;
+        if (item.source.kind !== "keyring" || names.filter(other => other === label).length < 2
+            || label.toLowerCase().includes(company.toLowerCase())) return label;
+        const suffix = " (" + company + ")";
+        return label.slice(0, 60 - suffix.length) + suffix;
+    });
     const shared = label => plain.filter(other => other === label).length > 1;
     const seen = new Map();
     return new Map(items.map((item, index) => {
@@ -257,6 +271,8 @@ class Accounts {
         this.partial = "";
         this.epoch = 0;
         this.operation = 0;
+        // The clock a Check's record takes its time from.
+        this.now = () => Date.now();
     }
 
     added() {
@@ -746,6 +762,9 @@ class Accounts {
         if (account.state.kind === "verifying") fail("verify=busy");
         if (account.state.kind === "locked") fail("verify=keyring-locked");
         const epoch = this.epoch, operation = ++this.operation;
+        // A key stored or removed while the Check ran is not the key it
+        // sent, so its answer is recorded only over the list it started on.
+        const revision = account.source.kind === "keyring" ? this.secrets.revision() : "";
         account.state = { kind: "verifying", operation };
         let state;
         try {
@@ -765,6 +784,11 @@ class Accounts {
         if (this.epoch !== epoch || account.state.kind !== "verifying" || account.state.operation !== operation)
             return { kind: "superseded" };
         account.state = state;
+        // A stored key keeps its last Check for the Providers and keys list
+        // (AccountStatus.keyStatus); an app's sign-in keeps none.
+        if (account.source.kind === "keyring" && this.secrets.revision() === revision)
+            this.secrets.recordCheck(account.source.reference,
+                state.kind === "verified" ? { kind: "working" } : { kind: "failed", reason: state.reason }, this.now());
         return state;
     }
 
@@ -989,7 +1013,23 @@ class Accounts {
         // Each offered account's provider by its id: the service chooses an
         // unset model by it (AccountProviders.unlistedChoice).
         const providers = Object.fromEntries(offered.map(item => [item.id, item.provider]));
-        return { accounts, brains, providers, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
+        // The stored keys, the Providers and keys list's rows, each with its
+        // last Check (Secrets.checks), and the apps and local models apart
+        // from them, so no count mixes the two (Jarvis decision, VGS-2335).
+        const checks = this.secrets.checks();
+        const keys = this.accounts.filter(item => item.source.kind === "keyring").map(item => {
+            const row = provider(item.provider);
+            const reference = item.source.reference;
+            const presence = item.state.kind === "locked" ? "locked" : item.state.kind === "unavailable"
+                ? (item.state.reason === "key-absent" ? "absent" : item.state.reason === "provider-unsupported" ? "unsupported" : "unavailable") : "present";
+            const check = checks.kind !== "read" ? { kind: "unreadable" }
+                : checks.checks.get(this.secrets.identity(reference)) || { kind: "none" };
+            return { id: item.id, label: labels.get(item), name: item.label, provider: item.provider, providerLabel: row.label, own: this.secrets.isOwn(reference),
+                presence, model: row.probe === undefined ? "" : row.probe.model, checkable: row.probe !== undefined && row.probe.model !== "", check };
+        });
+        const apps = this.accounts.map((item, index) => item.source.kind === "keyring" ? null : { ...accounts[index], id: item.id })
+            .filter(item => item !== null);
+        return { accounts, brains, providers, voiceAccounts, keys, apps, search: { partial: this.partial } };
     }
 }
 

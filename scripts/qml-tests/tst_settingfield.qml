@@ -282,6 +282,7 @@ Item {
         function openPage() {}
         function leave(next) { next(); }
         function replyOf() { return ""; }
+        function editorOf() { return null; }
         function tuiKey(name) { return "tui:" + name; }
         function headReplies() { return []; }
     }

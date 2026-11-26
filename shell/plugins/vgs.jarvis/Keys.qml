@@ -4,26 +4,20 @@ import Quickshell.Io
 import qs.Commons
 import "AccountStatus.js" as Words
 
-// One presence reader, refreshed after the core reports the end of a TUI
-// that changes the keys: add-key, remove-key or accounts.
-// It publishes the key list and the keyring's outcome in the page's words; a
-// failure's cause goes to the log alone.
+// One presence reader, refreshed after a key write (KeyEditor.qml calls
+// refresh) and after the core reports the end of the accounts TUI, which
+// can remember a keyring item. It publishes the key list in the page's
+// words; a failure's cause goes to the log alone.
 Item {
     id: root
     property var shell: null
     property bool pending: false
     property int code: -1
     property string output: ""
-    readonly property var tuiState: shell === null ? null : shell.tui.state["add-key"]
-    readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
-    readonly property var removeState: shell === null ? null : shell.tui.state["remove-key"]
-    readonly property var removeEndedAt: removeState === null || removeState === undefined ? null : removeState.endedAt
     readonly property var accountsState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var accountsEndedAt: accountsState === null || accountsState === undefined ? null : accountsState.endedAt
     readonly property string program: String(Qt.resolvedUrl("backend/keys.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
-    onEndedAtChanged: if (endedAt !== null) refresh()
-    onRemoveEndedAtChanged: if (removeEndedAt !== null) refresh()
     onAccountsEndedAtChanged: if (accountsEndedAt !== null) refresh()
     // Emitted once each check has published, whatever it read.
     signal refreshed()
@@ -48,11 +42,10 @@ Item {
         } catch (error) {
             console.warn("jarvis-keys: presence=failed");
         }
-        let replies = shown === null ? [] : [shell.status.set("keys", shown),
-            shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown }))];
+        let replies = shown === null ? [] : [shell.status.set("keys", shown)];
         if (shown === null || replies.some(reply => !shell.status.isOk(reply))) {
             if (shown !== null) console.warn("jarvis-keys: presence=invalid");
-            replies = [shell.status.set("keys", []), shell.status.set("keyStore", Words.keysValue({ kind: "failed" }))];
+            replies = [shell.status.set("keys", [])];
             if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("jarvis-keys: status=refused");
         }
         if (replies.some(reply => reply !== "ok")) return false;

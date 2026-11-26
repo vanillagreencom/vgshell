@@ -463,12 +463,108 @@ function suite(ctx, configLogic, check) {
         ["a state on Settings", m => { m.status.state = { type: "state", label: "State", settings: true, action: { label: "Fix", tui: "add" } }; }, "status.state.settings needs a rows entry the user changes"],
         ["a Settings placement that is no boolean", m => { m.status.pairs.settings = "yes"; }, "status.pairs.settings must be a boolean"],
         ["a hidden rows entry on Settings", m => { m.status.pairs.hidden = true; }, "status.pairs.settings needs a displayed status"],
-        ["a rows entry of facts on Details", m => { delete m.status.pairs.settings; delete m.status.pairs.action; delete m.status.pairs.rowActions; }, ""]
+        ["a rows entry of facts on Details", m => { delete m.status.pairs.settings; delete m.status.pairs.action; delete m.status.pairs.rowActions; }, ""],
+        ["a list on Setup", m => { delete m.status.pairs.settings; m.status.pairs.tab = "setup"; }, ""],
+        ["a Setup list that also names Settings", m => { m.status.pairs.tab = "setup"; }, "status.pairs.tab must be \"setup\", on a list that declares no settings"],
+        ["a list on another tab", m => { delete m.status.pairs.settings; m.status.pairs.tab = "details"; }, "status.pairs.tab must be \"setup\""],
+        ["a tab on a state", m => { m.status.state = { type: "state", label: "State", tab: "setup" }; }, "status.state.tab needs type rows"],
+        ["a row action the plugin runs, asking first", m => { m.status.pairs.rowActions.remove = { label: "Remove", handler: true, tone: "danger", confirm: true }; }, ""],
+        ["a list action the plugin runs", m => { m.status.pairs.action = { label: "Add a folder pair", handler: true }; }, ""],
+        ["a handler that is no true", m => { m.status.pairs.rowActions.remove = { label: "Remove", handler: "yes" }; }, "status.pairs.rowActions.remove.handler must be true"],
+        ["a script action that asks first", m => { m.status.pairs.rowActions.remove.confirm = true; }, "status.pairs.rowActions.remove.confirm must be true, on an action of route handler"],
+        ["a list action that asks first", m => { m.status.pairs.action = { label: "Add", handler: true, confirm: true }; }, "status.pairs.action.confirm needs a row action"],
+        ["a list with an editor", m => { m.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+            m.status.pairs.editor = { choices: "kinds", choice: "Kind", name: "Name", secret: "Secret" }; }, ""],
+        ["an editor on a state", m => { m.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+            m.status.state = { type: "state", label: "State", editor: { choices: "kinds", choice: "Kind", name: "Name", secret: "Secret" } }; }, "status.state.editor needs type rows"],
+        ["an editor whose choices are no choices entry", m => { m.status.pairs.editor = { choices: "pairs", choice: "Kind", name: "Name", secret: "Secret" }; },
+            "status.pairs.editor.choices must name a choices status entry"],
+        ["an editor short of a label", m => { m.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+            m.status.pairs.editor = { choices: "kinds", choice: "Kind", name: "Name" }; }, "status.pairs.editor must declare choices, choice, name, secret"],
+        ["an editor with a key of its own", m => { m.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+            m.status.pairs.editor = { choices: "kinds", choice: "Kind", name: "Name", secret: "Secret", page: "x" }; }, "status.pairs.editor has unknown key \"page\""],
+        ["an editor label on two lines", m => { m.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+            m.status.pairs.editor = { choices: "kinds", choice: "Kind", name: "Name", secret: "Se\ncret" }; }, "status.pairs.editor.secret must be a printable line"]
     ]) {
         const raw = rowsRaw();
         plant(raw);
         const judged = ctx.validateManifest(raw, "/p");
         check("rows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
+    }
+    // A list the plugin edits in place: its handler actions, the editor
+    // its service opens and the save the page hands it, on the fixture with
+    // an editor. Each row is [name, request, want].
+    {
+        const raw = rowsRaw();
+        delete raw.status.pairs.settings;
+        raw.status.pairs.tab = "setup";
+        raw.status.kinds = { type: "choices", label: "Kinds", hidden: true };
+        raw.status.pairs.editor = { choices: "kinds", choice: "Kind", name: "Name", secret: "Secret" };
+        raw.status.pairs.action = { label: "Add a pair", handler: true };
+        raw.status.pairs.rowActions = { edit: { label: "Edit", handler: true }, remove: { label: "Remove", handler: true, tone: "danger", confirm: true } };
+        raw.settings = { target: "" };
+        raw.schema = { target: { type: "string", label: "Target", optionsFrom: "kinds", addChoice: { label: "Add", handler: true } } };
+        raw.capabilities.push("configure");
+        const judged = ctx.validateManifest(raw, "/p");
+        check("editor: the fixture with an editor is judged", judged.ok ? "" : judged.error, "");
+        const m = judged.manifest;
+        const values = { kinds: [{ value: "alpha", label: "Alpha", link: { text: "Alpha keys", url: "https://alpha.invalid/keys" } }, { value: "beta", label: "Beta" }],
+            pairs: [{ id: "row-a", label: "Alpha", choice: "alpha", actions: ["edit", "remove"], confirm: { remove: "Alpha stops." } },
+                { id: "row-b", label: "Plain", actions: ["remove"] }] };
+        check("editor: rows carrying a choice and a question fit", ctx.statusWrite(m, {}, "pairs", values.pairs).ok, true);
+        check("editor: a choice carrying a link fits", ctx.statusWrite(m, {}, "kinds", values.kinds).ok, true);
+        for (const [name, value] of [
+            ["a question for an action the row does not offer", [{ id: "x", label: "X", actions: ["edit"], confirm: { remove: "No." } }]],
+            ["a question for an action that asks nothing", [{ id: "x", label: "X", actions: ["edit"], confirm: { edit: "No." } }]],
+            ["a question on two lines", [{ id: "x", label: "X", actions: ["remove"], confirm: { remove: "One\ntwo" } }]]
+        ]) check("editor: refused " + name, ctx.statusWrite(m, {}, "pairs", value).ok, false);
+        check("editor: a choice link to no https address is refused",
+            ctx.statusWrite(m, {}, "kinds", [{ value: "a", label: "A", link: { text: "A", url: "http://a.invalid" } }]).ok, false);
+        const rows = ctx.statusRows(m, values);
+        const entry = rows.find(row => row.key === "pairs");
+        check("editor: the list draws on Setup with its editor and offers", [entry.tab, entry.editor],
+            ["Setup", { choices: "kinds", choice: "Kind", name: "Name", secret: "Secret", offers: values.kinds }]);
+        check("editor: a row carries its choice and each question", entry.value[0].choice + " " + entry.value[0].actions.map(a => a.name + ":" + a.confirm + ":" + a.question).join(" "),
+            "alpha edit:false: remove:true:Alpha stops.");
+        for (const [name, args, want] of [
+            ["the list's own action", ["pairs"], { ok: true, kind: "handler", key: "pairs", action: "", row: "" }],
+            ["a row's Edit", ["pairs", "row-a", "edit"], { ok: true, kind: "handler", key: "pairs", action: "edit", row: "row-a" }],
+            ["an action the row does not offer", ["pairs", "row-b", "edit"], { ok: false, answer: "refused: action=pairs reason=row-changed" }]
+        ]) check("editor: act on " + name, ctx.statusActionRequest(m, "acme.rows", true, values, ...args), want);
+        check("editor: an Add entry the plugin runs", ctx.addChoiceRequest(m, "acme.rows", true, "target"), { ok: true, kind: "handler", key: "target", action: "add", row: "" });
+        check("editor: an Add entry of a plugin that is off", ctx.addChoiceRequest(m, "acme.rows", false, "target"), { ok: false, answer: "refused: add-choice=target reason=disabled" });
+        const form = over => Object.assign({ row: "", choice: "alpha", name: "Mine", target: "" }, over);
+        for (const [name, enabled, f, secret, want] of [
+            ["a new row", true, form(), "s3cret", { ok: true, request: { key: "pairs", action: "save", row: "", choice: "alpha", name: "Mine", target: "", secret: "s3cret" } }],
+            ["an edit keeps its row's choice", true, form({ row: "row-a" }), "s3cret", { ok: true, request: { key: "pairs", action: "save", row: "row-a", choice: "alpha", name: "Mine", target: "", secret: "s3cret" } }],
+            ["a save for a field", true, form({ target: "target" }), "s3cret", { ok: true, request: { key: "pairs", action: "save", row: "", choice: "alpha", name: "Mine", target: "target", secret: "s3cret" } }],
+            ["a plugin that is off", false, form(), "s3cret", { ok: false, answer: "refused: editor=pairs reason=disabled" }],
+            ["an edit of a row that went", true, form({ row: "row-z" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=row-changed" }],
+            ["an edit of a row with no choice", true, form({ row: "row-b" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=row-changed" }],
+            ["an edit that changes its choice", true, form({ row: "row-a", choice: "beta" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=choice" }],
+            ["a choice no offer holds", true, form({ choice: "gamma" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=choice" }],
+            ["an empty name", true, form({ name: "" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=name" }],
+            ["a name past its bound", true, form({ name: "n".repeat(81) }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=name" }],
+            ["a field the schema lacks", true, form({ target: "gone" }), "s3cret", { ok: false, answer: "refused: editor=pairs reason=target" }],
+            ["an empty secret", true, form(), "", { ok: false, answer: "refused: editor=pairs reason=value" }],
+            ["a secret on two lines", true, form(), "a\nb", { ok: false, answer: "refused: editor=pairs reason=value" }]
+        ]) {
+            const got = ctx.editorSaveRequest(m, "acme.rows", enabled, values, "pairs", f, secret);
+            check("editor: save " + name, got, want);
+            if (!got.ok) check("editor: save " + name + " names no secret", got.answer.includes(secret) && secret !== "", false);
+        }
+        check("editor: a save of a list with no editor", ctx.editorSaveRequest(m, "acme.rows", true, values, "kinds", form(), "s3cret"), { ok: false, answer: "refused: editor=kinds reason=undeclared" });
+        for (const [name, f, want] of [
+            ["an empty open", {}, { ok: true, form: { key: "pairs", row: "", choice: "", fixed: false, name: "", target: "", title: "" } }],
+            ["an open for a field, its choice fixed", { choice: "beta", fixed: true, name: "Beta", target: "target", title: "Add for Beta" },
+                { ok: true, form: { key: "pairs", row: "", choice: "beta", fixed: true, name: "Beta", target: "target", title: "Add for Beta" } }],
+            ["an edit opens with its row's choice and label, fixed", { row: "row-a", choice: "beta", name: "Other" },
+                { ok: true, form: { key: "pairs", row: "row-a", choice: "alpha", fixed: true, name: "Alpha", target: "", title: "" } }],
+            ["a fixed open with no choice", { fixed: true }, { ok: false, answer: "refused: editor=pairs reason=choice" }],
+            ["a choice no offer holds", { choice: "gamma" }, { ok: false, answer: "refused: editor=pairs reason=choice" }],
+            ["an edit of a row with no choice", { row: "row-b" }, { ok: false, answer: "refused: editor=pairs reason=row-changed" }],
+            ["a field the schema lacks", { target: "gone" }, { ok: false, answer: "refused: editor=pairs reason=target" }]
+        ]) check("editor: open " + name, ctx.editorOpenRequest(m, values, "pairs", f), want);
     }
     // A stored key list's `sourceAction`, on a generic plugin: its key list
     // beside its field offers the script that makes a key, then the same
@@ -556,9 +652,9 @@ function suite(ctx, configLogic, check) {
     const rowsRow = ctx.statusRows(rowsManifest, published)[0];
     check("rows: the Status row carries each row, its state and its row actions", [rowsRow.settings, rowsRow.icon, rowsRow.declaredTuis, rowsRow.action, rowsRow.value], [true, "folder-sync", ["add", "remove"],
         { label: "Add a folder pair", icon: "", tone: "", offered: true, tui: "add" }, [
-            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", folder: "", state: "1 to review", tone: "warning", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", folder: "", state: "Up to date", tone: "success", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "c", label: "C", secondary: "", folder: "", state: "", tone: "", actions: [] }]]);
+            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", folder: "", state: "1 to review", tone: "warning", choice: "", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "", confirm: false, question: "" }] },
+            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", folder: "", state: "Up to date", tone: "success", choice: "", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "", confirm: false, question: "" }] },
+            { id: "c", label: "C", secondary: "", folder: "", state: "", tone: "", choice: "", actions: [] }]]);
     const foldersRaw = rowsRaw();
     foldersRaw.status.pairs.folderProperty = "local";
     const foldersManifest = ctx.validateManifest(foldersRaw, "/p").manifest;
@@ -1171,7 +1267,7 @@ function suite(ctx, configLogic, check) {
     const installAction = ctx.validateManifest(Object.assign(JSON.parse(JSON.stringify(bar)), { capabilities: ["status"], requirements: [{ command: "x", purpose: "p" }],
         status: { a: { type: "state", label: "A", setup: true, action: { label: "Install", install: ["x"] } } } }), "/p");
     check("validateManifest: an install action is refused", [installAction.ok, installAction.error],
-        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, icon, tui, system, undo, dictation, file"]);
+        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, icon, confirm, tui, system, undo, dictation, file, handler"]);
     // hyprland.options rows over a service whose schema holds one entry of
     // each kind an option path takes: [name, options, schema patch, want].
     const optionSettings = { sensitivity: 0, rate: 25, tap: true, natural: false, layouts: "us", profile: "flat" };
@@ -3527,7 +3623,7 @@ const CONTROLS = [
     ["a row may offer an undeclared row action", "return entry.rowActions !== undefined && hasOwn(entry.rowActions, name);", "return true;"],
     ["any entry may stand on Settings", 'if (entry.type !== "rows" || (entry.action === undefined && entry.rowActions === undefined)) return at + ".settings needs', 'if (false) return at + ".settings needs'],
     ["a row action hands its TUI no row id", "args: [row] };", "args: [] };"],
-    ["sourceAction is a status entry key", "\"plain\", \"sourceAction\"];", "\"plain\"];"],
+    ["sourceAction is a status entry key", "\"plain\", \"sourceAction\", \"editor\"];", "\"plain\", \"editor\"];"],
     ["a source action may name a listed screen", "if (isPlainObject(tui[source.tui].entry))\n        return at + \".sourceAction.tui", "if (false)\n        return at + \".sourceAction.tui"],
     ["a source action may stand on a list no page attaches", " || (entry.setting === undefined && entry.step === undefined)))", "))"],
     ["a source action hands its script the caller's account alone", "args: [row, item.label] };", "args: [row] };"],
@@ -3696,8 +3792,8 @@ const CONTROLS = [
     ["an entry declares an action or named actions", "if (entry.action !== undefined && entry.actions !== undefined)", "if (false)"],
     ["named actions are two or more", "if (!isPlainObject(entry.actions) || Object.keys(entry.actions).length < 2)", "if (!isPlainObject(entry.actions))"],
     ["a named action's name is an identifier", "if (declared[a].name !== null && !STATUS_KEY_PATTERN.test(declared[a].name))", "if (false)"],
-    ["an action may carry a tone", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "icon"].concat(STATUS_ACTION_ROUTES);'],
-    ["an action may carry a mark", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);'],
+    ["an action may carry a tone", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon", "confirm"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "icon", "confirm"].concat(STATUS_ACTION_ROUTES);'],
+    ["an action may carry a mark", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon", "confirm"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "tone", "confirm"].concat(STATUS_ACTION_ROUTES);'],
     ["an action's tone is danger alone", "if (action.tone !== undefined && STATUS_ACTION_TONES.indexOf(action.tone) === -1)", "if (false)"],
     ["an action's mark goes unjudged against the icon set", "if (action.icon !== undefined && (typeof action.icon !== \"string\" || !hasOwn(Lucide.ICONS, action.icon)))", "if (false)"],
     ["an accent action names a mark", "if (action.icon !== undefined && action.tone !== \"danger\")", "if (false)"],
@@ -3720,7 +3816,7 @@ const CONTROLS = [
     ["a step is declared once", "if (steps.indexOf(steps[i]) !== i)", "if (false)"],
     ["an absent systemSteps is normalised", "manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();", "manifest.systemSteps = raw.systemSteps;"],
     ["an action TUI is the manifest's own", "if (typeof action.tui !== \"string\" || !isPlainObject(tui) || !hasOwn(tui, action.tui))", "if (false)"],
-    ["install is no action route", "var STATUS_ACTION_ROUTES = [\"tui\", \"system\", \"undo\", \"dictation\", \"file\"];", "var STATUS_ACTION_ROUTES = [\"tui\", \"install\", \"system\", \"undo\", \"dictation\", \"file\"];"],
+    ["install is no action route", "var STATUS_ACTION_ROUTES = [\"tui\", \"system\", \"undo\", \"dictation\", \"file\", \"handler\"];", "var STATUS_ACTION_ROUTES = [\"tui\", \"install\", \"system\", \"undo\", \"dictation\", \"file\", \"handler\"];"],
     ["secrets are judged", "var badSecrets = secretsError(raw.secrets, capabilities, raw.status);", "var badSecrets = \"\";"],
     ["capability secrets needs secrets", "} else if (capabilities.indexOf(\"secrets\") !== -1) {", "} else if (false) {"],
     ["secrets is an object", "if (!isPlainObject(secrets))\n        return \"secrets must be an object\";", "if (false)\n        return \"secrets must be an object\";"],
@@ -3888,7 +3984,7 @@ const CONTROLS = [
     ["a guide anchor is a README heading's", "|| !README_ANCHOR.test(guide.readme))", ")"],
     ["a guide heads a Setup step", "if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))\n        return \"setupGuide needs", "if (false)\n        return \"setupGuide needs"],
     ["a guide links its README section", "url: readme === \"\" ? \"\" : readme + \"#\" + guide.readme", "url: readme"],
-    ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\", \"sourceAction\"];", "\"icon\", \"rowActions\", \"sourceAction\"];"],
+    ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\", \"sourceAction\", \"editor\"];", "\"icon\", \"rowActions\", \"sourceAction\", \"editor\"];"],
     ["plain needs a state that is no Setup step", "if (entry.type !== \"state\" || setupStep(entry) !== \"\")\n                return at + \".plain", "if (false)\n                return at + \".plain"],
     ["a plain state draws as text only while it needs nothing", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", "if (entry.plain === true) return \"\";"],
     ["a plain state draws as text", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", ""],
@@ -3941,7 +4037,13 @@ const CONTROLS = [
     ["an enum option refuses group", 'var OPTION_KEYS = ["value", "label"];', 'var OPTION_KEYS = ["value", "label", "group"];'],
     ["schema refuses removed placement keys", 'var SCHEMA_ENTRY_KEYS = [', 'var SCHEMA_ENTRY_KEYS = ["underKey", "groupLabel", '],
     ["an Add entry needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".addChoice needs optionsFrom\";", "if (false)\n                return at + \".addChoice needs optionsFrom\";"],
-    ["an Add entry's screen is declared", "return schema[key].addChoice !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));", "return false;"],
+    ["an Add entry's screen is declared", "return schema[key].addChoice !== undefined && schema[key].addChoice.tui !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));", "return false;"],
+    ["a row action of route handler reaches its plugin", 'if (rowsEntry.rowActions[rowAction].handler === true)\n            return { ok: true, kind: "handler", key: key, action: rowAction, row: row };\n', ""],
+    ["an edit keeps its row's choice", "|| (published !== null && published.choice !== form.choice))", ")"],
+    ["only a handler action asks first", "(action.confirm !== true || action.handler === undefined)", "(action.confirm !== true)"],
+    ["an editor's choices name a choices entry", '|| status[editor.choices].type !== "choices")', ")"],
+    ["a Setup list declares no settings", '(entry.tab !== "setup" || entry.settings !== undefined)', '(entry.tab !== "setup")'],
+    ["a fixed editor open names its choice", "if (fixed && choice === \"\")", "if (false)"],
     ["an Add entry of a plugin that is off opens nothing", "if (!enabled)\n        return { ok: false, answer: tuiRefusal(entry.addChoice.tui, \"disabled\").answer };", ""],
     ["a preview needs optionsFrom", "(entry.preview !== true || entry.optionsFrom === undefined)", "(entry.preview !== true)"],
     ["an optional step is no required one", 'return entry.setup === true ? "required" : entry.setup === SETUP_OPTIONAL ? "optional" : "";', 'return entry.setup === true || entry.setup === SETUP_OPTIONAL ? "required" : "";'],

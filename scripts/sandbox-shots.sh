@@ -609,6 +609,8 @@ shots_baseline_expect() { # SHARED_EXPECT LABEL WANT CMD...
       esac ;;
     jarvis_asks_request|jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)
       shots_baseline_assertions=false ;;
+    held_status_set)
+      shots_baseline_assertions=false ;;
     hypr|notes|settings_scroll_set|cups_world|cups_signal|cups_uninstalled_copy|power_add_battery|bluez|shot_reset_ask|network_shot_other_reveal|network_shot_cancel_reveal|network_shot_reveal|tailscale_shot_end|tailscale_shot_top|tailscale_flyout_scroll_end|tailscale_section_reveal|vpn_shot_top|vpn_shot_end)
       shots_baseline_assertions=false ;;
   esac
@@ -5552,6 +5554,17 @@ EOF
   rm -f -- "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice stand-ins are removed"
 }
+# Publish JSON under KEY through the held status provider, its reply.
+# qs ipc call strips the brackets of an argument that opens with `[`
+# (Probe.qml's invokeInstanceArgs), so a list goes with a leading space,
+# which JSON.parse skips.
+held_status_set() { # KEY JSON
+  local value="$2"
+  [[ $value == \[* ]] && value=" $value"
+  ipc smoke heldStatusSet "$1" "$value"
+}
+# Whether the Settings tab draws the Voice group's API key field.
+jarvis_api_key_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"voiceAccount"}' | py_reply 'import sys; print(sys.stdin.read().strip() not in ("absent", "no-select", ""))'; }
 scene_jarvis-keys() { # MODE
   jarvis_setup_requirements
   tree_rescan "the Jarvis key capture requirements are scanned"
@@ -5565,6 +5578,32 @@ scene_jarvis-keys() { # MODE
   settings_tab_click Settings || return 1
   expect_poll "Jarvis's Settings tab is shown" Settings settings_tab_text
   jarvis_anchor_shot "jarvis-keys-$1" SectionHeader Keys
+  # A tree with the Providers and keys list draws the Voice fields Provider
+  # and API key over a cloud voice and a stand-in key: the saved Realtime
+  # arrives through a reload, which starts no key form, and the key offer
+  # through the held status.
+  if tree_has shell/plugins/vgs.jarvis/manifest.json '"providerKeys"'; then
+    local config="$home/.config/vgshell/shell.json" saved="$sandbox/jarvis-keys-config-before"
+    cp -- "$config" "$saved" || fail "the settings before the Voice fields are not saved"
+    python3 - "$config" <<'PYVOICE' || fail "the Voice fields' Realtime is not written"
+import json, os, sys
+config = sys.argv[1]
+value = json.load(open(config))
+row = next((r for r in value.setdefault("plugins", []) if r["id"] == "vgs.jarvis"), None)
+if row is None:
+    row = {"id": "vgs.jarvis"}; value["plugins"].append(row)
+row["voiceProvider"] = "realtime"
+open(config + ".next", "w").write(json.dumps(value))
+os.replace(config + ".next", config)
+PYVOICE
+    expect "deliver Realtime for the Voice fields" ok ipc shell reloadConfig
+    expect_poll "the API key field draws" True jarvis_api_key_drawn
+    expect "the Jarvis status provider is held for the Voice fields" held ipc smoke holdStatus service vgs.jarvis
+    expect "the stand-in voice key publishes" ok held_status_set voiceAccounts '[{"value":"keyring:stand-in-openai","label":"OpenAI"}]'
+    jarvis_anchor_shot "jarvis-keys-$1-voice" SectionHeader Voice
+    cp -- "$saved" "$config"
+    expect "deliver the settings from before the Voice fields" ok ipc shell reloadConfig
+  fi
   if tree_has shell/plugins/vgs.jarvis/manifest.json '"mode": {"type": "enum"'; then
     jarvis_anchor_shot "jarvis-mode-$1" Field "Talk mode"
   fi
@@ -6350,6 +6389,50 @@ JSHOMEREPAIR
   expect "Jarvis disables after Home repair views" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "Jarvis is gone after Home repair views" absent ipc smoke jarvisProcess
 }
+# The Providers and keys list and the Apps and local models list over
+# stand-in keys and apps, as the selected tree's own words draw them
+# (AccountStatus.keyRows and appRows): a key in use by the AI model that a
+# Check answered, one whose Check failed, a speech key no Check answers and
+# one another app saved, each a reference to no real key. One line per
+# status key, KEY TAB JSON, for heldStatusSet.
+jarvis_key_list_rows() {
+  "$node_bin" - "$repo" <<'JSKEYS'
+const path = require("node:path");
+const plugin = path.join(process.argv[2], "shell/plugins/vgs.jarvis");
+const words = require(path.join(plugin, "AccountStatus.js"));
+const providers = require(path.join(plugin, "AccountProviders.js"));
+const at = Date.UTC(2026, 10, 20, 12);
+const key = (id, name, provider, over) => Object.assign({ id, label: name, name, provider,
+    providerLabel: providers.PROVIDERS.find(row => row.id === provider).label, own: true, presence: "present",
+    model: "", checkable: true, check: { kind: "none" } }, over);
+const keys = [
+    key("keyring:stand-in-openai", "OpenAI", "openai", { model: "gpt-4.1-nano", check: { kind: "working", at } }),
+    key("keyring:stand-in-work", "Work", "anthropic", { model: "claude-haiku-4-5", check: { kind: "failed", reason: "http-401", at } }),
+    key("keyring:stand-in-eleven", "ElevenLabs", "elevenlabs", { checkable: false }),
+    key("keyring:stand-in-shared", "Shared", "openrouter", { own: false, model: "openai/gpt-4.1-nano" })
+];
+const settings = { brain: "keyring:stand-in-openai", fallbacks: [{ brain: "keyring:stand-in-work", model: "" }],
+    voiceAccount: "keyring:stand-in-eleven", voiceProvider: "elevenlabs" };
+const apps = [
+    { id: "app-claude", label: "Claude Code, owner@example.invalid", value: "present", state: "signed-in", source: "cli", plan: "Max" },
+    { id: "app-ollama", label: "Ollama, local", value: "present", state: "found", source: "local", plan: "" }
+];
+console.log("keyProviders\t" + JSON.stringify(providers.keyProviderChoices()));
+console.log("providerKeys\t" + JSON.stringify(words.keyRows(keys, "", settings, providers.cloudVoice("elevenlabs"))));
+console.log("apps\t" + JSON.stringify(words.appRows(apps, { kind: "found", partial: "" })));
+JSKEYS
+}
+jarvis_plant_key_list() {
+  local rows key value reply failed=0
+  rows="$(jarvis_key_list_rows)" || return 1
+  while IFS=$'\t' read -r key value; do
+    reply="$(held_status_set "$key" "$value")" || reply=unread
+    [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
+  done <<<"$rows"
+  [[ $failed == 0 ]] && echo ok || return 1
+}
+# Whether the key editor draws on the page.
+jarvis_key_form_drawn() { ipc smoke itemTexts "$settings_kind" vgs.settings RowsEditor | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(any("Key name" in row for row in r))'; }
 scene_jarvis-setup() { # MODE
   local accounts_before="$sandbox/jarvis-backups-accounts-before"
   if jarvis_ships_backups; then
@@ -6378,6 +6461,16 @@ scene_jarvis-setup() { # MODE
     expect "the selected revision publishes its $home_slug Home refusal" ok jarvis_plant_home_cause "$home_cause"
     jarvis_anchor_shot "jarvis-setup-$1-home-$home_slug" SectionHeader Setup
   done
+  # A tree with the Providers and keys list draws it over stand-in keys,
+  # then its Add API key form, which opens no terminal.
+  if tree_has shell/plugins/vgs.jarvis/manifest.json '"providerKeys"'; then
+    shots_baseline_safety expect "the stand-in key list publishes" ok jarvis_plant_key_list
+    jarvis_anchor_shot "jarvis-setup-$1-keys" SectionHeader "Providers and keys"
+    shots_baseline_safety expect "Add API key opens the key form" ok settings_act vgs.jarvis providerKeys
+    expect_poll "the key form draws" True jarvis_key_form_drawn
+    # The form opens under the list, past the list's own view.
+    jarvis_label_shot "jarvis-setup-$1-keys-add" "Key name" 96
+  fi
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   if jarvis_ships_backups; then
@@ -6478,7 +6571,7 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   expect_poll "the Local voice field reads setup-local's pick" false jarvis_tier_list_open "$auto"
-  jarvis_anchor_shot "jarvis-settings-$1-local-voice" SectionHeader "Local voice"
+  jarvis_label_shot "jarvis-settings-$1-local-voice" "Local voice model"
   if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"vgs.jarvis","key":"localTier"}')" && [[ $field == \[* ]] \
     && read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); h=json.loads(sys.argv[2]); print(json.dumps([r[0] + r[2] - 40, r[1], 40, h]))' "$field" "$(ipc smoke themeValue row.height)")") \
     && hover "$((x - 1))" "$y" && click "$x" "$y"; then

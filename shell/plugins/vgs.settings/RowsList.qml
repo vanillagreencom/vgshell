@@ -22,7 +22,13 @@ import "Steps.js" as Steps
 // in the error colour. While the plugin is off the list reads so, with Turn
 // on under it (Steps.rowsView). A press records its line action in
 // `lastPress` and emits `pressed` with it, which the page routes and whose
-// reply it hands back.
+// reply it hands back; an action that declares `confirm` emits `confirm`
+// first, and the page presses it once the user answers yes. While
+// `editing` holds the plugin's judged open of the entry's editor, the
+// form (RowsEditor) stands under the rows in place of the list's action,
+// with `choices` its offers; its save and cancel go to the page as
+// `saveWanted` and `cancelWanted`, and `editorError` and `editorSaving`
+// come back from it.
 Section {
     id: root
 
@@ -35,11 +41,24 @@ Section {
     // the page's reply to it, "" for none.
     property var lastPress: null
     property string reply: ""
+    property var editing: null
+    property var choices: []
+    property string editorError: ""
+    property bool editorSaving: false
+    // The key a page reference names the list by (PluginPage.revealField).
+    readonly property string statusKey: entry === null ? "" : entry.key
 
     signal pressed(var button)
+    signal confirm(var button)
     signal openLink(var link)
+    signal saveWanted(var form, string secret)
+    signal cancelWanted(var form)
 
-    function press(button) {
+    function press(button, confirmed) {
+        if (button.confirm === true && confirmed !== true) {
+            confirm(button);
+            return;
+        }
         lastPress = button;
         pressed(button);
     }
@@ -105,11 +124,28 @@ Section {
         text: root.view.text
     }
 
+    Loader {
+        width: root.width
+        active: root.editing !== null && root.entry !== null && root.entry.editor !== null
+        visible: active
+        sourceComponent: RowsEditor {
+            width: root.width
+            editor: root.entry.editor
+            choices: root.choices
+            form: root.editing
+            error: root.editorError
+            saving: root.editorSaving
+            onSave: (form, secret) => root.saveWanted(form, secret)
+            onCancel: form => root.cancelWanted(form)
+            onOpenLink: link => root.openLink(link)
+        }
+    }
+
     Column {
         width: root.width
         spacing: Theme.stack.row
         Button {
-            visible: root.view.add !== null
+            visible: root.view.add !== null && root.editing === null
             variant: "secondary"
             text: root.view.add === null ? "" : root.view.add.label
             iconName: root.view.add === null ? "" : root.view.add.icon

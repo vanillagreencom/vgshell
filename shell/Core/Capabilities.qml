@@ -217,6 +217,11 @@ Singleton {
             openTui: (id, name) => root.managerOpenTui(id, name),
             addChoice: (id, key) => root.managerAddChoice(id, key),
             storeSecret: (id, key, account, secret, done) => root.managerSecret(ctx, "store", id, key, account, secret, done),
+            // The rows editor plugin ID asked its page to open last
+            // (PluginStatus.openEditor), its save and its cancel.
+            editorOf: id => PluginStatus.editorOf(id),
+            saveEditor: (id, key, form, secret, done) => root.managerSaveEditor(ctx, id, key, form, secret, done),
+            cancelEditor: (id, key, form) => root.managerCancelEditor(id, key, form),
             clearSecret: (id, key, account, done) => root.managerSecret(ctx, "clear", id, key, account, null, done)
         }),
         panes: ctx => root.panesProvider(ctx),
@@ -268,6 +273,12 @@ Singleton {
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             handlePreview: (key, handler) => PluginStatus.handlePreview(ctx, key, handler),
             handleChoice: (key, handler) => PluginStatus.handleChoice(ctx, key, handler),
+            // `handleActions` registers what the plugin runs for a press of
+            // one of its actions of route `handler`, and for its rows
+            // editor's save and cancel; `openEditor` asks its shown page to
+            // open that editor (PluginStatus.openEditor).
+            handleActions: handler => PluginStatus.handleActions(ctx, handler),
+            openEditor: (key, form) => PluginStatus.openEditor(ctx, key, form),
             act: (key, row, rowAction, done) => root.managerAct(ctx.id, key, row, rowAction, ctx, done),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
@@ -559,10 +570,51 @@ Singleton {
             if (end.code === 0) dictation.restart();
         });
         case "file": return tuis.editFor(id, request.path);
+        case "handler": return PluginStatus.act(id, { key: request.key, action: request.action, row: request.row });
         case "summon": return Plugins.route("summon", request.surface, id, "{}", request.presentation ? { presentation: request.presentation } : null);
         case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
-        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, file, summon, pane");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, file, handler, summon, pane");
+    }
+
+    // The manager's save of plugin ID's rows editor KEY for FORM with
+    // SECRET, the masked field's text, handed to the plugin's action handler
+    // as PluginLogic.editorSaveRequest judges it; `done` belongs to CTX, the
+    // asking instance, and is called once with { ok, text } as the save
+    // ends. SECRET never enters a log line, an answer or a property: it
+    // lives in the request this call hands on.
+    function managerSaveEditor(ctx, id, key, form, secret, done) {
+        if (typeof done !== "function") throw new Error("refused: editor done=not-a-function");
+        const subject = managerSubject(id);
+        const judged = Logic.editorSaveRequest(subject.manifest, id, subject.enabled, subject.values, key, form, secret);
+        if (!judged.ok) return judged.answer;
+        let callback = done;
+        const release = ctx.onDispose(() => { callback = null; });
+        const scoped = end => {
+            const current = callback;
+            callback = null;
+            release();
+            if (current !== null && ctx.active) current(end);
+        };
+        const reply = PluginStatus.act(id, judged.request, scoped);
+        if (reply !== "ok") {
+            callback = null;
+            release();
+        }
+        return reply;
+    }
+
+    // The manager's cancel of plugin ID's rows editor KEY that FORM, { row,
+    // target }, was open for, which the plugin hears so it can put back what
+    // it changed to open it.
+    function managerCancelEditor(id, key, form) {
+        const subject = managerSubject(id);
+        if (subject.manifest === null) return "unknown: " + id;
+        const entry = Logic.hasOwn(subject.manifest.status, key) ? subject.manifest.status[key] : null;
+        if (entry === null || entry.editor === undefined || form === null || typeof form !== "object"
+            || typeof form.row !== "string" || typeof form.target !== "string") return Logic.editorRefusal(key, "undeclared");
+        if (!subject.enabled) return Logic.editorRefusal(key, "disabled");
+        return PluginStatus.act(id, { key: key, action: "cancel", row: form.row, target: form.target });
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

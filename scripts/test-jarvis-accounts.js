@@ -75,9 +75,9 @@ world(async () => {
     // provider setting, and switchTo the one the user changes it to after
     // the read. The selected cloud voice's keys are offered, and its sole key
     // is chosen for the user unless they named one of their own; the reader
-    // writes no Voice provider (the service migrates it). removed is
-    // the OpenAI keys offered when Remove key ended before this read: a
-    // named key the read no longer holds is cleared, one it holds is kept.
+    // writes no Voice provider (the service migrates it). cleared is a
+    // Voice key a removal cleared (KeyEditor.removed), which no sole key
+    // takes until the user chooses (Jarvis decision, VGS-2335).
     const publicationCases = [
         { name: "sole", choices: ["key-a"], writes: ["key-a"] },
         { name: "gemini", choices: ["key-a"], gemini: ["key-g"], voice: "gemini", writes: ["key-g"] },
@@ -92,14 +92,9 @@ world(async () => {
         { name: "failed", choices: ["key-a"], code: 1, writes: [] },
         { name: "invalid", choices: ["key-a"], invalid: true, writes: [] },
         { name: "stale", choices: ["key-a"], pending: true, writes: [] },
-        { name: "removed", choices: ["key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: ["", "key-b"] },
-        // After Add a key, the key the run added is selected, though another
-        // key of the voice stays chosen (SetupGate.voiceAdded).
-        { name: "added", choices: ["key-a", "key-b"], selected: "key-a", added: ["key-a"], writes: ["key-b"] },
-        { name: "added-none", choices: ["key-a", "key-b"], selected: "key-a", added: ["key-a", "key-b"], writes: [] },
-        { name: "removal-cancelled", choices: ["key-a", "key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: [] },
+        { name: "cleared", choices: ["key-b"], cleared: true, writes: [] },
         { name: "refused", choices: ["key-a"], refuseWrite: true, writes: ["key-a"] },
-        ...["accounts", "brains", "voiceAccounts", "accountSearch"].map(key =>
+        ...["accounts", "brains", "voiceAccounts", "apps"].map(key =>
             ({ name: "status-" + key, choices: ["key-a"], refuseStatus: key, writes: [] }))
     ];
     function publication(source, row, gate = path.join(plugin, "SetupGate.js")) {
@@ -110,13 +105,13 @@ world(async () => {
         const writes = [], reports = new Map(), warnings = [];
         let refreshed = 0;
         const initial = row.selected ?? "";
-        const root = { pending: row.pending ?? false, addedFrom: row.added?.map(value => ({ value, provider: "openai" })), removedFrom: row.removed?.map(value => ({ value, provider: "openai" })), completion: { kind: "exited", code: row.code ?? 0 },
+        const root = { pending: row.pending ?? false, voiceCleared: row.cleared ?? false, keyList: undefined, completion: { kind: "exited", code: row.code ?? 0 },
             diagnostic: { kind: "collected", text: "" },
             output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
                 voiceAccounts: [...row.choices.map(value => ({ value, label: "Fixture " + value, provider: "openai" })),
                     ...(row.gemini ?? []).map(value => ({ value, label: "Fixture " + value, provider: "gemini" })),
                     ...(row.eleven ?? []).map(value => ({ value, label: "Fixture " + value, provider: "elevenlabs" }))],
-                search: { found: row.choices.length, partial: "" } }),
+                keys: [], apps: [], search: { partial: "" } }),
             refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial, voiceProvider: row.voice ?? "realtime" },
                 status: { isOk: statusReplyOk, set: (key, value) => {
                     if (row.refuseStatus === key && !reports.has(key)) { reports.set(key, null); return "refused"; }
@@ -140,7 +135,7 @@ world(async () => {
         assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : row.writes.at(-1));
         assert.equal(refreshed, 1);
         const failed = row.code === 1 || row.invalid || row.refuseStatus;
-        assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info", row.name + ": the account search row " + warnings.join(" "));
+        assert.deepEqual(Array.from(reports.get("apps"), item => item.state.tone), failed ? ["danger"] : [], row.name + ": the apps list " + warnings.join(" "));
         assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value),
             failed ? [] : (row.switchTo ?? row.voice) === "gemini" ? row.gemini
                 : (row.switchTo ?? row.voice) === "elevenlabs" ? row.eleven : row.choices);
@@ -150,17 +145,15 @@ world(async () => {
     const selectionControls = [
         ["sole", 'shell.configure.set("voiceAccount", chosen)', 'shell.configure.set("voiceAccount", "key-b")'],
         ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
-        ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
-        ["stale", "let chosen = pending ? null : ", "let chosen = "],
+        ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], keys: [], apps: [], search: {partial: ""}}) : output)'],
+        ["stale", "const chosen = pending || ", "const chosen = "],
+        ["cleared", 'voiceCleared && shell.settings.voiceAccount === ""', "false"],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
         ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");\n        return true;\n    }', "void 0;\n        return true;\n    }"],
-        ["removed", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = false;"],
-        ["removal-cancelled", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = removedFrom.some(named);"],
-        ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"],
-        ["added", "if (added !== null) chosen = added;", "void added;"]
+        ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"]
     ];
-    for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
-        const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "voiceChoices", accountSearch: "search" }[key];
+    for (const key of ["accounts", "brains", "voiceAccounts", "apps"]) {
+        const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "voiceChoices", apps: "apps" }[key];
         const write = 'shell.status.set("' + key + '", ' + argument + ')';
         selectionControls.push(["status-" + key, write, '(' + write + ', "ok")']);
     }
@@ -1165,7 +1158,7 @@ world(async () => {
         let found;
         assert.doesNotThrow(() => { found = judge.discover(); });
         assert.equal(found.length, 32);
-        assert.deepEqual([judge.status().search.found, judge.status().search.partial], [32, "account-limit"]);
+        assert.equal(judge.status().search.partial, "account-limit");
     };
     finalBound(Accounts);
     await mutant("backend/Accounts.js", "status-bound", "this.accounts = result.slice(0, MAX_ROWS);", "this.accounts = result;",
@@ -1330,43 +1323,27 @@ world(async () => {
             .flatMap(([field, codes]) => codes.map(code => owner + ": " + field + "=" + code)));
         assert.ok(["jarvis-accounts: added=json", "jarvis-accounts: directory=link", "jarvis-keys: busctl=missing"]
             .every(reason => reasons.includes(reason)), "the helper's table holds its known failures");
+        // A whole search adds no row of its own and counts nothing; a
+        // partial one warns of what it missed and a failed one says what
+        // Jarvis could not read, each as the list's last row.
         const searchCases = [
-            [{ kind: "found", found: 3, partial: "" }, "ok", true],
-            [{ kind: "found", found: 1, partial: "" }, "ok", true],
-            [{ kind: "found", found: 0, partial: "" }, "info", true],
-            [{ kind: "found", found: 2, partial: "entry-limit" }, "warning", true],
-            [{ kind: "found", found: 2, partial: "parent-unreadable" }, "warning", true],
-            [{ kind: "found", found: 32, partial: "account-limit" }, "warning", true],
-            ...reasons.map(reason => [failed(reason), "danger", false]),
+            [{ kind: "found", partial: "" }, null],
+            [{ kind: "found", partial: "entry-limit" }, "warning"],
+            [{ kind: "found", partial: "parent-unreadable" }, "warning"],
+            [{ kind: "found", partial: "account-limit" }, "warning"],
+            ...reasons.map(reason => [failed(reason), "danger"]),
             ...["process=start-failed", "process=crashed", "output=invalid", "diagnostic=oversize", "process=failed"]
-                .map(reason => [failed("jarvis-accounts: " + reason), "danger", false]),
-            [failed(""), "danger", false]
+                .map(reason => [failed("jarvis-accounts: " + reason), "danger"]),
+            [failed(""), "danger"]
         ];
-        for (const [outcome, tone, action] of searchCases) {
-            const value = Words.searchValue(outcome, outcome.partial === "entry-limit"
-                ? PageReference : undefined);
-            // A failed search offers nothing, so the optional Setup step
-            // reads Not available with the hint of when Jarvis searches again.
-            assert.deepEqual([value.tone, value.action, value.available], [tone, action, action ? undefined : false], JSON.stringify(outcome));
-            if (!action) assert.equal(typeof value.hint, "string", JSON.stringify(outcome) + ": the hint says when Jarvis searches again");
-            plain(value);
+        const app = { id: "cli:a", label: "Claude Code, team@example.invalid", value: "present", state: "signed-in", source: "cli", plan: "pro" };
+        for (const [outcome, tone] of searchCases) {
+            const rows = Words.appRows([app], outcome);
+            assert.deepEqual(rows.map(row => row.state.tone), tone === null ? ["ok"] : ["ok", tone], JSON.stringify(outcome));
+            assert.equal(rows.some(row => /[0-9]+ (accounts|apps) found/.test(row.label)), false, "no row counts the search");
+            plain(rows);
         }
-        const keyRow = value => ({ label: "fixture / test", value });
-        // Add key is offered in each; Remove key, the aside, while a key is
-        // listed to remove.
-        for (const [outcome, tone, aside] of [
-            [{ kind: "listed", rows: [keyRow("present"), keyRow("present")] }, "ok", true],
-            [{ kind: "listed", rows: [keyRow("present")] }, "ok", true],
-            [{ kind: "listed", rows: [] }, "info", false],
-            [{ kind: "listed", rows: [keyRow("present"), keyRow("locked")] }, "warning", true],
-            [{ kind: "listed", rows: [keyRow("unavailable")] }, "warning", true],
-            [{ kind: "failed" }, "warning", false]
-        ]) {
-            const value = Words.keysValue(outcome);
-            assert.deepEqual([value.tone, value.action, value.aside], [tone, true, aside], JSON.stringify(outcome));
-            plain(value);
-        }
-        for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint(keyRow(value)), "", value);
+        for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint({ label: "fixture / test", value }), "", value);
         plain(Words.keyHint({ label: "fixture / test", value: "unavailable", hint: "jarvis-keys: busctl=failed" }));
         const hints = [];
         const presence = state => state === "locked" || state === "unavailable" ? state : "present";
@@ -1408,20 +1385,175 @@ world(async () => {
         else plain(hint);
     }
     cases++;
-    await mutant("AccountStatus.js", "saved-list-offers-accounts",
-        'return Object.assign({ tone: "danger", text: "Could not read your saved accounts" }, again);',
-        'return { tone: "danger", text: "Could not read your saved accounts", action: true };', pageWords);
-    controls++;
-    await mutant("AccountStatus.js", "failed-search-reads-optional", 'var again = { action: false, available: false, hint: SEARCH_AGAIN };',
-        'var again = { action: false };', pageWords);
+    await mutant("AccountStatus.js", "whole-search-adds-a-row", 'if (outcome.partial === "") return null;', "", pageWords);
     controls++;
     await mutant("AccountStatus.js", "signed-out-hint-repeats-badge", 'if (account.value === "signed-out") return mismatch;', "", pageWords);
     controls++;
-    await mutant("AccountStatus.js", "empty-keyring-offers-remove-key",
-        'return { tone: "info", text: "No key stored yet", action: true, aside: false };',
-        'return { tone: "info", text: "No key stored yet", action: true, aside: true };', pageWords);
+    await mutant("AccountStatus.js", "partial-reads-complete", 'if (outcome.partial === "entry-limit") return row(', "if (false) return row(", pageWords);
     controls++;
-    await mutant("AccountStatus.js", "partial-reads-complete", 'if (outcome.partial === "entry-limit")', "if (false)", pageWords);
-    controls++;
+    // Providers and keys: a stored key reads by its name alone, the
+    // provider added only where another label shares that name and the name
+    // does not hold the provider already, so no label names its provider
+    // twice (Jarvis decision, VGS-2335). The status lists each stored key
+    // with its last Check, which an explicit Check records.
+    const keysFile = path.join(directory, "keys.json");
+    const keysBefore = fs.existsSync(keysFile) ? fs.readFileSync(keysFile) : null;
+    const own = (provider, account) => {
+        const row = PROVIDERS.find(item => item.id === provider);
+        return ownReference(provider, account, row.origin);
+    };
+    const namedKeys = [own("openai", "OpenAI"), own("openai", "Work"), own("anthropic", "Work"),
+        own("openai", "Jarvis OpenAI"), own("anthropic", "Jarvis OpenAI"), own("elevenlabs", "ElevenLabs"), own("anthropic", "Personal"),
+        // A remembered item that carries Jarvis's service beside an
+        // attribute of its own is another app's: Remove only forgets it.
+        { ...own("mistral", "Extra"), attributes: { ...own("mistral", "Extra").attributes, application: "other-tool" } }];
+    const stored = async Judge => {
+        mode("bus", "present");
+        fs.writeFileSync(keysFile, JSON.stringify(namedKeys));
+        fs.rmSync(path.join(directory, "key-checks.json"), { force: true });
+        const judge = new Judge(directory, env);
+        judge.discover();
+        return judge;
+    };
+    const keyLabels = async Judge => {
+        const judge = await stored(Judge);
+        const status = judge.status();
+        const byName = new Map(status.keys.map(key => [key.provider + "/" + key.name, key]));
+        const label = (provider, name) => status.brains.find(choice => choice.value === byName.get(provider + "/" + name).id)?.label;
+        assert.deepEqual([label("openai", "OpenAI"), label("openai", "Work"), label("anthropic", "Work"),
+            label("openai", "Jarvis OpenAI"), label("anthropic", "Jarvis OpenAI"), label("anthropic", "Personal")],
+            ["OpenAI", "Work (OpenAI)", "Work (Anthropic)", "Jarvis OpenAI", "Jarvis OpenAI (Anthropic)", "Personal"], "the AI model picker's key labels");
+        for (const choice of [...status.brains, ...status.voiceAccounts])
+            assert.equal(/^(.*) \((.*)\)$/.test(choice.label) && choice.label.replace(/ \([^)]*\)$/, "").includes(choice.label.match(/\(([^)]*)\)$/)[1]), false,
+                "no label names its provider twice: " + choice.label);
+        assert.equal(status.voiceAccounts.find(choice => choice.provider === "elevenlabs").label, "ElevenLabs", "a voice key reads by its name");
+        assert.deepEqual(status.keys.map(key => [key.name, key.providerLabel, key.own, key.presence, key.checkable, key.check.kind]), [
+            ["OpenAI", "OpenAI", true, "present", true, "none"], ["Work", "OpenAI", true, "present", true, "none"],
+            ["Work", "Anthropic", true, "present", true, "none"], ["Jarvis OpenAI", "OpenAI", true, "present", true, "none"],
+            ["Jarvis OpenAI", "Anthropic", true, "present", true, "none"], ["ElevenLabs", "ElevenLabs", true, "present", false, "none"],
+            ["Personal", "Anthropic", true, "present", true, "none"], ["Extra", "Mistral", false, "present", true, "none"]],
+            "the stored keys the list draws");
+        assert.equal(status.keys.some(key => key.label.startsWith(key.providerLabel + ", ")), false, "no key label leads with its provider");
+    };
+    // A Check through a scripted port records its outcome on the key, a
+    // replaced key forgets it, and no app's Check is recorded.
+    const keyChecks = async Judge => {
+        const judge = await stored(Judge);
+        judge.now = () => 1795000000000;
+        const id = judge.status().keys.find(key => key.provider === "openai" && key.name === "OpenAI").id;
+        const work = judge.status().keys.find(key => key.provider === "openai" && key.name === "Work").id;
+        assert.deepEqual(await judge.verify(id, "user", async () => ({ kind: "inference", text: "ok" })), { kind: "verified" });
+        await judge.verify(work, "user", async () => { throw new Error("jarvis: net=refused"); });
+        const checks = Object.fromEntries(judge.status().keys.map(key => [key.provider + "/" + key.name, key.check]));
+        assert.deepEqual([checks["openai/OpenAI"], checks["openai/Work"], checks["anthropic/Work"]],
+            [{ kind: "working", at: 1795000000000 }, { kind: "failed", reason: "network-refused", at: 1795000000000 }, { kind: "none" }], "each key's last Check");
+        const again = new Judge(directory, env);
+        again.discover();
+        assert.deepEqual(again.status().keys.find(key => key.id === id).check, { kind: "working", at: 1795000000000 }, "a Check outlives its reader");
+        // A key list that changed while the Check ran, as an Edit's save
+        // changes it, takes no answer: the Check sent another key.
+        const personal = judge.status().keys.find(key => key.provider === "anthropic" && key.name === "Personal").id;
+        await judge.verify(personal, "user", async () => {
+            judge.secrets.remember(own("groq", "Later"));
+            return { kind: "inference", text: "ok" };
+        });
+        const after = new Judge(directory, env);
+        after.discover();
+        assert.deepEqual(after.status().keys.find(key => key.id === personal).check, { kind: "none" }, "a Check over a changed list records nothing");
+    };
+    await keyLabels(Accounts);
+    await keyChecks(Accounts);
+    cases += 2;
+    await mutant("backend/Accounts.js", "key-reads-with-provider", '    if (item.source.kind === "keyring") return item.label.slice(0, 60);\n', "",
+        folder => keyLabels(judgeIn(folder)));
+    await mutant("backend/Accounts.js", "doubled-provider", "\n            || label.toLowerCase().includes(company.toLowerCase())) return label;", ") return label;",
+        folder => keyLabels(judgeIn(folder)));
+    await mutant("backend/Accounts.js", "unnamed-collision", 'if (item.source.kind !== "keyring" || names.filter(other => other === label).length < 2', 'if (item.source.kind !== "keyring"',
+        folder => keyLabels(judgeIn(folder)));
+    await mutant("backend/Accounts.js", "check-unrecorded", "        if (account.source.kind === \"keyring\" && this.secrets.revision() === revision)\n            this.secrets.recordCheck(", "        if (false)\n            this.secrets.recordCheck(",
+        folder => keyChecks(judgeIn(folder)));
+    await mutant("backend/Accounts.js", "check-over-changed-list", " && this.secrets.revision() === revision)", ")",
+        folder => keyChecks(judgeIn(folder)));
+    await mutant("backend/Accounts.js", "own-by-service", "own: this.secrets.isOwn(reference),", 'own: reference.attributes.service === "vgs-jarvis",',
+        folder => keyLabels(judgeIn(folder)));
+    controls += 6;
+    if (keysBefore === null) fs.rmSync(keysFile, { force: true });
+    else fs.writeFileSync(keysFile, keysBefore);
+    fs.rmSync(path.join(directory, "key-checks.json"), { force: true });
+
+    // The Providers and keys list's rows and their Used by features: one
+    // table, each row's key, settings and running Check, and the row the
+    // list draws for it (AccountStatus.keyRows).
+    const keyList = folder => {
+        const Words = require(path.join(folder, "AccountStatus.js"));
+        const id = "keyring:openai";
+        const key = over => ({ id, label: "OpenAI", name: "OpenAI", provider: "openai", providerLabel: "OpenAI", own: true,
+            presence: "present", model: "gpt-4.1-nano", checkable: true, check: { kind: "none" }, ...over });
+        const base = { brain: "", fallbacks: [], voiceAccount: "", voiceProvider: "realtime" };
+        const noon = new Date(2026, 10, 23, 12).getTime();
+        const table = [
+            // name, key, settings, checking, [label, secondary, tone, status, actions]
+            ["a key named for its provider, in use by the AI model", key(), { brain: id }, "",
+                ["OpenAI", "Used by AI model", "info", "Not checked yet", ["edit", "check", "remove"]]],
+            ["a key whose name does not say its provider", key({ label: "Work", name: "Work" }), {}, "",
+                ["Work", "OpenAI · Not in use", "info", "Not checked yet", ["edit", "check", "remove"]]],
+            ["the AI model, its one backup and the voice", key(), { brain: id, fallbacks: [{ brain: id, model: "" }], voiceAccount: id }, "",
+                ["OpenAI", "Used by AI model, Backup model and Voice", "info", "Not checked yet", ["edit", "check", "remove"]]],
+            ["the second of two backups", key(), { fallbacks: [{ brain: "other", model: "" }, { brain: id, model: "" }] }, "",
+                ["OpenAI", "Used by Backup model 2", "info", "Not checked yet", ["edit", "check", "remove"]]],
+            ["a voice key while the voice is Local", key(), { voiceAccount: id, voiceProvider: "local" }, "",
+                ["OpenAI", "Not in use", "info", "Not checked yet", ["edit", "check", "remove"]]],
+            ["a key a Check answered", key({ check: { kind: "working", at: noon } }), {}, "",
+                ["OpenAI", "Not in use", "ok", "Working (checked 23 Nov 2026)", ["edit", "check", "remove"]]],
+            ["a key the provider refused", key({ check: { kind: "failed", reason: "http-401", at: noon } }), {}, "",
+                ["OpenAI", "Not in use", "danger", "Check failed: the provider refused the key", ["edit", "check", "remove"]]],
+            ["a key the Check could not reach", key({ check: { kind: "failed", reason: "network-timeout", at: noon } }), {}, "",
+                ["OpenAI", "Not in use", "danger", "Check failed: Jarvis could not reach the provider", ["edit", "check", "remove"]]],
+            ["a key whose Check runs", key(), {}, id,
+                ["OpenAI", "Not in use", "info", "Checking", []]],
+            ["a speech key no Check can answer", key({ id, label: "ElevenLabs", name: "ElevenLabs", provider: "elevenlabs", providerLabel: "ElevenLabs", model: "", checkable: false }),
+                { voiceAccount: id, voiceProvider: "elevenlabs" }, "",
+                ["ElevenLabs", "Used by Voice", "info", "Check unavailable for this provider", ["edit", "remove"]]],
+            ["a key another app stored", key({ own: false }), {}, "",
+                ["OpenAI", "Not in use", "info", "Not checked yet", ["check", "forget"]]],
+            ["a key in a locked keyring", key({ presence: "locked" }), {}, "",
+                ["OpenAI", "Not in use", "warning", "Keyring locked", ["edit", "remove"]]],
+            ["a key the keyring lost", key({ presence: "absent" }), {}, "",
+                ["OpenAI", "Not in use", "danger", "Missing from the keyring", ["edit", "remove"]]],
+            ["a Check record Jarvis cannot read", key({ check: { kind: "unreadable" } }), {}, "",
+                ["OpenAI", "Not in use", "warning", "Could not read the last check", ["edit", "check", "remove"]]]
+        ];
+        for (const [name, row, settings, checking, expected] of table) {
+            const merged = { ...base, ...settings };
+            const [drawn] = Words.keyRows([row], checking, merged, cloudVoice(merged.voiceProvider));
+            assert.deepEqual([drawn.label, drawn.secondary, drawn.state.tone, drawn.state.text, drawn.actions], expected, name);
+            // Each question the row asks says what it stops, and only an
+            // action that asks carries one.
+            assert.deepEqual(Object.keys(drawn.confirm).sort(), drawn.actions.filter(action => action !== "edit").sort(), name + ": questions");
+            if (drawn.confirm.check !== undefined) assert.ok(drawn.confirm.check.includes(row.model) && drawn.confirm.check.includes(row.providerLabel), name + ": the Check names its request");
+            const uses = Words.usedBy(row.id, merged, cloudVoice(merged.voiceProvider));
+            for (const action of ["remove", "forget"]) if (drawn.confirm[action] !== undefined)
+                assert.equal(uses.every(feature => drawn.confirm[action].includes(feature)), true, name + ": the removal names what it stops");
+            assert.equal(drawn.choice, row.own ? row.provider : undefined, name + ": Edit keeps the provider of a key Jarvis stored");
+            assert.ok(drawn.state.text.length <= 60, name + ": the status fits a row");
+        }
+        assert.deepEqual(Words.keyRows([], "", base, null), [], "no key draws no row");
+    };
+    keyList(plugin);
+    cases++;
+    for (const [name, needle, replacement] of [
+        ["used-by-voice-under-local", "if (voice !== null && settings.voiceAccount === id)", "if (settings.voiceAccount === id)"],
+        ["used-by-backups", 'features.push(backups.length === 1 ? "Backup model" : "Backup model " + (index + 1));', "void index;"],
+        ["used-by-model", 'if (settings.brain === id) features.push("AI model");', ""],
+        ["provider-twice-in-row", '(named ? "" : company + " · ")', '(company + " · ")'],
+        ["check-while-checking", "var idle = checking !== key.id;", "var idle = true;"],
+        ["edit-while-checking", 'var actions = key.own && idle ? ["edit"] : [];', 'var actions = key.own ? ["edit"] : [];'],
+        ["stored-status", 'default: return { tone: "info", text: "Not checked yet" };', 'default: return { tone: "ok", text: "Stored" };'],
+        ["unchecked-unreadable", 'case "unreadable": return { tone: "warning", text: "Could not read the last check" };', ""],
+        ["speech-key-checked", 'if (!key.checkable) return { tone: "info", text: "Check unavailable for this provider" };', ""]
+    ]) {
+        await mutant("AccountStatus.js", "key-list-" + name, needle, replacement, keyList);
+        controls++;
+    }
     console.log("test-jarvis-accounts: ok cases=" + cases + " controls=" + controls);
 });

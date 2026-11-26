@@ -6,9 +6,11 @@ import "AccountProviders.js" as Providers
 import "AccountStatus.js" as Words
 import "SetupGate.js" as Gate
 
-// One metadata reader. An accounts TUI end invalidates its old discovery.
-// It publishes the accounts, the brain choices and the search's outcome in
-// the page's words; a failure's safe cause goes to the log alone. A second
+// One metadata reader. An accounts TUI end, a sign-in's end and a key
+// write (KeyEditor.qml calls refresh) invalidate its old discovery. It
+// publishes the accounts, the brain choices and the Apps and local models
+// list in the page's words, and holds the stored keys for KeyEditor's
+// Providers and keys list; a failure's safe cause goes to the log alone. A second
 // reader, the chosen sign-in's model list, runs only as the Settings window
 // shows the Jarvis page or while the console is open (consoleShown).
 Item {
@@ -23,6 +25,13 @@ Item {
     // undefined while no read has an answer: before the first one and after
     // a failed one.
     property var voiceKeys: undefined
+    // The stored keys of the last read (Accounts.status `keys`), undefined
+    // while no read has an answer.
+    property var keyList: undefined
+    // Whether a key removal cleared the Voice key, which then waits for the
+    // user's own choice: no sole key left is chosen for it until the Voice
+    // provider or the Voice key changes (Jarvis decision, VGS-2335).
+    property bool voiceCleared: false
     // The provider of each offered AI model choice by its id, from the last
     // read; none before its answer and after a failed one.
     property var providers: ({})
@@ -51,26 +60,8 @@ Item {
     readonly property var choice: Providers.modelChoice(shell === null ? ({ model: "", effort: "" }) : shell.settings, list, providers[brain])
     onChoiceChanged: publishChoice()
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
-    readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
-    readonly property var voiceKeyState: shell === null ? null : shell.tui.state["add-voice-key"]
-    readonly property var voiceKeyEndedAt: voiceKeyState === null || voiceKeyState === undefined ? null : voiceKeyState.endedAt
-    // The Voice keys the last read offered when Add a key ended, until the
-    // read that end starts has published; undefined otherwise. The key that
-    // read adds is the one the user just stored, which Jarvis selects.
-    property var addedFrom: undefined
-    onVoiceKeyEndedAtChanged: {
-        if (voiceKeyEndedAt === null) return;
-        addedFrom = voiceKeys;
-        refresh();
-    }
-    readonly property var removeState: shell === null ? null : shell.tui.state["remove-key"]
     readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
-    readonly property var keyEndedAt: keyState === null || keyState === undefined ? null : keyState.endedAt
-    readonly property var removeEndedAt: removeState === null || removeState === undefined ? null : removeState.endedAt
-    // The Voice keys the last read offered when Remove key ended, until the
-    // read that end starts has published; undefined otherwise.
-    property var removedFrom: undefined
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
     // The Voice key choices are the keys of the selected cloud voice's
     // provider, so a change of Voice provider publishes them again from the
@@ -80,17 +71,15 @@ Item {
     // The cloud voice the settings name (AccountProviders.cloudVoice), null
     // for Local or without a shell.
     readonly property var voice: shell === null ? null : Providers.cloudVoice(shell.settings.voiceProvider)
-    onVoiceKeyProviderChanged: Qt.callLater(republishVoice)
+    onVoiceKeyProviderChanged: {
+        voiceCleared = false;
+        Qt.callLater(republishVoice);
+    }
+    readonly property string voiceAccount: shell === null ? "" : shell.settings.voiceAccount
+    onVoiceAccountChanged: if (voiceAccount !== "") voiceCleared = false
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
-    onEndedAtChanged: if (endedAt !== null) { refresh(); forgetList(); }
-    onKeyEndedAtChanged: if (keyEndedAt !== null) { refresh(); forgetList(); }
-    onRemoveEndedAtChanged: {
-        if (removeEndedAt === null) return;
-        removedFrom = voiceKeys;
-        refresh();
-        forgetList();
-    }
+    onEndedAtChanged: if (endedAt !== null) keysChanged()
     onSignInEndedAtChanged: if (signInEndedAt !== null) { refresh(); forgetList(); }
     // Emitted once each check has published, whatever it read.
     signal refreshed()
@@ -157,6 +146,13 @@ Item {
         lister.running = true;
     }
 
+    // A change of the accounts or keys: read them again, and forget the
+    // kept model list, which the change can change.
+    function keysChanged() {
+        refresh();
+        forgetList();
+    }
+
     // An accounts change can change any sign-in's list: the kept read goes,
     // and a shown page or console reads again.
     function forgetList() {
@@ -182,34 +178,19 @@ Item {
         probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];
         probe.running = true;
     }
-    // The Voice key choices and the key row for KEYS, the last read's cloud
-    // voice keys, under the Voice provider the settings name now, and the
-    // key Jarvis selects for the user. KEYS holds only present references.
+    // The Voice key choices for KEYS, the last read's cloud voice keys,
+    // under the Voice provider the settings name now, and the key Jarvis
+    // selects for the user. KEYS holds only present references.
     // configure.set writes the plugin's row through the core writer. A
-    // queued refresh can publish status, but cannot select a stale key.
-    // After Remove key, a Voice key offered before it (removedFrom) that
-    // KEYS no longer holds is the removed key: the choice is cleared in the
-    // same step, never left naming a key that is gone, and the sole key
-    // left, if any, is then selected.
+    // queued refresh can publish status, but cannot select a stale key. A
+    // Voice key a removal cleared stays unchosen (voiceCleared).
     function publishVoice(keys) {
         const voice = Providers.cloudVoice(shell.settings.voiceProvider);
         const voiceChoices = Gate.voiceKeys(keys, voice);
         const choices = shell.status.set("voiceAccounts", voiceChoices);
         if (!shell.status.isOk(choices)) throw new Error("jarvis-accounts: status=refused");
         if (choices !== "ok") return false;
-        if (removedFrom !== undefined && !pending) {
-            const named = key => key.value === shell.settings.voiceAccount;
-            const gone = removedFrom.some(named) && !keys.some(named);
-            removedFrom = undefined;
-            if (gone && shell.configure.set("voiceAccount", "") !== "ok")
-                console.warn("jarvis-accounts: voice-selection=refused");
-        }
-        let chosen = pending ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);
-        if (addedFrom !== undefined && !pending) {
-            const added = Gate.voiceAdded(addedFrom, keys, voice);
-            addedFrom = undefined;
-            if (added !== null) chosen = added;
-        }
+        const chosen = pending || voiceCleared && shell.settings.voiceAccount === "" ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);
         if (chosen !== null && chosen !== shell.settings.voiceAccount && shell.configure.set("voiceAccount", chosen) !== "ok")
             console.warn("jarvis-accounts: voice-selection=refused");
         return true;
@@ -224,23 +205,25 @@ Item {
             const value = JSON.parse(output);
             modelAccess = Gate.accountAccess(value.accounts);
             voiceKeys = value.voiceAccounts;
+            keyList = value.keys;
             providers = value.providers;
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
-            const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial }, PageReference);
+            const apps = Words.appRows(value.apps, { kind: "found", partial: value.search.partial });
             const replies = [shell.status.set("accounts", accounts), shell.status.set("brains", value.brains),
-                shell.status.set("accountSearch", search), shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts))];
+                shell.status.set("apps", apps), shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts))];
             if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("status");
             if (replies.some(reply => reply !== "ok")) return false;
             if (!publishVoice(value.voiceAccounts)) return false;
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
+            keyList = undefined;
             providers = {};
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
-                shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
+                shell.status.set("apps", Words.appRows([], { kind: "failed", reason: reason })),
                 shell.status.set("copilotMemory", Gate.copilotMemory([]))];
             if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("jarvis-accounts: status=refused");
             if (replies.some(reply => reply !== "ok")) return false;

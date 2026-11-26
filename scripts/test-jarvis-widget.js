@@ -430,8 +430,8 @@ function voiceFaultControls() {
                 'if (false) return "voiceSetup";'],
             ["Voice assigns account repair to transient faults", "WidgetView.js", 'if (fault.category === "account") return "voiceAccount";',
                 'if (true) return "voiceAccount";'],
-            ["Voice account action points at the AI account", "WidgetView.js", 'Check your account under [Voice key](page:vgs.jarvis/Settings/voiceAccount).',
-                'Check your account under [Voice key](page:vgs.jarvis/Settings/brain).']
+            ["Voice account action points at the AI account", "WidgetView.js", 'Check your key under [API key](page:vgs.jarvis/Settings/voiceAccount).',
+                'Check your key under [API key](page:vgs.jarvis/Settings/brain).']
         ];
         for (const [label, file, needle, replacement] of controls) {
             const original = fs.readFileSync(path.join(dir, file), "utf8");

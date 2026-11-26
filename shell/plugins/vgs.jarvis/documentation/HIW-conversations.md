@@ -23,7 +23,7 @@ New conversation, in the J's menu and the orb's menu, clears the AI model's cont
 
 A conversation holds at most 40 of your turns. Your next message after that starts a fresh context, and Jarvis Voice still answers it. A notice says the conversation reached its memory limit.
 
-A change on Settings to the Account, the Model, the Backup models, the Voice provider or the Home folder ends the conversation, and the next one starts fresh. A restart of VGS or of Jarvis Voice keeps no context, since Jarvis Voice stores none on disk.
+A change on Settings to the Provider and key, the Model, the Backup models, the voice Provider or the Home folder ends the conversation, and the next one starts fresh. A restart of VGS or of Jarvis Voice keeps no context, since Jarvis Voice stores none on disk.
 
 ## What stays
 

@@ -124,6 +124,7 @@ Item {
         property var panes: []
         function rescan() { return "ok"; }
         function viewPage(id, tab) { viewed = viewed.concat([[id, tab]]); }
+        function editorOf(id) { return null; }
         function openPane(id) { panes = panes.concat([id]); return "ok"; }
     }
 

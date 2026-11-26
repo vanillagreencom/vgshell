@@ -1,6 +1,6 @@
 # What can Jarvis Voice's AI model read and do?
 
-Each conversation asks the AI model of the Account you chose: an app you are signed in to, or an API key you added. The model reads your instructions, skills and memory from your Jarvis home. It acts on this computer only through Jarvis Voice's own actions, and each action passes the action check, which runs it, asks you first or refuses it.
+Each conversation asks the AI model of the Provider and key you chose: an app you are signed in to, or an API key you added. The model reads your instructions, skills and memory from your Jarvis home. It acts on this computer only through Jarvis Voice's own actions, and each action passes the action check, which runs it, asks you first or refuses it.
 
 ```mermaid
 flowchart LR
@@ -15,7 +15,7 @@ flowchart LR
 
 ## The app and account
 
-Account on Settings names the app or key. An app is Claude Code, Codex, GitHub Copilot or Pi, with the account you signed in to in that app. A key is one you added for an AI provider. Backup models lists the models Jarvis Voice tries in order when the answering app refuses or stops; a backup receives only the last request, not the earlier conversation.
+Provider and key on Settings names the app or key. An app is Claude Code, Codex, GitHub Copilot or Pi, with the account you signed in to in that app. A key is one you added for an AI provider under Providers and keys on Setup. Backup models lists the models Jarvis Voice tries in order when the answering app refuses or stops; a backup receives only the last request, not the earlier conversation.
 
 Jarvis Voice runs an app in a private folder of its own, never in your Jarvis home, with the app's own memory and its own tools off. The app reaches this computer only through Jarvis Voice's actions. When the Account is an app, Jarvis, the long-running session, starts with that same app and account.
 

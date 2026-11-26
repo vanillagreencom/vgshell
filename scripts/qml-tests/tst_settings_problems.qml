@@ -41,6 +41,7 @@ Item {
         property var installFailures: ({})
         property var opened: []
         function replyOf() { return ""; }
+        function editorOf() { return null; }
         function headReplies() { return []; }
         function openPage(id, tab) { opened = [id, tab]; }
         function openRow(id) { opened = [id, ""]; }

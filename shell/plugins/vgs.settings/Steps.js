@@ -86,11 +86,11 @@ function stepView(entry, timeText, plugin) {
 function detailEntries(status) {
     return status.filter(function (entry) { return entry.placement === "details"; });
 }
-// The `rows` entries of STATUS a tab draws as sections of their own, in
-// manifest order: those the manifest places on Settings while SETTINGS,
-// else the Details ones.
-function rowsEntries(status, settings) {
-    return status.filter(function (entry) { return entry.placement === "rows" && entry.settings === settings; });
+// The `rows` entries of STATUS the tab TAB, Settings, Setup or Details,
+// draws as sections of their own, in manifest order (PluginLogic.statusRows
+// `tab`).
+function rowsEntries(status, tab) {
+    return status.filter(function (entry) { return entry.placement === "rows" && entry.tab === tab; });
 }
 function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && !entry.requestOnly; }); }
 // The action that opens the plugin's notice for every missing or outdated
@@ -338,6 +338,15 @@ function detailButtons(entry, plugin) {
 // The words a `presence` value reads as on the page.
 var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe", "signed-out": "Signed out" };
 
+// The title of the in-page question a row action that declares `confirm`
+// asks: the action's verb, its first word, then the row's label, then the
+// rest of the action's label, "Remove Work from Jarvis?" for Remove from
+// Jarvis on the row Work.
+function confirmTitle(label, row) {
+    var space = label.indexOf(" ");
+    return space === -1 ? label + " " + row + "?" : label.slice(0, space) + " " + row + label.slice(space) + "?";
+}
+
 // What a page draws of ENTRY, a `rows` entry of PluginLogic.statusRows, for
 // PLUGIN, { enabled, name }: { rows, add, text }. ROWS are its published
 // rows, each with the `key` its line keeps across writes, its id, and
@@ -347,7 +356,10 @@ var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", u
 // of its own, which removes the row it stands on, its TEXT its label
 // alone, such as Remove, led by the trash mark;
 // `buttons` holds every other action, TEXT its label and ICON_NAME its
-// mark, each a small button under the row.
+// mark, each a small button under the row. An action that declares
+// `confirm` carries CONFIRM true, TITLE the question (confirmTitle) and
+// QUESTION the row's sentence for it, which the window asks in place
+// before the list hands the press on.
 // ADD is the line action under the list (lineAction): while the plugin is
 // on, the entry's action on the whole list, such as Add, once the list is
 // reported; while it is off, Turn on for a Details list the user changes
@@ -368,7 +380,8 @@ function rowsView(entry, plugin) {
             row.actions.forEach(function (action) {
                 var removes = action.tone === "danger" && action.icon === "";
                 (removes ? menu : buttons).push({ kind: "row", key: entry.key + " " + row.id + " " + action.name, name: action.name, row: row.id, label: action.label,
-                    text: action.label, iconName: removes ? "trash" : action.icon });
+                    text: action.label, iconName: removes ? "trash" : action.icon, confirm: action.confirm, question: action.question, tone: action.tone,
+                    title: confirmTitle(action.label, row.label) });
             });
             return Object.assign({ key: row.id, buttons: buttons, menu: menu }, row);
         }),

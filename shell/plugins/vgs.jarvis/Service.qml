@@ -943,21 +943,20 @@ Item {
 
     // The user chose VALUE for the field KEY on the Jarvis page in place of
     // PREVIOUS (the core's choice hook). A Local voice model may open the
-    // local voice's download (LocalTier.chosen). A Voice provider opens at
-    // most one window, which SetupGate.providerWindow names: Add a key for
-    // a cloud voice with none of its keys stored, else the download for a
-    // voice that hears on this computer with no tier ready.
+    // local voice's download (LocalTier.chosen). A Voice provider starts at
+    // most one step, which SetupGate.providerWindow names: the key editor
+    // for a cloud voice with none of its keys stored, which puts PREVIOUS
+    // back if the user cancels it, else the download for a voice that
+    // hears on this computer with no tier ready.
     function voiceChosen(key, value, previous) {
         if (key === "localTier") {
             localTier.chosen(value);
             return;
         }
         switch (Gate.providerWindow(previous, value, localTier.reading, accountReader.voiceKeys, Providers.cloudVoice(value))) {
-        case "add-voice-key": {
-            const answer = shell.tui.run("add-voice-key", []);
-            if (answer !== "ok") console.warn("jarvis: add-voice-key=" + answer);
+        case "key-editor":
+            keyEditor.providerNeedsKey(previous);
             return;
-        }
         case "setup-local":
             localTier.setUp();
             return;
@@ -1850,7 +1849,17 @@ Item {
     // A finished key, account or local voice step can change what the
     // engine judges, so each reader's refresh sends the daemon a fresh
     // snapshot; hello() sends none while the child is not running or broken.
-    Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.Keys { id: keyReader; shell: root.shell; onRefreshed: root.hello() }
+    // Every key write, Check and removal, and the Providers and keys list.
+    Jarvis.KeyEditor {
+        id: keyEditor
+        shell: root.shell
+        accounts: accountReader
+        keys: keyReader
+        // A replaced or removed key that a conversation uses ends it, so no
+        // conversation goes on with a key that is no longer the stored one.
+        onInUseChanged: root.newConversation()
+    }
     // A tier setup changes whether the cloned voice can run, so the clone
     // row reads again after each local voice check.
     // Local voice is required only while it is the voice the daemon runs,

@@ -4,7 +4,8 @@
 // judges place them: Settings its schema fields and `Keys`, its Keys
 // section, while PluginLogic.bindRows gives the manifest a bind at its
 // defaults, a declared key's or a pad's, Setup the status entries
-// Steps.declaresStep takes as steps, and Details those Steps.detailEntries
+// Steps.declaresStep takes as steps and its lists (Steps.rowsEntries),
+// and Details those Steps.detailEntries
 // draws, of PluginLogic.statusRows over the manifest with nothing
 // published. scripts/check-user-commands.py reads it, so a placement rule
 // lives in those judges alone.
@@ -51,7 +52,7 @@ function rows(file) {
     const status = logic.statusRows({ status: isObject(raw.status) ? raw.status : {}, secrets: raw.secrets }, {});
     return {
         Settings: (isObject(raw.schema) ? Object.keys(raw.schema) : []).concat(keysDrawn(raw, path.dirname(file)) ? ["Keys"] : []),
-        Setup: status.filter(steps.declaresStep).map(entry => entry.key),
+        Setup: status.filter(steps.declaresStep).map(entry => entry.key).concat(steps.rowsEntries(status, "Setup").map(entry => entry.key)),
         Details: steps.detailEntries(status).map(entry => entry.key)
     };
 }

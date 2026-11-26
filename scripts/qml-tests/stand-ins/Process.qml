@@ -14,6 +14,10 @@ QtObject {
     property var environment: ({})
     property bool clearEnvironment: false
     property bool stdinEnabled: false
+    // What the owner wrote to stdin, in order, each while stdin was open;
+    // a write to a closed stdin is kept apart, since the real process drops it.
+    property var written: []
+    property var writtenClosed: []
 
     signal started()
     signal exited(int code, int status)
@@ -23,6 +27,11 @@ QtObject {
         if (stderr !== null && stderr.text !== undefined) stderr.text = err === undefined ? "" : err;
         exited(code, status);
         running = false;
+    }
+
+    function write(data) {
+        if (stdinEnabled) written = written.concat([data]);
+        else writtenClosed = writtenClosed.concat([data]);
     }
 
     function failStart() {

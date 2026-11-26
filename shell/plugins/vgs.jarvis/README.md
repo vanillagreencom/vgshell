@@ -40,8 +40,8 @@ This plugin is Jarvis Voice, the voice session on your computer. Each conversati
 
 Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis. On its Settings tab, turn Enabled on if it is off:
 
-1. On Settings, choose an Account under AI model. On Setup, Sign in uses the app's own sign-in; Add key stores a provider key.
-2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
+1. On Settings, choose a Provider and key under AI model. On Setup, Sign in uses the app's own sign-in, and Add API key under Providers and keys stores a provider key.
+2. On Settings, choose a voice Provider. Choosing a cloud voice with no key opens Add API key on Setup; Set up local voice on Setup installs Local. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
 The orb at the bottom of the screen shows while a conversation is open. Its look shows what Jarvis is doing; rest the pointer on its middle to read the state's name. Orb style on Settings chooses its look. Its menu and the J's right-click menu let you mute Jarvis's voice, change the system microphone mute, stop current work or open Key hints. Muting the voice leaves replies on screen. Muting the system microphone silences it for other applications too; Talk still opens a conversation.

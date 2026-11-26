@@ -59,6 +59,7 @@ class Secrets {
         if (!path.isAbsolute(directory)) fail("references=directory");
         this.directory = directory;
         this.file = path.join(directory, "keys.json");
+        this.checksFile = path.join(directory, "key-checks.json");
         this.env = childEnvironment(env);
     }
 
@@ -120,15 +121,15 @@ class Secrets {
         return ref;
     }
 
-    #write(bytes) {
+    #write(bytes, target = this.file, area = "references") {
         let temporary;
         try {
             fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
             temporary = fs.mkdtempSync(path.join(this.directory, ".keys-"));
             const file = path.join(temporary, "refs");
             fs.writeFileSync(file, bytes, { mode: 0o600, flag: "wx" });
-            fs.renameSync(file, this.file);
-        } catch { fail("references=write-failed"); }
+            fs.renameSync(file, target);
+        } catch { fail(area + "=write-failed"); }
         finally {
             if (temporary) {
                 try { fs.rmSync(temporary, { recursive: true }); }
@@ -138,6 +139,66 @@ class Secrets {
     }
 
     attributes(ref) { return Object.entries(reference(ref).attributes).flat(); }
+
+    /**
+     * The last explicit Check of each stored key, by its identity: { kind:
+     * "read", checks } with checks a Map of identity to { kind: "working",
+     * at } or { kind: "failed", reason, at }, AT the check's end in
+     * milliseconds since the epoch and REASON the check's keyed cause; or
+     * { kind: "unreadable" } for a file this judge refuses, which no
+     * caller reads as "never checked". A missing file has no checks.
+     */
+    checks() {
+        let bytes;
+        try {
+            const fd = fs.openSync(this.checksFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+            try {
+                const stat = fs.fstatSync(fd);
+                if (!stat.isFile() || stat.size > MAX_BYTES) return { kind: "unreadable" };
+                bytes = fs.readFileSync(fd);
+            } finally { fs.closeSync(fd); }
+        } catch (error) {
+            return error.code === "ENOENT" ? { kind: "read", checks: new Map() } : { kind: "unreadable" };
+        }
+        let values;
+        try { values = JSON.parse(bytes); } catch { return { kind: "unreadable" }; }
+        if (!Array.isArray(values) || values.length > MAX_REFERENCES) return { kind: "unreadable" };
+        const checks = new Map();
+        for (const value of values) {
+            const shape = value !== null && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).sort().join(",") : "";
+            const dated = Number.isSafeInteger(value?.at) && value.at > 0;
+            const ok = shape === "account,at,kind,origin,provider" && value.kind === "working"
+                || shape === "account,at,kind,origin,provider,reason" && value.kind === "failed" && /^[a-z0-9-]{1,80}$/.test(value.reason);
+            if (!ok || !dated || !line(value.provider, 80) || !line(value.account, 80) || !line(value.origin, 2048)) return { kind: "unreadable" };
+            const id = this.identity(value);
+            if (checks.has(id)) return { kind: "unreadable" };
+            checks.set(id, value.kind === "working" ? { kind: "working", at: value.at } : { kind: "failed", reason: value.reason, at: value.at });
+        }
+        return { kind: "read", checks };
+    }
+
+    // Record RESULT, a Check's end ({ kind: "working" } or { kind:
+    // "failed", reason }), for the stored key REF at AT, or forget its
+    // check with RESULT null, as a new or removed key does. Only keys the
+    // list holds keep a record. A file checks() cannot read starts again.
+    recordCheck(ref, result, at) {
+        const held = this.checks();
+        const next = held.kind === "read" ? held.checks : new Map();
+        const id = this.identity(ref);
+        if (result === null) next.delete(id);
+        else if (result.kind === "working" || result.kind === "failed") next.set(id, { ...result, at });
+        else fail("check=shape");
+        const rows = [];
+        for (const item of this.references()) {
+            const key = this.identity(item);
+            if (!next.has(key)) continue;
+            const check = next.get(key);
+            rows.push(check.kind === "working"
+                ? { provider: item.provider, account: item.account, origin: item.origin, kind: "working", at: check.at }
+                : { provider: item.provider, account: item.account, origin: item.origin, kind: "failed", reason: check.reason, at: check.at });
+        }
+        this.#write(JSON.stringify(rows) + "\n", this.checksFile, "checks");
+    }
 
     // Helper output can contain a key, including on errors. Never quote it.
     run(command, args, options = {}) {
@@ -156,26 +217,40 @@ class Secrets {
         }
     }
 
-    // Refuse, as addKey would, a key the list cannot take under REF, so
-    // the add-key window says so before it asks for the key.
-    checkAdd(ref) { this.#referenceUpdate(ownReference(ref.provider, ref.account, ref.origin)); }
+    // Whether REF is a key Jarvis stored itself: its attributes are exactly
+    // the ones ownReference gives its provider, account and origin. Only
+    // such a key may be replaced or cleared from the keyring; an item
+    // another program stored, which Use keyring item remembered, is only
+    // forgotten.
+    isOwn(ref) {
+        const sorted = attributes => JSON.stringify(Object.entries(attributes).sort());
+        return sorted(ref.attributes) === sorted(ownReference(ref.provider, ref.account, ref.origin).attributes);
+    }
 
-    // Store KEY, a Buffer holding the key the user pasted into the add-key
-    // window's masked box, which read it from that window's pipe, under REF.
+    // Store KEY, a Buffer holding the key the user pasted into the key
+    // editor's masked field, which keys.js read from its stdin, under REF,
+    // in MODE: "new" refuses a key the list holds already, store=exists,
+    // so an Add never overwrites a stored key, and "replace", an Edit's,
+    // refuses a key that is not Jarvis's own stored one, store=absent.
     // It reaches secret-tool on stdin alone, which reads a non-terminal
     // stdin to its end; the buffer is zeroed after the write, refused or
-    // not (docs/architecture/secrets.md). An empty key, an Escape in the
-    // box, stores nothing.
-    addKey(ref, key) {
+    // not (docs/architecture/secrets.md). An empty key stores nothing.
+    addKey(ref, key, mode) {
         try {
+            if (mode !== "new" && mode !== "replace") fail("store=mode");
             if (!Buffer.isBuffer(key) || key.length === 0) fail("store=empty");
             if (key.length > MAX_SECRET_BYTES) fail("store=oversize");
             const own = ownReference(ref.provider, ref.account, ref.origin);
+            const held = this.references().find(item => this.identity(item) === this.identity(own));
+            if (mode === "new" && held !== undefined) fail("store=exists");
+            if (mode === "replace" && (held === undefined || !this.isOwn(held))) fail("store=absent");
             this.#referenceUpdate(own);
             const output = this.run("secret-tool", ["store", "--label=Jarvis provider key",
                 ...this.attributes(own)], { input: key, timeout: 0 });
             output.fill(0);
             this.remember(own);
+            // A replaced key's last Check spoke of the key before it.
+            this.recordCheck(own, null, 0);
         } finally {
             if (Buffer.isBuffer(key)) key.fill(0);
         }
@@ -197,14 +272,14 @@ class Secrets {
         const found = refs.filter(item => item.provider === provider && item.account === account);
         if (found.length !== 1) fail("key=unknown");
         const ref = found[0];
-        const sorted = attributes => JSON.stringify(Object.entries(attributes).sort());
-        const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);
+        const own = this.isOwn(ref);
         if (own && this.presence(ref).value !== "absent") {
             this.run("secret-tool", ["clear", ...this.attributes(ref)]).fill(0);
             const left = this.presence(ref).value;
             if (left !== "absent") fail("key=" + left);
         }
         this.#write(JSON.stringify(refs.filter(item => item !== ref)) + "\n");
+        this.recordCheck(ref, null, 0);
         return own;
     }
 

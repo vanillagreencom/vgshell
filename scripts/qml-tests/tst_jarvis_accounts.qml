@@ -102,7 +102,7 @@ Item {
             compare(found.length, 1, "one account read process");
             verify(found[0].running, "an account read runs");
             while (found[0].running) {
-                found[0].stdout.text = JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: voice, search: { found: 0, partial: "" } });
+                found[0].stdout.text = JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: voice, keys: [], apps: [], search: { partial: "" } });
                 found[0].stdout.streamFinished();
                 found[0].exited(0, 0);
                 found[0].running = false;
@@ -114,27 +114,28 @@ Item {
         readonly property var work: ({ value: "key-work", label: "OpenAI / work", provider: "openai" })
         readonly property var home: ({ value: "key-home", label: "OpenAI / home", provider: "openai" })
 
-        // Remove key ended and the read it starts no longer holds the
-        // Voice key: the choices lose it, and the choice goes to the key
-        // that is left.
-        function test_removed_voice_key_leaves_the_choices_and_the_choice() {
+        // A removal cleared the Voice key (KeyEditor.removed): the read it
+        // starts no longer offers it, and the sole key left waits for the
+        // user's own choice (Jarvis decision, VGS-2335).
+        function test_removed_voice_key_waits_for_the_users_choice() {
             const host = open({ voiceProvider: "realtime", voiceAccount: "key-work" });
             compare(read(host, [work, home]), ["key-work", "key-home"]);
             compare(host.writes, [], "a stored Voice key is kept");
-            host.tuiState = { "remove-key": { endedAt: 1 } };
+            host.write("voiceAccount", "");
+            host.reader.voiceCleared = true;
+            host.reader.keysChanged();
             compare(read(host, [home]), ["key-home"], "the Voice key choices");
-            compare(host.writes, ["voiceAccount=", "voiceAccount=key-home"]);
-            compare(host.user.voiceAccount, "key-home");
+            compare(host.writes, ["voiceAccount="], "no key is chosen for the user");
+            compare(host.user.voiceAccount, "");
         }
 
-        // The control: a Remove key screen that ends with the key still
-        // stored, as after Cancel, changes neither.
-        function test_kept_voice_key_keeps_the_choice() {
-            const host = open({ voiceProvider: "realtime", voiceAccount: "key-work" });
-            read(host, [work, home]);
-            host.tuiState = { "remove-key": { endedAt: 1 } };
-            compare(read(host, [work, home]), ["key-work", "key-home"]);
-            compare(host.writes, []);
+        // The control: a key change that cleared no Voice key still
+        // chooses the sole key of the voice, as Jarvis does after a change
+        // of the Voice provider.
+        function test_sole_key_is_chosen_without_a_removal() {
+            const host = open({ voiceProvider: "realtime", voiceAccount: "" });
+            compare(read(host, [home]), ["key-home"]);
+            compare(host.writes, ["voiceAccount=key-home"]);
         }
 
         function test_list_read_saves_its_default() {

@@ -350,11 +350,12 @@ function verify(logic, producer) {
     same(logic.setupNeeds(producer.statusRows(onlyOptional, {}), [], true).open, false, "optional steps alone never need setup");
 
     // The tab of each `rows` entry, by the placement statusRows carries: a
-    // Settings list on Settings alone, any other on Details as a section
-    // of its own, never as a Details reading.
-    const listRows = producer.statusRows({ requirements: [], tui: {}, status: { pairs: { type: "rows", label: "Pairs", settings: true }, history: { type: "rows", label: "History" } } }, {});
-    same([true, false].map(settings => logic.rowsEntries(listRows, settings).map(entry => entry.key)).concat([logic.detailEntries(listRows).map(entry => entry.key)]),
-        [["pairs"], ["history"], []], "rows: each list on its own tab, as a section");
+    // Settings list on Settings alone, a Setup list on Setup alone, any
+    // other on Details as a section of its own, never as a Details reading.
+    const listRows = producer.statusRows({ requirements: [], tui: {}, status: { pairs: { type: "rows", label: "Pairs", settings: true },
+        steps: { type: "rows", label: "Steps", tab: "setup" }, history: { type: "rows", label: "History" } } }, {});
+    same(["Settings", "Setup", "Details"].map(tab => logic.rowsEntries(listRows, tab).map(entry => entry.key)).concat([logic.detailEntries(listRows).map(entry => entry.key)]),
+        [["pairs"], ["steps"], ["history"], []], "rows: each list on its own tab, as a section");
 
     // The status value judge: [name, the manifest, entry, value, admitted].
     const noRequiredTool = Object.assign({}, manifest, { requirements: manifest.requirements.filter(row => row.optional) });
@@ -648,7 +649,7 @@ const controls = [
     ["a tools step offers Review with every tool present", 'return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;', 'return reviewButton();', "tools: every tool present"],
     ["a tools step waits on required tools alone", 'return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;', 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', "tools: a missing optional tool alone"],
     ["an excluded tool offers Review", 'button: actionable ? reviewButton() : null', 'button: lacking.length > 0 ? reviewButton() : null', "architecture exclusion: a required tool is unfinished but has no install action"],
-    ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.settings === settings;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
+    ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.tab === tab;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
     ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
     ["request-only tools appear on Details", 'return entry.optional && !entry.requestOnly;', 'return entry.optional;', "request-only tools have no passive placement"],
     ["request-only tools create Setup", 'return row.optional === optional && !row.requestOnly;', 'return row.optional === optional;', "request-only tools have no passive placement"],
@@ -723,7 +724,7 @@ const producerControls = [
     ["no file key in a state value", '"available", "info", "file"];', '"available", "info"];', "file value: a value naming its file action with a path is admitted"],
     ["a value's info is not judged", '            && infoError(value.info, "", true) === ""\n', '', "value info: an info empty is refused"],
     ["the entry's info stands over the value's", '        var info = entry.type === "state" && value !== null && value.info !== undefined\n            ? value.info : entry.info', '        var info = false\n            ? value.info : entry.info', "value info: a value's info stands in the entry's"],
-    ["no file route", 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];', 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];', "file action: a file action is admitted"],
+    ["no file route", 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file", "handler"];', 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "handler"];', "file action: a file action is admitted"],
     ["a file act opens a script", '    if (action.file !== undefined)\n        return { ok: true, kind: "file", path: action.file === true ? values[key].file : action.file };\n', '', "file action: the act opens the declared path"],
     ["a file act ignores the value's path", 'path: action.file === true ? values[key].file : action.file };', 'path: action.file };', "file value: the act opens the value's path"],
     ["a value path is not judged", '(typeof value.file === "string" && editArgs(value.file).ok)', '(typeof value.file === "string")', "file value: a value path that climbs out is refused"],

@@ -55,6 +55,7 @@ Item {
         property var current: root.row(true)
         function setEnabled(id, enabled) { current = root.row(enabled, listCase); return "ok"; }
         function replyOf() { return ""; }
+        function editorOf() { return null; }
         function headReplies() { return []; }
     }
     Component {

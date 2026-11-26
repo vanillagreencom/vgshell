@@ -105,6 +105,9 @@ FocusScope {
     // The Keys row whose user line waits on the removal prompt, and that
     // line, as { field, row }, or null.
     property var removal: null
+    // A rows list's question before a row action, { list, button }
+    // (confirmAction), or null.
+    property var question: null
     property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
@@ -276,6 +279,34 @@ FocusScope {
     // of the user's file.
     function confirmRemoval(field, row) {
         removal = { field: field, row: row };
+    }
+
+    // LIST, a rows list, asks before it hands on BUTTON, a row action that
+    // declares `confirm` (Steps.rowsView): the window's prompt asks its
+    // `title` with its `question`, Cancel first in focus.
+    function confirmAction(list, button) {
+        question = { list: list, button: button };
+    }
+
+    function answerQuestion(accepted) {
+        const asked = question;
+        question = null;
+        if (asked === null) return;
+        asked.list.forceActiveFocus(Qt.OtherFocusReason);
+        if (accepted) asked.list.press(asked.button, true);
+    }
+
+    // The rows editor plugin ID asked its page to open last, its save
+    // with the typed SECRET, whose end reaches DONE, and its cancel
+    // (PluginStatus.openEditor). A refusal reads in the form.
+    function editorOf(id) {
+        return shell.manager.editorOf(id);
+    }
+    function saveEditor(id, key, form, secret, done) {
+        return shell.manager.saveEditor(id, key, form, secret, done);
+    }
+    function cancelEditor(id, key, form) {
+        return keep(stepKey(id, key), shell.manager.cancelEditor(id, key, form));
     }
 
     function answerRemoval(accepted) {
@@ -654,32 +685,37 @@ FocusScope {
 
     Scrim {
         visible: prompt.visible
-        onClicked: prompt.removing ? root.answerRemoval(false) : root.answer("cancel")
+        onClicked: prompt.removing ? root.answerRemoval(false) : prompt.asking ? root.answerQuestion(false) : root.answer("cancel")
     }
 
-    // The window's one prompt: the unsaved edit's, or a Keys row's removal
-    // while no edit waits.
+    // The window's one prompt: the unsaved edit's, else a Keys row's
+    // removal, else a rows list's question before a row action.
     Dialog {
         id: prompt
         readonly property var asked: root.removal
         readonly property bool removing: root.pending === null && asked !== null
+        readonly property bool asking: root.pending === null && asked === null && root.question !== null
         anchors.centerIn: parent
-        visible: root.pending !== null || root.removal !== null
+        visible: root.pending !== null || root.removal !== null || root.question !== null
         availableHeight: root.height
-        title: removing ? "Remove your Hyprland shortcut?" : "Save your changes?"
+        title: removing ? "Remove your Hyprland shortcut?" : asking ? root.question.button.title : "Save your changes?"
         message: removing && asked !== null ? "VGS deletes line " + asked.row.line + " of " + asked.row.place + " and reloads Hyprland, so " + asked.field.bind.key + " runs only " + asked.field.label + ". Undo puts the line back."
+            : asking ? root.question.button.question
             : root.current === null ? "" : root.current.name + " has unsaved changes."
         actions: removing ? [
             { label: "Remove line", role: "accept" },
+            { label: "Cancel", role: "cancel", focused: true }
+        ] : asking ? [
+            { label: root.question.button.label, role: "accept" },
             { label: "Cancel", role: "cancel", focused: true }
         ] : [
             { label: "Discard", role: "discard" },
             { label: "Save", role: "accept" }
         ]
         onVisibleChanged: if (visible) forceActiveFocus()
-        onAccepted: removing ? root.answerRemoval(true) : root.answer("save")
+        onAccepted: removing ? root.answerRemoval(true) : asking ? root.answerQuestion(true) : root.answer("save")
         onDiscarded: root.answer("discard")
         // Escape and the scrim stay on the page.
-        onRejected: removing ? root.answerRemoval(false) : root.answer("cancel")
+        onRejected: removing ? root.answerRemoval(false) : asking ? root.answerQuestion(false) : root.answer("cancel")
     }
 }

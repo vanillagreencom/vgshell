@@ -105,17 +105,17 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model in [AI model](page:vgs.jarvis/Settings/brain)",
-    "brain=account-unavailable": "The chosen account or its key is unavailable: [add a key or sign in](page:vgs.jarvis/Setup/keyStore)",
+    "brain=account-unavailable": "The chosen app or key is unavailable: [add a key or sign in](page:vgs.jarvis/Setup/providerKeys)",
     "brain=model-required": "Choose a model in [Model](page:vgs.jarvis/Settings/model)",
     "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup), or choose another app under AI model",
-    "brain=accounts-unreadable": "Jarvis could not read your accounts. Add a key with Add key to use an AI model.",
-    "speech=live-account-unselected": "[Add a provider key with API keys on the Setup tab](page:vgs.jarvis/Setup/keyStore): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
-    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts with Account search on the Setup tab](page:vgs.jarvis/Setup/accountSearch) to check it",
-    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside API keys stores a new key",
+    "brain=accounts-unreadable": "Jarvis could not read your apps and keys. Add a key with Add API key to use an AI model.",
+    "speech=live-account-unselected": "[Add an API key under Providers and keys on the Setup tab](page:vgs.jarvis/Setup/providerKeys): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key: [check it under Providers and keys on the Setup tab](page:vgs.jarvis/Setup/providerKeys)",
+    "speech=live-key-required": "[Choose a key under API key](page:vgs.jarvis/Settings/voiceAccount): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add API key there stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Set up the local voice again",
     "speech=local-ready-timeout": "Local voice did not get ready. See [Setup > Voice](page:vgs.jarvis/Setup/setupVoice).",
@@ -461,7 +461,7 @@ var LOCAL_SETUP_INFO = "Setup downloads voice models that run on this computer, 
 // local voice setup-local picks or "", and `failure`, the last failed local
 // setup of the tier the user wants (localFailure) or null. A done step names
 // the voice and how to talk; a cloud voice without its key names the key and
-// offers Add a key; a voice that hears on this computer whose wanted tier's
+// offers Add API key; a voice that hears on this computer whose wanted tier's
 // setup failed names that tier and why, and offers Set up local voice, also
 // while the tier before it still serves; local voice not set up names the
 // download and offers the same, with a cloud voice as the other path.
@@ -474,7 +474,7 @@ function voiceStep(value, facts) {
     if (voice !== null && has("speech=live-key-refused"))
         return { tone: "warning", text: KEY_REFUSED, hint: voice.product + " refused your " + voice.company + " key: add a new one", action: "key" };
     if (voice !== null && (has("speech=live-key-required") || has("speech=live-account-unselected")))
-        return facts.keys > 0 ? { tone: "warning", text: "No key chosen", hint: "Choose your " + voice.company + " key in [Voice key](page:vgs.jarvis/Settings/voiceAccount), or add one", action: "key" }
+        return facts.keys > 0 ? { tone: "warning", text: "No key chosen", hint: "Choose your " + voice.company + " key in [API key](page:vgs.jarvis/Settings/voiceAccount), or add one", action: "key" }
             : { tone: "warning", text: "No " + voice.company + " key", hint: voice.product + " needs your " + voice.company + " key", action: "key" };
     // A step another action mends, such as a missing tool, keeps it.
     if (failed && (value.action === "setup" || value.tone === "ok")) {
@@ -510,16 +510,17 @@ function localVoiceChosen(before, after, reading) {
     return reading !== null && reading.ready === null && hearsLocally(after) && !hearsLocally(before);
 }
 
-// The one window the user's choice on the Jarvis page of AFTER as the
-// Voice provider, in place of BEFORE, opens: "add-voice-key" for a cloud
-// voice with none of its keys among KEYS (the account reader's voice keys,
-// undefined before its first read, which opens nothing), VOICE being AFTER
-// as AccountProviders.cloudVoice gives it, null for Local, else
-// "setup-local" when localVoiceChosen holds over READING, else null. One
-// choice opens one window: ElevenLabs with no tier ready and no key opens
-// Add a key, and the local download then stands as the Voice step's action.
+// The one step the user's choice on the Jarvis page of AFTER as the Voice
+// provider, in place of BEFORE, starts: "key-editor", the Providers and
+// keys editor for that provider, for a cloud voice with none of its keys
+// among KEYS (the account reader's voice keys, undefined before its first
+// read, which starts nothing), VOICE being AFTER as
+// AccountProviders.cloudVoice gives it, null for Local, else "setup-local"
+// when localVoiceChosen holds over READING, else null. One choice starts
+// one step: ElevenLabs with no tier ready and no key opens the editor, and
+// the local download then stands as the Voice step's action.
 function providerWindow(before, after, reading, keys, voice) {
-    if (voice !== null && keys !== undefined && voiceKeys(keys, voice).length === 0) return "add-voice-key";
+    if (voice !== null && keys !== undefined && voiceKeys(keys, voice).length === 0) return "key-editor";
     return localVoiceChosen(before, after, reading) ? "setup-local" : null;
 }
 var CHECKING = { tone: "info", text: "Checking", action: false };
@@ -600,7 +601,7 @@ var MEMORY = {
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false,
     hint: "Jarvis stopped, so it could not check this. See [Jarvis settings](page:vgs.jarvis/Settings)." };
-// The AI model step declares named actions, Add key ("key") and Sign in
+// The AI model step declares named actions, Add API key ("key") and Sign in
 // ("signIn"), so its value names the one that applies or carries no
 // action: the manifest judge refuses a boolean on it. A Pi below its floor
 // offers neither: the page's Requirements section updates it.
@@ -624,7 +625,7 @@ function accountAccess(accounts) {
 
 // The model row keeps Sign in for a signed-out cause. Otherwise it offers
 // a step only after both readers find no key or signed-in app: Sign in
-// while an app is found signed out, else Add key. Missing reader output
+// while an app is found signed out, else Add API key. Missing reader output
 // stays checking, without an action.
 function modelStep(value, keys, access) {
     if (value.action !== "key") return value;
@@ -748,15 +749,6 @@ function voiceChoice(keys, voice, named) {
     return other ? "" : null;
 }
 
-// The key a finished Add a key stored, which Jarvis then selects: a key of
-// the selected cloud voice VOICE (voiceKeys) in KEYS that BEFORE, the keys
-// read before that run, did not hold; null for none.
-function voiceAdded(before, keys, voice) {
-    var held = before === undefined ? [] : before.map(function (key) { return key.value; });
-    var added = voiceKeys(keys, voice).filter(function (key) { return held.indexOf(key.value) === -1; });
-    return added.length === 1 ? added[0].value : null;
-}
-
 // The Cloned voice setup row (the manifest's clonedVoiceSetup) for VALUE,
 // `setup-local clone status`'s answer, or the reader's own failure value
 // with `action: true`. PROVIDER is the voice the daemon runs
@@ -771,7 +763,7 @@ function voiceAdded(before, keys, voice) {
 // ready reads info, so it never makes Jarvis read Setup needed nor takes the
 // page's primary action from a required step (Steps.js stepOpen).
 var CLONE_WITHHELD = {
-    provider: { text: "Needs the Local voice", hint: "The cloned voice speaks only through Local in [Voice provider](page:vgs.jarvis/Settings/voiceProvider)" },
+    provider: { text: "Needs the Local voice", hint: "The cloned voice speaks only through Local in [Provider](page:vgs.jarvis/Settings/voiceProvider)" },
     tier: { text: "Needs the Large model", hint: "The cloned voice needs the Large model in [Local voice model](page:vgs.jarvis/Settings/localTier), and the Large model runs only on an NVIDIA graphics card" }
 };
 // The hint of a ready row: what the recording gives now. The declared hint
@@ -918,8 +910,8 @@ var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jar
 // reads again on Retry. A way to the program Jarvis cannot follow is the
 // Home folder's to fix.
 var SESSION_BLOCKS = {
-    "no-account": { text: "Optional", hint: "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
-    "not-app": { text: "Optional", hint: "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
+    "no-account": { text: "Optional", hint: "No session can start without an app: [choose an app in Provider and key under AI model](page:vgs.jarvis/Settings/brain)" },
+    "not-app": { text: "Optional", hint: "No session can start with an API key or a local model: [choose an app in Provider and key under AI model](page:vgs.jarvis/Settings/brain)" },
     "no-home": { text: "Optional", hint: "No session can start until [Home folder](page:vgs.jarvis/Settings/home) sets a folder" },
     "package": { text: "Cannot start", hint: "This home folder's Jarvis package has no session program. Repair restores it with kendex.", action: "repair" },
     "not-set-up": { text: "Optional", hint: "Set up this home folder first in [Home folder](page:vgs.jarvis/Setup/setupHome)" },
@@ -1071,7 +1063,7 @@ function optionalStep(value) {
 // voice is not used: the declared hint links Local voice model, a field the
 // page withholds under such a voice.
 var LOCAL_VOICE_NEEDED = "The selected voice provider needs the local voice";
-var LOCAL_VOICE_UNUSED = "Not used with the voice you chose in [Voice provider](page:vgs.jarvis/Settings/voiceProvider)";
+var LOCAL_VOICE_UNUSED = "Not used with the voice you chose in [Provider](page:vgs.jarvis/Settings/voiceProvider)";
 function localVoiceStep(value, provider, voice) {
     var reading = noAction(value);
     delete reading.failure;

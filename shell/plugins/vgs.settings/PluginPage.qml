@@ -156,7 +156,7 @@ FocusScope {
     // keys and setup actions.
     readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row), installFailure)
     // Required declarations keep their tab after completion.
-    readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
+    readonly property bool hasSetup: row !== null && (Steps.setupTab(setupSections, row.requirements) || setupRows.length > 0)
     readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.startFailed(row.errors)).open
     readonly property var moreSettings: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Settings", plugin)
     // The listed screens Details draws in its Actions row: those that are
@@ -164,8 +164,77 @@ FocusScope {
     readonly property var detailScreens: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Details", plugin)
     // The keys of the `rows` entries each tab draws as a section of its
     // own: those the manifest places on Settings, and the Details ones.
-    readonly property var settingsRows: row === null ? [] : Steps.rowsEntries(row.status, true).map(entry => entry.key)
-    readonly property var detailRows: row === null ? [] : Steps.rowsEntries(row.status, false).map(entry => entry.key)
+    readonly property var settingsRows: row === null ? [] : Steps.rowsEntries(row.status, "Settings").map(entry => entry.key)
+    readonly property var setupRows: row === null ? [] : Steps.rowsEntries(row.status, "Setup").map(entry => entry.key)
+    readonly property var detailRows: row === null ? [] : Steps.rowsEntries(row.status, "Details").map(entry => entry.key)
+
+    // The rows editor open the plugin asked for (PluginStatus.openEditor),
+    // { id, key, form }, or null while none is open, and the state of its
+    // save: the failed save's words and whether one runs. A request opens
+    // once, by its serial; the core drops a plugin's request once its page
+    // is no longer shown, so a later visit finds none.
+    readonly property var editorAsked: row === null || panel === null ? null : panel.editorOf(row.id)
+    property int editorSeen: 0
+    property var editing: null
+    property string editorError: ""
+    property bool editorSaving: false
+    onEditorAskedChanged: {
+        if (editorAsked === null || editorAsked.serial <= editorSeen) return;
+        editorSeen = editorAsked.serial;
+        openEditor(editorAsked.form);
+    }
+    // A status write gives the page a new row of the same plugin, which
+    // keeps the form; another plugin's row closes it.
+    onRowChanged: if (editing !== null && (row === null || row.id !== editing.id)) closeEditor()
+    function closeEditor() {
+        editing = null;
+        editorError = "";
+        editorSaving = false;
+    }
+    // Show FORM's editor on the Setup tab and bring its list into view.
+    function openEditor(form) {
+        editorError = "";
+        editorSaving = false;
+        editing = { id: row.id, key: form.key, form: form };
+        tabs.currentIndex = Math.max(0, tabs.model.indexOf("Setup"));
+        revealMoving = true;
+        layout.scrollArea.contentY = 0;
+        revealMoving = false;
+        revealTab = "Setup";
+        revealing = form.key;
+        Qt.callLater(page.revealField);
+    }
+    // The editor's Save: the manager hands the form and the typed secret
+    // to the plugin; the form stays open, disabled, until the save ends.
+    // A save for a field returns to that field on Settings.
+    function saveEditor(form, secret) {
+        if (editing === null || row === null) return;
+        const key = editing.key;
+        const id = row.id;
+        editorSaving = true;
+        editorError = "";
+        const reply = panel.saveEditor(id, key, form, secret, end => {
+            if (page === null || row === null || row.id !== id || editing === null || editing.key !== key) return;
+            editorSaving = false;
+            if (!end.ok) {
+                editorError = end.text;
+                return;
+            }
+            closeEditor();
+            if (form.target !== "") open(Qt.OtherFocusReason, "Settings/" + form.target);
+        });
+        if (reply !== "ok") {
+            editorSaving = false;
+            editorError = Reply.line(reply);
+        }
+    }
+    function cancelEditor(form) {
+        if (editing === null || row === null) return;
+        const key = editing.key;
+        closeEditor();
+        panel.cancelEditor(row.id, key, form);
+        if (form.target !== "") open(Qt.OtherFocusReason, "Settings/" + form.target);
+    }
     // Keep the selected tab by name when a new plugin changes the strip.
     // If that plugin has no Setup tab, an open Setup moves to Details.
     onHasSetupChanged: {
@@ -472,7 +541,7 @@ FocusScope {
         }
         const entry = statusEntry(key);
         if (entry === null) return "unknown";
-        if (tab === "Setup") return setupSections.length > 0 && setupSections[0].items.some(item => !item.keys && item.key === key) ? "" : "undrawn";
+        if (tab === "Setup") return setupRows.indexOf(key) !== -1 || setupSections.length > 0 && setupSections[0].items.some(item => !item.keys && item.key === key) ? "" : "undrawn";
         return Steps.detailEntries(row.status).some(shown => shown.key === key) ? "" : "undrawn";
     }
     // Scroll the tab `revealTab` names to the row `revealing` names, which
@@ -886,12 +955,14 @@ FocusScope {
                             values: page.settingsRows
                         }
                         RowsList {
+                            id: settingsList
                             required property string modelData
                             width: body.width
                             entry: page.statusEntry(modelData)
                             plugin: page.plugin
                             reply: lastPress === null ? "" : page.replyFor(lastPress, entry)
                             onPressed: button => page.press(button, entry)
+                            onConfirm: button => page.panel.confirmAction(settingsList, button)
                             onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                         }
@@ -1063,6 +1134,32 @@ FocusScope {
                                 }
                             }
 
+                        }
+                    }
+
+                    // A list of rows set up here, each a section of its own
+                    // after the steps, with its in-page editor.
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.setupRows
+                        }
+                        RowsList {
+                            id: setupList
+                            required property string modelData
+                            width: body.width
+                            entry: page.statusEntry(modelData)
+                            plugin: page.plugin
+                            reply: lastPress === null ? "" : page.replyFor(lastPress, entry)
+                            editing: page.editing !== null && page.editing.key === modelData ? page.editing.form : null
+                            choices: entry === null || entry.editor === null ? [] : entry.editor.offers
+                            editorError: page.editorError
+                            editorSaving: page.editorSaving
+                            onPressed: button => page.press(button, entry)
+                            onConfirm: button => page.panel.confirmAction(setupList, button)
+                            onSaveWanted: (form, secret) => page.saveEditor(form, secret)
+                            onCancelWanted: form => page.cancelEditor(form)
+                            onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
+                            onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                         }
                     }
                 }
@@ -1244,12 +1341,14 @@ FocusScope {
                             values: page.detailRows
                         }
                         RowsList {
+                            id: detailList
                             required property string modelData
                             width: body.width
                             entry: page.statusEntry(modelData)
                             plugin: page.plugin
                             reply: lastPress === null ? "" : page.replyFor(lastPress, entry)
                             onPressed: button => page.press(button, entry)
+                            onConfirm: button => page.panel.confirmAction(detailList, button)
                             onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                         }

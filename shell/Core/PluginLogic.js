@@ -67,7 +67,7 @@ var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
 var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "addChoice", "preview"];
 // A status-fed select's last entry, which opens the plugin's own screen
 // that adds an offer, such as a key, and stores nothing itself.
-var ADD_CHOICE_KEYS = ["label", "tui"];
+var ADD_CHOICE_KEYS = ["label", "tui", "handler"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -182,7 +182,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // list a page draws full width under its label, each row with its own
 // actions.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"];
-var STATUS_ENTRY_KEYS = ["folderProperty", "type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain", "sourceAction"];
+var STATUS_ENTRY_KEYS = ["folderProperty", "type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "tab", "icon", "rowActions", "plain", "sourceAction", "editor"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -253,7 +253,9 @@ var STATUS_LIST_MAX = 64;
 var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "info", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
-var STATUS_CHOICE_KEYS = ["label", "value"];
+// A choice may carry `link`, { text, url }, the page a rows editor offers
+// beside it, such as a provider's key page (statusRowsEditorError).
+var STATUS_CHOICE_KEYS = ["label", "value", "link"];
 // A `rows` value is a list of at most STATUS_LIST_MAX rows, each carrying
 // these keys: an `id`, unique in the list, which a row action hands its
 // TUI as its one argument, so it is one argument tuiArgsValid admits; a
@@ -263,7 +265,11 @@ var STATUS_CHOICE_KEYS = ["label", "value"];
 // printable `text` of at most STATUS_LABEL_MAX; and optional `actions`,
 // the names of the entry's `rowActions` this row offers, each once. A
 // declared `folderProperty` admits one additional, optional folder path.
-var STATUS_ROW_KEYS = ["id", "label", "secondary", "state", "actions"];
+// A row of a list with an `editor` may also carry `choice`, the editor's
+// choice value it was made with, which Edit keeps fixed, and `confirm`,
+// per row action that declares `confirm`, the one sentence its in-page
+// question adds, such as what a removal stops.
+var STATUS_ROW_KEYS = ["id", "label", "secondary", "state", "actions", "choice", "confirm"];
 var STATUS_ROW_STATE_KEYS = ["tone", "text"];
 // The tones of a state that need the user: a `plain` state draws as text
 // only while its tone is none of these (statusRowTone).
@@ -306,14 +312,20 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // `action` acts on the whole list, such as Add, offered while the list is
 // reported, and its `rowActions` act on one row each: each of route `tui`,
 // whose script the core opens with the row's `id` as its one argument,
-// offered on a row whose `actions` name it.
-var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];
+// offered on a row whose `actions` name it. Route `handler: true` runs
+// in the plugin itself: the core hands the press to the handler its
+// service registered (PluginStatus.handleActions), for work the plugin
+// does in place on its page, such as opening its rows editor or checking
+// one row, which no terminal shows. A row action of route `handler` may
+// declare `confirm: true`: the page asks in place, with the row's own
+// `confirm` sentence for it, before it hands on the press.
+var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file", "handler"];
 // The name a plugin's file action runs the core editor under, `<plugin
 // id>/edit`, and the name its end reads under in the plugin's
 // `shell.tui.state` (tuiStateNames). A manifest that declares a file
 // action declares no script of that name, so the two never share a state.
 var STATUS_FILE_TUI = "edit";
-var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);
+var STATUS_ACTION_KEYS = ["label", "tone", "icon", "confirm"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state", "rows"];
 // The refusal reasons of the `manager` capability's `act`: `row-changed`
@@ -543,10 +555,14 @@ function schemaError(schema, settings, status) {
             if (entry.optionsFrom === undefined)
                 return at + ".addChoice needs optionsFrom";
             if (!isPlainObject(entry.addChoice) || Object.keys(entry.addChoice).some(function (name) { return ADD_CHOICE_KEYS.indexOf(name) === -1; }))
-                return at + ".addChoice must be { label, tui }";
+                return at + ".addChoice must be { label, tui } or { label, handler }";
             if (!isPrintableLine(entry.addChoice.label, PRESET_LABEL_MAX))
                 return at + ".addChoice.label must be a printable line of 1 to " + PRESET_LABEL_MAX + " characters";
-            if (typeof entry.addChoice.tui !== "string")
+            if ((entry.addChoice.tui === undefined) === (entry.addChoice.handler === undefined))
+                return at + ".addChoice must name exactly one of tui, handler";
+            if (entry.addChoice.handler !== undefined && entry.addChoice.handler !== true)
+                return at + ".addChoice.handler must be true";
+            if (entry.addChoice.tui !== undefined && typeof entry.addChoice.tui !== "string")
                 return at + ".addChoice.tui must name a script of the manifest's tui key";
         }
         // A status-fed select whose plugin plays each offer on request, such
@@ -870,6 +886,8 @@ function statusError(status, capabilities, tui, system) {
             var badAction = statusActionError(entry.type, declared[a].action, at + declared[a].at, tui, system, capabilities);
             if (badAction !== "")
                 return badAction;
+            if (declared[a].action.confirm !== undefined)
+                return at + declared[a].at + ".confirm needs a row action, whose row says what the question adds";
         }
         if (entry.type === "data" || entry.type === "launcherRows") {
             var drawn = ["group", "hint", "info", "link", "hidden", "action", "actions", "aside"];
@@ -881,6 +899,9 @@ function statusError(status, capabilities, tui, system) {
         var badRows = statusRowsEntryError(entry, at, tui, system, capabilities);
         if (badRows !== "")
             return badRows;
+        var badEditor = statusRowsEditorError(entry, at, status);
+        if (badEditor !== "")
+            return badEditor;
         var badAside = statusAsideError(entry, at, tui, system, capabilities);
         if (badAside !== "")
             return badAside;
@@ -916,6 +937,10 @@ function statusEntryActions(entry) {
 // as its one argument, and a listed screen opens with none.
 function statusRowsEntryError(entry, at, tui, system, capabilities) {
     if (entry.type !== "rows") {
+        if (entry.tab !== undefined)
+            return at + ".tab needs type rows; another entry's placement follows its type";
+        if (entry.editor !== undefined)
+            return at + ".editor needs type rows, whose rows it adds and edits";
         if (entry.folderProperty !== undefined)
             return at + ".folderProperty needs type rows";
         if (entry.icon !== undefined)
@@ -926,6 +951,8 @@ function statusRowsEntryError(entry, at, tui, system, capabilities) {
     }
     if (entry.group !== undefined)
         return at + ".group cannot be on a rows entry; its label heads a section of its own";
+    if (entry.tab !== undefined && (entry.tab !== "setup" || entry.settings !== undefined))
+        return at + ".tab must be \"setup\", on a list that declares no settings";
     if (entry.icon !== undefined && (typeof entry.icon !== "string" || !hasOwn(Lucide.ICONS, entry.icon)))
         return at + ".icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(entry.icon);
     if (entry.folderProperty !== undefined && (typeof entry.folderProperty !== "string" || !STATUS_KEY_PATTERN.test(entry.folderProperty)
@@ -943,11 +970,46 @@ function statusRowsEntryError(entry, at, tui, system, capabilities) {
         var badAction = statusActionError(entry.type, entry.rowActions[names[i]], actionAt, tui, system, capabilities);
         if (badAction !== "")
             return badAction;
+        if (entry.rowActions[names[i]].handler !== undefined)
+            continue;
         if (entry.rowActions[names[i]].tui === undefined)
-            return actionAt + " must name a tui; a row action opens its script with the row's id";
+            return actionAt + " must name a tui or handler; a row action opens its script with the row's id or hands its row to the plugin";
         if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))
             return actionAt + ".tui must name a script with no entry; a listed screen opens with no row id";
     }
+    return "";
+}
+
+// A rows entry's `editor`: the in-page form that adds a row, or replaces
+// the secret of one, as the plugin asks (PluginStatus.openEditor). Its
+// `choices` names a `choices` entry of the same status, whose offers the
+// form's first field picks from, each with an optional `link` the form
+// offers beside it; `choice`, `name` and `secret` label that field, the
+// row's name and the masked field. The typed secret reaches only the
+// plugin's handler (editorSaveRequest), which hands it to the native
+// write that needs it.
+var STATUS_EDITOR_KEYS = ["choices", "choice", "name", "secret"];
+var STATUS_EDITOR_NAME_MAX = 80;
+
+// The first defect of status entry ENTRY's `editor`, AT its path, over
+// STATUS, or "".
+function statusRowsEditorError(entry, at, status) {
+    if (entry.editor === undefined)
+        return "";
+    var editor = entry.editor;
+    if (!isPlainObject(editor))
+        return at + ".editor must be an object";
+    var keys = Object.keys(editor);
+    for (var i = 0; i < STATUS_EDITOR_KEYS.length; i++)
+        if (keys.indexOf(STATUS_EDITOR_KEYS[i]) === -1) return at + ".editor must declare " + STATUS_EDITOR_KEYS.join(", ");
+    for (var k = 0; k < keys.length; k++)
+        if (STATUS_EDITOR_KEYS.indexOf(keys[k]) === -1) return at + ".editor has unknown key " + JSON.stringify(keys[k]);
+    if (typeof editor.choices !== "string" || !hasOwn(status, editor.choices) || status[editor.choices].type !== "choices")
+        return at + ".editor.choices must name a choices status entry";
+    var labels = ["choice", "name", "secret"];
+    for (var l = 0; l < labels.length; l++)
+        if (!isPrintableLine(editor[labels[l]], STATUS_LABEL_MAX))
+            return at + ".editor." + labels[l] + " must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
     return "";
 }
 
@@ -1035,6 +1097,10 @@ function statusActionError(type, action, at, tui, system, capabilities) {
         return at + ".icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(action.icon);
     if (STATUS_ACTION_ROUTES.filter(function (route) { return action[route] !== undefined; }).length !== 1)
         return at + " must name exactly one of " + STATUS_ACTION_ROUTES.join(", ");
+    if (action.confirm !== undefined && (action.confirm !== true || action.handler === undefined))
+        return at + ".confirm must be true, on an action of route handler";
+    if (action.handler !== undefined)
+        return action.handler === true ? "" : at + ".handler must be true";
     if (action.dictation !== undefined) {
         if (action.dictation !== "setup")
             return at + ".dictation must be setup";
@@ -1408,6 +1474,9 @@ function statusValueFits(type, value, folderProperty) {
             if (!isPlainObject(choice) || !isPlainJson(choice)) return false;
             if (Object.keys(choice).some(function (key) { return STATUS_CHOICE_KEYS.indexOf(key) === -1; })) return false;
             if (!isPrintableLine(choice.label, STATUS_LABEL_MAX)) return false;
+            if (choice.link !== undefined && !(isPlainObject(choice.link) && Object.keys(choice.link).every(function (key) { return LINK_KEYS.indexOf(key) !== -1; })
+                && isPrintableLine(choice.link.text, LINK_TEXT_MAX) && typeof choice.link.url === "string"
+                && choice.link.url.length <= LINK_URL_MAX && LINK_URL_PATTERN.test(choice.link.url))) return false;
             if (!isPrintableLine(choice.value, STATUS_TEXT_MAX)) return false;
             if (seen.indexOf(choice.value) !== -1) return false;
             seen.push(choice.value);
@@ -1466,6 +1535,10 @@ function statusRowFits(row, folderProperty) {
             && typeof state.tone === "string" && hasOwn(STATUS_STATE_TONES, state.tone) && isPrintableLine(state.text, STATUS_LABEL_MAX)))
         && (row.actions === undefined || (Array.isArray(row.actions) && row.actions.every(function (name, index) {
             return typeof name === "string" && STATUS_KEY_PATTERN.test(name) && row.actions.indexOf(name) === index;
+        })))
+        && (row.choice === undefined || isPrintableLine(row.choice, STATUS_TEXT_MAX))
+        && (row.confirm === undefined || (isPlainObject(row.confirm) && Object.keys(row.confirm).every(function (name) {
+            return row.actions !== undefined && row.actions.indexOf(name) !== -1 && isPrintableLine(row.confirm[name], STATUS_TEXT_MAX);
         })));
 }
 
@@ -1608,7 +1681,9 @@ function statusDeclarationFits(manifest, entry, value) {
     }
     if (entry.type === "presenceList") return manifest.secrets !== undefined || value.every(function (item) { return item.secret === undefined; });
     if (entry.type === "rows") return value.every(function (row) {
-        return row.actions === undefined || row.actions.every(function (name) { return entry.rowActions !== undefined && hasOwn(entry.rowActions, name); });
+        return (row.actions === undefined || row.actions.every(function (name) { return entry.rowActions !== undefined && hasOwn(entry.rowActions, name); }))
+            && (row.choice === undefined || entry.editor !== undefined)
+            && (row.confirm === undefined || Object.keys(row.confirm).every(function (name) { return entry.rowActions[name].confirm === true; }));
     });
     return true;
 }
@@ -1710,12 +1785,15 @@ function statusTone(type, value) {
 // access }, `hint`, `info` and `secret` "" when the item omits them, `tone`
 // its presence's, and `access` what the page offers for its secret,
 // SECRET_ACCESS by its presence, "" for an item without one; a `rows`
-// value's rows each as { id, label, secondary, folder, state, tone, actions },
+// value's rows each as { id, label, secondary, folder, state, tone, choice, actions },
 // `folder` the declared folder property's path or "" while absent,
 // `secondary` and `state`, the state's text, "" when the row omits them,
-// `tone` the state's badge tone, "" for none, and `actions` each row action it
-// offers, in its own order, as { name, label, tone, icon }, `tone` and
-// `icon` as statusActionTone and statusActionIcon read them; any other
+// `tone` the state's badge tone, "" for none, `choice` the editor choice it
+// was made with, "" for none, and `actions` each row action it offers, in
+// its own order, as { name, label, tone, icon, confirm, question }, `tone`
+// and `icon` as statusActionTone and statusActionIcon read them, `confirm`
+// whether the page asks first and `question` the row's sentence for that
+// question, "" for none; any other
 // value as published.
 function statusRowValue(entry, value) {
     if (entry.type === "rows") return value.map(function (row) {
@@ -1727,9 +1805,11 @@ function statusRowValue(entry, value) {
             folder: entry.folderProperty !== undefined && hasOwn(row, entry.folderProperty) ? row[entry.folderProperty] : "",
             state: row.state === undefined ? "" : row.state.text,
             tone: tone === "" ? "" : STATUS_STATE_TONES[tone],
+            choice: row.choice === undefined ? "" : row.choice,
             actions: (row.actions === undefined ? [] : row.actions).map(function (name) {
                 var action = entry.rowActions[name];
-                return { name: name, label: action.label, tone: statusActionTone(action), icon: statusActionIcon(action) };
+                return { name: name, label: action.label, tone: statusActionTone(action), icon: statusActionIcon(action),
+                    confirm: action.confirm === true, question: action.confirm === true && row.confirm !== undefined && hasOwn(row.confirm, name) ? row.confirm[name] : "" };
             })
         };
     });
@@ -1838,7 +1918,10 @@ function statusActionIcon(action) {
 // `state` value's own `hint` and `info` stand in the entry's.
 // `link`, the words of the declared hint that open an https address, is
 // null when the manifest omits it. `settings` holds for a `rows` entry the Settings tab draws
-// (pagePlacementError). `secrets` holds for the entry that lists the plugin's stored keys,
+// (pagePlacementError), and `tab` names the tab a `rows` entry draws on,
+// Settings, Setup or Details, "" for any other entry. `editor` is a `rows`
+// entry's in-page form, { choices, choice, name, secret, offers }, OFFERS
+// the published choices of its `choices` entry, null for none. `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
 // draws with its setup. `sourceAction` is a stored key list's { label,
 // tui }, the action each of its keys offers beside its masked field, null
@@ -1873,6 +1956,9 @@ function statusRows(manifest, values) {
             setting: entry.setting === undefined ? "" : entry.setting,
             step: entry.step === undefined ? "" : entry.step,
             settings: entry.settings === true,
+            tab: entry.type !== "rows" ? "" : entry.tab === "setup" ? "Setup" : entry.settings === true ? "Settings" : "Details",
+            editor: entry.editor === undefined ? null : { choices: entry.editor.choices, choice: entry.editor.choice, name: entry.editor.name, secret: entry.editor.secret,
+                offers: hasOwn(values, entry.editor.choices) ? values[entry.editor.choices] : [] },
             icon: entry.icon === undefined ? "" : entry.icon,
             hint: hint,
             info: info,
@@ -1948,7 +2034,11 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // `not-offered` while the published value does not call for it. With ROW,
 // the act is ROW_ACTION, a name of the `rows` entry's `rowActions`, on the
 // published row whose `id` is ROW: { ok: true, kind: "tui", name, args },
-// ARGS [ROW], the row's id as the script's one argument, `undeclared` for
+// ARGS [ROW], the row's id as the script's one argument, or for an action
+// of route `handler` { ok: true, kind: "handler", key, action, row }, the
+// press the plugin's handler takes (PluginStatus.handleActions), which an
+// entry's own action of that route answers too, ACTION the name of the
+// state's named action, "" for its one action, and ROW "", `undeclared` for
 // a name the entry's `rowActions` lack, and `row-changed` while no
 // published row of that id names it. On a `presenceList` entry, ROW is a
 // key's account and ROW_ACTION STATUS_SOURCE_ACTION, the entry's
@@ -1983,6 +2073,8 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
         });
         if (!offering)
             return { ok: false, answer: statusActionRefusal(key, "row-changed") };
+        if (rowsEntry.rowActions[rowAction].handler === true)
+            return { ok: true, kind: "handler", key: key, action: rowAction, row: row };
         return { ok: true, kind: "tui", name: rowsEntry.rowActions[rowAction].tui, args: [row] };
     }
     if (typeof key !== "string" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)
@@ -2000,6 +2092,8 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
         return { ok: true, kind: "system", args: ["undo", action.undo] };
     if (action.file !== undefined)
         return { ok: true, kind: "file", path: action.file === true ? values[key].file : action.file };
+    if (action.handler === true)
+        return { ok: true, kind: "handler", key: key, action: manifest.status[key].type === "state" && typeof values[key].action === "string" ? values[key].action : "", row: "" };
     return { ok: true, kind: "tui", name: action.tui };
 }
 
@@ -2019,6 +2113,88 @@ function secretRefusal(account, reason) {
 // separator.
 function secretValueValid(secret) {
     return typeof secret === "string" && secret.length > 0 && secret.length <= SECRET_VALUE_MAX && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(secret);
+}
+
+// The refusals of a rows editor's save (editorSaveRequest) and of the
+// plugin's open of it (editorOpenRequest).
+var EDITOR_REASONS = ["undeclared", "disabled", "row-changed", "choice", "name", "value", "target", "unviewed"];
+function editorRefusal(key, reason) {
+    if (EDITOR_REASONS.indexOf(reason) === -1)
+        throw new Error("editorRefusal: reason " + JSON.stringify(reason) + " is not one of " + EDITOR_REASONS.join(", "));
+    var named = typeof key === "string" && STATUS_KEY_PATTERN.test(key) ? key : JSON.stringify(String(key));
+    return "refused: editor=" + named + " reason=" + reason;
+}
+
+// What the `manager` capability's `saveEditor` hands plugin MANIFEST's
+// action handler for the rows editor of status entry KEY, with ENABLED and
+// VALUES the plugin's state, for FORM, { row, choice, name, target }, and
+// SECRET, the masked field's text: { ok: true, request } with request
+// { key, action: "save", row, choice, name, target, secret }, or { ok:
+// false, answer } with editorRefusal's line. ROW is "" for a new row, else
+// a published row's id, whose own `choice` the save keeps; CHOICE one of
+// the editor's published choices; NAME a printable line of at most
+// STATUS_EDITOR_NAME_MAX characters, which an edit shows and the plugin
+// does not take from the form, since the row keeps its own; TARGET ""
+// or a schema field of the plugin, the field the form was opened for; and
+// SECRET a value secretValueValid admits. No refusal names the secret.
+function editorSaveRequest(manifest, id, enabled, values, key, form, secret) {
+    if (manifest === null)
+        return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    var entry = typeof key === "string" && hasOwn(manifest.status, key) ? manifest.status[key] : null;
+    if (entry === null || entry.type !== "rows" || entry.editor === undefined || !isPlainObject(form))
+        return { ok: false, answer: editorRefusal(key, "undeclared") };
+    if (!enabled)
+        return { ok: false, answer: editorRefusal(key, "disabled") };
+    var row = typeof form.row === "string" ? form.row : null;
+    var published = row === null || row === "" ? null : (hasOwn(values, key) ? values[key] : []).find(function (item) { return item.id === row; });
+    if (row === null || (row !== "" && (published === undefined || published.choice === undefined)))
+        return { ok: false, answer: editorRefusal(key, "row-changed") };
+    var choices = hasOwn(values, entry.editor.choices) ? values[entry.editor.choices] : [];
+    if (typeof form.choice !== "string" || !choices.some(function (choice) { return choice.value === form.choice; })
+        || (published !== null && published.choice !== form.choice))
+        return { ok: false, answer: editorRefusal(key, "choice") };
+    if (!isPrintableLine(form.name, STATUS_EDITOR_NAME_MAX))
+        return { ok: false, answer: editorRefusal(key, "name") };
+    if (typeof form.target !== "string" || (form.target !== "" && !hasOwn(manifest.schema, form.target)))
+        return { ok: false, answer: editorRefusal(key, "target") };
+    if (!secretValueValid(secret))
+        return { ok: false, answer: editorRefusal(key, "value") };
+    return { ok: true, request: { key: key, action: "save", row: row, choice: form.choice, name: form.name, target: form.target, secret: secret } };
+}
+
+// The open plugin MANIFEST asks of the rows editor of its status entry KEY
+// (PluginStatus.openEditor) for FORM, { row, choice, fixed, name, target,
+// title }, with VALUES its published status: { ok: true, form } with every
+// field set, or { ok: false, answer }. ROW "" opens a new row, CHOICE ""
+// or one of the editor's choices preselected, FIXED whether the user keeps
+// it, NAME the name field's first text, TARGET "" or the schema field the
+// save serves, and TITLE "" or the form's heading. An edit opens with the
+// row's choice and label, both fixed.
+function editorOpenRequest(manifest, values, key, form) {
+    var entry = typeof key === "string" && hasOwn(manifest.status, key) ? manifest.status[key] : null;
+    if (entry === null || entry.type !== "rows" || entry.editor === undefined || !isPlainObject(form))
+        return { ok: false, answer: editorRefusal(key, "undeclared") };
+    var row = form.row === undefined ? "" : form.row;
+    var published = row === "" ? null : (hasOwn(values, key) ? values[key] : []).find(function (item) { return item.id === row; });
+    if (typeof row !== "string" || published === undefined || (published !== null && published.choice === undefined))
+        return { ok: false, answer: editorRefusal(key, "row-changed") };
+    var choice = published !== null ? published.choice : form.choice === undefined ? "" : form.choice;
+    var choices = hasOwn(values, entry.editor.choices) ? values[entry.editor.choices] : [];
+    if (typeof choice !== "string" || (choice !== "" && !choices.some(function (item) { return item.value === choice; })))
+        return { ok: false, answer: editorRefusal(key, "choice") };
+    var name = published !== null ? published.label : form.name === undefined ? "" : form.name;
+    if (typeof name !== "string" || (name !== "" && !isPrintableLine(name, STATUS_EDITOR_NAME_MAX)))
+        return { ok: false, answer: editorRefusal(key, "name") };
+    var target = form.target === undefined ? "" : form.target;
+    if (typeof target !== "string" || (target !== "" && !hasOwn(manifest.schema, target)))
+        return { ok: false, answer: editorRefusal(key, "target") };
+    var title = form.title === undefined ? "" : form.title;
+    if (typeof title !== "string" || (title !== "" && !isPrintableLine(title, STATUS_LABEL_MAX)))
+        return { ok: false, answer: editorRefusal(key, "name") };
+    var fixed = published !== null || form.fixed === true;
+    if (fixed && choice === "")
+        return { ok: false, answer: editorRefusal(key, "choice") };
+    return { ok: true, form: { key: key, row: row, choice: choice, fixed: fixed, name: name, target: target, title: title } };
 }
 
 // What the `manager` capability's `storeSecret` (VERB `store`, with SECRET)
@@ -4142,6 +4318,9 @@ function addChoiceRequest(manifest, id, enabled, key) {
     var entry = typeof key === "string" && hasOwn(manifest.schema, key) ? manifest.schema[key] : null;
     if (entry === null || entry.addChoice === undefined)
         return { ok: false, answer: "refused: add-choice=" + (typeof key === "string" && STATUS_KEY_PATTERN.test(key) ? key : JSON.stringify(String(key))) + " reason=undeclared" };
+    if (entry.addChoice.handler === true)
+        return enabled ? { ok: true, kind: "handler", key: key, action: "add", row: "" }
+            : { ok: false, answer: "refused: add-choice=" + key + " reason=disabled" };
     if (!enabled)
         return { ok: false, answer: tuiRefusal(entry.addChoice.tui, "disabled").answer };
     return { ok: true, kind: "tui", name: entry.addChoice.tui };
@@ -5316,7 +5495,7 @@ function validateManifest(raw, sourceDir) {
             return { ok: false, error: badTui };
     }
     var adding = Object.keys(schema).find(function (key) {
-        return schema[key].addChoice !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));
+        return schema[key].addChoice !== undefined && schema[key].addChoice.tui !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));
     });
     if (adding !== undefined)
         return { ok: false, error: "schema." + adding + ".addChoice.tui must name a script of the manifest's tui key, got " + JSON.stringify(schema[adding].addChoice.tui) };
