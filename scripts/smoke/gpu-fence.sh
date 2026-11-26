@@ -13,7 +13,12 @@
 #
 # The DRM nodes are read on every run from /sys/class/drm/<node>: `dev`
 # holds the device number and `device/driver` names the driver. A node
-# whose driver is amdgpu is an AMD node; no number is fixed.
+# whose driver is amdgpu is an AMD node; no number is fixed. An AMD node
+# stays visible only when its `device/vendor` and `device/device` name a
+# PCI device on the admitted list below, read on the host and never from a
+# setting (D144); a node whose ids are absent or unreadable is hidden.
+# On a host whose every amdgpu node is admitted nothing is hidden, so the
+# world proves no path and the devices are the host's own.
 #
 # CMD runs in the test world: the host is read-only, /dev keeps device
 # access, /tmp, /dev/shm and XDG_RUNTIME_DIR are private tmpfs mounts,
@@ -163,6 +168,7 @@
 #   gpu-fence: status=not-measured reason=sysfs-unreadable path=<path>
 #   gpu-fence: status=not-measured reason=entry-unclassified path=<path>
 #   gpu-fence: status=not-measured reason=links-unreadable count=<n>
+#   gpu-fence: status=not-measured reason=fonts-unreadable path=<path>
 #   gpu-fence: status=not-measured reason=limits-unreadable path=<path>
 set -euo pipefail
 
@@ -186,6 +192,7 @@ fault() {
     invariant) note "  a value the fence sets itself holds none of its cases: a defect of the fence" ;;
     entry-unclassified) note "  an entry under the device tree is no node sysfs lists and no link, so the namespace cannot place it" ;;
     links-unreadable) note "  the links under the device tree could not be resolved" ;;
+    fonts-unreadable) note "  the host's fontconfig file could not be read, so the world cannot keep the bundled font families to their copies" ;;
     limits-unreadable) note "  the data limit this process runs under could not be read" ;;
     *) note "  internal error: no text for this reason" ;;
   esac
@@ -251,10 +258,30 @@ while (($#)); do
 done
 
 # The paths that must not resolve, the ones that must, and the bubblewrap
-# words that rebuild the two directories; plan fills them.
+# words that rebuild the two directories; plan fills them. admitted holds
+# the /dev/dri path of each AMD node the list below keeps visible.
 hidden=()
 kept=()
 rebuild=()
+admitted=()
+
+# REVISIT(D144): the amdgpu PCI devices a full nested battery ran on with no
+# kernel fault line, as vendor:device. 1002:1586 is px13's Strix Halo GPU.
+# Home's Granite Ridge GPU, 1002:13c0, faulted (D099) and is never listed.
+admitted_amd=(0x1002:0x1586)
+
+# amd_admitted NODE: true when NODE's PCI vendor and device ids, read from
+# sysfs, are on the admitted list. Either id absent or unreadable is false,
+# so the node is hidden.
+amd_admitted() {
+  local vendor="" device="" id
+  read -r vendor 2>/dev/null <"$1/device/vendor" || return 1
+  read -r device 2>/dev/null <"$1/device/device" || return 1
+  for id in "${admitted_amd[@]}"; do
+    [[ $vendor:$device != "$id" ]] || return 0
+  done
+  return 1
+}
 
 # plan: classify every DRM node of $sys and every entry of $dev/dri and
 # $dev/char. An entry it cannot classify stops the run: a node sysfs does
@@ -275,7 +302,10 @@ plan() {
       driver="$(readlink -- "$node/device/driver")" || { fault sysfs-unreadable "path=$node/device/driver"; exit 77; }
       driver="${driver##*/}"
     fi
-    if [[ $driver == amdgpu ]]; then
+    if [[ $driver == amdgpu ]] && amd_admitted "$node"; then
+      other[$name]="$number"
+      admitted+=("$dev/dri/$name")
+    elif [[ $driver == amdgpu ]]; then
       amd[$name]="$number"
       hidden+=("$dev/dri/$name" "$dev/char/$number")
       is_hidden[$dev/dri/$name]=1
@@ -400,6 +430,24 @@ listing() {
   done
 }
 
+# The families of the fonts under shell/assets/fonts. A bundled font whose
+# family is missing here lists in the world, which turns test-gpu-fence.sh's
+# font case red.
+bundled_families=("Inter Variable" "JetBrains Mono")
+
+# font_config FILE: the host's /etc/fonts/fonts.conf with a rejectfont of
+# each bundled family, written to FILE. Fails when the host's file cannot
+# be read or has no end tag.
+font_config() {
+  local text family rules=""
+  text="$(<"/etc/fonts/fonts.conf")" && [[ $text == *'</fontconfig>'* ]] || return 1
+  for family in "${bundled_families[@]}"; do
+    rules+="<pattern><patelt name=\"family\"><string>$family</string></patelt></pattern>"
+  done
+  printf '%s<selectfont><rejectfont>%s</rejectfont></selectfont>\n</fontconfig>%s\n' \
+    "${text%</fontconfig>*}" "$rules" "${text##*</fontconfig>}" >"$1"
+}
+
 # host_refused FACT PATH: the host shows FACT at PATH, so it is taken for a
 # person's computer and nothing starts.
 host_refused() { fault throwaway-refused "fact=$1 path=$2"; exit 77; }
@@ -418,6 +466,9 @@ throwaway_host() {
   # plan hides an amdgpu node's paths, its /dev/dri name first; here
   # nothing could hide them (D099).
   ((${#hidden[@]} == 0)) || host_refused amdgpu "${hidden[0]}"
+  # D142 refuses an AMD node D144 admits too: the throwaway world was never
+  # run on one.
+  ((${#admitted[@]} == 0)) || host_refused amdgpu "${admitted[0]}"
   listing /sys/class/input
   ((${#listed[@]} == 0)) || host_refused input "${listed[0]}"
   # The kernel names a connector card<N>-<connector> beside its card<N>
@@ -937,6 +988,25 @@ case "$mode" in
         skipped_service_masks+=("$service_path")
       fi
     done
+    # In the bubblewrap world the bundled families resolve to the unit's own
+    # copies on every host (D144). Qt adds an application font straight to fontconfig's
+    # application set (qtbase 6.12.0 qfontconfigdatabase.cpp,
+    # addApplicationFont: FcFontSetAdd), past the config's font filter, so
+    # a rejectfont of those families drops only the faces the host
+    # installed, which shadowed the copies on px13 (VGS-2764). The bind
+    # lands on the file the path resolves to: bubblewrap refuses a
+    # destination that is a symlink ("Can't mount on symlink destination"),
+    # and NixOS links /etc/fonts/fonts.conf into its store. A host with
+    # no such file is named on stderr, as a skipped service mask is: a bind
+    # there would need a write below the read-only /. The throwaway world
+    # (D142) runs on a host the run created, with no fonts a person added.
+    if [[ $world == bwrap && -e /etc/fonts/fonts.conf ]]; then
+      font_config "$fence_dir/fonts.conf" && font_target="$(realpath -e -- /etc/fonts/fonts.conf)" ||
+        { fault fonts-unreadable path=/etc/fonts/fonts.conf; exit 77; }
+      mounts+=(--ro-bind "$fence_dir/fonts.conf" "$font_target")
+    elif [[ $world == bwrap ]]; then
+      note "fonts skipped=/etc/fonts/fonts.conf"
+    fi
     git_dir="$(git -C "$checkout" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir="$checkout/.git"
     for input in "${inputs[@]}"; do
       input="$(realpath -e -- "$input")" && [[ -d $input ]] || { note 'refused: input=unreadable'; exit 2; }

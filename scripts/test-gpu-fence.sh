@@ -7,7 +7,9 @@
 # bubblewrap namespace over the device tree; the refusal cases put a
 # stand-in bwrap, or none, on PATH. In the trees the amdgpu nodes are card1
 # and renderD128, so a fence that went by a fixed number hides the wrong
-# ones.
+# ones. They name no PCI ids, so both are hidden. In the admit tree card1
+# carries the ids D144 admits and renderD128 those of home's Granite Ridge
+# GPU, so only renderD128's paths are hidden.
 #
 # Each case pins the exit status and the keyed lines the fence's header
 # promises. The proof lines are pinned whole: the orchestrator reads them
@@ -109,7 +111,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in chmod dirname env git id ln mkdir mktemp prlimit readlink realpath rm sed seq setsid stat sh sleep stty timeout touch true; do
+for tool in chmod cp dirname env fc-list git id ln mkdir mktemp prlimit readlink realpath rm sed seq setsid stat sh sleep stty timeout touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
@@ -206,6 +208,13 @@ world "$TMP_ROOT/stray-file"
 : >"$TMP_ROOT/stray-file/dev/char/9:9"
 world "$TMP_ROOT/junk"
 echo junk >"$TMP_ROOT/junk/sys/class/drm/card1/dev"
+world "$TMP_ROOT/admit"
+printf '0x1002\n' >"$TMP_ROOT/admit/sys/class/drm/card1/device/vendor"
+printf '0x1586\n' >"$TMP_ROOT/admit/sys/class/drm/card1/device/device"
+printf '0x1002\n' >"$TMP_ROOT/admit/sys/class/drm/renderD128/device/vendor"
+printf '0x13c0\n' >"$TMP_ROOT/admit/sys/class/drm/renderD128/device/device"
+admit_hidden=(dri/renderD128 char/226:128 dri/by-path/pci-0000:79:00.0-render)
+admit_kept=(dri/card1 char/226:1 dri/by-path/alias dri/by-path/pci-0000:79:00.0-card)
 
 # What a command inside reads: each path as resolves, dangling or none, a
 # kept link's own target, the PID namespace, the working directory and one
@@ -353,6 +362,38 @@ hides() { # FILE
   run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/amd/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
   seen="$(seen_report)" || return 1
   [[ $status -eq 9 && $seen == "$want_report" && "$(LC_ALL=C sort -- "$TMP_ROOT/err")" == "$want_proof" ]]
+}
+# admits FILE: on the admit tree the namespace keeps the admitted node and
+# every path to it, hides the other amdgpu node's paths and proves both.
+admits() {
+  local seen want proof
+  roots admit
+  run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/admit/dev" "${admit_hidden[@]}" "${admit_kept[@]}" "${other_paths[@]}" char/1:3
+  seen="$(seen_report)" || return 1
+  want="$(
+    printf 'none %s\n' "${admit_hidden[@]}"
+    printf 'resolves %s\n' "${admit_kept[@]}" "${other_paths[@]}" char/1:3
+    printf 'target ../dri/card0\npidns other\ncwd %s\nenv unset\n' "$TMP_ROOT/cwd"
+  )"
+  proof="$(
+    {
+      [[ -z $want_mask_notice ]] || printf '%s\n' "$want_mask_notice"
+      printf '%s\n' "$want_ceiling"
+      for path in "${admit_hidden[@]}"; do printf 'gpu-fence: absent path=%s/admit/dev/%s\n' "$TMP_ROOT" "$path"; done
+      for path in "${admit_kept[@]}" "${other_paths[@]}"; do printf 'gpu-fence: present path=%s/admit/dev/%s dev=0:0\n' "$TMP_ROOT" "$path"; done
+    } | LC_ALL=C sort
+  )"
+  [[ $status -eq 9 && $seen == "$want" && "$(LC_ALL=C sort -- "$TMP_ROOT/err")" == "$proof" ]]
+}
+# fonts_dropped FILE: in the world a face of a bundled family the host
+# installed, here a copy of each bundled font in the world's own font
+# directory, lists no file, while the host's other faces still list (D144).
+fonts_dropped() {
+  roots plain
+  run_fence "$1" real "${at[@]}" sh -c 'mkdir -p "$XDG_DATA_HOME/fonts" && cp -- "$@" "$XDG_DATA_HOME/fonts/" &&
+    listed="$(fc-list -f "%{file}\n" :)" && [ -n "$listed" ] &&
+    case "$listed" in *"$XDG_DATA_HOME/fonts/"*) echo copy-listed ;; *) echo others-listed ;; esac' sh "$repo"/shell/assets/fonts/*.ttf
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/out")" == others-listed ]]
 }
 # plain_namespace FILE: outside a fence on a host with no amdgpu node the
 # command runs in a PID namespace of its own, with every path as it was
@@ -954,7 +995,7 @@ reap_unknown() {
 # The throwaway hosts: the trees the outer namespace shows in place of
 # /sys/class and /run. `empty` registers nothing; each other plants one fact
 # of a person's computer.
-for host in empty input connector user bus amdgpu; do
+for host in empty input connector user bus amdgpu admitted; do
   mkdir -p -- "$TMP_ROOT/host-$host/class/input" "$TMP_ROOT/host-$host/class/drm" "$TMP_ROOT/host-$host/run"
 done
 mkdir -- "$TMP_ROOT/host-input/class/input/input0" "$TMP_ROOT/host-connector/class/drm/card0-DP-1"
@@ -962,6 +1003,11 @@ mkdir -p -- "$TMP_ROOT/host-user/run/user/1000" "$TMP_ROOT/host-bus/run/dbus" "$
 : >"$TMP_ROOT/host-bus/run/dbus/system_bus_socket"
 echo 226:1 >"$TMP_ROOT/host-amdgpu/class/drm/card1/dev"
 ln -s ../../../bus/pci/drivers/amdgpu "$TMP_ROOT/host-amdgpu/class/drm/card1/device/driver"
+mkdir -p -- "$TMP_ROOT/host-admitted/class/drm/card1/device"
+echo 226:1 >"$TMP_ROOT/host-admitted/class/drm/card1/dev"
+ln -s ../../../bus/pci/drivers/amdgpu "$TMP_ROOT/host-admitted/class/drm/card1/device/driver"
+printf '0x1002\n' >"$TMP_ROOT/host-admitted/class/drm/card1/device/vendor"
+printf '0x1586\n' >"$TMP_ROOT/host-admitted/class/drm/card1/device/device"
 # bin-none and python3, which the throwaway world's subreaper and sweep and
 # the cases' command run.
 mkdir -- "$TMP_ROOT/bin-throwaway"
@@ -1231,6 +1277,8 @@ cases=(
   "a host with no amdgpu node needs the fence|no|check_is plain 1"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
+  "the namespace keeps the amdgpu node D144 admits by its PCI ids and hides the other|yes|admits"
+  "the world drops every installed face of a bundled font family and keeps the host's other faces|yes|fonts_dropped"
   "a world over its memory ceiling fails, naming it, while one under it beside it passes|yes|ceiling_alone"
   "a world keeps a lower data limit it inherited|yes|ceiling_inherited"
   "a memory ceiling that is no positive whole number of bytes is refused|no|ceiling_refused"
@@ -1275,6 +1323,7 @@ cases=(
   "a throwaway host with a login session starts nothing|yes|throwaway_refused user session /run/user/1000"
   "a throwaway host with a system bus starts nothing|yes|throwaway_refused bus session /run/dbus/system_bus_socket"
   "a throwaway host with an amdgpu node starts nothing|yes|throwaway_refused amdgpu amdgpu /dev/dri/card1"
+  "a throwaway host with an admitted amdgpu node starts nothing|yes|throwaway_refused admitted amdgpu /dev/dri/card1"
   "a throwaway host named by --sys is refused|yes|throwaway_trees"
   "a host that declares no throwaway world takes the bubblewrap world|yes|throwaway_undeclared"
   "a throwaway marker whose owner is no ancestor passes no check|yes|throwaway_foreign"
@@ -1338,6 +1387,26 @@ mutate_fence() {
 # must go red.
 # shellcheck disable=SC2034 # run_controls reads the table by name
 controls=(
+  'the fence admits home'"'"'s Granite Ridge GPU'
+  'admitted_amd=(0x1002:0x1586)'
+  'admitted_amd=(0x1002:0x1586 0x1002:0x13c0)'
+  'the namespace keeps the amdgpu node D144 admits by its PCI ids and hides the other'
+  'the fence admits no amdgpu node'
+  'if [[ $driver == amdgpu ]] && amd_admitted "$node"; then'
+  'if false; then'
+  'the namespace keeps the amdgpu node D144 admits by its PCI ids and hides the other'
+  'an amdgpu node with no PCI ids is admitted'
+  'read -r vendor 2>/dev/null <"$1/device/vendor" || return 1'
+  'read -r vendor 2>/dev/null <"$1/device/vendor" || return 0'
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'the world keeps the host'"'"'s faces of the bundled families'
+  'mounts+=(--ro-bind "$fence_dir/fonts.conf" "$font_target")'
+  :
+  'the world drops every installed face of a bundled font family and keeps the host'"'"'s other faces'
+  'the throwaway world starts on an admitted amdgpu node'
+  '((${#admitted[@]} == 0)) || host_refused amdgpu "${admitted[0]}"'
+  :
+  'a throwaway host with an admitted amdgpu node starts nothing'
   'the check writes a probe into the checkout'
   '    if exposed || ! fenced; then exit 1; fi'
   '    : >"$checkout/probe"; if exposed || ! fenced; then exit 1; fi'
