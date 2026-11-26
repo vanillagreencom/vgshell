@@ -12,8 +12,10 @@ import "PluginLogic.js" as Logic
 // every output. Hyprland posts `monitoradded`, `monitorremoved`,
 // `monitoraddedv2` and `monitorremovedv2` when an output comes or goes and
 // `configreloaded` after each reload, and the outputs are read again on
-// each. A failed read is logged
-// and returns `outputs` to null. `support`, what each panel takes, comes
+// each; a monitor event marks them unread until that read answers
+// (`layerHeld`). A failed read is logged, returns `outputs` to null and is
+// read again a second later (`outputsRetry`).
+// `support`, what each panel takes, comes
 // from `hyprctl systeminfo`: Hyprland v0.56.2 prints it nowhere else, in
 // no JSON form, and only for the outputs that are on and mirror nothing.
 // That call runs lspci on Hyprland's main loop and holds the compositor
@@ -35,6 +37,30 @@ Scope {
     // parseOutputs's outputs, null until read while active and after a
     // failed read.
     property var outputs: null
+    // Whether a monitor event's outputs read is still to answer. `outputs`
+    // keeps the list it would replace, since plugins and trial() read it.
+    // HyprctlReader answers only the last read asked for, which started
+    // after the event, so a successful answer clears the mark.
+    property bool outputsPending: false
+    // The keyed error of the last failed outputs read, logged once while
+    // the same error repeats, since outputsRetry reads again each second.
+    property string outputsFailure: ""
+    // Whether a configuration reload must wait, for the Hyprland layer's
+    // writes and reloads and HyprlandState's bind edit reload: while the
+    // outputs are unread, from a monitor event until its read answers, and
+    // while they list FALLBACK (Monitors.fallbackLit), since a reload then
+    // aborts Hyprland 0.57. The layer can render again between the event
+    // and the answer. FALLBACK's own removal posts `monitorremoved`, so its
+    // read lifts the hold: Hyprland v0.57.0 src/state/FallbackState.cpp
+    // line 137 calls CMonitor::onDisconnect, whose scope guard posts it
+    // (src/output/Monitor.cpp lines 386-390).
+    // REVISIT(VGS-2136): remove the hold once the oldest Hyprland VGS
+    // supports carries hyprwm/Hyprland#16927.
+    readonly property bool layerHeld: {
+        if (outputsPending) return true;
+        const answer = Monitors.fallbackLit(outputs);
+        return !answer.ok || answer.lit;
+    }
     // parseSupport's support, null until read while active and after a
     // failed read.
     property var support: null
@@ -76,6 +102,9 @@ Scope {
             return;
         }
         outputs = null;
+        outputsPending = false;
+        outputsFailure = "";
+        outputsRetry.stop();
         support = null;
         guard = "unread";
         guardCheck.stop();
@@ -274,21 +303,26 @@ Scope {
             // Hyprland posts each v2 event beside its first form, so the
             // pair drops a panel once.
             switch (event.name) {
-            case "monitoradded":
-            case "monitorremoved":
             case "configreloaded":
                 root.readOutputs();
                 return;
             case "monitoraddedv2":
                 root.support = Monitors.supportWithout(root.support, event.data);
-                root.readOutputs();
                 if (root.supportWanted) root.readSupport();
-                return;
+                break;
             case "monitorremovedv2":
                 root.support = Monitors.supportWithout(root.support, event.data);
-                root.readOutputs();
+                break;
+            case "monitoradded":
+            case "monitorremoved":
+                break;
+            default:
                 return;
             }
+            // Marked before the read starts, so the hold stands until it
+            // answers.
+            root.outputsPending = true;
+            root.readOutputs();
         }
     }
 
@@ -300,14 +334,33 @@ Scope {
             const read = failure === "" ? Monitors.parseOutputs(text) : { ok: false, error: failure };
             if (!read.ok) {
                 root.outputs = null;
-                console.error("monitors: " + read.error);
+                if (read.error !== root.outputsFailure) console.error("monitors: " + read.error);
+                root.outputsFailure = read.error;
+                outputsRetry.restart();
             } else {
+                outputsRetry.stop();
+                root.outputsFailure = "";
                 if (JSON.stringify(read.outputs) !== JSON.stringify(root.outputs)) root.outputs = read.outputs;
+                // Cleared only once the outputs are stored: layerHeld
+                // evaluates again on each set, and cleared first it would
+                // read the outputs from before the event, dropping the hold
+                // for a step when the answer lists FALLBACK.
+                root.outputsPending = false;
                 // HyprctlReader answers only the last read asked for, which
                 // started after the guard.
                 if (root.guard === "rereading") root.guard = "settled";
             }
         }
+    }
+
+    // A failed outputs read holds the layer (`layerHeld`) until outputs are
+    // read, and no monitor event may follow, so it is read again. One
+    // second bounds a persistent failure to one hyprctl process a second
+    // and lifts the hold at most a second after Hyprland answers again.
+    Timer {
+        id: outputsRetry
+        interval: 1000
+        onTriggered: root.readOutputs()
     }
 
     HyprctlReader {

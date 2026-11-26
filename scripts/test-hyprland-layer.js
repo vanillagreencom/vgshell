@@ -4,7 +4,8 @@
 // a plugins row's `keys` under ConfigLogic.configError,
 // PluginLogic.hyprlandSection with the input options a plugins row sets, the
 // text shell/Core/HyprlandLayer.js renders, and the writer's sequence,
-// HyprlandLayer.step. Each file loads under node through
+// HyprlandLayer.step, with the reload hold shell/Core/MonitorState.qml feeds
+// it. Each file loads under node through
 // bin/lib/qml-library.js, as the shell loads it.
 //
 // The controls at the end edit a copy of one file, one rule at a time, and
@@ -1839,6 +1840,127 @@ const SEQUENCES = [
         ["probe", "reload", "none", "read", "mkdir", "write", "reload"], { phase: "reloading" }]
 ];
 
+const monitorStateFile = path.join(__dirname, "..", "shell", "Core", "MonitorState.qml");
+const monitorLogicFile = path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js");
+// A `hyprctl -j monitors all` reply listing NAMES, each lit.
+const outputsReply = names => JSON.stringify(names.map((name, id) => ({
+    id: id, name: name, description: "", make: "", model: "", serial: "", width: 1920, height: 1080,
+    refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0, vrr: false, disabled: false, currentFormat: "XRGB8888",
+    mirrorOf: "none", availableModes: [], colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
+})));
+const LAYER_WRITES = ["mkdir", "write", "reload"];
+
+// MonitorState.qml's event handler, outputs answer, retry trigger and
+// `layerHeld` binding from SOURCE, run over a stub scope whose outputs reads
+// are recorded and answered here, the hold fed to the layer machine as
+// HyprlandLayer.qml feeds it.
+function verifyOutputsHold(source, monitors, layer) {
+    const handler = source.match(/function onRawEvent\(event\) \{([\s\S]*?)\n        \}\n    \}/);
+    const answer = source.match(/id: reader\n[\s\S]*?onReadDone: \(request, text, failure\) => \{([\s\S]*?)\n        \}\n    \}/);
+    const hold = source.match(/readonly property bool layerHeld: \{([\s\S]*?)\n    \}/);
+    const retry = source.match(/id: outputsRetry\n[\s\S]*?onTriggered: ([^\n]*)\n/);
+    assert.ok(handler && answer && hold && retry, "MonitorState.qml's event handler, outputs answer, hold and retry are available");
+    const reads = [], logged = [], timer = [];
+    const scope = vm.createContext({
+        active: true, outputs: null, outputsPending: false, outputsFailure: "", support: null, supportWanted: false,
+        guard: "settled", Monitors: monitors, console: { error: line => logged.push(line) },
+        outputsRetry: { restart: () => timer.push("restart"), stop: () => timer.push("stop") },
+        readSupport: () => {}
+    });
+    // A QML binding evaluates again on each set of what it reads, so the
+    // hold is read after every set through `root`.
+    const trace = [];
+    scope.root = new Proxy(scope, { set: (target, key, value) => {
+        target[key] = value;
+        trace.push(layerHeld());
+        return true;
+    } });
+    // Whether the event's mark stood when each read was asked for.
+    scope.readOutputs = () => reads.push(scope.outputsPending);
+    const event = (name, data) => vm.runInContext("(function (event) {" + handler[1] + "})", scope)({ name: name, data: data });
+    const answerRead = (text, failure) => vm.runInContext("(function (request, text, failure) {" + answer[1] + "})", scope)(null, text, failure);
+    const layerHeld = () => vm.runInContext("(function () {" + hold[1] + "})", scope)();
+    let machine = layer.initialState();
+    const actions = [];
+    const feed = (input, text) => {
+        const next = layer.step(machine, input, text);
+        machine = next.state;
+        actions.push(next.action);
+    };
+    for (const [input, text] of WIRED) feed(input, text);
+    answerRead(outputsReply(["DP-1"]), "");
+    assert.equal(layerHeld(), false, "a read listing a real output alone holds nothing");
+    feed({ type: "fallback", lit: layerHeld() }, "T1");
+
+    // The last output goes: Hyprland posts both forms, and the layer
+    // renders before the read answers.
+    let from = actions.length;
+    event("monitorremoved", "DP-1");
+    event("monitorremovedv2", "0,DP-1,");
+    feed({ type: "fallback", lit: layerHeld() }, "T2");
+    feed(render, "T2");
+    same(actions.slice(from).filter(action => LAYER_WRITES.includes(action)), [], "a render between a monitor event and its read writes and reloads nothing");
+    same(reads.slice(-2), [true, true], "each monitor event marks the outputs unread before its read");
+    const settled = trace.length;
+    answerRead(outputsReply(["FALLBACK"]), "");
+    assert.ok(trace.length > settled, "the answer's sets are traced");
+    same(trace.slice(settled).filter(held => held !== true), [], "the hold never drops while the answer listing FALLBACK is stored");
+    assert.equal(layerHeld(), true, "the answer that lists FALLBACK keeps the hold");
+    feed({ type: "fallback", lit: layerHeld() }, "T2");
+    feed(render, "T2");
+    same(actions.slice(from).filter(action => LAYER_WRITES.includes(action)), [], "a render while FALLBACK is listed writes and reloads nothing");
+
+    // A real output returns: the hold stands until its read answers, then
+    // the last text writes once.
+    event("monitoradded", "DP-1");
+    event("monitoraddedv2", "1,DP-1,");
+    feed({ type: "fallback", lit: layerHeld() }, "T3");
+    feed(render, "T3");
+    same(actions.slice(from).filter(action => LAYER_WRITES.includes(action)), [], "a render between the added event and its read writes and reloads nothing");
+    answerRead(outputsReply(["DP-1"]), "");
+    assert.equal(layerHeld(), false, "the read after the real output's return lifts the hold");
+    from = actions.length;
+    feed({ type: "fallback", lit: layerHeld() }, "T3");
+    feed(mkdirOk, "T3");
+    feed(saved, "T3");
+    feed(reloaded, "T3");
+    same(actions.slice(from).filter(action => LAYER_WRITES.includes(action)), LAYER_WRITES, "the held text writes and reloads once");
+    assert.equal(machine.onDisk, "T3", "the text written is the last one rendered");
+
+    // A failed read holds, starts the retry, and logs a repeated error
+    // once; the retry reads again, and its answer lifts the hold.
+    answerRead("", "outputs=failed status=1");
+    assert.equal(layerHeld(), true, "a failed read holds");
+    answerRead("", "outputs=failed status=1");
+    same([timer.slice(-2), logged.length], [["restart", "restart"], 1], "each failed read restarts the retry, and a repeated error is logged once");
+    const asked = reads.length;
+    vm.runInContext(retry[1], scope);
+    assert.equal(reads.length, asked + 1, "the retry reads the outputs again");
+    answerRead(outputsReply(["DP-1"]), "");
+    assert.equal(timer[timer.length - 1], "stop", "a successful read stops the retry");
+    assert.equal(layerHeld(), false, "the retried read lifts the hold");
+}
+
+// The early mark's control drops it and keeps its text; the order control
+// clears the mark before the outputs are stored.
+function testOutputsHold() {
+    const source = fs.readFileSync(monitorStateFile, "utf8");
+    const monitors = load(monitorLogicFile);
+    const layer = load(layerFile);
+    verifyOutputsHold(source, monitors, layer);
+    const needle = "            root.outputsPending = true;\n";
+    assert.equal(source.split(needle).length, 2, "the early mark control matches once");
+    assert.throws(() => verifyOutputsHold(source.replace(needle, () => "            if (false) root.outputsPending = true;\n"), monitors, layer),
+        error => error.code === "ERR_ASSERTION" && Array.isArray(error.actual) && error.actual.includes("mkdir"));
+    const stored = "                if (JSON.stringify(read.outputs) !== JSON.stringify(root.outputs)) root.outputs = read.outputs;\n";
+    const cleared = "                root.outputsPending = false;\n";
+    const order = stored + source.split(stored)[1].split(cleared)[0] + cleared;
+    assert.equal(source.split(order).length, 2, "the order control matches once");
+    assert.throws(() => verifyOutputsHold(source.replace(order, () => cleared + order.slice(0, -cleared.length)), monitors, layer),
+        error => error.code === "ERR_ASSERTION" && JSON.stringify(error.actual) === "[false]");
+    console.log("test-hyprland-layer: outputs-hold pass controls=killed,killed");
+}
+
 // A plugin that denies gliff-server the screen while its `hosting` setting
 // is false, rendered in Hyprland instance T.
 const PERMISSION_RULES = [
@@ -2695,3 +2817,4 @@ try {
 console.log(`test-hyprland-layer: ok keys=${KEYS.length} manifests=${MANIFESTS.length} config=${CONFIG_KEYS.length} steps=${SEQUENCES.length} controls=${CONTROLS.length}`);
 testUserBindAdmission();
 verifyUserBindLifecycle();
+testOutputsHold();

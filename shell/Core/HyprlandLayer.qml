@@ -5,7 +5,6 @@ import Quickshell.Io
 import qs.Commons
 import "PluginLogic.js" as Logic
 import "HyprlandLayer.js" as Layer
-import "MonitorLogic.js" as Monitors
 
 // The one writer of the Hyprland layer: HyprlandLayer.js renders the theme's
 // Hyprland appearance groups, each written while the user's Appearance
@@ -169,16 +168,10 @@ Scope {
     // reaches the machine through renderLayer, after the turn that ended
     // it, so Keep's outputs write in that turn is in the text written.
     readonly property bool trialRunning: Capabilities.monitors.trialState.phase !== "idle"
-    // Whether Hyprland lists FALLBACK, or the outputs are unread: the
+    // MonitorState's reload hold, which stands while this layer holds
+    // `monitors` (MonitorState.qml, layerHeld, with its REVISIT): the
     // machine holds every write and reload then (Layer.step, `fallback`).
-    // MonitorState reads `monitors all` on each monitor event and reload
-    // while this layer holds `monitors`, and FALLBACK's own removal posts
-    // `monitorremoved`. REVISIT(VGS-2136): remove the hold once the oldest
-    // Hyprland VGS supports carries hyprwm/Hyprland#16927.
-    readonly property bool fallbackLit: {
-        const answer = Monitors.fallbackLit(Capabilities.monitors.outputs);
-        return !answer.ok || answer.lit;
-    }
+    readonly property bool layerHeld: Capabilities.monitors.layerHeld
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad
@@ -287,7 +280,7 @@ Scope {
         Qt.callLater(root.resolveBindKeys);
         welcomeRead.running = true;
         if (trialRunning) feed({ type: "trial", running: true });
-        feed({ type: "fallback", lit: fallbackLit });
+        feed({ type: "fallback", lit: layerHeld });
     }
     Component.onDestruction: {
         bindLifetime.active = false;
@@ -357,7 +350,7 @@ Scope {
         if (trialRunning) feed({ type: "trial", running: true });
         else Qt.callLater(root.renderLayer);
     }
-    onFallbackLitChanged: feed({ type: "fallback", lit: fallbackLit })
+    onLayerHeldChanged: feed({ type: "fallback", lit: layerHeld })
 
     Connections {
         target: Notices

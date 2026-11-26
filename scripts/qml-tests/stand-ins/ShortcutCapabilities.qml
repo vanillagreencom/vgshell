@@ -42,8 +42,8 @@ QtObject {
     readonly property QtObject monitors: QtObject {
         property string ownerId: ""
         property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
-        // One lit output and no FALLBACK, so the layer holds nothing for it.
-        property var outputs: [{ name: "WAYLAND-1", disabled: false }]
+        // No hold, so the layer writes and reloads freely.
+        property bool layerHeld: false
     }
 
     function checkName(kind, name) {}

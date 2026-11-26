@@ -35,7 +35,7 @@ Singleton {
     HyprlandState {
         id: hyprlandState
         layerGlassRunner: tuis
-        outputs: monitorState.outputs
+        layerHeld: monitorState.layerHeld
         active: root.holderIds("hyprland").length > 0 || shortcuts.keyCapture.wantsBinds
     }
     BluetoothAgent { id: bluetoothAgent }
