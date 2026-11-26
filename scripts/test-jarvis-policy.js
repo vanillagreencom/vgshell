@@ -6,6 +6,21 @@ const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Policy.js");
 const Policy = require(file);
 const Denied = require("../shell/plugins/vgs.jarvis/backend/Denied.js");
 
+// A validation run's scratch folder is deeper than a developer's TMPDIR, and
+// a key that holds scratch paths is named on no card past 256 units. The
+// world's parent is padded to twice the longest run parent measured (77
+// units, VGS-2651's publish run), so such a key fails on every run.
+const PARENT_MIN = 160;
+if (process.argv[2] !== "--inside") {
+    const parent = require("node:os").tmpdir();
+    const pad = PARENT_MIN - parent.length - "/jp-pad-XXXXXX".length;
+    if (pad > 0) {
+        const padded = fs.mkdtempSync(path.join(parent, "jp-pad-" + "p".repeat(pad)));
+        process.env.TMPDIR = padded;
+        process.on("exit", () => fs.rmSync(padded, { recursive: true, force: true }));
+    }
+}
+
 world(() => {
     const { home, project, roots } = seed();
     const newFile = path.join(project, "new");
@@ -92,9 +107,16 @@ world(() => {
     const editorLine = "Any input anywhere in org.example.Editor";
     const other = { ...input, target: { kind: "application", id: "org.example.Other" } };
     const typedTerminal = { target: { kind: "terminal", id: "org.example.Terminal" }, text: { effective: [] } };
-    const second = path.join(path.dirname(newFile), "second.txt");
     const writeExisting = "harness.files:destructive:write=" + existing;
-    const writeBoth = "harness.files:persistent:write=" + newFile + ":write=" + second;
+    // A key that holds two paths takes them under a literal root of fixed
+    // length, so it stays within 256 units whatever the scratch path. Its
+    // stand-in judges each removal an existing file and nothing protected;
+    // the rows above hold Denied's own judgment.
+    const short = role => "/home/u/project/" + role + "-" + "f".repeat(8);
+    const [shortNew, shortExisting, second] = ["new", "existing", "second"].map(short);
+    const literal = { ...context, denied: { inspectPaths: pairs => ({ kind: "paths",
+        paths: pairs.map(([file, role]) => ({ kind: "path", path: file, exists: role === "remove", execution: false })) }) } };
+    const writeBoth = "harness.files:persistent:write=" + shortNew + ":write=" + second;
     const grantRows = [
         ["exec asks with its key", effects.exec, [], {}, asks("exec", false, keys.exec, lines.exec)],
         ["exec under its key is allowed", effects.exec, [keys.exec], {}, { kind: "allow", effect: "exec", grant: keys.exec }],
@@ -129,20 +151,18 @@ world(() => {
             asks("exec", false, "task.start:exec:cwd=" + project + ":agent=codex:account=home", "Start any codex task with account home in " + project)],
         ["a saved overwrite still asks for a remove of that file", harnessFiles([], [], [existing]), [writeExisting], {},
             asks("destructive", true, "harness.files:destructive:remove=" + existing, "Remove files: " + existing)],
-        ["a split across fields is not one list", harnessFiles([newFile], [second]), [writeBoth], { profile: "cautious" },
-            asks("persistent", false, "harness.files:persistent:write=" + newFile + ":move=" + second,
-                "Move and write any text to files: " + second + "; " + newFile)],
+        ["a split across fields is not one list", harnessFiles([shortNew], [second]), [writeBoth], { ...literal, profile: "cautious" },
+            asks("persistent", false, "harness.files:persistent:write=" + shortNew + ":move=" + second,
+                "Move and write any text to files: " + second + "; " + shortNew)],
         ["a forward takes no key", forward, [netKey, "fleet.forward:external"], {}, { kind: "confirm", effect: "external", physical: false }]
     ];
     assert.deepEqual(Policy.decide(harnessFiles([existing]), context).grant, writeExisting, "always allow: an overwrite's key names its role");
     // A line's cut shortens path text alone: every role and wildcard word
-    // comes before the first path. Two scratch paths overrun the 60-unit
-    // line; a deeper folder would overrun the 256-unit key too under a long
-    // TMPDIR, and a key past it is named on no card.
-    const cut = Policy.decide(harnessFiles([newFile], [], [existing]), context).line;
+    // comes before the first path. Two paths overrun the 60-unit line.
+    const cut = Policy.decide(harnessFiles([shortNew], [], [shortExisting]), literal).line;
     assert.deepEqual([cut.startsWith("Remove and write any text to files: "), cut.length <= 60, cut.endsWith("…")], [true, true, true],
         "always allow: a cut line still names every role");
-    const moveCut = Policy.decide(call("files.move", { from: existing, to: newFile }), { ...context, profile: "cautious" }).line;
+    const moveCut = Policy.decide(call("files.move", { from: shortExisting, to: shortNew }), { ...literal, profile: "cautious" }).line;
     assert.deepEqual([moveCut.startsWith("Move a file, from and to: "), moveCut.length <= 60], [true, true],
         "always allow: a cut move line still names both roles");
     for (const [name, action, allowed, extra, want] of grantRows)
