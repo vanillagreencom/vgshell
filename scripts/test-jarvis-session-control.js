@@ -475,7 +475,7 @@ function main() {
         fs.writeFileSync(path.join(standins, "claude"), [
             "#!/bin/bash",
             '[[ "$*" == "auth status" ]] || exit 2',
-            'if [[ $CLAUDE_CONFIG_DIR == "$HOME/.claude" ]]; then echo \'{"loggedIn":true,"email":"beijuan@vanillagreen.com","subscriptionType":"max"}\'; exit 0; fi',
+            'if [[ ${CLAUDE_CONFIG_DIR:-"$HOME/.claude"} == "$HOME/.claude" ]]; then echo \'{"loggedIn":true,"email":"beijuan@vanillagreen.com","subscriptionType":"max"}\'; exit 0; fi',
             "echo '{\"loggedIn\":false}'; exit 1", ""].join("\n"), { mode: 0o755 });
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"), standins,
             "--", "node", __filename, "--inside", ...process.argv.slice(2)], {

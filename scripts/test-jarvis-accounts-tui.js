@@ -364,7 +364,8 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
             const target = path.join(env.HOME, home + suffix);
             const before = records().length;
             const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
-            const result = signIn(folder, vendor, "new", label, "success");
+            const roots = vendor === "claude" ? { CLAUDE_CONFIG_DIR: path.join(env.HOME, ".claude-inherited") } : {};
+            const result = signIn(folder, vendor, "new", label, "success", "yes", roots);
             assert.equal(result.status, 0, result.stdout + result.stderr);
             assert.equal(result.error, undefined);
             assert.ok(result.stdout.includes("fixture-login-code-private"), "vendor output stays on the terminal");
@@ -376,9 +377,16 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
             assert.equal(calls.filter(item => item.args[0] === "input").length, 1, "new account asks for a name only");
             const confirmation = calls.find(item => item.args[0] === "confirm");
             assert.ok(confirmation?.args.at(-1).includes("~/" + home + suffix), "confirmation shows the derived folder");
-            const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
+            const vendorCalls = records().slice(before);
+            const login = vendorCalls.find(item => JSON.stringify(item.args) === JSON.stringify(argv));
             assert.ok(login, "the vendor login ran");
-            assert.equal(login.env[variable], target);
+            const expected = vendor === "claude" && suffix === "" ? undefined : target;
+            assert.equal(login.env[variable], expected);
+            if (vendor === "claude") {
+                const status = vendorCalls.find(item => JSON.stringify(item.args) === '["auth","status"]');
+                assert.ok(status, "the vendor checked the sign-in");
+                assert.equal(status.env[variable], expected);
+            }
             assert.equal(login.env.OPENAI_API_KEY, undefined);
             assert.equal(login.env.VGSHELL_RUNNER_PID, undefined);
             const accounts = JSON.parse(cli(folder, "list"));
@@ -405,7 +413,7 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
                 assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore + 1, "one list read for the request");
                 // The request judges its own sign-in alone: one status
                 // command, for its folder, whatever other accounts exist.
-                assert.deepEqual(status().slice(statusBefore).map(item => item.env[variable]), [target], "the list read runs its sign-in's status command and no other");
+                assert.deepEqual(status().slice(statusBefore).map(item => item.env[variable]), [expected], "the list read runs its sign-in's status command and no other");
             }
           }
         }
@@ -600,6 +608,8 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',
         '"-" + label', successfulSignIn);
+    await control("backend/ClaudeCode.js", "sign-in-default-override",
+        'if (typeof home === "string" && directory === path.join(home, row.home)) return {};', "", successfulSignIn);
     await control("backend/accounts.js", "presence-list-read", "await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
         "await Promise.all([judge.readEmails(), judge.readModels(), ...judge.accounts.map(item => judge.readOffers(item.id))]);\n        value = judge.status();", successfulSignIn);
     await control("backend/accounts.js", "models-one-status", "value = await judge.readOffers(args[1]);",

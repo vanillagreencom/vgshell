@@ -1170,8 +1170,8 @@ world(async () => {
     for (const [name, needle, replacement, check] of [
         ["marker-open", "const stat = fs.lstatSync(markerPath);", "const stat = (fs.readFileSync(markerPath), fs.lstatSync(markerPath));",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
-        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);",
-            "fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);",
+        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), this.accountConfig(row.id, candidate.directory), timeout);",
+            "fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n        const result = this.run(row.command[0], row.command.slice(1), this.accountConfig(row.id, candidate.directory), timeout);",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
 
         ["manual", "for (const item of this.added())", "for (const item of [])",

@@ -101,7 +101,14 @@ world(async () => {
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime,
             clock: { set: () => ({}), clear() {} } });
-        const a = account(script);
+        const selectedHome = options.defaultAccount ? path.join(root, "home") : process.env.HOME;
+        const a = options.defaultAccount ? account(script, path.join(selectedHome, ".claude")) : account(script);
+        const env = { ...process.env, ...PLANTED };
+        if (options.defaultAccount) Object.assign(env, {
+            HOME: selectedHome, XDG_CONFIG_HOME: path.join(selectedHome, ".config"),
+            XDG_DATA_HOME: path.join(selectedHome, ".local/share"), XDG_STATE_HOME: path.join(selectedHome, ".local/state"),
+            XDG_CACHE_HOME: path.join(selectedHome, ".cache"), CLAUDE_CONFIG_DIR: path.join(selectedHome, ".claude-inherited")
+        });
         let opened = null;
         // The adapter's timers run for real, or on the manual clock only when
         // a row fires them or advances past every armed one.
@@ -116,7 +123,7 @@ world(async () => {
             modelFallback: options.modelFallback ?? false, modelUsed: options.modelUsed,
             account: { kind: "cli", directory: a.directory }, gen: runner.state.gen,
             harness: { bridge: { open: async value => { opened = await bridge.open(value); return opened; } },
-                env: { ...process.env, ...PLANTED, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
+                env: { ...env, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
                 runtime: () => runtime }, clock });
         owners.push(async () => { await harness.close(); bridge.close(); audit.close(); for (const timer of timers) clearTimeout(timer.handle); });
         harness.start({ instructions: options.instructions ?? "Fixture guidance.", tools: options.tools ?? router.offer() });
@@ -231,6 +238,12 @@ world(async () => {
             assert.equal(result.reason, "stop");
             assert.deepEqual(result.texts.map(text => Buffer.byteLength(text)), [8]);
             assert.equal(w.account.events().some(event => event.kind === "refused"), false);
+        }],
+        ["default-account", async folder => {
+            const w = await make(folder, { turns: [[{ text: "Fixture." }]] }, { defaultAccount: true });
+            assert.deepEqual(await w.read(w.say("fixture")), { texts: ["Fixture."], reason: "stop" });
+            const [call] = w.account.calls();
+            assert.equal(Object.hasOwn(call.env, "CLAUDE_CONFIG_DIR"), false);
         }],
         ["replay", async folder => {
             const w = await make(folder, { turns: [[...say("Hello. "), { echo: true }], [{ echo: true }]] });
@@ -872,6 +885,7 @@ world(async () => {
             ["private-folder", "{ cwd, env: childEnvironment, stdio:", "{ cwd: environment.FIXTURE_JARVIS_HOME, env: childEnvironment, stdio:", "private-folder"],
             ["environment", "for (const name of ENVIRONMENT)", "for (const name of Object.keys(environment))", "replay"],
             ["environment-key", '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];', '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "ANTHROPIC_API_KEY"];', "replay"],
+            ["default-account-override", 'if (typeof home === "string" && directory === path.join(home, row.home)) return {};', "", "default-account"],
             ["parent-death", '"setpriv", ["--pdeathsig", "KILL", "--", COMMAND,', "COMMAND, [", "replay"],
             ["one-process", 'record = process_.kind === "running" ? process_ : await spawn();', "record = await spawn();", "replay"],
             ["partial-flag", '"--verbose", "--include-partial-messages",', '"--verbose",', "streaming"],

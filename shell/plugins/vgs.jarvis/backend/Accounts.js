@@ -302,6 +302,11 @@ class Accounts {
         return added({ provider: providerId, directory: target, label });
     }
 
+    accountConfig(providerId, directory) {
+        if (providerId === "claude") return ClaudeCode.accountConfig(this.home, directory);
+        return { [harness(providerId).variable]: directory };
+    }
+
     // The vendor owns its login and token store. Its output and prompts stay
     // on the terminal, never in our metadata, parser or setup log.
     async signIn(value) {
@@ -320,7 +325,7 @@ class Accounts {
         const opened = make(entry.directory);
         fs.closeSync(opened.fd);
         const result = cp.spawnSync(row.signIn[0], row.signIn.slice(1), {
-            env: { ...this.env, [harness(row.id).variable]: entry.directory }, cwd: this.home, stdio: "inherit"
+            env: { ...this.env, ...this.accountConfig(row.id, entry.directory) }, cwd: this.home, stdio: "inherit"
         });
         if (result.error || result.signal || result.status !== 0)
             return { kind: "refused", cause: result.error?.code === "ENOENT" ? "command-missing" : "login-failed" };
@@ -416,7 +421,7 @@ class Accounts {
         let marker = "absent";
         try {
             if (row.command !== null) {
-                const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);
+                const result = this.run(row.command[0], row.command.slice(1), this.accountConfig(row.id, candidate.directory), timeout);
                 try { state = login(row, result); }
                 finally { result.stdout?.fill(0); result.stderr?.fill(0); }
             }

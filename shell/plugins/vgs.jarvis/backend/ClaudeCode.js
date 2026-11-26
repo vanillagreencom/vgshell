@@ -9,6 +9,7 @@ const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
+const Core = require("./Core.js");
 const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
@@ -167,6 +168,14 @@ function offersOf(body) {
     return Harness.offers(entries.filter(entry => entry.alias !== OWN_DEFAULT).map(entry => ({ ...entry, own: entry.value === own })));
 }
 
+// An explicit override moves .claude.json out of HOME, even when it points
+// to the default folder (https://code.claude.com/docs/en/claude-directory).
+function accountConfig(home, directory) {
+    const row = Core.accounts().harness("claude");
+    if (typeof home === "string" && directory === path.join(home, row.home)) return {};
+    return { [row.variable]: directory };
+}
+
 /**
  * The child's whole environment: the daemon's paths, the account's directory
  * and the vendor's switches for its nonessential traffic and its own memory:
@@ -178,10 +187,9 @@ function environmentOf(environment, directory) {
     const result = { LANG: "C.UTF-8" };
     for (const name of ENVIRONMENT)
         if (typeof environment[name] === "string" && environment[name] !== "") result[name] = environment[name];
-    result.CLAUDE_CONFIG_DIR = directory;
     result.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
     result.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
-    return result;
+    return { ...result, ...accountConfig(result.HOME, directory) };
 }
 
 /**
@@ -259,7 +267,7 @@ function exitError(cause, code, signalName) {
 
 /**
  * The one owner of a harness conversation, shared by the engine's brain and
- * Verify. directory is the Claude account directory (CLAUDE_CONFIG_DIR);
+ * Verify. directory is the selected Claude account directory;
  * model and effort are each "" for the program's own default; recipients is the
  * conversation's frozen set; bridge is null or the tool bridge, whose session
  * opens with {gen, recipients}; parent is the private runtime directory the
@@ -791,4 +799,4 @@ async function models({ directory, env, runtime, clock = CLOCK }) {
     }
 }
 
-module.exports = { create, verify, models };
+module.exports = { create, verify, models, accountConfig };
