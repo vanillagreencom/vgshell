@@ -832,15 +832,15 @@ if not isinstance(d,dict): print("absent"); sys.exit()
 ids=[e["id"] for s in d["sections"] if s["section"]=="right" for e in s["entries"] if e["present"]]
 print([i for i in ids if i in want]==want)' "$zone_planted"
   }
-  # The first bar's side zones as one JSON object: per zone its view in
+  # The first bar's side zones in one reading: per zone its view in
   # screen coordinates, whether it clips, whether it draws flush with its
   # section as before, which buttons show, the widgets it draws over the
   # centre section or the gap beside it, the widgets whose left edge
   # meets the view's start and whose right edge meets its end, each beside
   # a shown button's fade, the widgets it shows whole and its drawn
-  # widgets in order; `centre` is the centre section's box and `settled`
-  # whether every zone's scroll has finished drawing.
-  zone_read() {
+  # widgets in order. Evaluate the supplied expression once every zone's
+  # scroll has finished drawing.
+  zone_read() { # PROGRAM
     local key bar part zones buttons
     key="$(bar_key)" || return 1
     bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" && part="$(ipc smoke barParticipationGeometry "$key")" \
@@ -854,7 +854,9 @@ except ValueError: print("absent"); sys.exit()
 sections={s["section"]:s for s in part["sections"]}
 center=sections["center"]["drop"]; gap=sections["center"]["gap"]
 named={b["objectName"]:b["visible"] for b in buttons if b["objectName"].startswith("bar-zone-")}
-out={"centre":[round(center["x"],1),round(center["width"],1)],"gap":gap,"settled":all(abs(min(z["scroll"],z["travel"])-z["drawnScroll"])<0.5 for z in zones)}
+if not all(abs(min(z["scroll"],z["travel"])-z["drawnScroll"])<0.5 for z in zones):
+    print("unsettled"); sys.exit()
+d={"centre":[round(center["x"],1),round(center["width"],1)],"gap":gap}
 for zone in zones:
     side=zone["objectName"].replace("bar-zone-","")
     x0=bar[0]+zone["x"]; x1=x0+zone["width"]
@@ -867,29 +869,27 @@ for zone in zones:
     drawn=[(max(a,x0),min(b,x1)) if zone["clip"] else (a,b) for a,b in spans]
     low,high=center["x"]-gap,center["x"]+center["width"]+gap
     first=x0+(zone["inset"] if start else 0); last=x1-(zone["inset"] if end else 0)
-    out[side]={"view":[round(x0,1),round(x1-x0,1)],"clips":zone["clip"],"flush":abs(x0-drop["x"])<=0.5 and abs(x1-x0-drop["width"])<=0.5,
+    d[side]={"view":[round(x0,1),round(x1-x0,1)],"clips":zone["clip"],"flush":abs(x0-drop["x"])<=0.5 and abs(x1-x0-drop["width"])<=0.5,
         "start":start,"end":end,"over":[i for i,(a,b) in zip(ids,drawn) if b-a>0.5 and a<high-0.5 and b>low+0.5],
         "starts":[i for i,(a,b) in zip(ids,spans) if abs(a-first)<=1],"ends":[i for i,(a,b) in zip(ids,spans) if abs(b-last)<=1],
         "shown":[i for i,(a,b) in zip(ids,spans) if a>=first-1 and b<=last+1],"range":[round(first,1),round(last,1)],"inset":zone["inset"],"ids":ids,
         "spans":[[round(a,1),round(b-a,1)] for a,b in spans]}
-print(json.dumps(out))' "$bar" "$zones" "$buttons" <<<"$part"
+print(eval(sys.argv[4]))' "$bar" "$zones" "$buttons" "$1" <<<"$part"
   }
   # zone_pick PROGRAM: PROGRAM, a Python expression over the reading `d`,
   # printed once every zone's scroll has finished drawing, or `unsettled`
   # when it has not within the bound.
   zone_pick() {
-    local reading="" settled=False
+    local reading
     for _ in $(seq 1 50); do
-      reading="$(zone_read)" || return 1
-      settled="$(py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,dict) and d["settled"])' <<<"$reading")"
-      [[ $settled == True ]] && break
+      reading="$(zone_read "$1")" || return 1
+      case "$reading" in
+        absent|unsettled) ;;
+        *) printf '%s\n' "$reading"; return ;;
+      esac
       sleep 0.1
     done
-    [[ $settled == True ]] || { echo unsettled; return; }
-    py_reply 'import json,sys
-d=json.load(sys.stdin)
-if not isinstance(d,dict): print("absent"); sys.exit()
-print(eval(sys.argv[1]))' "$1" <<<"$reading"
+    echo unsettled
   }
   # What a check names of SIDE's zone: whether it clips, which buttons
   # show and what it draws over the centre.
@@ -1687,10 +1687,22 @@ spacer_add() {
 # (`:centre`), in `bar.foreground` at 0x33 alpha within 1 (`:colour`),
 # each inside its section.
 spacer_rendered() {
-  local key records ids id rows="" section box tokens text
-  key="$(bar_key)" && records="$(ipc shell built)" && box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return 1
+  local key inventory ids id rows="" section box tokens text
+  inventory="$(ipc shell built | py_reply 'import json,re,sys
+records=json.load(sys.stdin)
+bars=sorted(k for k in records if k.startswith("bar:"))
+if not bars: print("absent"); sys.exit()
+key=bars[0]
+print(key, *(r["id"] for r in records[key] if re.match(sys.argv[1],r["id"])))' "$spacer_pattern")" || return 1
+  read -r key ids <<<"$inventory" || return 1
+  [[ $key == bar:* ]] || { printf '%s\n' "$inventory"; return 0; }
+  if [[ -z $ids ]]; then
+    # The first bar built no spacer, so no spacer box or colour exists to read.
+    printf '%s\n' '{"drawn":{"left":[],"center":[],"right":[]},"errors":[]}'
+    return
+  fi
+  box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return 1
   rows+="bar $box"$'\n'
-  ids="$(py_reply 'import json,re,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)[sys.argv[1]] if re.match(sys.argv[2],r["id"])))' "$key" "$spacer_pattern" <<<"$records")" || return 1
   for section in left center right; do
     box="$(ipc smoke barSectionGeometry "$key" "$section")" || return 1
     rows+="$section $box"$'\n'
@@ -1832,12 +1844,15 @@ if copy_tree bar-spacer-control \
   # The real bar draws an added entry within the reconcile its write
   # starts; the control's must stay undrawn across the harness's polls.
   spacer_ever_drawn() {
+    local reading read=0
     smoke_poll_tries 200
     for _ in $(seq 1 "$smoke_poll_n"); do
-      [[ "$(spacer_drawn "$1")" == True ]] && { echo True; return; }
+      reading="$(spacer_drawn "$1")" || return 1
+      [[ $reading != True ]] || { echo True; return; }
+      [[ $reading != False ]] || read=1
       sleep 0.2
     done
-    echo False
+    if ((read)); then echo False; else echo unread; fi
   }
   geometry expect "control: the drawn reader rejects a separator the catalogue leaves out" False spacer_ever_drawn '{"left": ["vgs.bar/separator-1"], "center": [], "right": []}'
   stop_shell

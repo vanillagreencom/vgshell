@@ -334,6 +334,13 @@ capture_setting() {
   expect "capture setting $1 is accepted" ok ipc vgs.capture invoke setting "$payload"
   expect_poll "capture setting $1 reaches its service" "$2" capture_setting_value "$1"
 }
+# Count pixels whose largest change in an RGB channel exceeds 32.
+capture_difference_py='
+def changed_pixels(one, two):
+    from PIL import ImageChops
+    r, g, b = ImageChops.difference(one, two).split()
+    return ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 32 else 0).histogram()[255]
+'
 # capture_image_box BOX: True when the last capture saved and copied BOX:
 # screenshot-all hands grim BOX; a selection, which runs no grim, cropped
 # from the freeze's held frame, holds the pixels grim reads in BOX now, the
@@ -343,7 +350,7 @@ capture_image_box() {
   rm -f -- "${reference:?}"
   nested_input_check "$capture_real_grim" || return 1
   "${shell_env[@]}" "$capture_real_grim" -g "$1" "$reference" || { fail "capture: the reference grim of $1 failed"; return 1; }
-  python3 - "$capture_state" "$(capture_path)" "$1" "$reference" <<'PY'
+  python3 -c "$capture_difference_py"'
 import json, pathlib, struct, sys
 root, path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 expected, reference = sys.argv[3], pathlib.Path(sys.argv[4])
@@ -364,11 +371,10 @@ if "-g" in args:
 elif grims:
     reference_equal, reference_state = False, "unexpected-grim"
 elif actual_size is not None and reference.is_file():
-    from PIL import Image, ImageChops
+    from PIL import Image
     one, two = (Image.open(p).convert("RGB") for p in (path, reference))
     if one.size == two.size:
-        r, g, b = ImageChops.difference(one, two).split()
-        changed = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 32 else 0).histogram()[255]
+        changed = changed_pixels(one, two)
         limit = one.size[0] * one.size[1] // 100
         reference_equal = changed <= limit
         reference_state = "pixels"
@@ -384,7 +390,7 @@ print("capture-image-box: " + json.dumps({
                   "limit": limit, "savedPixel": saved_pixel, "referencePixel": reference_pixel}
 }, sort_keys=True), file=sys.stderr)
 print(size_equal and clipboard_equal is True and reference_equal is True)
-PY
+' "$capture_state" "$(capture_path)" "$1" "$reference"
 }
 capture_copy_only() { python3 - "$capture_state" "$home/Pictures/Screenshots" "$capture_before" <<'PY'
 from pathlib import Path
@@ -1104,39 +1110,22 @@ capture_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && p
 # BARE by more than 32 in a channel; shown when the image is at least three
 # times nearer the open surface than the bare desktop. An animated surface,
 # the launcher's glass, leaves a few hundred pixels between two frames.
-capture_shows() { python3 - "$(capture_path)" "$capture_state/reference-$1.png" "$capture_state/reference-$2.png" <<'PY'
-import pathlib, struct, sys, zlib
+capture_shows() { python3 -c "$capture_difference_py"'
+import struct, sys
+from PIL import Image
 def pixels(path):
-    data, pos, idat, head = pathlib.Path(path).read_bytes(), 8, b"", None
-    while pos < len(data):
-        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
-        if kind == b"IHDR": head = struct.unpack(">IIBBBBB", data[pos + 8:pos + 8 + n])
-        elif kind == b"IDAT": idat += data[pos + 8:pos + 8 + n]
-        pos += 12 + n
-    width, height, depth, ctype, _, _, interlace = head
-    assert depth == 8 and ctype in (2, 6) and interlace == 0, "png=%d/%d/%d" % (depth, ctype, interlace)
-    step = 3 if ctype == 2 else 4
-    raw, stride, prev, out = zlib.decompress(idat), width * step, bytearray(width * step), []
-    for y in range(height):
-        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
-        for i in range(stride):
-            a, b, c = (line[i - step] if i >= step else 0), prev[i], (prev[i - step] if i >= step else 0)
-            if f == 1: line[i] = (line[i] + a) & 255
-            elif f == 2: line[i] = (line[i] + b) & 255
-            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
-            elif f == 4:
-                p = a + b - c
-                line[i] = (line[i] + (a if abs(p - a) <= abs(p - b) and abs(p - a) <= abs(p - c) else b if abs(p - b) <= abs(p - c) else c)) & 255
-        out.append([tuple(line[x * step:x * step + 3]) for x in range(width)])
-        prev = line
-    return out
-def differ(one, two):
-    assert len(one) == len(two) and len(one[0]) == len(two[0]), "sizes differ"
-    return sum(1 for r1, r2 in zip(one, two) for p, q in zip(r1, r2) if max(abs(u - v) for u, v in zip(p, q)) > 32)
+    with open(path, "rb") as png:
+        header = png.read(29)
+        assert header[:16] == b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR", "not a PNG"
+        _, _, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", header[16:])
+        assert depth == 8 and ctype in (2, 6) and interlace == 0, "png=%d/%d/%d" % (depth, ctype, interlace)
+        png.seek(0)
+        return Image.open(png).convert("RGB")
 saved, shown, bare = (pixels(p) for p in sys.argv[1:])
-near, far = differ(saved, shown), differ(saved, bare)
+assert saved.size == shown.size == bare.size, "sizes differ"
+near, far = changed_pixels(saved, shown), changed_pixels(saved, bare)
 print("shown=%s open=%d bare=%d" % (far >= 1000 and near * 3 <= far, near, far))
-PY
+' "$(capture_path)" "$capture_state/reference-$1.png" "$capture_state/reference-$2.png"
 }
 capture_shown_verdict() { capture_shows "$@" | cut -d' ' -f1; }
 # A flyout is an xdg_popup holding a grab, and Hyprland ends every seat
@@ -2529,17 +2518,15 @@ PY
 # saved image, and reference NAME have one size and at most 1% of their
 # pixels differ by more than 32 in a channel, screen-freeze's frame bound;
 # the mark moved out of its region changes most of it.
-capture_region_match() { python3 - "${2:-$(capture_path)}" "$capture_state/turned-$1.png" <<'PY'
+capture_region_match() { python3 -c "$capture_difference_py"'
 import sys
-from PIL import Image, ImageChops
+from PIL import Image
 one, two = (Image.open(p).convert("RGB") for p in sys.argv[1:])
 if one.size != two.size:
     print("size=%dx%d/%dx%d" % (*one.size, *two.size))
     sys.exit()
-r, g, b = ImageChops.difference(one, two).split()
-changed = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 32 else 0).histogram()[255]
-print(changed <= one.size[0] * one.size[1] // 100)
-PY
+print(changed_pixels(one, two) <= one.size[0] * one.size[1] // 100)
+' "${2:-$(capture_path)}" "$capture_state/turned-$1.png"
 }
 # The selector's first buffer: a slurp wrapper that runs the real slurp
 # with WAYLAND_DEBUG=client, its debug lines in slurp-debug, whose

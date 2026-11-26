@@ -767,20 +767,19 @@ expect "the inbox closes after the icon cards" ok notes close
 for id in "${icon_ids[@]}"; do close_note "$id"; done
 for summary in "Themeless icon" "Plugin notice" "Other notice"; do expect_poll "the icon card $summary leaves" none key_of "$summary"; done
 
-# A toast expires on its own; the pointer on it pauses its clock.
+# The three low-urgency toasts run their clocks together. Each must show
+# before the row waits for expiry, with the pointer off the stack.
+hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the stack before the transient toasts failed"
 notify smoke-app 0 "Brief" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a low-urgency toast shows" True has_row live "Brief"
-wait_for "the low-urgency toast expires after its five seconds" none 9 key_of Brief
-expect_poll "control: the expired toast is in the history" True in_history Brief
-# A transient toast and one from the bare command line go into the history
-# when they expire too, the pointer off the stack so neither clock pauses.
-hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the stack before the transient toasts failed"
 notify smoke-app 0 "Brief transient" "" '[]' '{"urgency": <byte 0>, "transient": <true>}' 0 >/dev/null
 notify notify-send 0 "Brief command line" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a transient toast shows" True has_row live "Brief transient"
 expect_poll "a command-line toast shows" True has_row live "Brief command line"
+wait_for "the low-urgency toast expires after its five seconds" none 9 key_of Brief
 wait_for "the transient toast expires" none 9 key_of "Brief transient"
 wait_for "the command-line toast expires" none 9 key_of "Brief command line"
+expect_poll "control: the expired toast is in the history" True in_history Brief
 expect_poll "control: the expired transient toast is in the history" True in_history "Brief transient"
 expect_poll "control: the expired command-line toast is in the history" True in_history "Brief command line"
 notify smoke-app 0 "Held" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
@@ -822,35 +821,36 @@ expect_poll "an actionable toast shows" True has_row live "Actioned"
 expect_poll "the actionable toast is stored as on screen" True in_live "Actioned"
 rest_on_card Actioned || fail "the pointer never rested on the actionable toast"
 expect_poll "the hover reveals the sender's actions and Dismiss" '["Open", "Reply", "Dismiss"]' shown_pills Actioned
-# png_rgba(PATH), the one PNG reader of this row, for Python programs that
-# start with it: (width, height, rows of RGBA bytes) for the 8-bit,
-# non-interlaced RGBA files grabToImage saves, or a `png=<depth>/<type>/
-# <interlace>` word for any other file. Standard library only.
-png_rgba_py='import json, math, struct, sys, zlib
+# Decode each real Qt or grim frame with the harness's ImageMagick. The
+# 8-bit RGB/RGBA input contract is the same for a grab and a reference.
+# The fade checks read several full frames per sample.
+png_rgba_py='import json, math, os, struct, subprocess, sys
 def png_rgba(path):
-    data = open(path, "rb").read()
-    pos, idat, head = 8, b"", None
-    while pos < len(data):
-        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
-        if kind == b"IHDR": head = struct.unpack(">IIBBBBB", data[pos + 8:pos + 8 + n])
-        elif kind == b"IDAT": idat += data[pos + 8:pos + 8 + n]
-        pos += 12 + n
-    iw, ih, depth, ctype, _, _, interlace = head
-    if depth != 8 or ctype not in (2, 6) or interlace != 0: return "png=%d/%d/%d" % (depth, ctype, interlace)
-    channels = 3 if ctype == 2 else 4
-    raw, stride, prev, rows = zlib.decompress(idat), iw * channels, bytearray(iw * channels), []
-    for y in range(ih):
-        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
-        for i in range(stride):
-            a, b, c = (line[i - channels] if i >= channels else 0), prev[i], (prev[i - channels] if i >= channels else 0)
-            if f == 1: line[i] = (line[i] + a) & 255
-            elif f == 2: line[i] = (line[i] + b) & 255
-            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
-            elif f == 4:
-                p = a + b - c
-                line[i] = (line[i] + (a if abs(p - a) <= abs(p - b) and abs(p - a) <= abs(p - c) else b if abs(p - b) <= abs(p - c) else c)) & 255
-        rows.append(line if channels == 4 else bytearray(v for x in range(iw) for v in (*line[x * 3:x * 3 + 3], 255))); prev = line
-    return iw, ih, rows
+    try:
+        with open(path, "rb") as png:
+            header = png.read(29)
+            if len(header) != 29 or header[:16] != b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR":
+                return "png-header-unreadable"
+            iw, ih, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", header[16:])
+        if depth != 8 or ctype not in (2, 6) or interlace != 0:
+            return "png=%d/%d/%d" % (depth, ctype, interlace)
+        # The decoder reads the frame by its path: a buffered read leaves the
+        # descriptor past the header, so handing it the open file loses those
+        # bytes. The png: prefix fixes the format, and every frame path is
+        # the sandbox directory joined to a fixed name.
+        alpha = ["-alpha", "off"] if ctype == 2 else []
+        raw = subprocess.run(
+            [os.environ["VGS_SMOKE_PNG_DECODER"], "-limit", "thread", "1", "-regard-warnings", "png:" + path,
+             *alpha, "-depth", "8", "rgba:-"],
+            stdout=subprocess.PIPE, check=True, env={"PATH": os.defpath}
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        print("notification-capture: png=%s decode=%s" % (path, error), file=sys.stderr)
+        return "png-unreadable"
+    stride = iw * 4
+    if not iw or not ih or len(raw) != stride * ih:
+        return "png-size-unreadable"
+    return iw, ih, [raw[start:start + stride] for start in range(0, len(raw), stride)]
 '
 click_pill Reply || fail "the click on Reply failed"
 invoked() { grep -c "ActionInvoked (uint32 [0-9]*, '$1')" -- "$signals" || true; }
@@ -1514,7 +1514,7 @@ note_header_reading() {
 # this row under scripts/qml-smoke.sh, and the same grabs of a sandbox
 # shell at QT_SCALE_FACTOR=2, on host cachy on 2026-09-29.
 glass_clear_value() { # PNG SLOT CARD
-  python3 -c "$png_rgba_py"'
+  VGS_SMOKE_PNG_DECODER="$imagemagick" python3 -c "$png_rgba_py"'
 image = png_rgba(sys.argv[1])
 if isinstance(image, str): print(image); sys.exit()
 iw, ih, rows = image
@@ -1926,7 +1926,7 @@ for tier_summary in "${tier_one_line[@]}" "${tier_more_lines[@]}"; do note_tier_
 # 150,70,180; the control reads a thumbnail, cropped to a square with a
 # small radius, whose corner point is drawn.
 face_cut_value() { # PNG [R,G,B]
-  python3 -c "$png_rgba_py"'
+  VGS_SMOKE_PNG_DECODER="$imagemagick" python3 -c "$png_rgba_py"'
 image = png_rgba(sys.argv[1])
 if isinstance(image, str): print(image); sys.exit()
 iw, ih, rows = image
@@ -4068,8 +4068,12 @@ except (ValueError,TypeError,KeyError,StopIteration): print("malformed")
 panel_current_view() {
   ipc smoke notificationViewHolding panel vgs.notifications
 }
-fade_current_view() {
+fade_current_view() { # [EXPECTED_MIDDLE_SUMMARY]
   fade_inventory || return
+  if [[ -n ${1:-} && $1 != "$fade_middle" ]]; then
+    echo 'notification-capture: selected-inventory-changed' >&2
+    return 1
+  fi
   panel_current_view
 }
 fade_selected_action() {
@@ -4146,10 +4150,10 @@ fade_read_geometry() { # SAMPLE_NAME
   fi
   [[ $(<"$items") == \[* ]] || { echo 'notification-capture: read=descendantGeometry failed' >&2; return 1; }
 }
-fade_read_context() { # SAMPLE_NAME
+fade_read_context() { # SAMPLE_NAME [EXPECTED_MIDDLE_SUMMARY]
   local view surface ink
   fade_read_geometry "$1-items.json" || return
-  fade_read_probe "$1-view.json" fade_current_view || return
+  fade_read_probe "$1-view.json" fade_current_view "${2:-}" || return
   view="$(fade_probe_file "$1-view.json")" || return
   [[ $(<"$view") == \{* ]] || { echo 'notification-capture: read=view failed' >&2; return 1; }
   fade_read_probe "$1-surface.json" surface_box vgs:panel || return
@@ -4199,7 +4203,7 @@ fade_capture_layout() { # SAMPLE_NAME
 # notification title wholly above the fade. Neither the header nor the
 # wallpaper can supply this sample's known opaque title ink.
 fade_card_ink_value() { # PNG ITEMS_FILE VIEW SURFACE INK BAND OUTPUT_WIDTH OUTPUT_HEIGHT
-  python3 -c "$png_rgba_py"'
+  VGS_SMOKE_PNG_DECODER="$imagemagick" python3 -c "$png_rgba_py"'
 items = json.load(open(sys.argv[2]))
 view, surface = map(json.loads, sys.argv[3:5])
 ink = json.loads(sys.argv[5])
@@ -4310,11 +4314,9 @@ fade_output() { # PNG
 fade_active_value() { # PAIRS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
   # PAIRS holds one `PNG<TAB>REFERENCE<TAB>ITEMS` line per reading; each
   # reading prints one line, in order, the card's paint in PNG against
-  # REFERENCE as JSON or the state word that stopped it. A capture is
-  # decoded once for every reading that names it: png_rgba takes about
-  # 0.8 s on a 1920x1080 capture, and a fade pair's three last readings
-  # share three captures (VGS-2465).
-  python3 -c "$png_rgba_py"'
+  # REFERENCE as JSON or the state word that stopped it. The readings in
+  # a fade pair share decoded frames.
+  VGS_SMOKE_PNG_DECODER="$imagemagick" python3 -c "$png_rgba_py"'
 decoded={}
 def capture(path):
     if path not in decoded: decoded[path]=png_rgba(path)
@@ -4394,9 +4396,7 @@ PY_ACTIVE_INTERSECTION
 }
 fade_active_read_context() { # SUMMARY EDGE SAMPLE_NAME
   local summary="$1" edge="$2" sample="$3" items view_file view
-  fade_inventory || return
-  [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
-  fade_read_context "$sample" || return
+  fade_read_context "$sample" "$summary" || return
   items="$(fade_probe_file "$sample-items.json")" || return
   view_file="$(fade_probe_file "$sample-view.json")" || return
   view="$(<"$view_file")" || return
