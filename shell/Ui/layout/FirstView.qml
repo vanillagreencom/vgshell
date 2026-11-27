@@ -19,7 +19,7 @@ import "FirstViewLogic.js" as Logic
 //
 // Both parts carry `view` and `showsWhole` and answer the same questions
 // (`buildAlone`, `remaining`, `loading`, `progressed`, `targetUnbuilt`,
-// `targetItem`, `lastBuilt`, `grow`, `complete`, `buildThrough`,
+// `targetItem`, `lastBuilt`, `grow`, `complete`, `buildThrough`, `drop`,
 // `stepOnce`, `itemOf`), so the view and FirstViewLogic.js read a part
 // through them and an Item's `visible` and `parent` alone.
 //
@@ -34,15 +34,39 @@ import "FirstViewLogic.js" as Logic
 // stops once its height reaches `cap`, the room the surface's host gives
 // it: its window's height unless the page names it. A room not yet known,
 // before the item has a sized window, builds no part past the targets
-// until it is known. A target builds with every part before it and one
-// `cap` of room after it. A shown part before one already built is always built, so
+// until it is known. A target, the row or block a page reveals with a
+// reveal that moves the least (ScrollArea `reveal`), builds with every
+// part before it. A target that ends inside the first window, `cap` from
+// the top, adds no room: that window holds it, so the reveal shows it
+// with the rows the first window builds. A target past the first window
+// builds one `cap` of room after it: where the reveal leaves it depends on
+// the viewport the reveal measures, and a window that maps after the
+// page's open draws a viewport up to `cap` tall below a reveal measured
+// against a shorter one. A target inside another, as a group holds its
+// linked row, counts no room of its own; the inner one names the row the
+// reveal shows. A shown part before one already built is always built, so
 // nothing above the viewport changes height later and the scroll position
 // holds; content that fits under `cap` builds whole and defers nothing.
 // The first view builds when the view completes, again for values or a
 // room that arrive before its first frame, as a surface's data does when
 // the core assigns `shell`, and when a hidden view or part shows. A hidden
 // part, such as a hidden tab's page or a menu's undrawn entries, is left
-// to the steps; a hidden block that shows builds at once.
+// to the steps; a hidden block that shows builds at once. A part that
+// shows with the view is the view's show, and its first view builds the
+// part: Qt sets an item's visibility through its tree and emits
+// visibleChanged for its children before the item itself (qtdeclarative
+// v6.12.1 QQuickItemPrivate::setEffectiveVisibleRecur), so such a show
+// arrives before the view's own handler has run.
+//
+// `drop()` and `refill()` replace a view's content, as a page that draws
+// one record at a time takes another: drop unbuilds every part in the
+// view's tree and holds every build, a show's included, so no build reads
+// a part whose values still hold the old content; refill, once every value
+// follows the new content, ends the hold and builds the first view as a
+// show does, or leaves it to the next show while the view is hidden. A
+// part outside the view's tree, such as a menu's entries, keeps what it
+// built: it does not draw the record, and a menu entry that switches the
+// record must outlive its own trigger.
 //
 // The rest: once a frame started after the first view has swapped
 // (FrameLatch), each such frame takes one step: the next block loads
@@ -93,6 +117,13 @@ import "FirstViewLogic.js" as Logic
 // Setting an incubating Loader's `asynchronous` to false completes it in
 // the same turn (https://doc.qt.io/qt-6/qml-qtquick-loader.html#asynchronous-prop).
 // `settled` is true while every part is built and nothing loads.
+//
+// A Rows part's build writes its Repeater's model, and a part nested in
+// its rows changes or registers inside that write. A first view built
+// there would write the outer model again within its own write, which Qt
+// reports as a binding loop on the ScriptModel's `values` and leaves at its
+// stale value, so a change that arrives during a build waits for the
+// outermost build to end and runs once then (`hold`).
 Column {
     id: root
 
@@ -107,7 +138,14 @@ Column {
     property bool completed: false
     // True from completion, or a show, until the first frame after it swaps.
     property bool first: true
+    // The view's visibility as its own handler last read it.
+    property bool viewShown: false
+    // True from drop() until refill() or a show.
+    property bool replacing: false
     property bool filling: false
+    // Rows builds in progress, and whether a change arrived during one.
+    property int holding: 0
+    property bool heldChange: false
     // A rows step's share, in ms: a third of a 60 Hz frame, the share
     // Quickshell's incubation controller takes of each animation tick for
     // a block's load, which leaves the rest of the frame to drawing. QML
@@ -122,6 +160,7 @@ Column {
 
     Component.onCompleted: {
         completed = true;
+        viewShown = visible;
         fill();
         latch.arm();
     }
@@ -130,6 +169,7 @@ Column {
 
     onVisibleChanged: {
         if (!completed) return;
+        viewShown = visible;
         if (!visible) {
             latch.disarm();
             if (Window.window !== null)
@@ -185,6 +225,12 @@ Column {
             view.position(item, block);
         }
         function buildThrough(count) { complete(); }
+        // Unload; a load in flight finishes first, as at a hide.
+        function drop() {
+            if (loading()) complete();
+            asynchronous = false;
+            wanted = false;
+        }
         // Start the block's load; true while it is in flight, which ends
         // the step.
         function stepOnce(begin, budget) {
@@ -228,7 +274,8 @@ Column {
 
         function build(count) {
             limit = count;
-            shown = limit >= values.length ? values : values.slice(0, limit);
+            const next = limit >= values.length ? values : values.slice(0, limit);
+            view.hold(() => { shown = next; });
         }
         // How many values the model keeps after `values` changed: through
         // the last value whose key was built, and no fewer than before, so
@@ -267,6 +314,7 @@ Column {
             build(count);
             for (let i = from; i < rows.count; i++) view.position(itemAt(i), rows);
         }
+        function drop() { if (limit > 0) build(0); }
         function stepOnce(begin, budget) {
             while (remaining() && Date.now() - begin < budget) build(limit + 1);
             return false;
@@ -325,15 +373,32 @@ Column {
     function pending(part) {
         return part.remaining() || part.loading();
     }
-    // The bottom of the built target in this view, or 0 while none is built.
+    // Whether OUTER holds INNER in its tree.
+    function encloses(outer, inner) {
+        for (let at = inner.parent; at !== null; at = at.parent)
+            if (at === outer) return true;
+        return false;
+    }
+    // The bottom of the built target in this view, or 0 while none is
+    // built; a target that holds another built target counts the inner one.
     function targetBottom() {
-        let bottom = 0;
+        const items = [];
         for (const part of parts) {
             if (!part.visible) continue;
             const item = part.targetItem();
-            if (item !== null) bottom = Math.max(bottom, item.mapToItem(root, 0, item.height).y);
+            if (item !== null) items.push(item);
         }
+        let bottom = 0;
+        for (const item of items)
+            if (!items.some(other => other !== item && encloses(item, other)))
+                bottom = Math.max(bottom, item.mapToItem(root, 0, item.height).y);
         return bottom;
+    }
+    // The height the first view fills: `cap`, or one `cap` past a target
+    // that ends past it.
+    function room() {
+        const bottom = targetBottom();
+        return bottom > cap ? bottom + cap : cap;
     }
 
     function positioner(item) {
@@ -355,9 +420,9 @@ Column {
 
     // Build the first view: the next shown part grows while a part after it
     // was built, while a target is unbuilt, or while the view is shorter
-    // than its cap, then one cap past a built target.
+    // than its room.
     function fill() {
-        if (filling || !completed || !visible) return;
+        if (filling || replacing || !completed || !visible) return;
         filling = true;
         try {
             for (;;) {
@@ -374,7 +439,7 @@ Column {
                     const built = builtAt(part);
                     return part !== list[next] && built !== null && compare(built, at) > 0;
                 });
-                if (!(above || next <= target || (isFinite(cap) && height < Math.max(cap, targetBottom() + cap)))) break;
+                if (!(above || next <= target || (isFinite(cap) && height < room()))) break;
                 list[next].grow();
             }
         } finally {
@@ -395,20 +460,39 @@ Column {
     // unless a load in flight takes the next step when it ends.
     function resume() {
         settled = !working();
-        if (!settled && visible && !first && !latch.armed && !loading()) latch.arm();
+        if (!settled && visible && !first && !replacing && !latch.armed && !loading()) latch.arm();
+    }
+
+    // Run WORK, a Rows build, and a change that arrives during it once the
+    // outermost build has ended.
+    function hold(work) {
+        holding++;
+        try {
+            work();
+        } finally {
+            holding--;
+        }
+        if (holding > 0 || !heldChange) return;
+        heldChange = false;
+        changed();
     }
 
     // A part's values, target or registration changed.
     function changed() {
-        if (!completed || filling) return;
+        if (!completed || filling || replacing) return;
+        if (holding > 0) {
+            heldChange = true;
+            return;
+        }
         if (first && visible) fill();
         else resume();
     }
 
     // A hidden part shows: a block builds at once; rows join the first
-    // view before the first frame and take the next steps after it.
+    // view before the first frame and take the next steps after it. A
+    // part that shows with the view waits for the view's own show.
     function shown(part) {
-        if (!completed) return;
+        if (!completed || !viewShown || replacing) return;
         if (part.showsWhole && pending(part)) ensure(part);
         else if (first) fill();
         else resume();
@@ -416,7 +500,7 @@ Column {
 
     function step() {
         first = false;
-        if (!visible) return;
+        if (!visible || replacing) return;
         const list = order().slice();
         if (loading()) return;
         const budget = root.stepBudget;
@@ -455,6 +539,30 @@ Column {
         const item = part.itemOf(index);
         resume();
         return item;
+    }
+
+    function drop() {
+        replacing = true;
+        latch.disarm();
+        // Last first, so a part a row of another holds drops before that
+        // row goes, while it can still run.
+        for (const part of order().slice().reverse())
+            if (parts.indexOf(part) !== -1 && pathOf(part) !== null) part.drop();
+        // A Column lays out a removed child only at its next polish
+        // (qtdeclarative v6.12.1 QQuickBasePositioner::itemChange), so the
+        // first view after the hold would read the old content's height.
+        root.forceLayout();
+        positionAbove();
+        settled = false;
+    }
+
+    function refill() {
+        if (!replacing) return;
+        replacing = false;
+        if (!visible) return;
+        first = true;
+        fill();
+        latch.arm();
     }
 
     function ensureAll() {

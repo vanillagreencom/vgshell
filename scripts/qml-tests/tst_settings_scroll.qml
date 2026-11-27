@@ -51,6 +51,7 @@ Item {
         property var shell: null
         property var plugins: []
         property var installFailures: ({})
+        property var capture: null
         property bool listCase: false
         property var current: root.row(true)
         function setEnabled(id, enabled) { current = root.row(enabled, listCase); return "ok"; }
@@ -123,50 +124,105 @@ Item {
             compare(page.scrollArea.contentY, before);
         }
 
-        // An open that carries a reveal target builds every Settings group
-        // before its first frame, each laid out below the one before it in
-        // the same turn; a plain open leaves the groups past its first view
-        // to the steps after it. Each of the page's four groups fills the
-        // window's room, so a link to the first group's field leaves the
-        // last groups past the room a target builds after it. The panel
-        // lists plugins, and the page's picker builds their entries only
-        // when its menu opens or in the steps, never before the first frame.
-        function test_a_linked_open_builds_the_whole_page_before_its_first_frame_data() {
+        // A linked open builds, in its own turn, through its target row,
+        // with every row above it, and reveals the row; nothing after an
+        // unbuilt row is built, so no later content draws in its place. Its
+        // first view also fills the viewport below the revealed row, so the
+        // first frame shows what the settled page shows there, and leaves
+        // the rows past one window below it to the steps. A link into a
+        // page past its first frame builds through the target in the same
+        // turn and leaves the rest to the steps. A plain open fills the
+        // viewport and leaves the rows past its first view to the steps
+        // after it. The page has four groups of sixty rows, then the Pads
+        // list, the Keys section and its panes holder's button. An open
+        // shows the page as the Settings window does: the page shows,
+        // hidden until then, and opens; or, from another plugin's settled
+        // page, it takes the new plugin's row and opens, so none of the
+        // last page's rows stays built. Each target stands past the first
+        // window, near its group's top, so only the target row's own target
+        // builds one window below it and no further: with it dropped, the
+        // reveal's ensure builds through the row alone and the group's
+        // target counts the room from the group's end. The panel lists
+        // plugins, and the page's picker builds their entries only when its
+        // menu opens or in the steps, never before the first frame; the
+        // entries list every plugin, not the page's, so those built on the
+        // other plugin's page stay built through the switch.
+        function test_a_linked_open_builds_through_its_target_row_data() {
             return [
-                { tag: "plain open", tab: "Settings", whole: false },
-                { tag: "linked open", tab: "Settings/g0t0", whole: true }
+                { tag: "plain open", tab: "Settings", target: null, from: "hidden" },
+                { tag: "linked open", tab: "Settings/g1t5", target: "g1t5", from: "hidden" },
+                { tag: "link into a shown page", tab: "Settings/g3t5", target: "g3t5", from: "shown" },
+                { tag: "plain open from another page", tab: "Settings", target: null, from: "another" },
+                { tag: "linked open from another page", tab: "Settings/g1t5", target: "g1t5", from: "another" }
             ];
         }
 
-        function test_a_linked_open_builds_the_whole_page_before_its_first_frame(data) {
+        function test_a_linked_open_builds_through_its_target_row(data) {
             const schema = {};
             const settings = {};
+            const order = [];
             for (let group = 0; group < 4; group++)
-                for (let i = 0; i < 15; i++) {
-                    schema["g" + group + "t" + i] = { type: "boolean", label: "Option " + i, group: "Group " + group };
-                    settings["g" + group + "t" + i] = true;
+                for (let i = 0; i < 60; i++) {
+                    const key = "g" + group + "t" + i;
+                    schema[key] = { type: "boolean", label: "Option " + i, group: "Group " + group };
+                    settings[key] = true;
+                    order.push(key);
                 }
-            manager.current = Object.assign({}, root.row(true), { schema: schema, settings: settings, fieldRows: PluginLogic.fieldRows(schema, {}) });
-            manager.plugins = [{ id: "acme.one", name: "One", icon: "package" }, { id: "acme.two", name: "Two", icon: "package" }];
-            const opened = createTemporaryObject(pageComponent, root);
+            schema.pads = { type: "list", label: "Pads", items: { command: { type: "string", label: "App", presets: [{ label: "Terminal", value: "terminal" }], allowCustom: true } }, defaults: { command: "terminal" } };
+            settings.pads = [{ name: "1", command: "fixture-command-never-run" }];
+            order.push("pads", "keys", "holder");
+            const bind = { shortcut: "tap", key: "code:108", keys: ["code:108"], default: ["code:108"], description: "Tap" };
+            const opening = Object.assign({}, root.row(true), { schema: schema, settings: settings, fieldRows: PluginLogic.fieldRows(schema, {}), binds: [bind], paneHolder: "acme.holder" });
+            manager.plugins = [{ id: "acme.one", name: "One", icon: "package" }, { id: "acme.holder", name: "Holder", icon: "package" }];
+            if (data.from === "another") {
+                // One group of forty rows, a window and more, with Keys and
+                // the panes holder's button, which stay shown at the switch.
+                const before = {};
+                for (let i = 0; i < 40; i++) before["b" + i] = { type: "boolean", label: "Before " + i, group: "Before" };
+                manager.current = Object.assign({}, root.row(true), { id: "acme.before", schema: before, settings: {}, fieldRows: PluginLogic.fieldRows(before, {}), binds: [bind], paneHolder: "acme.holder" });
+            } else {
+                manager.current = opening;
+            }
+            const opened = createTemporaryObject(pageComponent, root, { visible: data.from !== "hidden" });
             verify(opened !== null);
             const view = descendants(opened).find(item => item.firstViewRoot === true);
             verify(view !== undefined, "the page builds through a FirstView");
-            verify(!view.settled, "the later groups stand past the first view");
-            opened.open(Qt.OtherFocusReason, data.tab);
-            const groups = descendants(opened).filter(item => item instanceof Section && /^Group [0-3]$/.test(item.title));
-            groups.sort((a, b) => a.title < b.title ? -1 : 1);
-            if (data.whole) {
-                compare(groups.map(group => group.title), ["Group 0", "Group 1", "Group 2", "Group 3"], "every group is built before any frame draws it");
-                for (let i = 1; i < groups.length; i++)
-                    verify(groups[i].mapToItem(view, 0, 0).y >= groups[i - 1].mapToItem(view, 0, groups[i - 1].height).y,
-                           groups[i].title + " is laid out below " + groups[i - 1].title + " in the same turn");
+            if (data.from === "hidden") {
+                opened.visible = true;
             } else {
-                verify(groups.length < 4, "a plain open leaves the later groups to the steps");
+                if (data.from === "shown") verify(!view.settled, "the later rows stand past the first view");
+                verify(renderedFrame(opened));
+            }
+            if (data.from === "another") {
+                tryVerify(() => view.settled, 5000, "the other plugin's page is built");
+                manager.current = opening;
+            }
+            opened.open(Qt.OtherFocusReason, data.tab);
+            // Read in the open's turn, before any further frame.
+            const shown = descendants(opened);
+            const built = shown.filter(item => item instanceof SettingField && /^g[0-3]t[0-9]+$/.test(item.key)).map(item => item.key);
+            if (shown.some(item => item instanceof Section && item.title === "Pads")) built.push("pads");
+            if (shown.some(item => item instanceof Section && item.title === "Keys")) built.push("keys");
+            if (shown.some(item => item instanceof Button && item.text === "More settings in Holder")) built.push("holder");
+            const prefix = order.slice(0, built.length);
+            compare(built.slice().sort(), prefix.slice().sort(), "the rows built are every row down to the last one built");
+            verify(built.length < order.length, "the rows past the first view wait for the steps");
+            const area = opened.scrollArea;
+            if (data.from !== "shown") verify(view.mapToItem(area, 0, view.height).y >= area.height, "the first view fills the viewport");
+            if (data.target !== null) {
+                verify(built.indexOf(data.target) !== -1, "the target row is built in the open's turn");
+                const row = shown.find(item => item instanceof SettingField && item.key === data.target);
+                const top = row.mapToItem(area, 0, 0).y;
+                verify(top >= 0 && top + row.height <= area.height, "the target row is revealed in the open's turn");
+                if (data.from !== "shown") {
+                    const last = data.target.replace(/t[0-9]+$/, "t59");
+                    verify(built.indexOf(last) === -1, "the rows past one window below the target row wait for the steps");
+                }
             }
             const picker = view.parts.find(part => part.values !== undefined && part.values.some(value => value !== null && value.id === "acme.one"));
             verify(picker !== undefined, "the picker's entries belong to the page's view");
-            compare(picker.count, 0, "the picker's entries wait for its menu or the steps");
+            if (data.from === "another") compare(picker.count, manager.plugins.length, "the picker's entries stay built through the switch");
+            else compare(picker.count, 0, "the picker's entries wait for its menu or the steps");
         }
 
         function test_choosing_custom_still_reveals_the_editor() {

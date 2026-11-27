@@ -23,7 +23,7 @@
 # shell (shell/Ui/layout/FirstView.qml) to settle, and prints from that
 # frame to the settle the longest deferred step, `longest_step_ms`, judged
 # against nothing, since a step builds at least one whole row or block,
-# such as one Settings group, the smallest unit a page defers. A block's
+# such as one Settings field row, the smallest unit a page defers. A block's
 # step runs from its start to the end of the block's load, which the
 # engine's incubation pauses only once the block's objects are created and
 # between their bindings and completion handlers, so the figure bounds
@@ -35,14 +35,13 @@
 # and the initial focus target must be built at that frame and hold active
 # focus once settled: a first view that leaves part of the viewport to the
 # steps, or an empty first frame, fails. The Settings Voice page opens
-# through a link that reveals a field. An open that carries a reveal
-# target builds every Settings group before its first frame (vgs.settings
-# PluginPage `buildWhole`), so the target and
-# everything above it are laid out before the reveal scrolls, and no
-# class ceiling applies to it. It is read at its top: the link's reveal scrolls the page in a callLater after
-# positioning, after the first frame. Its frame must show what the page
-# shows at its top once settled, with the same focus target; the reveal
-# itself is the Settings rows' check. An instance that builds through no
+# through a link that reveals a field: open() names the field's row as
+# the page's FirstView target and reveals it in its own turn (vgs.settings
+# PluginPage `open`), so the first view builds the row, every row above it
+# and the room below it, and the first frame shows the revealed page,
+# which must be what it shows once settled, as at every other place. No
+# class ceiling applies to that open: no reading of the target-first open
+# exists yet to set one from. An instance that builds through no
 # FirstView defers nothing and takes no content check
 # (scripts/smoke/open-split.py `content`).
 # The class ceilings apply to every other measured place: sync_ms at most
@@ -194,15 +193,6 @@ open_split_content() { # OFFSET KIND ID HOST_KEY
   verdict="$(python3 "$open_split_py" content "$instance_log" "$1" "$2" "$3" "$settled_content")" || return 1
   [[ $verdict == equal || $verdict == no-view ]] && echo held || echo "$verdict"
 }
-# open_split_content_top OFFSET KIND ID HOST_KEY TEXT: open_split_content
-# against the page at its top: once the instance settles, the view holding
-# TEXT scrolls to its top and the probe reads the instance there.
-open_split_content_top() { # OFFSET KIND ID HOST_KEY TEXT
-  local scrolled
-  scrolled="$(ipc smoke scrollHoldingToTop "$4" "$3" "$5")" || { echo "top=unread"; return 0; }
-  [[ $scrolled =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "top=$scrolled"; return 0; }
-  open_split_content "$1" "$2" "$3" "$4"
-}
 # open_split_read PLACE OPEN KIND ID OPEN_FN: one open of PLACE through
 # OPEN_FN, read from the running shell's log after its size before the
 # open into open-split/PLACE-OPEN.json; `open_split_offset` keeps that
@@ -226,29 +216,22 @@ open_split_read() { # PLACE OPEN KIND ID OPEN_FN
     return 1
   fi
 }
-# open_split_measure PLACE OPEN KIND ID OPEN_FN HOST_KEY [LINK_TEXT]: one
+# open_split_measure PLACE OPEN KIND ID OPEN_FN HOST_KEY [linked]: one
 # judged open: the class ceilings and the first frame's content. A linked
-# open, LINK_TEXT given, builds its page whole and takes no ceiling; its
-# first frame is judged against the page at its top through the view
-# holding LINK_TEXT.
-open_split_measure() { # PLACE OPEN KIND ID OPEN_FN HOST_KEY [LINK_TEXT]
+# open, `linked` given, takes no ceiling, for the reason the header names.
+open_split_measure() { # PLACE OPEN KIND ID OPEN_FN HOST_KEY [linked]
   local place="$1" open="$2" reading="$open_split_out/$1-$2.json" pressure
   if open_split_read "$1" "$2" "$3" "$4" "$5" && [[ -z ${7:-} ]]; then
     pressure="$(open_split_pressure "$reading")" || pressure=unread
     latency_pressure_check open-split "${place}_${open}_sync" "$(open_split_figure "$reading" sync_ms)" "$pressure" "$open_split_sync_ceiling"
     latency_pressure_check open-split "${place}_${open}_first_content" "$(open_split_figure "$reading" first_content_ms)" "$pressure" "$open_split_content_ceiling"
   fi
-  if [[ -n ${7:-} ]]; then
-    expect "open-split: $place $open: the first frame shows the page top and its focus target" held \
-      open_split_content_top "$open_split_offset" "$3" "$4" "$6" "$7"
-  else
-    expect "open-split: $place $open: the first frame shows the settled content and its focus target" held \
-      open_split_content "$open_split_offset" "$3" "$4" "$6"
-  fi
+  expect "open-split: $place $open: the first frame shows the settled content and its focus target" held \
+    open_split_content "$open_split_offset" "$3" "$4" "$6"
 }
-# open_split_place PLACE KIND ID HOST_KEY OPEN_FN CLOSE_FN [LINK_TEXT]: the
+# open_split_place PLACE KIND ID HOST_KEY OPEN_FN CLOSE_FN [linked]: the
 # first open and two reopens, the surface destroyed after each.
-open_split_place() { # PLACE KIND ID HOST_KEY OPEN_FN CLOSE_FN [LINK_TEXT]
+open_split_place() { # PLACE KIND ID HOST_KEY OPEN_FN CLOSE_FN [linked]
   local open
   for open in first reopen-1 reopen-2; do
     open_split_measure "$1" "$open" "$2" "$3" "$5" "$4" "${7:-}" || return 1
@@ -313,9 +296,7 @@ open_split_jarvis() {
   open_split_place jarvis-chat window vgs.jarvis window open_split_chat_open open_split_chat_close || return 1
   expect "open-split: Jarvis Chat opens for its Voice settings link" ok ipc shell summon window vgs.jarvis '{}'
   expect_poll "open-split: Chat shows the Voice settings link under a speech-only voice" true ipc smoke readInstance window vgs.jarvis speechOnly
-  # The link reveals a field of the AI model group's page, which holds
-  # that heading once settled.
-  open_split_place voice-settings window vgs.settings window open_split_voice_open open_split_voice_close "AI model" || return 1
+  open_split_place voice-settings window vgs.settings window open_split_voice_open open_split_voice_close linked || return 1
   expect "open-split: Jarvis Chat closes" ok ipc shell hide window vgs.jarvis
 }
 
@@ -385,7 +366,7 @@ open_split_over() { # READING_JSON
 copy_tree open-split-eager
 python3 "$open_split_py" prepare "$sandbox/tree-open-split-eager"
 if edit_tree open-split-eager shell/Ui/layout/FirstView.qml \
-    '                if (!(above || next <= target || (isFinite(cap) && height < Math.max(cap, targetBottom() + cap)))) break;' '' \
+    '                if (!(above || next <= target || (isFinite(cap) && height < room()))) break;' '' \
     && open_split_shell eager "$sandbox/tree-open-split-eager"; then
   if open_split_read eager first window vgs.system open_split_system_open; then
     open_split_eager="$(open_split_over "$open_split_out/eager-first.json")" || open_split_eager=unread

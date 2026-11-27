@@ -6,14 +6,17 @@ import qs.Unit
 
 // FirstView and FrameLatch: the first view builds its parts in order to
 // its cap before the first frame and the rest after it, an unknown cap
-// builds nothing until it is known, a target builds
-// with one cap of room after it, `ensure` builds a deferred part now with
+// builds nothing until it is known, a target past the first window builds
+// with one cap of room after it and one inside it with none, a target
+// inside another counts the inner one's room, a change that arrives during
+// a rows build waits for the build, `ensure` builds a deferred part now with
 // every part before it, laid out in the same turn, a block loading before
 // that part, at its show or at a hide finishes rather than aborts, unless the view has
 // left its window, a hidden view takes no
 // step, and a frame in flight
 // at an arm does not fire the latch. A group of rows fills before the
-// next group. A section in a block keeps the
+// next group. A drop holds every build, a show's included, until refill,
+// and leaves a part outside the view's tree built. A section in a block keeps the
 // heading space it has in a plain Column.
 Item {
     id: root
@@ -72,6 +75,32 @@ Item {
                     FirstView.Rows {
                         id: rows
                         values: Array.from({ length: 6 }, (_, i) => i)
+                        Rectangle { width: 300; height: 20 }
+                    }
+                }
+            }
+        }
+    }
+
+    // Groups of rows in rows whose middle value is inserted later, as the
+    // Settings page's groups are when a field gains its place.
+    Component {
+        id: insertedGroups
+        FirstView {
+            property alias groups: groups
+            width: 300
+            cap: 100
+            FirstView.Rows {
+                id: groups
+                values: ["a", "c", "d"]
+                Column {
+                    required property string modelData
+                    property alias rows: rows
+                    width: 300
+                    Rectangle { width: 300; height: 10 }
+                    FirstView.Rows {
+                        id: rows
+                        values: [0, 1]
                         Rectangle { width: 300; height: 20 }
                     }
                 }
@@ -177,6 +206,38 @@ Item {
         id: emptyView
         FirstView { width: 300; cap: 100 }
     }
+    // Keyed rows in the view, and rows outside its tree that name it, as a
+    // page's menu entries do.
+    Component {
+        id: replacedView
+        Item {
+            property alias view: replaced
+            property alias rows: rows
+            property alias outside: outside
+            width: 300
+            height: 600
+            FirstView {
+                id: replaced
+                width: 300
+                cap: 100
+                FirstView.Rows {
+                    id: rows
+                    values: Array.from({ length: 50 }, (_, i) => ({ key: "old" + i }))
+                    objectProp: "key"
+                    Rectangle { required property var modelData; width: 300; height: 20 }
+                }
+            }
+            Item {
+                y: 300
+                FirstView.Rows {
+                    id: outside
+                    view: replaced
+                    values: ["a", "b", "c"]
+                    Rectangle { width: 300; height: 20 }
+                }
+            }
+        }
+    }
     // Blocks heavy enough that each loads over several incubation slices.
     Component {
         id: heavyView
@@ -233,6 +294,68 @@ Item {
             compare(builtBlocks(view)[8], true);
             compare(builtBlocks(view)[9], false);
             view.destroy();
+        }
+
+        function test_a_target_inside_the_first_window_adds_no_room() {
+            const view = blockView.createObject(root, { targetAt: 1 });
+            // Block 1 ends at 200, inside the 250 cap: the first window
+            // builds as with no target.
+            compare(count(builtBlocks(view)), 3);
+            view.destroy();
+        }
+
+        function test_a_target_inside_a_target_counts_the_inner_room() {
+            const view = Qt.createQmlObject("import QtQuick\nimport qs.Ui\nFirstView { property alias groups: groups; width: 300; cap: 100\n"
+                + " FirstView.Rows { id: groups; target: 1; values: ['a', 'b', 'c']\n"
+                + "  Column { required property string modelData; required property int index; property alias rows: rows; width: 300\n"
+                + "   Rectangle { width: 300; height: 10 }\n"
+                + "   FirstView.Rows { id: rows; target: index === 1 ? 0 : -1; values: [0, 1, 2, 3, 4, 5]\n"
+                + "    Rectangle { width: 300; height: 20 } } } } }", root);
+            // Group a is 130 tall; group b's first row, the inner target,
+            // ends at 160, so its room ends at 260, where group b ends.
+            // Counting from group b, the outer target, would build group c.
+            compare(view.groups.count, 2);
+            compare(view.groups.itemAt(1).rows.count, 6);
+            view.destroy();
+        }
+
+        // A value inserted before a built group, before the first frame,
+        // builds that group inside the groups' own model update, and its
+        // rows join then. The first view they ask for waits for that
+        // update to end; run inside it, it would update the groups' model
+        // again, which Qt reports as a binding loop and leaves stale.
+        function test_a_change_inside_a_rows_build_waits_for_the_build() {
+            const view = createTemporaryObject(insertedGroups, root);
+            // Each group is 50 tall: a and c fill the 100 cap.
+            compare(view.groups.count, 2);
+            // Out of range until the insertion makes it group d's index.
+            view.groups.target = 3;
+            view.groups.values = ["a", "b", "c", "d"];
+            compare(view.groups.count, 4, "the inserted group and the target group build");
+            for (let i = 0; i < 4; i++) compare(view.groups.itemAt(i).rows.count, 2, "group " + view.groups.itemAt(i).modelData + "'s rows build");
+        }
+
+        // A drop unbuilds the view's rows and builds nothing, a show
+        // included, until refill builds the new content's first view; the
+        // rows outside the view's tree keep what they built. The show comes
+        // while the rows still hold the old values, as the Settings tab can
+        // show mid-switch, so a show that built would build old rows.
+        function test_a_drop_holds_every_build_until_refill() {
+            const page = createTemporaryObject(replacedView, root);
+            const view = page.view;
+            tryCompare(view, "settled", true, 5000);
+            compare(page.outside.count, 3);
+            view.drop();
+            compare(page.rows.count, 0, "the drop unbuilds the view's rows");
+            compare(page.outside.count, 3, "rows outside the view's tree keep what they built");
+            view.visible = false;
+            view.visible = true;
+            compare(page.rows.count, 0, "a show during the hold builds nothing");
+            page.rows.values = Array.from({ length: 50 }, (_, i) => ({ key: "new" + i }));
+            compare(page.rows.count, 0, "new values during the hold build nothing");
+            view.refill();
+            compare(page.rows.count, 5, "refill builds the new content's first view");
+            compare(page.rows.itemAt(0).modelData.key, "new0");
         }
 
         function test_an_unknown_room_builds_once_it_is_known() {

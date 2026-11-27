@@ -183,9 +183,21 @@ FocusScope {
         editorSeen = editorAsked.serial;
         openEditor(editorAsked.form);
     }
+    // The plugin whose rows the Settings view holds, "" before the first.
+    property string viewId: ""
+    Component.onCompleted: if (row !== null) viewId = row.id
     // A status write gives the page a new row of the same plugin, which
-    // keeps the form; another plugin's row closes it.
-    onRowChanged: if (editing !== null && (row === null || row.id !== editing.id)) closeEditor()
+    // keeps the form and the Settings view; another plugin's row closes
+    // the form and replaces the view's content: the view drops what the
+    // last plugin built and builds its first view at open(), which
+    // Window.show(), the one writer of the plugin drawn, runs in the same
+    // turn (FirstView `drop`).
+    onRowChanged: {
+        if (editing !== null && (row === null || row.id !== editing.id)) closeEditor();
+        if (row === null) return;
+        if (viewId !== "" && row.id !== viewId) settingsPage.drop();
+        viewId = row.id;
+    }
     function closeEditor() {
         editing = null;
         editorError = "";
@@ -479,6 +491,9 @@ FocusScope {
     function open(reason, tab) {
         const place = PageReference.place(tab);
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
+        // A new plugin's first view builds on the tab shown, before the
+        // reveal reads it.
+        settingsPage.refill();
         back.forceActiveFocus(reason);
         if (place.key === "") {
             revealing = "";
@@ -489,18 +504,46 @@ FocusScope {
         revealMoving = false;
         revealTab = tabs.model.indexOf(place.tab) === -1 ? "Settings" : place.tab;
         revealing = place.key;
-        buildWhole();
-        Qt.callLater(page.revealField);
+        revealField();
     }
 
-    // A linked open builds every shown Settings group before its first
-    // frame, so the reveal's target and everything above it are laid out
-    // before the frame the reveal scrolls in, and the reveal keeps the page
-    // whole while it holds. A plain open builds its first view and the rest
-    // behind it (FirstView). The picker's entries, in a closed menu, build
-    // when the menu opens or in the steps.
-    function buildWhole() {
-        settingsPage.ensureAll();
+    // Where the Settings row `revealing` names stands among the Settings
+    // FirstView's parts: `group`, its group's index in `sections`, with
+    // `key`, a field's index among that group's keys, or `list`, a list's
+    // index among its lists; `list` alone, an index in `lists`; or `keys`,
+    // the Keys section. Each is -1, or false, for none.
+    readonly property var revealPlace: {
+        const none = { group: -1, key: -1, list: -1, keys: false };
+        if (revealing === "" || revealTab !== "Settings") return none;
+        if (revealing === "Keys") return Object.assign(none, { keys: true });
+        for (let i = 0; i < sections.length; i++) {
+            const key = sections[i].keys.indexOf(revealing);
+            const list = (sections[i].lists || []).indexOf(revealing);
+            if (key !== -1 || list !== -1) return { group: i, key: key, list: list, keys: false };
+        }
+        return Object.assign(none, { list: lists.indexOf(revealing) });
+    }
+
+    // Build the Settings row `revealPlace` names now, with every row above
+    // it. A linked open's first view has built it through the parts'
+    // targets, with the room FirstView gives a target, so this builds nothing
+    // more there; a link into a page past its first frame builds it here,
+    // FirstView's deep-link route. Either way the scroll area around the
+    // view is laid out in this turn (FirstView `ensure`). The group is
+    // ensured only while unbuilt, since ensuring it completes every part
+    // before it, the rows of the groups built for room after the target
+    // included; in a first view the targets have built it.
+    function buildRevealed() {
+        const place = revealPlace;
+        if (place.group !== -1) {
+            const group = groupRows.itemAt(place.group) || settingsPage.ensure(groupRows, place.group);
+            if (place.key !== -1) settingsPage.ensure(group.fieldRows, place.key);
+            else settingsPage.ensure(group.listRows, place.list);
+        } else if (place.list !== -1) {
+            settingsPage.ensure(listRows, place.list);
+        } else if (place.keys) {
+            settingsPage.ensure(settingsPage.ensure(keysBlock).keyRows);
+        }
     }
 
     // The key of the row an open asked to show, "" for none, on the tab
@@ -529,6 +572,22 @@ FocusScope {
             page.lastContentY = area.contentY;
             if (!page.revealMoving && !settling) page.revealing = "";
         }
+        // open() reveals the row in its own turn, before the window maps,
+        // and a window takes the page's height only as it maps (Window.qml
+        // `implicitHeight`), so that reveal measured a shorter viewport and
+        // scrolled further than the one the window draws needs. Reveal it
+        // again from the page's top at each height the area takes while
+        // the reveal holds. An anchored child is resized before its
+        // parent's heightChanged handlers run (Qt 6.12.1, a headless run),
+        // so the area's content clip, which the reveal measures, already
+        // has the new height here.
+        function onHeightChanged() {
+            if (page.revealing === "") return;
+            page.revealMoving = true;
+            layout.scrollArea.contentY = 0;
+            page.revealMoving = false;
+            page.revealField();
+        }
     }
     // Whether the tab TAB draws a row for KEY: a Settings field or list
     // the page places, the Keys section, a Setup step, or a Details status
@@ -556,7 +615,7 @@ FocusScope {
             revealing = "";
             return;
         }
-        buildWhole();
+        buildRevealed();
         const found = [revealTab === "Settings" ? settingsPage : revealTab === "Setup" ? setupPage : detailsPage];
         for (let i = 0; i < found.length; i++) {
             const item = found[i];
@@ -734,9 +793,13 @@ FocusScope {
                     page.panel.leave(() => { tabs.currentIndex = wanted; });
                 }
 
-                // The groups that fill the window's cap build before the
-                // first frame and the rest behind it; a linked open builds
-                // them all first (page.buildWhole).
+                // The field rows that fill the window's cap build before
+                // the first frame and the rest behind it, one row at a
+                // time; a linked open builds through its target row
+                // (page.revealPlace), with one window of room below a row
+                // past the first window. Every
+                // child after the groups is a part, so no unbuilt row
+                // leaves later content drawn in its place.
                 FirstView {
                     id: settingsPage
                     spacing: Theme.stack.page
@@ -829,9 +892,17 @@ FocusScope {
                         id: groupRows
                         values: page.sections
                         objectProp: "group"
+                        // The target's group builds first; its field or list
+                        // rows' target then names the row, which counts the
+                        // room in the group's place (FirstView).
+                        target: page.revealPlace.group
                         Section {
                             id: section
                             required property var modelData
+                            readonly property Item fieldRows: fieldPart
+                            readonly property Item listRows: listPart
+                            required property int index
+                            readonly property bool revealed: page.revealPlace.group === index
                             width: body.width
                             title: section.modelData.group
 
@@ -850,10 +921,10 @@ FocusScope {
                                 }
                             }
 
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.keys
-                                }
+                            FirstView.Rows {
+                                id: fieldPart
+                                values: section.modelData.keys
+                                target: section.revealed ? page.revealPlace.key : -1
                                 ChoiceField {
                                     required property string modelData
                                     width: section.width
@@ -876,10 +947,10 @@ FocusScope {
                                 }
                             }
 
-                            Repeater {
-                                model: ScriptModel {
-                                    values: section.modelData.lists || []
-                                }
+                            FirstView.Rows {
+                                id: listPart
+                                values: section.modelData.lists || []
+                                target: section.revealed ? page.revealPlace.list : -1
                                 Section {
                                     id: groupedListSection
                                     required property string modelData
@@ -913,10 +984,10 @@ FocusScope {
                         }
                     }
 
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.lists
-                        }
+                    FirstView.Rows {
+                        id: listRows
+                        values: page.lists
+                        target: page.revealPlace.group === -1 ? page.revealPlace.list : -1
                         Section {
                             id: listSection
                             required property string modelData
@@ -950,10 +1021,8 @@ FocusScope {
 
                     // A list of rows the user changes, each a section of
                     // its own after the schema's.
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.settingsRows
-                        }
+                    FirstView.Rows {
+                        values: page.settingsRows
                         RowsList {
                             id: settingsList
                             required property string modelData
@@ -968,46 +1037,51 @@ FocusScope {
                         }
                     }
 
-                    Section {
-                        // The row a `Settings/Keys` reference shows.
-                        readonly property string fieldKey: "Keys"
-                        width: parent.width
+                    FirstView.Block {
+                        id: keysBlock
                         visible: page.keysDrawn
-                        title: "Keys"
-                        description: "Select a shortcut and press its new keys"
-                        // design-system.md § Copy: a line that states a time
-                        // says why the limit exists.
-                        info: page.panel === null || !page.panel.capture ? ""
-                            : "Other shortcuts stop working while this field listens.\nIt stops after " + Math.round(page.panel.capture.timeoutMs / 1000) + " seconds so your shortcuts work again."
+                        target: page.revealPlace.keys
+                        Section {
+                            // The row a `Settings/Keys` reference shows.
+                            readonly property string fieldKey: "Keys"
+                            readonly property Item keyRows: keyPart
+                            width: parent.width
+                            title: "Keys"
+                            description: "Select a shortcut and press its new keys"
+                            // design-system.md § Copy: a line that states a time
+                            // says why the limit exists.
+                            info: page.panel === null || !page.panel.capture ? ""
+                                : "Other shortcuts stop working while this field listens.\nIt stops after " + Math.round(page.panel.capture.timeoutMs / 1000) + " seconds so your shortcuts work again."
 
-                        Repeater {
-                            model: ScriptModel {
+                            // One shortcut a step, as a group's fields build.
+                            FirstView.Rows {
+                                id: keyPart
                                 values: page.row === null ? [] : page.row.binds
                                 objectProp: "shortcut"
-                            }
-                            KeyField {
-                                id: keyField
-                                required property var modelData
-                                width: body.width
-                                pluginId: page.row.id
-                                bind: modelData
-                                editable: page.editable
-                                capture: page.panel.capture
-                                edits: unsaved
-                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
-                                onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
-                                onLineAsked: row => page.panel.openUserLine(row)
-                                onResetHolder: (id, shortcut) => page.panel.writeKey(id, shortcut, undefined)
-                                onApplyKey: key => {
-                                    if (page === null || page.row === null) return;
-                                    settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
+                                KeyField {
+                                    id: keyField
+                                    required property var modelData
+                                    width: body.width
+                                    pluginId: page.row.id
+                                    bind: modelData
+                                    editable: page.editable
+                                    capture: page.panel.capture
+                                    edits: unsaved
+                                    onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                    onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
+                                    onLineAsked: row => page.panel.openUserLine(row)
+                                    onResetHolder: (id, shortcut) => page.panel.writeKey(id, shortcut, undefined)
+                                    onApplyKey: key => {
+                                        if (page === null || page.row === null) return;
+                                        settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Repeater {
-                        model: page.moreSettings
+                    FirstView.Rows {
+                        values: page.moreSettings
                         Field {
                             id: moreSettingsRow
                             required property var modelData
@@ -1024,13 +1098,20 @@ FocusScope {
                         }
                     }
 
-                    Button {
-                        text: page.paneHolder === null ? "" : "More settings in " + page.paneHolder.name
-                        iconName: page.paneHolder === null ? "" : page.paneHolder.icon
-                        variant: "secondary"
+                    FirstView.Block {
                         visible: page.paneHolder !== null
-                        enabled: page.editable
-                        onClicked: page.panel.openPane(page.row.id)
+                        // A Loader with a width sizes its item to it
+                        // (https://doc.qt.io/qt-6/qml-qtquick-loader.html);
+                        // the Row keeps the button at its own width.
+                        Row {
+                            Button {
+                                text: page.paneHolder === null ? "" : "More settings in " + page.paneHolder.name
+                                iconName: page.paneHolder === null ? "" : page.paneHolder.icon
+                                variant: "secondary"
+                                enabled: page.editable
+                                onClicked: page.panel.openPane(page.row.id)
+                            }
+                        }
                     }
                 }
 

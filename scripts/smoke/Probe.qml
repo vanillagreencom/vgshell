@@ -3642,15 +3642,6 @@ Scope {
         // (reads): its type, scroll position, content height, height, the
         // mouse buttons that drag it and its box in the window's
         // coordinates, or `absent` / `no-view`.
-        // Scrolls the view holding the first shown item that reads `text`
-        // under an instance to its top, for open-split's reading of a page
-        // at its top. Answers the new contentY, `absent` or `no-view`.
-        function scrollHoldingToTop(hostKey: string, id: string, text: string): string {
-            const view = root.viewOf(hostKey, id, text);
-            if (typeof view === "string") return view;
-            view.contentY = view.originY;
-            return String(view.contentY);
-        }
         function viewHolding(hostKey: string, id: string, text: string): string {
             const view = root.viewOf(hostKey, id, text);
             if (typeof view === "string") return view;
