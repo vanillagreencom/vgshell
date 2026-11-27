@@ -135,6 +135,8 @@ Item {
     function longFields() {
         const schema = {}, settings = {};
         for (let i = 0; i < 40; i++) { schema["f" + i] = { type: "boolean", label: "Field " + i }; settings["f" + i] = false; }
+        schema.pads = { type: "list", label: "Pads", items: { command: { type: "string", label: "App", presets: [{ label: "Terminal", value: "terminal" }] } }, defaults: { command: "terminal" } };
+        settings.pads = [{ name: "1", command: "terminal" }];
         return { schema: schema, settings: settings };
     }
     function rows() {
@@ -774,50 +776,79 @@ Item {
             mouseClick(toggle);
             compare(fakeManager.chosen, [["acme.optional", "feature", true]]);
         }
-        // A reference to a row brings it into view on its tab and marks it
-        // with one plate inside the content, until a scroll the reveal did
-        // not make: [tag, plugin, reference, tab, the row's key].
+        function referencedLabels(window) {
+            return onTab(window, InfoButton).filter(item => item.referenced);
+        }
+        // The reveal scrolls to the row and marks only its label until the
+        // user scrolls. Compare the row and label before and after clearing.
         function test_a_row_reference_scrolls_to_it_and_marks_it_data() {
-            return [{ tag: "a Settings field", id: "acme.long", reference: "Settings/f39", tab: "Settings", key: "f39" },
-                { tag: "a Setup step", id: "acme.longsteps", reference: "Setup/s29", tab: "Setup", key: "s29" },
-                { tag: "a Details fact", id: "acme.longsteps", reference: "Details/f29", tab: "Details", key: "f29" }];
+            return [{ tag: "a Settings field", id: "acme.long", tab: "Settings", key: "f39", label: "Field 39" },
+                { tag: "a Settings list", id: "acme.long", tab: "Settings", key: "pads", label: "Pads" },
+                { tag: "a Setup step", id: "acme.longsteps", tab: "Setup", key: "s29", label: "Step 29" },
+                { tag: "a Details fact", id: "acme.longsteps", tab: "Details", key: "f29", label: "Fact 29" }];
         }
         function test_a_row_reference_scrolls_to_it_and_marks_it(data) {
-            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, data.reference);
+            const window = opened(); window.openPlugin(data.id, Qt.TabFocusReason, data.tab + "/" + data.key);
             const area = pageOf(window).scrollArea;
             compare(pageOf(window).tab, data.tab);
             tryVerify(() => area.contentY > 0, 2000, "the page scrolls to the far row");
+            const back = pageOf(window).initialFocus;
+            tryCompare(back, "visualFocus", true);
             const far = descendants(tabsOf(window).currentPage).find(item => item.visible && (item.fieldKey === data.key || item.statusKey === data.key));
             verify(far !== undefined, "the tab draws the row");
             const top = far.mapToItem(area, 0, 0).y;
             verify(top >= 0 && top + far.height <= area.height, "the far row is in view: " + top);
-            const plate = descendants(area.contentItem).find(item => item.objectName === "revealMark");
-            verify(plate !== undefined, "the page declares its plate");
-            tryCompare(plate, "opacity", 1, 2000);
-            const box = far.mapToItem(plate.parent, 0, 0);
-            verify(plate.y <= box.y && plate.y + plate.height >= box.y + far.height, "the plate covers the row");
-            verify(plate.x >= 0 && plate.x + plate.width <= plate.parent.width, "the plate stays inside the content: " + [plate.x, plate.width, plate.parent.width]);
+            const labels = referencedLabels(window);
+            compare(labels.map(item => item.text), [data.label], "only the destination label is marked");
+            const label = labels[0];
+            verify(Qt.colorEqual(label.color, Theme.color.accent), "the destination label uses the accent");
+            compare(label.labelItem.font.weight, Theme.text.bodyStrong.weight);
+            const position = label.mapToItem(far, 0, 0);
+            const geometry = [far.height, label.height, position.x, position.y];
             area.contentY = 0;
-            tryVerify(() => !plate.visible, 2000, "a scroll the reveal did not make clears the plate");
+            compare(referencedLabels(window).length, 0, "a scroll the reveal did not make clears the mark");
+            verify(Qt.colorEqual(label.color, Theme.text.label.color), "the label returns to its resting color");
+            compare(label.labelItem.font.weight, Theme.text.label.weight);
+            renderedFrame(window);
+            const resting = label.mapToItem(far, 0, 0);
+            compare([far.height, label.height, resting.x, resting.y], geometry, "marking a row keeps label and row geometry");
+            verify(back.visualFocus, "the reveal and its clearance keep the keyboard focus ring");
+            compare(fakeManager.chosen, [], "the reveal writes no value");
         }
         // The area settling back inside its end after a reveal, as the
-        // window takes the page's height, keeps the plate: only a scroll
-        // the user makes clears it.
-        function test_a_settle_inside_the_end_keeps_the_plate() {
+        // window takes the page's height, keeps the label marked.
+        function test_a_settle_inside_the_end_keeps_the_mark() {
             const window = opened(); window.openPlugin("acme.longsteps", Qt.OtherFocusReason, "Details/f29");
             const area = pageOf(window).scrollArea;
             tryVerify(() => area.contentY > 0, 2000, "the page scrolls to the far row");
-            const plate = descendants(area.contentItem).find(item => item.objectName === "revealMark");
-            tryCompare(plate, "opacity", 1, 2000);
+            compare(referencedLabels(window).map(item => item.text), ["Fact 29"]);
             const scrolled = area.contentY;
             const height = area.height;
             area.height = area.contentHeight;
             tryVerify(() => area.contentY < scrolled, 2000, "the area settles inside its end: " + area.contentY);
             compare(pageOf(window).revealing, "f29", "the settle keeps the row shown");
-            compare(plate.opacity, 1, "the settle keeps the plate");
+            compare(referencedLabels(window).map(item => item.text), ["Fact 29"], "the settle keeps the mark");
             area.height = height;
             area.contentY = 10;
-            tryVerify(() => !plate.visible, 2000, "a scroll the user makes clears the plate");
+            compare(referencedLabels(window).length, 0, "a scroll the user makes clears the mark");
+        }
+        function test_the_next_reference_moves_the_mark_and_navigation_clears_it() {
+            const window = opened(); window.openPlugin("acme.long", Qt.OtherFocusReason, "Settings/f39");
+            compare(referencedLabels(window).map(item => item.text), ["Field 39"]);
+            window.openPlugin("acme.long", Qt.OtherFocusReason, "Settings/f38");
+            compare(referencedLabels(window).map(item => item.text), ["Field 38"], "a new reference on the same tab moves the mark");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Settings/sync");
+            compare(referencedLabels(window).map(item => item.text), ["Sync"], "the stored-key field's children stay unmarked");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Details/wiring");
+            compare(referencedLabels(window).map(item => item.text), ["Wiring"], "the Details group marks only its heading");
+            tabsOf(window).currentIndex = 0;
+            compare(referencedLabels(window).length, 0, "the tab change clears the mark");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Settings/sync");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Settings");
+            compare(referencedLabels(window).length, 0, "a tab-only reference clears the mark");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Settings/sync");
+            window.back();
+            tryCompare(pageOf(window), "revealedRow", null, 2000, "leaving the page clears the mark");
         }
         // A reference to a key its tab draws no row for opens the tab and
         // says so at the page head, once.
@@ -828,6 +859,7 @@ Item {
             tryCompare(pageOf(window).panel, "replies", ({ "acme.longsteps": Reply.line("refused: page-target=Setup/f29 reason=undrawn") }), 2000);
             compare(pageOf(window).panel.headReplies("acme.longsteps").length, 1, "the page head draws it");
             compare(pageOf(window).revealing, "", "the page shows nothing");
+            compare(referencedLabels(window).length, 0, "an undrawn row marks nothing");
         }
         function test_more_settings_and_task_screens_have_one_home() {
             const window = opened(); window.openPlugin("acme.settings", Qt.OtherFocusReason);

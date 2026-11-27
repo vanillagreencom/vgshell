@@ -128,6 +128,7 @@ A private control or literal drawing value creates a second style system that th
 
 ### Settings pages
 
+- Use the shared `referenced` label state for a Settings row opened by a page link. The addressed field label or section heading uses `Theme.color.accent` and at least the `bodyStrong` weight. Referenceable headings keep heading typography and take their resting color and weight from the label role. Keep the row's spacing and the control's keyboard focus ring independent of this state. `ThemeLogic.readabilityShortfalls` checks accent text on the Settings surface against the 4.5:1 floor. The Settings reveal fixture checks the marked label and row geometry.
 - Take spacing from the shared rhythm and row owners. A toggle is its own label-and-switch row. Keep the tab strip pinned below the title while content scrolls. `settings-gap` in `scripts/check-design-tokens.py` checks gaps; review holds composition.
 - Declare Settings pages through manifest schema, never plugin page code. Settings contains only values the user changes there, including editable lists and stored keys beside their setting (owner, Slack 1792189351). Keep each field in its group and common widget fields in the shared order. `PluginLogic.validateManifest` judges placement; `bin/lib/check-manifests.js` checks widget order.
 - Keep setup actions on Setup and passive readings on Details, and declare placement rather than infer it from names (owner, Slack 1792469982). `PluginLogic.statusPlacement` and `shell/plugins/vgs.settings/Steps.js` own classification.

@@ -194,6 +194,7 @@ FocusScope {
     // turn (FirstView `drop`).
     onRowChanged: {
         if (editing !== null && (row === null || row.id !== editing.id)) closeEditor();
+        if (row === null || row.id !== viewId) revealing = "";
         if (row === null) return;
         if (viewId !== "" && row.id !== viewId) settingsPage.drop();
         viewId = row.id;
@@ -205,6 +206,7 @@ FocusScope {
     }
     // Show FORM's editor on the Setup tab and bring its list into view.
     function openEditor(form) {
+        revealedRow = null;
         editorError = "";
         editorSaving = false;
         editing = { id: row.id, key: form.key, form: form };
@@ -403,6 +405,7 @@ FocusScope {
             id: settingEditor
             SettingField {
                 width: editor.width
+                referenced: page.revealedRow === choiceField
                 pluginId: choiceField.pluginId
                 key: choiceField.key
                 spec: choiceField.spec
@@ -423,6 +426,7 @@ FocusScope {
             id: idleEditor
             IdleTimeField {
                 width: editor.width
+                referenced: page.revealedRow === choiceField
                 field: choiceField.idleField
                 reference: choiceField.reference
                 problem: choiceField.problem
@@ -489,6 +493,7 @@ FocusScope {
     // field's or a Setup or Details status row's, and marks it;
     // `Settings/Keys` brings the Keys section into view.
     function open(reason, tab) {
+        revealedRow = null;
         const place = PageReference.place(tab);
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
         // A new plugin's first view builds on the tab shown, before the
@@ -552,14 +557,14 @@ FocusScope {
     // (Column.positioningComplete), the call waiting for the next turn, as
     // SettingField's reveal does, until the next open, a change of tab or a
     // scroll the reveal did not make, so the page never moves under the user
-    // later. The row it shows draws the page's one mark (`revealMark`) while
-    // `revealing` holds.
+    // later. Only the label of the row it shows takes the referenced state.
     property string revealing: ""
     property string revealTab: "Settings"
     property bool revealMoving: false
     // The row the last reveal found, null while none is shown.
     property Item revealedRow: null
     onRevealingChanged: if (revealing === "") revealedRow = null
+    onVisibleChanged: if (!visible) revealing = ""
     // The scroll position the last move left. A move that starts past the
     // area's end is the area settling back inside it, as the window takes
     // the page's height after a reveal near the end, not the user's scroll.
@@ -624,11 +629,11 @@ FocusScope {
                 layout.scrollArea.reveal(item);
                 revealMoving = false;
                 revealedRow = item;
-                revealMark.place();
                 return;
             }
             for (const child of item.children) found.push(child);
         }
+        revealedRow = null;
     }
 
     // Write VALUE to the page's field KEY: its own setting through the
@@ -958,6 +963,8 @@ FocusScope {
                                     readonly property string fieldKey: modelData
                                     width: section.width
                                     title: page.row.schema[modelData].label
+                                    referenceable: true
+                                    referenced: page.revealedRow === groupedListSection
                                     description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
                                     onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
@@ -995,6 +1002,8 @@ FocusScope {
                             readonly property string fieldKey: modelData
                             width: body.width
                             title: page.row.schema[modelData].label
+                            referenceable: true
+                            referenced: page.revealedRow === listSection
                             description: page.row.schema[modelData].description === undefined ? "" : page.row.schema[modelData].description
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                             info: page.row.schema[modelData].info === undefined ? "" : page.row.schema[modelData].info
@@ -1042,11 +1051,14 @@ FocusScope {
                         visible: page.keysDrawn
                         target: page.revealPlace.keys
                         Section {
+                            id: keysSection
                             // The row a `Settings/Keys` reference shows.
                             readonly property string fieldKey: "Keys"
                             readonly property Item keyRows: keyPart
                             width: parent.width
                             title: "Keys"
+                            referenceable: true
+                            referenced: page.revealedRow === keysSection
                             description: "Select a shortcut and press its new keys"
                             // design-system.md § Copy: a line that states a time
                             // says why the limit exists.
@@ -1202,6 +1214,7 @@ FocusScope {
                                         // row again, as its key list does, since ScriptModel
                                         // can keep a moved row's modelData.
                                         EntryRow {
+                                            referenced: page.revealedRow === requiredEntry
                                             readonly property bool tools: requiredEntry.modelData.tools === true
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
@@ -1395,6 +1408,7 @@ FocusScope {
                                         required property string modelData
                                         // The key a page reference names the row by (revealField).
                                         readonly property string statusKey: modelData
+                                        referenced: page.revealedRow === detailRow
                                         // An optional feature's own action beside its fact.
                                         readonly property var buttons: entry === null ? ({ action: null, aside: null }) : Steps.detailButtons(entry, page.plugin)
                                         width: statusRows.width
@@ -1450,39 +1464,6 @@ FocusScope {
                         }
                     }
                 }
-            }
-        }
-
-        // The mark on the row a page reference opened (revealField): one
-        // plate of the list selection's fill under the row, in the scroll
-        // area's content beside the page's columns, so no column lays it out
-        // as a row of its own, and it scrolls with the row. It fades in, and
-        // out once `revealing` clears: at the next scroll, tab or open.
-        Rectangle {
-            id: revealMark
-            objectName: "revealMark"
-            parent: layout.scrollArea.contentItem
-            z: -1
-            radius: Theme.listItem.radius
-            color: Theme.listItem.selected
-            opacity: page.revealedRow !== null ? 1 : 0
-            visible: opacity > 0
-            Behavior on opacity {
-                enabled: Theme.motion.list.fade.duration > 0
-                NumberAnimation { duration: Theme.motion.list.fade.duration; easing.type: Theme.motion.list.fade.easing }
-            }
-            // The row's box in the content, `space.xs` taller on each side.
-            // A page row spans the body to the content's right edge, which
-            // leaves no room beside it inside the container inset, so the
-            // plate keeps the row's own width.
-            function place() {
-                const shown = page.revealedRow;
-                if (shown === null || parent === null) return;
-                const at = shown.mapToItem(parent, 0, 0);
-                x = at.x;
-                y = at.y - Theme.space.xs;
-                width = shown.width;
-                height = shown.height + 2 * Theme.space.xs;
             }
         }
 

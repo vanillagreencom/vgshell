@@ -276,26 +276,27 @@ expect_poll "the page link fixture's page shows" '"acme.page-link"' settings_pag
 link_click "$page_link_text" || fail "the click on the page reference failed"
 expect_poll "a click on a page reference opens the page it names" '"acme.bare"' settings_page
 expect_poll "a page reference opens the tab it names" Details settings_tab_text
-# A reference to a status row opens its tab with that row marked by the
-# page's one plate; the next open without a row clears it.
-# tst_settings_setup.qml reads the row in view, the plate inside the
-# content and a scroll clearing it.
+# A row reference marks the destination label. Opening the same page
+# without a row clears the mark.
 reveal_key() { ipc smoke readDescendant window vgs.settings PluginPage revealing; }
-reveal_mark() { ipc smoke readMatchingDescendant window vgs.settings QQuickRectangle objectName revealMark opacity; }
+reveal_mark() {
+  ipc smoke itemValues window vgs.settings InfoButton text,visible,referenced |
+    jq -c --arg text "$1" '[.[] | select(.visible and .text == $text) | .referenced]'
+}
 expect "the window opens the page link fixture for its Setup row reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows again" '"acme.page-link"' settings_page
 link_click "$page_step_text" || fail "the click on the Setup row reference failed"
 expect_poll "a Setup row reference opens its plugin's page" '"acme.status"' settings_page
 expect_poll "a Setup row reference opens Setup" Setup settings_tab_text
 expect_poll "the page shows the Setup step the reference names" '"check"' reveal_key
-expect_poll "the plate marks the Setup step" 1 reveal_mark
+expect_poll "the Setup step's label is marked" '[true]' reveal_mark Check
 expect "the window opens the page link fixture for its Details row reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows once more" '"acme.page-link"' settings_page
 link_click "$page_fact_text" || fail "the click on the Details row reference failed"
 expect_poll "a Details row reference opens its plugin's page" '"acme.status"' settings_page
 expect_poll "a Details row reference opens Details" Details settings_tab_text
 expect_poll "the page shows the Details row the reference names" '"note"' reveal_key
-expect_poll "the plate marks the Details row" 1 reveal_mark
+expect_poll "the Details row's label is marked" '[true]' reveal_mark Note
 # Settings/Keys opens the Settings tab at the Keys section, as the Jarvis
 # menu's Key hints entry does.
 expect "the window opens the page link fixture for its Keys reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
@@ -304,10 +305,10 @@ link_click "$page_keys_text" || fail "the click on the Keys reference failed"
 expect_poll "a Keys reference opens its plugin's page" '"vgs.jarvis"' settings_page
 expect_poll "a Keys reference opens Settings" Settings settings_tab_text
 expect_poll "the page shows the Keys section the reference names" '"Keys"' reveal_key
-expect_poll "the plate marks the Keys section" 1 reveal_mark
-expect "the page opens again with no row named" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
+expect_poll "the Keys heading is marked" '[true]' reveal_mark Keys
+expect "the page opens again with no row named" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "an open without a row shows none" '""' reveal_key
-expect_poll "the plate fades once no row is shown" 0 reveal_mark
+expect_poll "the Keys heading returns to its resting state" '[false]' reveal_mark Keys
 
 # A page reference after prose in a setting's info dialog opens the Sounds
 # pane in the System window, and the dialog closes. Settings keeps the

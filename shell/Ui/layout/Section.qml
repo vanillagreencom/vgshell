@@ -14,6 +14,8 @@ Column {
     id: root
 
     property string title: ""
+    property alias referenceable: header.referenceable
+    property alias referenced: header.referenced
     property string description: ""
     property string info: ""
     // The info dialog's title, the section's title unless set.

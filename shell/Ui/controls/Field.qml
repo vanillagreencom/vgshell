@@ -54,6 +54,7 @@ Column {
     id: root
 
     property string label: ""
+    property bool referenced: false
     property string hint: ""
     property string info: ""
     property string labelTooltip: ""
@@ -145,6 +146,7 @@ Column {
         InfoButton {
             id: fieldLabel
             role: "label"
+            referenced: root.referenced && labelLine.visible
             title: root.label
             info: root.labelTooltip === "" ? root.info : root.info === "" ? root.labelTooltip : root.labelTooltip + "\n" + root.info
             width: parent.width
@@ -157,6 +159,7 @@ Column {
         id: controlRow
         width: root.bodyWidth
         label: root.label
+        referenced: root.referenced
         info: root.info
         labelTooltip: root.labelTooltip
         labelColumn: root.inline

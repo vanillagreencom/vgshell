@@ -56,6 +56,8 @@ T.Control {
     property string text: ""
     property var link: ""
     property string role: "body"
+    property alias inkRole: label.inkRole
+    property alias referenced: label.referenced
     property bool focusPreview: false
     property bool parseReferences: true
     property bool dottedUnderline: false

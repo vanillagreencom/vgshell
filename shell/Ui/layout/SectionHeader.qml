@@ -37,6 +37,8 @@ Column {
     property string info: ""
     property string infoTitle: text
     property string titleRole: "eyebrow"
+    property bool referenceable: false
+    property bool referenced: false
     signal pageActivated(string page, string tab)
     // The width the eyebrow and the description share: the column's own,
     // less its padding, since a positioner does not narrow its children.
@@ -102,6 +104,9 @@ Column {
         id: titleLabel
         width: root.bodyWidth
         role: root.titleRole
+        // A target can take label ink while keeping the heading's type and spacing.
+        inkRole: root.referenceable ? "label" : role
+        referenced: root.referenced
         text: root.text
         title: root.infoTitle
         info: root.info

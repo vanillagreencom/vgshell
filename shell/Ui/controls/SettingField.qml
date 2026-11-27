@@ -39,6 +39,7 @@ Column {
 
     property string pluginId: ""
     property string key: ""
+    property bool referenced: false
     property var spec: ({})
     property var value
     property var choices: []
@@ -214,6 +215,7 @@ Column {
         active: root.numeric
         sourceComponent: NumberSettingField {
             width: numberLoader.width
+            referenced: root.referenced
             spec: root.spec
             value: root.value
             editable: root.editable
@@ -230,6 +232,7 @@ Column {
         visible: !root.numeric
         width: root.width
         label: root.labelText
+        referenced: root.referenced
         info: root.infoText
         labelTooltip: root.tooltipText
         hint: root.customVisible ? "" : root.hintText

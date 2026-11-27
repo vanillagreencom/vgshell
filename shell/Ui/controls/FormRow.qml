@@ -89,6 +89,7 @@ Item {
     id: root
 
     property string label: ""
+    property bool referenced: false
     property string warning: ""
     property var warningLink: ""
     property string warningTone: "warning"
@@ -327,6 +328,7 @@ Item {
         objectName: "fieldLabel"
         role: "label"
         title: root.label
+        referenced: root.referenced && visible
         info: root.dialogText
         visible: root.labelColumn
         width: Theme.field.labelWidth

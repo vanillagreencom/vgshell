@@ -43,6 +43,7 @@ Column {
     property bool editable: true
     property string problem: ""
     property string label: spec.label !== undefined ? String(spec.label) : ""
+    property bool referenced: false
     property string hint: spec.description !== undefined ? String(spec.description) : ""
     property string info: spec.info !== undefined ? String(spec.info) : ""
     property string tooltip: spec.tooltip !== undefined ? String(spec.tooltip) : ""
@@ -196,6 +197,7 @@ Column {
         id: primary
         width: root.width
         label: root.label
+        referenced: root.referenced
         info: root.info
         labelTooltip: root.tooltip
         hint: root.customVisible ? "" : root.shownHint(!root.hasPresets && root.bounded && !loader.sliding)

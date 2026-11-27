@@ -45,6 +45,7 @@ Column {
     id: line
 
     property string label: ""
+    property bool referenced: false
     property string hint: ""
     property string hintLink: ""
     property string info: ""
@@ -165,6 +166,7 @@ Column {
         id: field
         width: line.width
         label: line.label
+        referenced: line.referenced
         info: line.info
         onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)
         inline: true

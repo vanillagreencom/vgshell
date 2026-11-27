@@ -59,11 +59,15 @@ Text {
     id: root
 
     property string role: "body"
+    property string inkRole: role
+    property bool referenced: false
     property var spaceWrappedText: null
     // undefined selects this label's own last line; null means the
     // supplier is pending. A string, including "", is known plain text.
     property var lastLine: undefined
     readonly property var typography: typographyOf(role)
+    readonly property var ink: inkRole === role ? typography : typographyOf(inkRole)
+    readonly property int inkWeight: referenced ? Math.max(ink.weight, Theme.text.bodyStrong.weight) : ink.weight
     readonly property real fontHeight: metrics.height
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
     readonly property real halfLeading: Math.max(0, (lineBox - fontHeight) / 2)
@@ -80,11 +84,11 @@ Text {
         return Theme.text.body;
     }
 
-    color: typography.color
+    color: referenced ? Theme.color.accent : ink.color
     font.family: typography.family
     font.pixelSize: typography.size
-    font.weight: typography.weight
-    font.variableAxes: ({ wght: typography.weight })
+    font.weight: inkWeight
+    font.variableAxes: ({ wght: inkWeight })
     font.letterSpacing: typography.letterSpacing * typography.size
     font.capitalization: typography.uppercase ? Font.AllUppercase : Font.MixedCase
     lineHeight: lineBox > fontHeight ? lineBox : 1

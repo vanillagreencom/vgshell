@@ -349,7 +349,9 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
-                    FormRow { label: "Natural scroll"; width: parent.width; Switch { size: "sm"; checked: true } }
+                    FormRow { label: "Resting row"; width: parent.width; Switch { size: "sm"; checked: true } }
+                    FormRow { label: "Referenced row"; referenced: true; width: parent.width; Switch { size: "sm"; checked: true } }
+                    FormRow { label: "Keyboard-focused row"; width: parent.width; Switch { size: "sm"; checked: true; focusPreview: true } }
                     FormRow { label: "Pointer speed"; warning: "Overridden"; width: parent.width; Slider { from: 0; to: 100; value: 40; width: parent.width } }
                 }
                 // ValueSourceRow in each state, a value the theme can set

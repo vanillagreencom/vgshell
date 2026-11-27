@@ -41,6 +41,8 @@ import "Steps.js" as Steps
 GroupList {
     id: row
 
+    property bool referenced: false
+
     // One entry of a manager row's `status`, or null for a row whose entry
     // left the page's manager row before the row itself goes.
     required property var entry
@@ -103,6 +105,7 @@ GroupList {
         visible: !row.setup && (row.keys === null || row.keys.note !== "")
         width: row.width
         label: row.keys === null ? row.view.label : ""
+        referenced: row.referenced && label !== ""
         hint: row.keys === null ? row.view.hint : row.keys.note
         hintLink: row.keys !== null || row.view.link === null ? "" : row.view.link.text
         onHintLinkActivated: row.openLink(row.view.link)
