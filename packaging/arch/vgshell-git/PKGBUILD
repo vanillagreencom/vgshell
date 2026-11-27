@@ -5,7 +5,7 @@
 # this file and on ../vgshell/PKGBUILD. makepkg rewrites pkgver from pkgver().
 
 pkgname=vgshell-git
-pkgver=0.1.4.r633.gea7fc14
+pkgver=0.1.4.r752.ge64939b
 pkgrel=1
 pkgdesc='Desktop shell for Hyprland, built on Quickshell (development version)'
 arch=('any')
