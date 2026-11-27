@@ -40,7 +40,6 @@ Use the project-management label taxonomy when assigning labels. If the taxonomy
 Kept from KEN-3470:
 
 - Keep tracker state writes in team vgs. Validate the issue's team before a write, and route another team's work to that repository's overseer through lane-mail peer send. Comments and traceability links grant no authority to change another team's state. (LIN-029)
-- Blocking relations connect peers: the same direct parent, or both top-level. Never make an issue block its ancestor or descendant; use a related link for cross-level traceability. Keep completed-blocker relations as history. (LIN-030)
 <!-- kendex:project-instructions:end -->
 
 # Linear CLI
