@@ -481,6 +481,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
     let conversation = null;
+    // The duplex voices, of any conversation, whose connections still wait
+    // for the usage they owe (Realtime.js retire).
+    const draining = new Set();
     let historyEpoch = null;
     let savedBrain = null;
     function closeBrainOwner(owner) {
@@ -639,6 +642,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const result = audit.usage(event);
         if (result.kind !== "recorded") log("jarvis: engine=usage-write cause=" + result.cause);
     }
+    // Lease loss and the daemon's close: no voice connection waits, and what
+    // each still owes is written unread.
+    function abandon() {
+        for (const live of [...draining]) live.port.release();
+    }
 
     function releaseEvent(c, identity, labels, decision, outcome) {
         return { kind: "release", gen: identity.gen, op: identity.op, tool: "release",
@@ -736,10 +744,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (duplex !== null) {
                 c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
                     usage: event => usage({ account: c.plan.speech.key.reference.account, ...event }),
-                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,
+                    drains: count => { if (count === 0) draining.delete(c.live); else draining.add(c.live); },
+                    // Each connection has a net owner of its own: one still
+                    // waiting for its usage outlives the conversation's.
+                    log, conversation: e => ({ net: { websocket: (item, options) => Net.create(c.recipients).websocket(item, options) },
+                        key: plan.speech.key, language: LANGUAGE, voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
                         grants: () => c.grants, transfer: (item, start) => streamTransfer(c, e, item, start) }) });
-                c.speech = { close: () => c.live.port.release() };
+                c.speech = { close: () => c.live.port.release({ wait: true }) };
             } else {
                 reargue();
                 c.speech = plan.speech.lifetime === "daemon" ? daemonOwner(plan.speech) : plan.speech.open({ net, recipients });
@@ -1271,7 +1283,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         }
         cancelRelease(c);
         if (conversation !== c) return null;
-        if (c.live !== null && c.liveOpen !== null) c.live.port.release();
+        // The voice's connections have net owners of their own and keep
+        // waiting for the usage they owe.
+        if (c.live !== null && c.liveOpen !== null) c.live.port.release({ wait: true });
         retire(c, c.net);
         c.grants.length = 0;
         c.decisions.clear();
@@ -2410,10 +2424,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.live.port.flush(e);
                 if (account !== null) heard(c, c.last, account.text(null));
             },
-            release() { conversation?.live?.port.release(); }
+            release() {
+                conversation?.live?.port.release();
+                abandon();
+            }
         },
         close() {
             end();
+            abandon();
             forgetBrain();
             cue?.readable.destroy();
             cue = null;

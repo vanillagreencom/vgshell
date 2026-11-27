@@ -19,6 +19,8 @@ const CALLS = Object.freeze({ realtime: "voice", transcription: "voice", search:
 // https://developers.openai.com/api/reference/resources/responses/methods/create
 // service_tier, read 2026-11-10.
 const TIERS = Object.freeze(["auto", "default", "flex", "scale", "priority", "fast", "ultrafast", "unknown"]);
+// A Realtime response or input item id. Another value names no reply.
+const REPLY = /^[A-Za-z0-9_-]{1,128}$/;
 const whole = value => Number.isSafeInteger(value) && value >= 0;
 const plain = value => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -58,16 +60,22 @@ function counts(call, usage, searches) {
         ...(call === "search" && whole(searches) ? { searchContent: searches * PRICES["gpt-4.1-mini"].searchTokens } : {}) };
 }
 
-/** Project only numeric usage fields; provider text never enters the row. */
+/**
+ * Project only numeric usage fields; provider text never enters the row.
+ * An unread row is a call OpenAI may bill whose usage was never read: it
+ * names its reply, or null, and has no tokens and no price. A read row has
+ * neither field, so stored rows that lack them still read.
+ */
 function record({ call, model, usage, searches = call === "search" ? null : 0, account = "unknown",
-    tier = call === "realtime" || call === "transcription" ? "default" : "unknown" }) {
+    tier = call === "realtime" || call === "transcription" ? "default" : "unknown", unread = false, reply = null }) {
     if (!Object.hasOwn(CALLS, call)) throw new Error("jarvis: usage=call");
     const name = typeof model === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(model) ? model : "unknown";
-    const tokens = counts(call, usage, searches);
+    const tokens = unread === true ? null : counts(call, usage, searches);
     const identity = typeof account === "string" && /^[^\x00-\x1f\x7f]{1,80}$/.test(account) ? account : "unknown";
     const row = { call, tool: CALLS[call], model: name, account: identity, tier: TIERS.includes(tier) ? tier : "unknown",
         tokens, searches: whole(searches) ? searches : null,
-        pricing: "unpriced", costUsd: null };
+        pricing: "unpriced", costUsd: null,
+        ...(unread === true ? { unread: true, reply: typeof reply === "string" && REPLY.test(reply) ? reply : null } : {}) };
     const price = Object.hasOwn(PRICES, name) ? PRICES[name] : null;
     if (tokens === null || price === null || row.searches === null || row.tier !== "default") return row;
     let cost;
@@ -96,11 +104,14 @@ function stored(row) {
             || !["priced", "unpriced"].includes(row.pricing)
             || (row.pricing === "unpriced" ? row.costUsd !== null : typeof row.costUsd !== "number" || !Number.isFinite(row.costUsd) || row.costUsd < 0)
             || (row.searches !== null && !whole(row.searches))
+            || (row.unread === undefined ? row.reply !== undefined : row.unread !== true || row.tokens !== null || row.pricing !== "unpriced"
+                || row.reply !== null && (typeof row.reply !== "string" || !REPLY.test(row.reply)))
             || (row.tokens !== null && (!plain(row.tokens) || Object.entries(row.tokens).some(([key, value]) =>
                 key === "seconds" ? typeof value !== "number" || !Number.isFinite(value) || value < 0 : !TOKEN_FIELDS.includes(key) || !whole(value)))))
         throw new Error("jarvis: usage=stored");
     return { time: row.time, kind: "usage", call: row.call, tool: row.tool, model: row.model, account: row.account, tier: row.tier,
-        tokens: row.tokens === null ? null : { ...row.tokens }, searches: row.searches, pricing: row.pricing, costUsd: row.costUsd };
+        tokens: row.tokens === null ? null : { ...row.tokens }, searches: row.searches, pricing: row.pricing, costUsd: row.costUsd,
+        ...(row.unread === true ? { unread: true, reply: row.reply } : {}) };
 }
 
 /** Report actual recorded rows, never invent a price for an unpriced call. */

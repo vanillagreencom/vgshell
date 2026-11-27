@@ -125,8 +125,11 @@ async function vocabulary(clock, signal) {
 /**
  * The one narrowing door for a server message. Returns a tagged event or
  * throws a keyed error. An error event's message text is never read.
+ * usage(row, id) hears each usage OpenAI reports, with the unjudged id of
+ * the response or input item it settles, before the event's own shape is
+ * judged: a failed response still settles.
  */
-function eventOf(data, usage = () => {}) {
+function eventOf(data, usage) {
     if (typeof data !== "string") fail("frame-binary");
     if (data.length > FRAME_CHARS) fail("frame-size");
     let value;
@@ -157,7 +160,7 @@ function eventOf(data, usage = () => {}) {
         if (value.delta !== undefined && typeof value.delta !== "string") fail("frame-shape");
         return { kind: "hearing", item: identity(value.item_id), text: value.delta ?? "" };
     case "conversation.item.input_audio_transcription.completed":
-        usage({ call: "transcription", model: TRANSCRIBE, usage: value.usage });
+        usage({ call: "transcription", model: TRANSCRIBE, usage: value.usage }, value.item_id);
         if (typeof value.transcript !== "string") fail("frame-shape");
         if (value.transcript.length > TURN_CHARS) fail("turn-size");
         return { kind: "heard", item: identity(value.item_id), text: value.transcript };
@@ -176,7 +179,7 @@ function eventOf(data, usage = () => {}) {
         return { kind: "said", id: identity(value.response_id), text: value.delta };
     case "response.done": {
         const response = plain(value.response) ? value.response : {};
-        usage({ call: "realtime", usage: response.usage });
+        usage({ call: "realtime", usage: response.usage }, response.id);
         const id = identity(response.id);
         if (response.status !== "completed") {
             // The provider's cause: a failed response's error, an incomplete one's reason.
@@ -220,16 +223,87 @@ function eventOf(data, usage = () => {}) {
  * clock.now is monotonic; clock.wallNow converts the server's Unix expiry.
  * events.interrupted({id, text}) hands the engine a cap-cut reply's heard
  * prefix after Audio acknowledges its completed native response marks.
+ * usage receives each usage row; drains(count) hears how many connections
+ * a session left still wait for the usage they owe.
  */
-function create({ provider, clock, conversation, captionLimit, log, usage = () => {} }) {
+function create({ provider, clock, conversation, captionLimit, log, usage = () => {}, drains = () => {} }) {
     Providers.assertRow(provider);
     if (provider.driver !== "openai-realtime") fail("driver");
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
+    const model = new URL(provider.base).searchParams.get("model");
     let live = null;
+    // The retired ledgers whose connections still wait.
+    const retiring = new Set();
 
     function clear(session, name) {
         if (session.timers[name] !== null) clock.clear(session.timers[name]);
         session.timers[name] = null;
+    }
+    // What one connection owes: OpenAI bills the response it asked for and
+    // the transcription of each input it committed, whether or not a session
+    // still listens. state is live while the session owns the connection,
+    // retired while it waits for that usage, and done once it closed.
+    function ledgerOf(channel) {
+        return { channel, state: "live", response: null, commits: 0, items: new Set(), timer: null };
+    }
+    function owed(ledger) { return ledger.response !== null || ledger.commits !== 0 || ledger.items.size !== 0; }
+    // Every message of a connection passes here, live or retired: its
+    // usage is counted and settles what the connection owed.
+    function bill(ledger, data) {
+        const event = eventOf(data, (row, id) => {
+            usage({ model, ...row });
+            if (row.call === "transcription") ledger.items.delete(id);
+            else if (ledger.response !== null && (ledger.response.id === null || ledger.response.id === id)) ledger.response = null;
+        });
+        if (event.kind === "speaking" && ledger.response !== null && ledger.response.id === null) ledger.response.id = event.id;
+        if (event.kind === "committed" && ledger.commits !== 0) {
+            ledger.commits--;
+            ledger.items.add(event.item);
+        }
+        return event;
+    }
+    // The session gives up its connection. Closing a connecting channel can
+    // emit close synchronously, so the channel leaves the session first. A
+    // connection that owes nothing closes; one that owes stays open for its
+    // usage alone until it owes nothing, closes or RESPONSE_WAIT_MS passes.
+    // REVISIT(D145): OpenAI reports usage after close by another route, or a
+    // retired connection needs to send or reach Session state.
+    function retire(session) {
+        const ledger = session.billing;
+        session.channel = null;
+        session.billing = null;
+        if (ledger === null) return;
+        ledger.state = "retired";
+        if (!owed(ledger)) { finish(ledger); return; }
+        ledger.timer = clock.set(() => finish(ledger), RESPONSE_WAIT_MS);
+        retiring.add(ledger);
+        drains(retiring.size);
+    }
+    // A retired connection's message changes nothing but the usage rows: no
+    // audio, caption, turn or state. The session is gone, so a message the
+    // narrowing door refuses is dropped.
+    function drain(ledger, data) {
+        if (ledger.state !== "retired") return;
+        try { bill(ledger, data); } catch {}
+        if (!owed(ledger)) finish(ledger);
+    }
+    // Count, never estimate: what the connection still owes as it closes is
+    // one unread row each, naming the response or input item, or null where
+    // the provider never named it. Finishing twice does nothing.
+    function finish(ledger) {
+        if (ledger.state === "done") return;
+        ledger.state = "done";
+        if (ledger.timer !== null) clock.clear(ledger.timer);
+        ledger.timer = null;
+        const unread = [...(ledger.response === null ? [] : [{ model, call: "realtime", reply: ledger.response.id }]),
+            ...Array.from(ledger.items, item => ({ model: TRANSCRIBE, call: "transcription", reply: item })),
+            ...Array.from({ length: ledger.commits }, () => ({ model: TRANSCRIBE, call: "transcription", reply: null }))];
+        ledger.response = null;
+        ledger.commits = 0;
+        ledger.items.clear();
+        for (const row of unread) usage({ ...row, unread: true });
+        ledger.channel.close();
+        if (retiring.delete(ledger)) drains(retiring.size);
     }
     function release(session) {
         session.rollover?.close();
@@ -250,7 +324,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         // Closing a connecting channel can emit close synchronously. The
         // released session must refuse that callback before it closes.
         session.state = { kind: "ended" };
-        if (session.channel !== null) session.channel.close();
+        retire(session);
         if (live === session) live = null;
     }
     function failed(session, reason) {
@@ -273,8 +347,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
     function renew(session, forced) {
         if (session.state.kind === "ended") return;
         session.rollover.close();
-        const old = session.channel;
-        session.channel = null;
+        retire(session);
         session.state = { kind: "connecting" };
         session.renewing = true;
         session.repeatNotice = false;
@@ -307,7 +380,6 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                 if (active.reply === null) reportCut(session);
             }
         }
-        old?.close();
         clear(session, "start");
         session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
         try { connect(session, conversation(session.effect)); } catch (error) { failed(session, reasonOf(error)); }
@@ -316,6 +388,9 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         const frame = Policy.summary(JSON.stringify(value), items);
         const answer = session.transfer(frame, () => session.channel.send(frame, session.grants()));
         if (answer.kind !== "send") fail("release-" + answer.kind);
+        // The frame left, so OpenAI bills what it asks for.
+        if (value.type === "response.create") session.billing.response = { id: null };
+        else if (value.type === "input_audio_buffer.commit") session.billing.commits++;
         if (session.channel.bufferedAmount > SEND_BACKLOG_BYTES) fail("send-backlog");
     }
     function append(session, pcm) {
@@ -517,9 +592,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
     function receive(session, data) {
         if (session.state.kind === "ended") return;
         let event;
-        try {
-            event = eventOf(data, event => usage({ model: new URL(provider.base).searchParams.get("model"), ...event }));
-        } catch (error) { failed(session, reasonOf(error)); return; }
+        try { event = bill(session.billing, data); } catch (error) { failed(session, reasonOf(error)); return; }
         const kind = session.state.kind;
         try {
             if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");
@@ -663,12 +736,17 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         } finally { secret.fill(0); }
         if (answer.kind !== "channel") fail("release-" + answer.kind);
         session.channel = answer;
+        const ledger = ledgerOf(answer);
+        session.billing = ledger;
         session.rollover = VoiceRollover.create({ clock, connectWait: START_WAIT_MS,
             idle: () => session.state.kind === "running" && session.pending.length === 0 && session.commits.length === 0
                 && session.inputs.size === 0 && (session.capture?.inputRecord.bytes ?? 0) === 0 && session.speech.active === null,
             reconnect: forced => renew(session, forced) });
         session.rollover.arm(clock.now() + SESSION_MS);
-        answer.events.addEventListener("message", event => { if (session.channel === answer) receive(session, event.data); });
+        answer.events.addEventListener("message", event => {
+            if (session.channel === answer) receive(session, event.data);
+            else drain(ledger, event.data);
+        });
         // WHATWG WebSocket fires close after every error, a refused redirect
         // included; close owns the outcome.
         // A handshake answered 401 or 403 refused the key; its body is never read.
@@ -676,6 +754,8 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             if (session.channel === answer) failed(session,
                 Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code);
         });
+        // A closed connection can no longer settle what it owes.
+        answer.events.addEventListener("close", () => finish(ledger));
         // Read while the handshake runs. Node throws, rather than emits, a
         // spawn errno outside EACCES, EAGAIN, EMFILE, ENFILE and ENOENT
         // (lib/internal/child_process.js, Node 26.12.1).
@@ -686,7 +766,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
     const port = {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
-            const session = { op: e.op, effect: e, events, state: { kind: "connecting" }, channel: null, voice: null, reader: "",
+            const session = { op: e.op, effect: e, events, state: { kind: "connecting" }, channel: null, billing: null, voice: null, reader: "",
                 rollover: null, renewing: false, repeatNotice: false, cut: null,
                 reading: new AbortController(), vocabulary: null,
                 timers: { start: null, pump: null, gap: null, words: null, preview: null },
@@ -702,14 +782,20 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         close(e) {
             if (live !== null && live.op === e.target) release(live);
         },
-        // Lease loss, or a brain failover that opens the session again under
-        // the same identity: no socket or timer may hold the daemon. The
-        // released session's words are gone, so its due reply is too.
-        release() {
+        // Releases the live session, for a conversation end or a brain
+        // failover that opens the session again under the same identity;
+        // those pass wait, and the connections the voice left keep waiting
+        // for their usage. On lease loss and daemon close no socket or
+        // timer may hold the daemon: every such connection closes now and
+        // writes what it still owes as unread. The released session's words
+        // are gone, so its due reply is too.
+        release({ wait = false } = {}) {
             const session = live;
-            if (session === null) return;
-            release(session);
-            session.events.due(false);
+            if (session !== null) {
+                release(session);
+                session.events.due(false);
+            }
+            if (!wait) for (const ledger of [...retiring]) finish(ledger);
         },
         // Drop the words not yet asked for, then the rest of the interrupted
         // response, by its identity. No response.cancel leaves: a cancel that

@@ -39,6 +39,8 @@ const BACKLOG = 256 * 1024;
 const FRAME = 1024 * 1024;
 const OPENING = 24000 * 2 * 20;
 const TURN = 65536;
+// RESPONSE_WAIT_MS: how long a connection a session left waits for the usage it owes.
+const RESPONSE_WAIT = 30000;
 // Session's TAP_MS: a short held tap needs an explicit input outcome.
 const TAP = 600;
 const { PCM_RATE } = require(path.join(backend, "Audio.js"));
@@ -1046,7 +1048,10 @@ world(async () => {
         // already $25 must still hear, speak and count the next response.
         write({ call: "realtime", model: MODEL, usage: { input_tokens: 0, output_tokens: 390625,
             input_token_details: {}, output_token_details: { audio_tokens: 390625 } } });
-        const w = rig(kit, { usage: write });
+        // The adapter calls usage from socket listeners, so the row reads
+        // each write's answer after its own waits.
+        const writes = [];
+        const w = rig(kit, { usage: event => writes.push(audit.usage(event).kind) });
         try {
             w.dispatch("talk-down");
             const conn = await main.accept(w);
@@ -1078,7 +1083,106 @@ world(async () => {
             conn.send(cancelled);
             await until(() => audit.usageWindow().total.calls === 4, "a failed response without usage is still counted");
             assert.equal(audit.usageWindow().total.unpriced, 1);
-        } finally { audit.close(); w.dispatch("stop"); }
+            assert.deepEqual(writes.filter(kind => kind !== "recorded"), [], "every usage row is written");
+        } finally {
+            // What the voice still owes is written before its writer closes.
+            w.engine.port.release();
+            audit.close();
+            w.dispatch("stop");
+        }
+    }
+
+    // A reply between its first audio and its response.done, and a
+    // committed input awaiting its transcription, when the session ends or
+    // the rollover forces a renewal. The connection the session left counts
+    // both from their late events, which change nothing else, and closes
+    // once nothing is owed. With no late event, the response wait ends it
+    // with one unread row for each, by its id.
+    async function cutUsage(kit) {
+        for (const cut of ["end", "renewal", "unanswered"]) {
+            const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "live-cut-usage-"));
+            const audit = require(path.join(backend, "Audit.js")).create({ state });
+            const writes = [];
+            const { w, conn } = await capReady(kit, REALTIME, "created", { usage: event => writes.push(audit.usage(event).kind) });
+            try {
+                // Audio's level gate ends the turn while Talk holds the recorder.
+                w.sink.write(Buffer.alloc(4800, 5));
+                await conn.event(APPEND);
+                assert.equal(w.sink.endInput(), true);
+                await nativeEnd(conn);
+                nativeResult(conn, "cut_turn", "What time is it?");
+                await until(() => w.delegations.length === 1, "the turn reaches the brain");
+                w.sink.write(Buffer.alloc(4800, 6));
+                await conn.event(APPEND);
+                assert.equal(w.sink.endInput(), true);
+                await nativeEnd(conn);
+                // Half duplex: a reply waits while Talk holds the recorder.
+                w.dispatch("talk-up");
+                await until(() => w.state.capture.kind === "closed", "the release closes the recorder");
+                // The unanswered input holds renewal past its lead, so the
+                // reply asked now still waits for its response.done when
+                // the rollover forces the renewal.
+                w.clock.advance(75000 - w.clock.now());
+                assert.equal(say(w, "It is noon."), true);
+                await conn.event(SPEAK);
+                REALTIME.begin(conn, "resp_cut");
+                REALTIME.chunk(conn, 4800, 0x11, "resp_cut");
+                await until(() => bytes(w, 0x11) === 4800, "the reply's first audio plays");
+                conn.nativeSend({ ...script("turn"), item_id: "cut_input" });
+                await conn.sync();
+                const counted = audit.usageWindow().rows.length;
+                if (cut === "renewal") {
+                    w.clock.advance(99000 - w.clock.now());
+                    const next = await main.accept(w);
+                    await REALTIME.open(next);
+                    await next.sync();
+                    await until(() => w.state.playback.kind === "idle", "the cut reply's audio drains");
+                } else w.dispatch("toggle");
+                await conn.sync();
+                assert.equal(conn.ended, false, cut + " keeps the connection while it owes usage");
+                const unchanged = () => ({ state: JSON.stringify(w.state), transcripts: w.transcripts.length, delegations: w.delegations.length,
+                    starts: w.starts, played: w.played.length, sent: conn.events.length });
+                const before = unchanged();
+                const late = () => audit.usageWindow().rows.slice(counted)
+                    .map(row => ({ call: row.call, unread: row.unread === true, reply: row.reply ?? null, read: row.tokens !== null,
+                        priced: row.pricing === "priced" }))
+                    .sort((a, b) => a.call.localeCompare(b.call));
+                if (cut === "unanswered") {
+                    w.clock.advance(RESPONSE_WAIT - 1);
+                    await conn.sync();
+                    assert.equal(conn.ended, false, "the connection waits out the response wait");
+                    w.clock.advance(1);
+                    await until(() => conn.ended, "the response wait closes the connection");
+                    assert.deepEqual(late(), [{ call: "realtime", unread: true, reply: "resp_cut", read: false, priced: false },
+                        { call: "transcription", unread: true, reply: "cut_input", read: false, priced: false }],
+                    "each owed call is one unread, unpriced row by its id");
+                    assert.deepEqual(writes.filter(kind => kind !== "recorded"), [], "every usage row is written");
+                    continue;
+                }
+                conn.nativeSend({ ...script("reply-old", 1), response_id: "resp_cut", delta: Buffer.alloc(4800, 0x77).toString("base64") });
+                conn.nativeSend({ ...script("reply-old", -1), response_id: "resp_cut", delta: "Late words." });
+                conn.nativeSend({ ...script("turn", 1), item_id: "cut_input", delta: "Late" });
+                conn.nativeSend({ ...script("input-empty"), item_id: "cut_input", transcript: "Late request", usage: { type: "duration", seconds: 2 } });
+                const done = script("done-old");
+                // The pinned usage shape usageRows sends.
+                Object.assign(done.response, { id: "resp_cut", usage: { input_tokens: 132, output_tokens: 121,
+                    input_token_details: { text_tokens: 119, audio_tokens: 13, cached_tokens: 64, cached_tokens_details: { text_tokens: 64, audio_tokens: 0 } },
+                    output_token_details: { text_tokens: 30, audio_tokens: 91 } } });
+                conn.nativeSend(done);
+                await until(() => conn.ended, cut + ": the connection closes once nothing is owed");
+                await turn();
+                assert.deepEqual(late().map(({ priced, ...row }) => row), [{ call: "realtime", unread: false, reply: null, read: true },
+                    { call: "transcription", unread: false, reply: null, read: true }], cut + ": the late reply and transcription are counted");
+                assert.deepEqual(unchanged(), before, cut + ": late events play no audio and commit no turn");
+                assert.equal(bytes(w, 0x77), 0);
+                assert.deepEqual(writes.filter(kind => kind !== "recorded"), [], "every usage row is written");
+            } finally {
+                // What the voice still owes is written before its writer closes.
+                w.engine.port.release();
+                audit.close();
+                if (w.state.conversation.kind !== "ended") w.dispatch("toggle");
+            }
+        }
     }
 
     async function roundTrip(kit) {
@@ -1374,6 +1478,8 @@ world(async () => {
         assert.deepEqual([conn.ended, w.state.conversation.kind, w.state.fault.kind, w.inputResults], [false, "active", "none", []]);
         assert.ok(P.sent(conn).equals(before), "quiet capture sends no billable idle audio");
         w.dispatch("toggle");
+        // Realtime's connection waits for the unanswered input's transcription.
+        if (P === REALTIME) w.clock.advance(RESPONSE_WAIT);
         await until(() => conn.ended, "deliberate close releases transport");
         const beforeState = JSON.stringify(w.state), delegated = w.delegations.length;
         for (const event of [{ ...script("turn"), item_id: "late_closed" },
@@ -1462,6 +1568,7 @@ world(async () => {
         }, "unanswered native results cannot grow past their allowance");
         fault(w, "live=input-results-overflow");
         assert.deepEqual(w.inputResults, []);
+        if (P === REALTIME) w.clock.advance(RESPONSE_WAIT);
         await until(() => conn.ended, "overflow releases the native transport");
     }
 
@@ -1641,8 +1748,11 @@ world(async () => {
     // The session has no close event: user close and lease loss close the socket,
     // and the next Talk opens a new session at once.
     async function closing(kit, P = REALTIME) {
+        // Realtime's connection waits out the unanswered input's
+        // transcription after a close, never after lease loss.
         const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("toggle");
+        if (P === REALTIME) w.clock.advance(RESPONSE_WAIT);
         await until(() => conn.ended, "user close closes the socket");
         assert.deepEqual([w.state.speech.kind, w.state.fault.kind], ["closed", "none"]);
         const lease = await running(kit, { protocol: P });
@@ -1650,7 +1760,8 @@ world(async () => {
         await until(() => lease.conn.ended, "lease loss closes the socket");
         // The engine releases the port itself when it ends a conversation.
         const ended = await running(kit, { protocol: P });
-        ended.w.engine.port.release();
+        ended.w.engine.port.release({ wait: true });
+        if (P === REALTIME) ended.w.clock.advance(RESPONSE_WAIT);
         await until(() => ended.conn.ended, "the conversation's end closes the socket");
         const again = rig(kit, { holdToTalk: false, protocol: P });
         for (let index = 0; index < 2; index++) {
@@ -1944,6 +2055,8 @@ world(async () => {
             assert.equal(w.state.speech.kind, "closed", name + " releases the session");
             assert.equal(w.state.conversation.kind, "ended", name + " ends the conversation: no silent provider switch");
             assert.deepEqual([w.delegations.length, w.tools], [delegations, 0], name + " reaches no brain and no action");
+            // The connection waits out the usage the stage left owed.
+            w.clock.advance(RESPONSE_WAIT);
             await until(() => conn.ended, name + " closes the socket");
             quiet(w, conn);
         }
@@ -1989,6 +2102,7 @@ world(async () => {
         assert.equal(w.state.fault.kind, "none");
         w.clock.advance(1);
         fault(w, "live=response-timeout");
+        if (P === REALTIME) w.clock.advance(RESPONSE_WAIT);
         await until(() => conn.ended, "a response that never ends closes the socket");
     }
 
@@ -2350,7 +2464,7 @@ world(async () => {
             }
             send({ type: "indicator", shown: true, bar: "gone" });
             if (["unheard", "aggregate"].includes(only)) {
-                for (const elapsed of only === "unheard" ? [15600, 11186] : [0]) {
+                for (const [attempt, elapsed] of (only === "unheard" ? [15600, 11186] : [0]).entries()) {
                     press();
                     await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "unheard attempt connects");
                     const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
@@ -2388,11 +2502,34 @@ world(async () => {
                             "empty segments do not report an aggregate before capture closes");
                     }
                     fs.writeFileSync(offset, String(Number(fs.readFileSync(offset, "utf8")) + elapsed));
+                    const usage = () => rows().filter(row => row.kind === "usage");
+                    const counted = usage().length;
                     press();
-                    await wait(() => conn.ended && last().conversation.kind === "ended"
+                    // An unanswered commit keeps the connection open for its
+                    // transcription; the aggregate's commits were answered.
+                    await wait(() => (only === "unheard" || conn.ended) && last().conversation.kind === "ended"
                         && stderr.includes("jarvis: info conversation=closed gen=" + speech.gen)
                         && stderr.includes("jarvis: info capture=closed gen=" + speech.gen + " "),
                     "socket, state and diagnostic pipes acknowledge the unheard close");
+                    if (only === "unheard") {
+                        await conn.sync();
+                        assert.equal(conn.ended, false, "the ended conversation's connection waits for the transcription it owes");
+                        if (attempt === 0) {
+                            nativeResult(conn, "late_" + elapsed, "");
+                            await wait(() => conn.ended, "the late transcription releases the socket");
+                            assert.deepEqual(usage().slice(counted).map(row => [row.call, row.unread === true]), [["transcription", false]],
+                                "the transcription OpenAI sends after the end is counted");
+                        } else {
+                            // Lease loss while it waits: the connection closes at
+                            // once, the daemon exits, and the commit the provider
+                            // never acknowledged is one unread row with no id.
+                            child.stdin.end();
+                            await wait(() => conn.ended, "lease loss closes the waiting connection");
+                            assert.deepEqual(await closed, [0, null], stderr);
+                            assert.deepEqual(usage().slice(counted).map(row => [row.call, row.unread === true, row.reply]),
+                                [["transcription", true, null]], "lease loss writes the owed transcription unread");
+                        }
+                    }
                     assert.deepEqual(releases().map(row => row.outcome), ["pending", "pending", "pending", "completed"],
                         "px13 release sequence occurs without native words or a brain request");
                     assert.deepEqual([server.requests.length, rows().filter(row => row.kind === "fault").length], [0, 0]);
@@ -3233,8 +3370,12 @@ world(async () => {
     try {
         currentCase = "usageRows";
         await usageRows(kitFrom(backend));
-        await control("realtime-usage", 'usage({ call: "realtime", usage: response.usage });',
+        await control("realtime-usage", 'usage({ call: "realtime", usage: response.usage }, response.id);',
             'void response.usage;', folder => usageRows(kitFrom(folder)));
+        currentCase = "cutUsage";
+        await cutUsage(kitFrom(backend));
+        // The old engine dropped every message of a connection its session left.
+        await control("cut-usage", "else drain(ledger, event.data);", "else void ledger;", folder => cutUsage(kitFrom(folder)));
         currentCase = "control=unheard-capture-audit";
         await assert.rejects(() => daemonDelegation(kitFrom(backend,
             [["jarvisd.js", ": audit.capture(event)", ': { kind: "recorded" }']]), "unheard"),
@@ -3371,7 +3512,7 @@ world(async () => {
             ["reply-due-waiting", "if (session.next === null && !(session.playing", "if (!(session.playing", as("replyDueCarried")],
             ["reply-due-ended", 'session.playing !== null && session.playing.kind === "open")) session.events.due(true);',
                 "session.playing !== null)) session.events.due(true);", as("replyDueCarried")],
-            ["release-due", "release(session);\n            session.events.due(false);", "release(session);", as("releaseDue")],
+            ["release-due", "release(session);\n                session.events.due(false);", "release(session);", as("releaseDue")],
             ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
             ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
             ["stale-delegation", " || session.delegation !== id) return false;", ") return false;", as("delegation")],
@@ -3400,7 +3541,7 @@ world(async () => {
             ["heard-other-request", "if (session === null || session.delegation !== id) return null;", "if (session === null) return null;", as("heardAccount")],
             ["heard-pending", "pending: replyPending(session),", "pending: false,", as("heardAccount")],
             ["close", "if (live !== null && live.op === e.target) release(live);", "", as("closing")],
-            ["lease-release", "if (session === null) return;\n            release(session);", "if (session === null) return;", as("closing")],
+            ["lease-release", "if (session !== null) {\n                release(session);", "if (session !== null) {", as("closing")],
             ["server-error", 'return fail("server-error type="', 'return { kind: "ignored" }; return fail("server-error type="', row("error")],
             ["response-status", 'if (response.status !== "completed") {', "if (false) {", row("response-failed")],
             ["response-cause", '(plain(details.error) ? " type=" + token(details.error.type) + " code=" + token(details.error.code) : "")', '""',
@@ -3464,8 +3605,6 @@ world(async () => {
                 'if (session.assistantCaption.length === captionLimit) session.assistantCaption = "";', as("captions")],
             ["caption-reply-end", 'concludeAssistant(session);\n                userCaption(session, event.item, event.text);',
                 'userCaption(session, event.item, event.text);', as("captions")],
-            ["release-before-close", 'session.state = { kind: "ended" };\n        if (session.channel !== null) session.channel.close();',
-                'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")],
             ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "",
                 as("opening")],
             ["fragmented-input", "while (Buffer.isBuffer(session.pending[0]) && bytes < APPEND_BYTES)",
@@ -3476,7 +3615,7 @@ world(async () => {
             ["output-overflow", 'if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");', "reply.stream.push(pcm);",
                 as("replyQueue")],
             ["backlog", 'if (session.channel.bufferedAmount > SEND_BACKLOG_BYTES) fail("send-backlog");', "", as("backlog")],
-            ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n        if (session.channel', "if (session.channel",
+            ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n', "",
                 folder => release(kitFrom(folder, [withheld]))],
             ["release-connect", 'if (answer.kind !== "channel") fail("release-" + answer.kind);', 'if (answer.kind !== "channel") return;',
                 folder => releaseConnect(kitFrom(folder, [withheldConnect]))]
@@ -3583,7 +3722,11 @@ world(async () => {
             ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n        if (session.channel', "if (session.channel",
                 folder => grelease(kitFrom(folder, [geminiWithheld])), "release"],
             ["release-connect", 'if (answer.kind !== "channel") fail("release-" + answer.kind);', 'if (answer.kind !== "channel") return;',
-                folder => greleaseConnect(kitFrom(folder, [geminiWithheldConnect])), "release-connect"]
+                folder => greleaseConnect(kitFrom(folder, [geminiWithheldConnect])), "release-connect"],
+            ["release-due", "release(session);\n            session.events.due(false);", "release(session);", as("releaseDue"), "release-due"],
+            ["lease-release", "if (session === null) return;\n            release(session);", "if (session === null) return;", as("closing"), "lease-release"],
+            ["release-before-close", 'session.state = { kind: "ended" };\n        if (session.channel !== null) session.channel.close();',
+                'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")]
         ];
         const geminiCheck = spec => typeof spec === "function" ? spec
             : spec.row !== undefined ? folder => gfailures(kitFrom(folder), spec.row)
@@ -3638,6 +3781,7 @@ world(async () => {
             ["daemon-heard-whole", 'return account === null || turn.phase === "done" && !account.pending ? null : account;', "return account;", "heard"],
             ["daemon-heard-played", "if (conversation === c) c?.live?.played(e.source);", "", "heard"],
             ["daemon-heard-unplayed", "if (account !== null) heard(c, c.last, account.text(null));", "", "heard"],
+            ["daemon-abandon", "        for (const live of [...draining]) live.port.release();", "", "unheard"],
             ["daemon-stream-ended", "closeStream(c, null);\n        cancelRelease(c);", "cancelRelease(c);", "stale"],
             ["daemon-stream-row-per-frame", "if (!stream.released.has(labels)) return transfer(", "if (true) return transfer(", "stale"],
             ["daemon-stream-recipients-reset", "if (stream.recipients !== c.recipients) {", "if (false) {", "failover"],
