@@ -89,16 +89,16 @@ function readConfig(logic, file, key) {
 // previous format version reads as this version's. The migrated file
 // reaches the disk only through a caller that writes the value. An absent
 // file answers null.
-function readUserConfig(logic, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
+function readUserConfig(logic, file, key, shipped) {
     const config = readJson(file, key, true);
     if (config === null) return null;
-    return migratedConfig(logic, config, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration).config;
+    return migratedConfig(logic, config, file, key, shipped).config;
 }
 
 // ConfigLogic.migrateConfig's answer for the parsed user layer CONFIG, its
 // config judged; a migration error refuses as `malformed`.
-function migratedConfig(logic, config, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
-    const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);
+function migratedConfig(logic, config, file, key, shipped) {
+    const moved = logic.migrateConfig(config, shipped);
     if (moved.error) refuse(key + "=malformed path=" + file + " error=" + moved.error, "malformed");
     judgedConfig(logic, moved.config, file, key);
     return moved;
@@ -125,7 +125,7 @@ function editUserConfig(logic, file, shipped, edit) {
         } else {
             bytes = Buffer.from(current, "latin1");
             const text = bytes.toString("utf8");
-            moved = migratedConfig(logic, parsedJson(text, file, key), file, key, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+            moved = migratedConfig(logic, parsedJson(text, file, key), file, key, shipped);
             next = edit(moved.config, text);
         }
         if (next === null) return null;

@@ -14,6 +14,8 @@ hyprland-consent
 # The bar's chooser uses the wired application-window rules, and restores
 # its private fixture and configuration before plugin lifecycle rows.
 add-widget
+# Clock uses the chooser helpers after the add-widget row restores its fixtures.
+clock
 plugins
 status
 manager

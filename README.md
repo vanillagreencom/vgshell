@@ -91,10 +91,11 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Agent Warden](shell/plugins/vgs.agent-warden/README.md) | Keep your AI agents within their memory and process limits. |
 | [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show your Claude Code, Codex and Copilot plan use. |
 | [Automations](shell/plugins/vgs.automations/README.md) | Run your commands on a schedule. |
-| [Bar](shell/plugins/vgs.bar/README.md) | The clock and plugin buttons on each screen. |
+| [Bar](shell/plugins/vgs.bar/README.md) | Shows plugin widgets at the top of each screen. |
 | [Bluetooth](shell/plugins/vgs.bluetooth/README.md) | Pair and connect your Bluetooth devices. |
 | [Capture](shell/plugins/vgs.capture/README.md) | Save screenshots, record the screen and copy text from an area. |
 | [Clipboard](shell/plugins/vgs.clipboard/README.md) | Find and paste anything you copied earlier. Your history is saved on disk, and Shift+Delete in the Clipboard list clears it. |
+| [Clock](shell/plugins/vgs.clock/README.md) | Shows the date and time on the bar. Click to open the calendar. |
 | [Dev Tools](shell/plugins/vgs.devtools/README.md) | Install and update developer tools. |
 | [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |

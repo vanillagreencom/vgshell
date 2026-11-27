@@ -77,10 +77,9 @@ service_built() { ipc shell built | py_reply 'import json,sys; d=json.load(sys.s
 plugin_placed() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["placed"] for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]), "absent"))' "$1"; }
 read_widget() { ipc smoke readInstance "$(bar_key)" acme.probe "$1"; }
 read_service() { ipc smoke readInstance service acme.probe "$1"; }
-read_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock "$1"; }
 read_tick() { ipc smoke readInstance "$(bar_key)" acme.tick "$1"; }
 expect_poll "the service host built the fixture service" True service_built
-expect_widgets "the fixture widget joined the right section" '["acme.probe","acme.tick","vgs.workspaces"]'
+expect_widgets "the fixture widget joined the right section" '["acme.probe","acme.tick","vgs.clock","vgs.workspaces"]'
 expect "the fixture widget can call its compositor capability" true read_widget hasCompositor
 expect "the fixture widget's settings array stayed an array" true read_widget tagsAreArray
 all_caps='"compositor,configure,cover,idle,ipc,lock,manifest,notifications,notify,polkit,run,screens,settings,shortcut,theme,tui"'
@@ -107,7 +106,6 @@ if copy_tree unlatched-services \
 fi
 expect "the fixture service reads the manifest default" '"probe"' read_service label
 expect "a placed widget reads its plugins row" '"ddd d MMM  HH:mm"' read_tick format
-expect "the built-in clock reads the bar's clock format" '"ddd d MMM  HH:mm"' read_clock format
 
 active_ws() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
 
@@ -140,25 +138,24 @@ PY
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id": "vgs.bar", "clockFormat": "HH:mm:ss"}]
+next(e for e in d["plugins"] if e["id"] == "vgs.clock")["clockFormat"] = "HH:mm:ss"
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
-  expect_poll "the built-in clock received the bar's changed setting" '"HH:mm:ss"' read_clock format
-  clock_last="$(ipc smoke readDescendant "$(bar_key)" vgs.bar/center-clock BarItem text)" || fail "clock text unreadable before seconds poll"
+  expect_poll "Clock received its changed format" '"HH:mm:ss"' bar_clock_format
+  clock_last="$(ipc smoke readDescendant "$(bar_key)" vgs.clock BarItem text)" || fail "clock text unreadable before seconds poll"
   clock_first="$clock_last"
   clock_changes=0
   clock_deadline=$(( $(now_ms) + 15000 ))
   while ((clock_changes < 2 && $(now_ms) < clock_deadline)); do
-    if clock_now="$(ipc smoke readDescendant "$(bar_key)" vgs.bar/center-clock BarItem text)" && [[ $clock_now != "$clock_last" ]]; then
+    if clock_now="$(ipc smoke readDescendant "$(bar_key)" vgs.clock BarItem text)" && [[ $clock_now != "$clock_last" ]]; then
       clock_changes=$((clock_changes + 1))
       clock_last="$clock_now"
     fi
     ((clock_changes >= 2)) || sleep 0.2
   done
   if ((clock_changes >= 2)); then ok "the shared clock ticks seconds for a seconds format"; else fail "clock text changed $clock_changes times before the deadline: first=$clock_first last=$clock_last"; fi
-  expect "a bar settings change rebuilds nothing" "$before" builds
-  expect_builtins "the built-in clock stays registered across a bar settings change" '["vgs.bar/center-clock"]'
+  expect "a Clock settings change rebuilds nothing" "$before" builds
 else
   fail "buildCount unreadable before the settings rows"
 fi

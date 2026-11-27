@@ -40,19 +40,27 @@
 # over the centre leaves both zones' room as it was before the drag.
 # Controls run a copy whose right zone scrolls as a left zone, and a copy
 # whose held drag takes no tooltip share and whose zones follow the
-# centre during a drag. The row restores the
-# user file byte for byte, so rows after it find the fixture placed as
-# before. The disabled widget the refusals name is acme.tick, disabled for
+# centre during a drag. A disposable Bar supplies a fixed builtin for
+# tests of its frame, membership and ordering beside other widgets. The
+# row restores the stock tree and the user file byte for byte. The
+# disabled widget the refusals name is acme.tick, disabled for
 # them and enabled again.
 # loads: scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
 # loads: config/shell.json shell/Hosts/BarHost.qml shell/shell.qml -- a startup file the row observes
+# loads: scripts/smoke/fixtures/plugins/fixed-builtin/FixedItem.qml -- copy_fixed_builtin_tree supplies the fixed builtin
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "placement: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
+local placement_entry="$sandbox/shell-placement-entry.json" placement_tree="$sandbox/tree-placement"
+cp -- "$placement_file" "$placement_entry"
+copy_fixed_builtin_tree placement || { fail "placement: fixed builtin tree could not be prepared"; return 1; }
+stop_shell || return 1
+user_config_write fixed_builtin_layout "$placement_file" || { fail "placement: fixed builtin profile could not be written"; return 1; }
 cp -- "$placement_file" "$placement_saved"
-cp -- "$placement_file" "$sandbox/shell-placement-entry.json"
+start_shell "$placement_tree" "$sandbox/placement-fixed-item.log" || return 1
+expect_builtins "the disposable bar registers the fixed item" '["vgs.bar/fixed-item"]'
 # [enabled, placed] of plugin ID in listPlugins.
 placement_listed() { ipc shell listPlugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin)["plugins"] if p["id"] == sys.argv[1]]; print(json.dumps([r[0]["enabled"], r[0]["placed"]]) if r else "absent")' "$1"; }
 # Whether each bar draws the fixture's widget, as the set of answers over
@@ -73,15 +81,15 @@ placement_order() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1]));
 placement_expected_order() {
   py_reply 'import json,sys
 baseline=json.load(sys.stdin)["bar"]["layout"]; want=json.loads(sys.argv[1])
-owned={"acme.tick","acme.probe","vgs.bar/center-clock","vgs.workspaces"}
+owned={"acme.tick","acme.probe","vgs.bar/fixed-item","vgs.workspaces"}
 print(json.dumps({s:want[s]+[e["id"] for e in baseline[s] if e["id"] not in owned] for s in want}))' "$1" <"$placement_saved"
 }
-placement_drawn_start='{"left": ["vgs.workspaces"], "center": ["acme.probe", "vgs.bar/center-clock", "acme.tick"], "right": []}'
-placement_drawn_before='{"left": ["vgs.workspaces"], "center": ["vgs.bar/center-clock", "acme.probe", "acme.tick"], "right": []}'
-placement_drawn_after='{"left": ["vgs.workspaces"], "center": ["vgs.bar/center-clock", "acme.tick", "acme.probe"], "right": []}'
-placement_drawn_left='{"left": ["acme.probe", "vgs.workspaces"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": []}'
-placement_drawn_pointer_left='{"left": ["vgs.workspaces", "acme.probe"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": []}'
-placement_drawn_right='{"left": ["vgs.workspaces"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": ["acme.probe"]}'
+placement_drawn_start='{"left": ["vgs.workspaces"], "center": ["acme.probe", "vgs.bar/fixed-item", "acme.tick"], "right": []}'
+placement_drawn_before='{"left": ["vgs.workspaces"], "center": ["vgs.bar/fixed-item", "acme.probe", "acme.tick"], "right": []}'
+placement_drawn_after='{"left": ["vgs.workspaces"], "center": ["vgs.bar/fixed-item", "acme.tick", "acme.probe"], "right": []}'
+placement_drawn_left='{"left": ["acme.probe", "vgs.workspaces"], "center": ["vgs.bar/fixed-item", "acme.tick"], "right": []}'
+placement_drawn_pointer_left='{"left": ["vgs.workspaces", "acme.probe"], "center": ["vgs.bar/fixed-item", "acme.tick"], "right": []}'
+placement_drawn_right='{"left": ["vgs.workspaces"], "center": ["vgs.bar/fixed-item", "acme.tick"], "right": ["acme.probe"]}'
 for placement_expected in start before after left pointer_left right; do
   placement_drawn_name="placement_drawn_$placement_expected"
   placement_full="$(placement_expected_order "${!placement_drawn_name}")" || fail "the complete placement expectation is unreadable"
@@ -305,13 +313,12 @@ placement_reads() {
   expect "disabledPlugins is unchanged by $1" "$placement_disabled_before" placement_disabled
 }
 
-expect "the fixture starts enabled and placed" '[true, true]' placement_listed acme.probe
+expect_poll "the fixture starts enabled and placed" '[true, true]' placement_listed acme.probe
+expect_poll "the fixture is drawn after the disposable tree starts" '[true]' placement_in_bars
 placement_disabled_before="$(placement_disabled)" || fail "the user file's disabledPlugins is unreadable"
 
-# The clock is the Bar's one fixed builtin, so a gap, a member of its gap
-# family, joins it at the left section's end: the reorder below then
-# changes the order of two builtins, which Bar.qml's builtin model moves
-# rather than rebuilds.
+# A gap joins the fixed builtin at the left section's end. Reordering
+# the two builtins exercises the production model's delegate moves.
 placement_add_gap() {
   python3 - "$placement_file" <<'PY'
 import json,os,sys
@@ -320,54 +327,54 @@ with open(path+".tmp","w") as out: json.dump(config,out)
 os.replace(path+".tmp",path)
 PY
 }
-# Whether the bar draws the gap before the clock.
+# Whether the bar draws the gap before the fixed item.
 placement_left_builtin_order() {
-  local gap clock
+  local gap item
   gap="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/gap-1)" || return
-  clock="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/center-clock)" || return
-  py_reply 'import json,sys; a=json.load(sys.stdin); b=json.loads(sys.argv[1]); print(a[0]<b[0])' "$clock" <<<"$gap"
+  item="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/fixed-item)" || return
+  py_reply 'import json,sys; a=json.load(sys.stdin); b=json.loads(sys.argv[1]); print(a[0]<b[0])' "$item" <<<"$gap"
 }
 placement_add_gap || fail "the gap could not be written into the left section"
-expect_builtins "a gap joins the clock as a second builtin" '["vgs.bar/center-clock","vgs.bar/gap-1"]'
-expect "the clock moves beside workspaces through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
-expect_builtins "both builtins keep their IDs in the left section" '["vgs.bar/center-clock","vgs.bar/gap-1"]'
-expect "the builtin reorder snapshot includes both builtins and the widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-expect "the gap moves before the clock through the ordinary API" ok ipc shell movePluginWidget vgs.bar/gap-1 left 0
+expect_builtins "a gap joins the fixed item as a second builtin" '["vgs.bar/fixed-item","vgs.bar/gap-1"]'
+expect "the fixed item moves beside workspaces through the ordinary API" ok ipc shell movePluginWidget vgs.bar/fixed-item left 0
+expect_builtins "both builtins keep their IDs in the left section" '["vgs.bar/fixed-item","vgs.bar/gap-1"]'
+expect "the builtin reorder snapshot includes both builtins and the widgets" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+expect "the gap moves before the fixed item through the ordinary API" ok ipc shell movePluginWidget vgs.bar/gap-1 left 0
 geometry expect_poll "the ordinary API reorders the existing builtins" True placement_left_builtin_order
 expect "builtin section transfer and reorder keep all objects" '[]' ipc smoke barWidgetIdentities
 expect "the builtin snapshot is released" ok ipc smoke forgetBarWidgets
-expect "the clock returns to center after its ordinary reorder" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
+expect "the fixed item returns to center after its ordinary reorder" ok ipc shell movePluginWidget vgs.bar/fixed-item center 0
 expect "the gap leaves the bar through the ordinary API" ok ipc shell setPluginPlaced vgs.bar/gap-1 false
-expect_builtins "the gap's registration is released" '["vgs.bar/center-clock"]'
+expect_builtins "the gap's registration is released" '["vgs.bar/fixed-item"]'
 expect_poll "the ordinary reorder restores the complete saved profile" "$placement_want_right" placement_order
 
 placement_builtin_section() {
   ipc shell listShellConfig | py_reply 'import json,sys; layout=json.load(sys.stdin)["bar"]["layout"]; print(json.dumps([s for s in ("left","center","right") for e in layout[s] if e["id"]==sys.argv[1]]))' "$1"
 }
-placement_clock_zone() {
+placement_fixed_item_zone() {
   local section="$1" box bounds
-  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/center-clock)" || return
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/fixed-item)" || return
   bounds="$(ipc smoke barSectionGeometry "$(bar_key)" "$section")" || return
-  ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); b=json.loads(sys.argv[2]) if sys.argv[2].startswith("[") else []; s=json.loads(sys.argv[3]) if sys.argv[3].startswith("[") else []; sections=[zone for zone,rows in d.get("bar",{}).get("layout",{}).items() for row in rows if row.get("id")=="vgs.bar/center-clock"]; inside=len(b)==4 and len(s)==4 and b[2]>0 and b[3]>0 and b[0]>=s[0]-1 and b[0]+b[2]<=s[0]+s[2]+1; print(json.dumps({"sections":sections,"inside":inside}))' "$section" "$box" "$bounds"
+  ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); b=json.loads(sys.argv[2]) if sys.argv[2].startswith("[") else []; s=json.loads(sys.argv[3]) if sys.argv[3].startswith("[") else []; sections=[zone for zone,rows in d.get("bar",{}).get("layout",{}).items() for row in rows if row.get("id")=="vgs.bar/fixed-item"]; inside=len(b)==4 and len(s)==4 and b[2]>0 and b[3]>0 and b[0]>=s[0]-1 and b[0]+b[2]<=s[0]+s[2]+1; print(json.dumps({"sections":sections,"inside":inside}))' "$section" "$box" "$bounds"
 }
 placement_zone_point() {
   surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); zone={"left":1,"center":3,"right":5}.get(sys.argv[1]); print("%d %d"%(x+w*zone/6,y+h/2) if zone else "unknown")' "$1"
 }
-placement_clock_hidden() {
+placement_fixed_item_hidden() {
   local records before
   records="$(ipc shell built)" || return
-  before="$(cat "$sandbox/shell-placement-clock-contract.json")" || return
-  ipc shell listShellConfig | py_reply 'import json,sys; effective=json.load(sys.stdin); records=json.loads(sys.argv[1]); before=json.loads(sys.argv[2]); user=json.load(open(sys.argv[3])); bars=[rows for host,rows in records.items() if host.startswith("bar:")]; layout=effective.get("bar",{}).get("layout",{}); placed=any(row.get("id")=="vgs.bar/center-clock" for rows in layout.values() for row in rows); built=any(row.get("id")=="vgs.bar/center-clock" for rows in bars for row in rows); unchanged=all(user.get(key)==before.get(key) for key in ("plugins","disabledPlugins")); print(json.dumps({"placed":placed,"built":built,"ownerEnabled":"vgs.bar" not in effective.get("disabledPlugins",[]),"settingsKept":unchanged}) if bars else "absent")' "$records" "$before" "$placement_file"
+  before="$(cat "$sandbox/shell-placement-fixed-item.json")" || return
+  ipc shell listShellConfig | py_reply 'import json,sys; effective=json.load(sys.stdin); records=json.loads(sys.argv[1]); before=json.loads(sys.argv[2]); user=json.load(open(sys.argv[3])); bars=[rows for host,rows in records.items() if host.startswith("bar:")]; layout=effective.get("bar",{}).get("layout",{}); placed=any(row.get("id")=="vgs.bar/fixed-item" for rows in layout.values() for row in rows); built=any(row.get("id")=="vgs.bar/fixed-item" for rows in bars for row in rows); unchanged=all(user.get(key)==before.get(key) for key in ("plugins","disabledPlugins")); print(json.dumps({"placed":placed,"built":built,"ownerEnabled":"vgs.bar" not in effective.get("disabledPlugins",[]),"settingsKept":unchanged}) if bars else "absent")' "$records" "$before" "$placement_file"
 }
-placement_clock_hide_menu() {
-  local id="${1:-vgs.bar/center-clock}"
+placement_fixed_item_hide_menu() {
+  local id="${1:-vgs.bar/fixed-item}"
   placement_right_click "$id" || return 1
   expect_poll "builtin right click opens the shared menu" true ipc smoke readInstance "$(bar_key)" "$id" frameMenuOpen
-  expect "builtin Hide keeps the owner's independent enablement" '[true, false]' placement_clock_hide_facts "$id"
+  expect "builtin Hide keeps the owner's independent enablement" '[true, false]' placement_fixed_item_hide_facts "$id"
   type_keys -k Down -k Return || return 1
 }
-placement_clock_hide_facts() {
-  ipc smoke barWidgetFrameFacts "$(bar_key)" "${1:-vgs.bar/center-clock}" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("builtin"),d.get("stops")]))'
+placement_fixed_item_hide_facts() {
+  ipc smoke barWidgetFrameFacts "$(bar_key)" "${1:-vgs.bar/fixed-item}" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("builtin"),d.get("stops")]))'
 }
 placement_builtin_field() {
   ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"$1\",\"key\":\"\"}"
@@ -387,74 +394,74 @@ sections=[section for section,rows in after.get("bar",{}).get("layout",{}).items
 print(json.dumps({"sections":sections,"otherStateKept":without_entry(after)==without_entry(before)}))
 PY
 }
-placement_before_clock() {
-  local clock tick bounds
-  clock="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/center-clock)" || return
+placement_before_fixed_item() {
+  local item tick bounds
+  item="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/fixed-item)" || return
   tick="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick)" || return
   bounds="$(ipc smoke barSectionGeometry "$(bar_key)" center)" || return
-  ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); clock,tick,bounds=[json.loads(a) if a.startswith("[") else [] for a in sys.argv[1:]]; center=[r["id"] for r in d.get("bar",{}).get("layout",{}).get("center",[]) if r.get("id") in ("vgs.bar/center-clock","acme.tick")]; visual=all(len(b)==4 and b[2]>0 for b in (clock,tick,bounds)) and tick[0]+tick[2]<=clock[0]+1 and tick[0]>=bounds[0]-1 and clock[0]+clock[2]<=bounds[0]+bounds[2]+1; print(json.dumps({"center":center,"before":visual}))' "$clock" "$tick" "$bounds"
+  ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); item,tick,bounds=[json.loads(a) if a.startswith("[") else [] for a in sys.argv[1:]]; center=[r["id"] for r in d.get("bar",{}).get("layout",{}).get("center",[]) if r.get("id") in ("vgs.bar/fixed-item","acme.tick")]; visual=all(len(b)==4 and b[2]>0 for b in (item,tick,bounds)) and tick[0]+tick[2]<=item[0]+1 and tick[0]>=bounds[0]-1 and item[0]+item[2]<=bounds[0]+bounds[2]+1; print(json.dumps({"center":center,"before":visual}))' "$item" "$tick" "$bounds"
 }
 
-# Each clock interaction uses the complete settled profile as its restore point.
-expect "the clock starts its interaction checks in center" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
-cp -- "$placement_file" "$sandbox/shell-placement-clock-contract.json"
-expect "the clock move snapshot includes its wrapper" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-for clock_zone in left center right; do
-  read -r clock_x clock_y < <(placement_zone_point "$clock_zone") || fail "the clock zone target is unreadable"
-  placement_drag_widget vgs.bar/center-clock "$clock_x" "$clock_y" || fail "the clock pointer move completes"
-  geometry expect_poll "clock pointer drop keeps the ordinary entry inside $clock_zone" "{\"sections\": [\"$clock_zone\"], \"inside\": true}" placement_clock_zone "$clock_zone"
-  expect "clock transfer keeps every original wrapper" '[]' ipc smoke barWidgetIdentities
-  expect_poll "clock transfer releases keyboard capture" default key_submap
+# Each fixed item interaction uses the complete settled profile as its restore point.
+expect "the fixed item starts its interaction checks in center" ok ipc shell movePluginWidget vgs.bar/fixed-item center 0
+cp -- "$placement_file" "$sandbox/shell-placement-fixed-item.json"
+expect "the fixed item move snapshot includes its wrapper" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+for item_zone in left center right; do
+  read -r item_x item_y < <(placement_zone_point "$item_zone") || fail "the fixed item zone target is unreadable"
+  placement_drag_widget vgs.bar/fixed-item "$item_x" "$item_y" || fail "the fixed item pointer move completes"
+  geometry expect_poll "fixed item pointer drop keeps the ordinary entry inside $item_zone" "{\"sections\": [\"$item_zone\"], \"inside\": true}" placement_fixed_item_zone "$item_zone"
+  expect "fixed item transfer keeps every original wrapper" '[]' ipc smoke barWidgetIdentities
+  expect_poll "fixed item transfer releases keyboard capture" default key_submap
 done
-expect "the clock move snapshot is released" ok ipc smoke forgetBarWidgets
-cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-expect_poll "the settled clock profile returns" '["center"]' placement_builtin_section vgs.bar/center-clock
-expect "the neighbor moves away before its drop to clock's left" ok ipc shell movePluginWidget acme.tick right 0
-read -r clock_x clock_y < <(placement_before vgs.bar/center-clock acme.tick) || fail "the point before clock is unreadable"
-placement_drag_widget acme.tick "$clock_x" "$clock_y" || fail "the neighbor pointer drop completes"
-geometry expect_poll "a widget pointer drop reaches clock's left in center" '{"center": ["acme.tick", "vgs.bar/center-clock"], "before": true}' placement_before_clock
+expect "the fixed item move snapshot is released" ok ipc smoke forgetBarWidgets
+cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+expect_poll "the settled fixed item profile returns" '["center"]' placement_builtin_section vgs.bar/fixed-item
+expect "the neighbor moves away before its drop to the fixed item's left" ok ipc shell movePluginWidget acme.tick right 0
+read -r item_x item_y < <(placement_before vgs.bar/fixed-item acme.tick) || fail "the point before the fixed item is unreadable"
+placement_drag_widget acme.tick "$item_x" "$item_y" || fail "the neighbor pointer drop completes"
+geometry expect_poll "a widget pointer drop reaches the fixed item's left in center" '{"center": ["acme.tick", "vgs.bar/fixed-item"], "before": true}' placement_before_fixed_item
 expect_poll "the neighbor drop releases keyboard capture" default key_submap
-cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-expect_poll "the clock profile returns before Hide" '["center"]' placement_builtin_section vgs.bar/center-clock
-placement_clock_hide_menu || fail "the clock shared Hide action completes"
-expect_poll "clock Hide removes only its ordinary placement" '{"placed": false, "built": false, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
-expect_poll "clock Hide releases keyboard capture" default key_submap
-expect "Settings opens the bar's placement fields after clock Hide" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
-expect_poll "the hidden clock retains its existing boolean field" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
-cp -- "$sandbox/shell-placement-clock-contract.json" "$sandbox/shell-before-builtin-field.json"
-placement_builtin_toggle vgs.bar/center-clock || fail "the clock recovery switch executes"
-expect_poll "the clock switch restores the sole layout state" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
-expect_poll "the restored clock field reads its ordinary membership" '{"type":"boolean","value":true,"checked":true,"enabled":true}' placement_builtin_field vgs.bar/center-clock
-expect_poll "the restored clock has no Hide confirmation" false ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameDialogOpen
+cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+expect_poll "the fixed item profile returns before Hide" '["center"]' placement_builtin_section vgs.bar/fixed-item
+placement_fixed_item_hide_menu || fail "the fixed item shared Hide action completes"
+expect_poll "fixed item Hide removes only its ordinary placement" '{"placed": false, "built": false, "ownerEnabled": true, "settingsKept": true}' placement_fixed_item_hidden
+expect_poll "fixed item Hide releases keyboard capture" default key_submap
+expect "Settings opens the bar's placement fields after fixed item Hide" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+expect_poll "the hidden fixed item retains its existing boolean field" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/fixed-item
+cp -- "$sandbox/shell-placement-fixed-item.json" "$sandbox/shell-before-builtin-field.json"
+placement_builtin_toggle vgs.bar/fixed-item || fail "the fixed item recovery switch executes"
+expect_poll "the fixed item switch restores the sole layout state" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/fixed-item
+expect_poll "the restored fixed item field reads its ordinary membership" '{"type":"boolean","value":true,"checked":true,"enabled":true}' placement_builtin_field vgs.bar/fixed-item
+expect_poll "the restored fixed item has no Hide confirmation" false ipc smoke readInstance "$(bar_key)" vgs.bar/fixed-item frameDialogOpen
 cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
-placement_builtin_toggle vgs.bar/center-clock || fail "the clock Hide switch executes"
-expect_poll "the clock switch hides without second state" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
-expect_poll "the clock field remains available when its wrapper is absent" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
-placement_builtin_toggle vgs.bar/center-clock || fail "the clock switch restores again"
-expect_poll "the clock switch recovers again" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
+placement_builtin_toggle vgs.bar/fixed-item || fail "the fixed item Hide switch executes"
+expect_poll "the fixed item switch hides without second state" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/fixed-item
+expect_poll "the fixed item field remains available when its wrapper is absent" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/fixed-item
+placement_builtin_toggle vgs.bar/fixed-item || fail "the fixed item switch restores again"
+expect_poll "the fixed item switch recovers again" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/fixed-item
 expect "Settings closes after builtin recovery" ok ipc shell hide window vgs.settings
-cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-expect_builtins "restoring the settled profile registers the clock" '["vgs.bar/center-clock"]'
+cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+expect_builtins "restoring the settled profile registers the fixed item" '["vgs.bar/fixed-item"]'
 placement_bar_cleanups() {
   ipc shell built | py_reply 'import json,sys; bars=[rows for host,rows in json.load(sys.stdin).items() if host.startswith("bar:")]; counts=[r["pendingCleanups"] for rows in bars for r in rows if r["id"]=="vgs.bar" and r["origin"]=="core"]; print(json.dumps(sorted(counts)) if len(counts)==len(bars) and bars else "absent")'
 }
 placement_cleanup_baseline="$(placement_bar_cleanups)" || fail "the bar registration count is unreadable"
 for builtin_round in 1 2; do
-  for builtin_id in vgs.bar/center-clock; do
+  for builtin_id in vgs.bar/fixed-item; do
     expect "an ordinary builtin can leave its owner bar" ok ipc shell setPluginPlaced "$builtin_id" false
     expect_poll "builtin removal leaves no ordinary placement" '[]' placement_builtin_section "$builtin_id"
-    cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-    expect_builtins "the whole settled profile restores one registration per builtin" '["vgs.bar/center-clock"]'
+    cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+    expect_builtins "the whole settled profile restores one registration per builtin" '["vgs.bar/fixed-item"]'
     expect_poll "builtin restore balances its owner's registration releases" "$placement_cleanup_baseline" placement_bar_cleanups
   done
   expect "the owner bar can be disabled after builtin removal cycles" 'ok hidden=acme.probe,acme.tick,vgs.workspaces' ipc shell setPluginEnabled vgs.bar false
   expect_builtins "bar teardown releases every builtin registration" '[]'
   expect_poll "bar teardown releases keyboard capture" default key_submap
   expect "the owner bar can return after teardown" ok ipc shell setPluginEnabled vgs.bar true
-  expect_builtins "bar re-enable registers each builtin once" '["vgs.bar/center-clock"]'
+  expect_builtins "bar re-enable registers each builtin once" '["vgs.bar/fixed-item"]'
   expect_poll "the new owner has the same pending registrations" "$placement_cleanup_baseline" placement_bar_cleanups
 done
-cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 # Hold the workspaces widget's shared frame across a section move into a
 # plugin neighbour. The same pointer barrier proves it stays the grabbed object.
 # PATH `stepped` holds the drag just inside the centre third until the
@@ -468,7 +475,7 @@ placement_held_workspaces() { # PATH WANT SLOT LABEL
   read -r x y < <(placement_point vgs.workspaces) || return 1
   # The gap widens the centred section by the dragged width and spacing,
   # so the tick settles half that distance right of its original box.
-  # Aim one pixel before that settled edge: before the clock or before
+  # Aim one pixel before that settled edge: before the fixed item or before
   # the tick, the gap leaves this point between their settled middles.
   read -r tx ty < <(placement_point acme.tick) || return 1
   source_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.workspaces)" || return 1
@@ -478,14 +485,14 @@ placement_held_workspaces() { # PATH WANT SLOT LABEL
   if [[ $path == stepped ]]; then
     px="$(surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/3)+2)')" || return 1
   fi
-  expect "${label}the workspaces drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  expect "${label}the workspaces drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   hover "$((x + 1))" "$y" || return 1
   coproc builtin_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$px" "$ty" hold; }
   out_fd="${builtin_hold[0]}" in_fd="${builtin_hold[1]}" hold_pid="$builtin_hold_PID"
   read -r -t 10 barrier <&"$out_fd" || return 1
   [[ $barrier == "holding $px $ty" ]] || return 1
   if [[ $path == stepped ]]; then
-    expect_poll "${label}the workspaces preview enters the centre before the clock" '["center", 0]' placement_preview_slot
+    expect_poll "${label}the workspaces preview enters the centre before the fixed item" '["center", 0]' placement_preview_slot
     hover "$tx" "$ty" || return 1
   fi
   expect_poll "${label}the workspaces drag holds keyboard capture" vgs:passthrough key_submap
@@ -606,7 +613,7 @@ placement_held_preview() {
   read -r x y < <(placement_point acme.probe) || return 1
   read -r tx ty < <(placement_before acme.tick acme.probe) || return 1
   before_x="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
-  expect "the identity snapshot includes built-ins and mounted widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  expect "the identity snapshot includes built-ins and mounted widgets" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   hover "$((x + 1))" "$y" || return 1
   coproc placement_preview { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
   out_fd="${placement_preview[0]}" in_fd="${placement_preview[1]}" hold_pid="$placement_preview_PID"
@@ -622,7 +629,7 @@ placement_held_preview() {
   printf '  held_motion expected=%s observed=%s samples=%s\n' "$motion" "$motion_seen" "${samples[*]}"
   geometry expect "the held neighbor's successive positions show $motion motion" "$motion" printf '%s\n' "$motion_seen"
   printf '  held_operation source=%s,%s target=%s,%s drag=%s frame=%s submap=%s pointer=%s profile=%s\n' "$x" "$y" "$tx" "$ty" "$(ipc smoke barDragGeometry "$(bar_key)")" "$(ipc smoke readInstance "$(bar_key)" acme.probe frameDragging)" "$(key_submap)" "$(hypr cursorpos)" "$(ipc shell listShellConfig)"
-  for placement_held_id in acme.probe acme.tick vgs.bar/center-clock; do
+  for placement_held_id in acme.probe acme.tick vgs.bar/fixed-item; do
     printf '  held_geometry id=%s value=%s\n' "$placement_held_id" "$(ipc smoke descendantGeometry "$(bar_key)" "$placement_held_id")"
   done
   geometry expect_poll "the held widget draws nothing behind its drag image while the target widget slides around its gap" '{"section": "center", "index": 1, "slid": true, "hidden": true, "gap": true}' placement_live_gap "$before_x"
@@ -654,7 +661,7 @@ expect_poll "the slowed motion reaches the held widget check" 600 ipc smoke them
 placement_held_preview moving || fail "the held preview press completes"
 expect "the fixture returns to right before the other pointer checks" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in right" "$placement_want_right" placement_order
-if copy_tree placement-motion-control \
+if copy_tree placement-motion-control "$placement_tree" \
   && edit_tree placement-motion-control shell/Ui/BarWidget.qml 'enabled: !root.frameDragging && root.bar !== null' 'enabled: false && !root.frameDragging && root.bar !== null'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
@@ -663,7 +670,7 @@ if copy_tree placement-motion-control \
   placement_held_preview still || fail "control: the same held preview press completes without horizontal animation"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-motion-restored.log" || fail "the shell starts after the horizontal motion control"
+  start_shell "$placement_tree" "$sandbox/placement-motion-restored.log" || fail "the shell starts after the horizontal motion control"
 fi
 printf '%s\n' '{"schemaVersion":1,"name":"bar-motion-off","tokens":{"motion":{"scale":0}}}' >"$placement_motion_theme.tmp"
 mv -T -- "$placement_motion_theme.tmp" "$placement_motion_theme"
@@ -672,7 +679,7 @@ cp -- "$placement_file" "$sandbox/shell-before-live-drop.json"
 placement_held_preview still || fail "Motion off keeps the held neighbours still"
 expect "the fixture returns to right after Motion off" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "Motion off restores the complete profile" "$placement_want_right" placement_order
-if copy_tree placement-reduced-motion-control \
+if copy_tree placement-reduced-motion-control "$placement_tree" \
   && edit_tree placement-reduced-motion-control shell/Ui/BarWidget.qml 'duration: Theme.motion.duration.normal;' 'duration: Theme.motion.duration.normal === 0 ? 600 : Theme.motion.duration.normal;'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
@@ -682,7 +689,7 @@ if copy_tree placement-reduced-motion-control \
   placement_held_preview moving || fail "control: ignoring Motion off makes the held neighbours move"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-reduced-motion-restored.log" || fail "the shell starts after the Motion off control"
+  start_shell "$placement_tree" "$sandbox/placement-reduced-motion-restored.log" || fail "the shell starts after the Motion off control"
 fi
 if [[ $placement_motion_had_theme == true ]]; then
   cp -- "$sandbox/placement-motion-theme.json" "$placement_motion_theme.tmp"
@@ -719,7 +726,7 @@ expect_poll "a drag released near below the bar's left third drops after workspa
 geometry expect_poll "a drag released near below the bar's left third draws the fixture after workspaces" "$placement_drawn_pointer_left" placement_visual_order
 expect_poll "the near drop releases keyboard capture" default key_submap
 expect "the bar gives the keyboard back after an empty-workspace drop" left placement_keyboard_left
-expect "the outside snapshot includes every widget" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+expect "the outside snapshot includes every widget" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
 placement_leave_return() {
   read -r far_x far_y < <(placement_bar_far_left) || fail "the point far below the bar is unreadable"
   read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "the point before tick is unreadable"
@@ -835,7 +842,7 @@ expect "placing the fixture before the restart check is allowed" ok ipc shell se
 expect "moving the fixture to left before restart is allowed" ok ipc shell movePluginWidget acme.probe left 0
 expect_poll "the user file order is moved before restart" "$placement_want_left" placement_order
 stop_shell
-start_shell "$repo" "$sandbox/placement-restart.log" || fail "the shell starts again for moved placement"
+start_shell "$placement_tree" "$sandbox/placement-restart.log" || fail "the shell starts again for moved placement"
 expect_poll "a restart keeps the moved file order" "$placement_want_left" placement_order
 expect_poll "a restart keeps the moved rendered order" "$placement_drawn_left" placement_visual_order
 expect "moving the fixture back to right after restart is allowed" ok ipc shell movePluginWidget acme.probe right 0
@@ -843,7 +850,7 @@ expect_poll "the fixture is back in the right section after restart" "$placement
 
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 expect_poll "the restored user file is ready for placement controls" "$placement_want_right" placement_order
-if copy_tree placement-move-control \
+if copy_tree placement-move-control "$placement_tree" \
   && edit_tree placement-move-control shell/Core/PluginLogic.js 'target.splice(at, 0, entry);' 'target.push(entry);'; then
   stop_shell
   start_shell "$sandbox/tree-placement-move-control" "$sandbox/placement-move-control.log" || fail "the placement move control shell starts"
@@ -857,12 +864,12 @@ if copy_tree placement-move-control \
   fi
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-move-control-restored.log" || fail "the shell starts again after the move control"
+  start_shell "$placement_tree" "$sandbox/placement-move-control-restored.log" || fail "the shell starts again after the move control"
 fi
 
 # The cancel this change removed: a release outside the bar's box writes
 # nothing, so the near drop reads red.
-if copy_tree placement-outside-cancel-control \
+if copy_tree placement-outside-cancel-control "$placement_tree" \
   && edit_tree placement-outside-cancel-control shell/Core/Plugins.qml '        if (outside > Theme.bar.height) {' '        if (outside > 0) { cancelBarDrag(); return "none"; }
         if (outside > Theme.bar.height) {'; then
   stop_shell
@@ -876,12 +883,12 @@ if copy_tree placement-outside-cancel-control \
   expect "control: the old outside cancel makes the near drop keep the file order" "$placement_want_after" placement_order
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-outside-cancel-restored.log" || fail "the shell starts again after the outside cancel control"
+  start_shell "$placement_tree" "$sandbox/placement-outside-cancel-restored.log" || fail "the shell starts again after the outside cancel control"
 fi
 
 # A grab that leaves the bar's keyboard interactivity alone leaves the bar
 # holding the keyboard after the release on an empty workspace.
-if copy_tree placement-keyboard-control \
+if copy_tree placement-keyboard-control "$placement_tree" \
   && edit_tree placement-keyboard-control shell/Core/Plugins.qml '        if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
@@ -894,14 +901,14 @@ if copy_tree placement-keyboard-control \
   expect "control: without the interactivity step the bar keeps the keyboard" kept placement_keyboard_left
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-keyboard-restored.log" || fail "the shell starts again after the keyboard control"
+  start_shell "$placement_tree" "$sandbox/placement-keyboard-restored.log" || fail "the shell starts again after the keyboard control"
 fi
 
 # Without the focus grab and the OnDemand interactivity, either of which
 # gives the bar the keyboard that Hyprland's held-button rule asks for,
 # Hyprland ends the press at the bar's edge on the sandbox's empty
 # workspace, so the drag out and back reads red.
-if copy_tree placement-grab-control \
+if copy_tree placement-grab-control "$placement_tree" \
   && edit_tree placement-grab-control shell/Core/Plugins.qml $'\n        barPressGrab.active = true;' $'\n        barPressGrab.active = false;' \
   && edit_tree placement-grab-control shell/Core/Plugins.qml '        if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
   stop_shell
@@ -916,12 +923,12 @@ if copy_tree placement-grab-control \
   if [[ $control_order != "$placement_want_before" ]]; then ok "control: without the focus grab the drag out and back reads red"; else fail "control: without the focus grab the drag out and back still dropped before tick"; fi
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-grab-restored.log" || fail "the shell starts again after the grab control"
+  start_shell "$placement_tree" "$sandbox/placement-grab-restored.log" || fail "the shell starts again after the grab control"
 fi
 
 # A remove question that takes the keyboard's focus reason once its window
 # is active draws the ring at open, so the no-ring check reads red.
-if copy_tree placement-ring-control \
+if copy_tree placement-ring-control "$placement_tree" \
   && edit_tree placement-ring-control shell/Ui/BarWidget.qml \
     'Qt.callLater(() => dialog.forceActiveFocus(Qt.OtherFocusReason));' \
     'Qt.callLater(() => {
@@ -946,10 +953,10 @@ if copy_tree placement-ring-control \
   expect "control: Escape on the remove question writes nothing" unchanged placement_same_as "$placement_saved"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-ring-restored.log" || fail "the shell starts again after the ring control"
+  start_shell "$placement_tree" "$sandbox/placement-ring-restored.log" || fail "the shell starts again after the ring control"
 fi
 
-if copy_tree placement-escape-control \
+if copy_tree placement-escape-control "$placement_tree" \
   && edit_tree placement-escape-control shell/Core/Plugins.qml '        Capabilities.keyCapture.begin(ctx, item, { anyWindow: true });' ';'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
@@ -968,10 +975,10 @@ if copy_tree placement-escape-control \
   hover "$below_x" "$below_y" || fail "control Escape: resting the pointer below the bar failed"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-escape-control-restored.log" || fail "the shell starts again after the Escape control"
+  start_shell "$placement_tree" "$sandbox/placement-escape-control-restored.log" || fail "the shell starts again after the Escape control"
 fi
 
-if copy_tree placement-drag-control \
+if copy_tree placement-drag-control "$placement_tree" \
   && edit_tree placement-drag-control shell/Ui/BarWidget.qml 'root.frame.dragStart(root.dragPoint());' 'return;'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
@@ -983,36 +990,36 @@ if copy_tree placement-drag-control \
   expect "control: a BarWidget without frame drag writes nothing for an in-bar drop" unchanged placement_same_as "$placement_saved"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-drag-control-restored.log" || fail "the shell starts again after the drag control"
+  start_shell "$placement_tree" "$sandbox/placement-drag-control-restored.log" || fail "the shell starts again after the drag control"
 fi
 
-if copy_tree placement-clock-zone-control \
-  && edit_tree placement-clock-zone-control shell/Core/PluginLogic.js 'var section = x < width / 3 ? "left" : x < 2 * width / 3 ? "center" : "right";' 'var section = "center";'; then
+if copy_tree placement-fixed-item-zone-control "$placement_tree" \
+  && edit_tree placement-fixed-item-zone-control shell/Core/PluginLogic.js 'var section = x < width / 3 ? "left" : x < 2 * width / 3 ? "center" : "right";' 'var section = "center";'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$sandbox/tree-placement-clock-zone-control" "$sandbox/placement-clock-zone-control.log" || fail "the clock zone control starts"
-  read -r clock_x clock_y < <(placement_zone_point left) || fail "control: the left clock target is unreadable"
-  placement_drag_widget vgs.bar/center-clock "$clock_x" "$clock_y" || fail "control: the clock pointer reaches the left zone"
-  expect_poll "control: a forced center target makes the clock zone reader reject left" '{"sections": ["center"], "inside": false}' placement_clock_zone left
-  expect_poll "control: clock zone capture is released" default key_submap
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-fixed-item-zone-control" "$sandbox/placement-fixed-item-zone-control.log" || fail "the fixed item zone control starts"
+  read -r item_x item_y < <(placement_zone_point left) || fail "control: the left fixed item target is unreadable"
+  placement_drag_widget vgs.bar/fixed-item "$item_x" "$item_y" || fail "control: the fixed item pointer reaches the left zone"
+  expect_poll "control: a forced center target makes the fixed item zone reader reject left" '{"sections": ["center"], "inside": false}' placement_fixed_item_zone left
+  expect_poll "control: fixed item zone capture is released" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-clock-zone-restored.log" || fail "the shell starts after the clock zone control"
+  start_shell "$placement_tree" "$sandbox/placement-fixed-item-zone-restored.log" || fail "the shell starts after the fixed item zone control"
 fi
 
-if copy_tree placement-clock-before-control \
-  && edit_tree placement-clock-before-control shell/Core/PluginLogic.js 'var before = target !== null ? clone(target.locator) : null;' 'var before = null;'; then
+if copy_tree placement-fixed-item-before-control "$placement_tree" \
+  && edit_tree placement-fixed-item-before-control shell/Core/PluginLogic.js 'var before = target !== null ? clone(target.locator) : null;' 'var before = null;'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$sandbox/tree-placement-clock-before-control" "$sandbox/placement-clock-before-control.log" || fail "the clock neighbor control starts"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-fixed-item-before-control" "$sandbox/placement-fixed-item-before-control.log" || fail "the fixed item neighbor control starts"
   expect "control: the neighbor starts away from center" ok ipc shell movePluginWidget acme.tick right 0
-  read -r clock_x clock_y < <(placement_before vgs.bar/center-clock acme.tick) || fail "control: the point before clock is unreadable"
-  placement_drag_widget acme.tick "$clock_x" "$clock_y" || fail "control: the neighbor pointer reaches clock's left"
-  geometry expect_poll "control: an ignored neighbor makes the same center-before reader reject the drop" '{"center": ["vgs.bar/center-clock", "acme.tick"], "before": false}' placement_before_clock
-  expect_poll "control: clock neighbor capture is released" default key_submap
+  read -r item_x item_y < <(placement_before vgs.bar/fixed-item acme.tick) || fail "control: the point before the fixed item is unreadable"
+  placement_drag_widget acme.tick "$item_x" "$item_y" || fail "control: the neighbor pointer reaches the fixed item's left"
+  geometry expect_poll "control: an ignored neighbor makes the same center-before reader reject the drop" '{"center": ["vgs.bar/fixed-item", "acme.tick"], "before": false}' placement_before_fixed_item
+  expect_poll "control: fixed item neighbor capture is released" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-clock-before-restored.log" || fail "the shell starts after the clock neighbor control"
+  start_shell "$placement_tree" "$sandbox/placement-fixed-item-before-restored.log" || fail "the shell starts after the fixed item neighbor control"
 fi
 
 # A neighbour slides to its place while a drag is on, and the slot must not
@@ -1020,22 +1027,22 @@ fi
 # neighbours still stand where the gap's arrival left them when the last
 # motion picks the slot. The second copy reads their drawn boxes.
 placement_slide='NumberAnimation { duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }'
-if copy_tree placement-slide \
+if copy_tree placement-slide "$placement_tree" \
   && edit_tree placement-slide shell/Ui/BarWidget.qml "$placement_slide" 'NumberAnimation { duration: 60000 }' \
-  && copy_tree placement-slide-control \
+  && copy_tree placement-slide-control "$placement_tree" \
   && edit_tree placement-slide-control shell/Ui/BarWidget.qml "$placement_slide" 'NumberAnimation { duration: 60000 }' \
   && edit_tree placement-slide-control shell/Core/Plugins.qml 'const x = sectionPoint.x + restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);' 'const x = entry.widget.mapToItem(null, 0, 0).x;'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-slide" "$sandbox/placement-slide.log" || fail "the slow slide copy starts"
   placement_held_workspaces stepped '["center", 1]' "slow slide: the workspaces preview selects before its plugin neighbour while the neighbours slide" "slow slide: " || fail "the slow slide held pointer move completes"
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-slide-control" "$sandbox/placement-slide-control.log" || fail "the slide control starts"
   placement_held_workspaces stepped '["center", 2]' "control: a slot read from the neighbours' drawn boxes makes the same reader name the slot after the plugin neighbour" "control: " || fail "control: the held pointer move over drawn boxes completes"
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-slide-restored.log" || fail "the shell starts after the slide control"
+  start_shell "$placement_tree" "$sandbox/placement-slide-restored.log" || fail "the shell starts after the slide control"
 fi
 
 # A side zone that does not fit scrolls by whole widgets, and a dragged
@@ -1240,17 +1247,17 @@ placement_edge_leave 0 False "a drag that left the zone's end steps the zone no 
 placement_edge_slide='            duration: Theme.motion.duration.normal'
 placement_edge_settled='const sectionPoint = scrolled ? container.parent.mapToItem(null, container.settledX, 0) : drawn;'
 placement_edge_read='edge: barDragEdge(barDrag.gap.parent, point.x) });'
-if copy_tree placement-edge-control \
+if copy_tree placement-edge-control "$placement_tree" \
   && edit_tree placement-edge-control shell/Core/Plugins.qml 'running: root.barDrag !== null && root.barDrag.edge !== 0' 'running: false && root.barDrag !== null && root.barDrag.edge !== 0' \
-  && copy_tree placement-edge-slide \
+  && copy_tree placement-edge-slide "$placement_tree" \
   && edit_tree placement-edge-slide shell/plugins/vgs.bar/Bar.qml "$placement_edge_slide" '            duration: 60000' \
-  && copy_tree placement-edge-slide-control \
+  && copy_tree placement-edge-slide-control "$placement_tree" \
   && edit_tree placement-edge-slide-control shell/plugins/vgs.bar/Bar.qml "$placement_edge_slide" '            duration: 60000' \
   && edit_tree placement-edge-slide-control shell/Core/Plugins.qml "$placement_edge_settled" 'const sectionPoint = drawn;' \
-  && copy_tree placement-edge-snap-control \
+  && copy_tree placement-edge-snap-control "$placement_tree" \
   && edit_tree placement-edge-snap-control shell/plugins/vgs.bar/Bar.qml "$placement_edge_slide" '            duration: 60000' \
   && edit_tree placement-edge-snap-control shell/plugins/vgs.bar/Bar.qml '        property real lag: 0' $'        property real lag: 0\n        onScrollChanged: { slide.stop(); lag = 0; }' \
-  && copy_tree placement-edge-leave-control \
+  && copy_tree placement-edge-leave-control "$placement_tree" \
   && edit_tree placement-edge-leave-control shell/Core/Plugins.qml "$placement_edge_read" 'edge: barDrag.edge !== 0 ? barDrag.edge : barDragEdge(barDrag.gap.parent, point.x) });'; then
   if placement_edge_start placement-edge-control; then
     placement_edge_held end "$placement_edge_last" 0 short "control: without the hold timer the held drag stays short of the last slot"
@@ -1274,7 +1281,7 @@ if copy_tree placement-edge-control \
 fi
 stop_shell
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-start_shell "$repo" "$sandbox/placement-edge-restored.log" || fail "the shell starts after the edge controls"
+start_shell "$placement_tree" "$sandbox/placement-edge-restored.log" || fail "the shell starts after the edge controls"
 
 # The right zone takes its own path through the same code: its scroll
 # counts from its bar edge and its section stands from the zone's right
@@ -1327,9 +1334,9 @@ expect "a side zone's room holds while the preview gap stands in the centre" ste
 # a drag opens the < button's tooltip during the hold, and the preview gap
 # in the centre narrows the zones.
 placement_right_scroll='readonly property real scroll: edge === Qt.LeftEdge ? Math.min(held, travel) : resting ? 0 : Math.max(0, travel - held)'
-if copy_tree placement-edge-right-control \
+if copy_tree placement-edge-right-control "$placement_tree" \
   && edit_tree placement-edge-right-control shell/plugins/vgs.bar/Bar.qml "$placement_right_scroll" 'readonly property real scroll: Math.min(held, travel)' \
-  && copy_tree placement-tip-room-control \
+  && copy_tree placement-tip-room-control "$placement_tree" \
   && edit_tree placement-tip-room-control shell/Ui/BarWidget.qml 'onFrameDraggingChanged: shareDrag(frameDragging)' 'onFrameDraggingChanged: shareDrag(false)' \
   && edit_tree placement-tip-room-control shell/plugins/vgs.bar/Bar.qml 'readonly property bool dragging: children.some(item => item.frameDragging === true)' 'readonly property bool dragging: false'; then
   if placement_edge_start placement-edge-right-control; then
@@ -1347,116 +1354,119 @@ fi
 placement_edge_side=left
 stop_shell
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-start_shell "$repo" "$sandbox/placement-edge-right-restored.log" || fail "the shell starts after the right zone controls"
+start_shell "$placement_tree" "$sandbox/placement-edge-right-restored.log" || fail "the shell starts after the right zone controls"
 
-if copy_tree placement-clock-hide-control \
-  && edit_tree placement-clock-hide-control shell/Core/Plugins.qml 'hide: () => root.setPlaced(id, false),' 'hide: () => "ok",'; then
+if copy_tree placement-fixed-item-hide-control "$placement_tree" \
+  && edit_tree placement-fixed-item-hide-control shell/Core/Plugins.qml 'hide: () => root.setPlaced(id, false),' 'hide: () => "ok",'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$sandbox/tree-placement-clock-hide-control" "$sandbox/placement-clock-hide-control.log" || fail "the clock Hide control starts"
-  placement_clock_hide_menu || fail "control: the real clock menu executes"
-  expect_poll "control: an inert shared Hide callback makes the same removal reader reject it" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
-  expect_poll "control: clock Hide capture is released" default key_submap
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-fixed-item-hide-control" "$sandbox/placement-fixed-item-hide-control.log" || fail "the fixed item Hide control starts"
+  placement_fixed_item_hide_menu || fail "control: the real fixed item menu executes"
+  expect_poll "control: an inert shared Hide callback makes the same removal reader reject it" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_fixed_item_hidden
+  expect_poll "control: fixed item Hide capture is released" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-clock-hide-restored.log" || fail "the shell starts after the clock Hide control"
+  start_shell "$placement_tree" "$sandbox/placement-fixed-item-hide-restored.log" || fail "the shell starts after the fixed item Hide control"
 fi
 
 # Each control invokes the drawn field's keyboard path, not a manager substitute.
-if copy_tree placement-builtin-field-control \
+if copy_tree placement-builtin-field-control "$placement_tree" \
   && edit_tree placement-builtin-field-control shell/plugins/vgs.settings/Window.qml 'return keep(pageId, shell.manager.setPlaced(id, placed));' 'return "ok";'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-builtin-field-control" "$sandbox/placement-builtin-field-control.log" || fail "the builtin field control starts"
-  expect "control: the clock leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/center-clock false
+  expect "control: the fixed item leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/fixed-item false
   cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
   expect "control: Settings opens the hidden builtin field" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
-  expect_poll "control: the hidden clock switch remains available" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
-  placement_builtin_toggle vgs.bar/center-clock || fail "control: the real field receives Space"
-  expect_poll "control: an inert field callback makes the restore reader reject it" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
-  expect "control: a refused restore keeps the checked value bound" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+  expect_poll "control: the hidden fixed item switch remains available" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/fixed-item
+  placement_builtin_toggle vgs.bar/fixed-item || fail "control: the real field receives Space"
+  expect_poll "control: an inert field callback makes the restore reader reject it" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/fixed-item
+  expect "control: a refused restore keeps the checked value bound" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/fixed-item
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-builtin-field-restored.log" || fail "the shell starts after the field control"
+  start_shell "$placement_tree" "$sandbox/placement-builtin-field-restored.log" || fail "the shell starts after the field control"
 fi
-if copy_tree placement-builtin-catalogue-control \
+if copy_tree placement-builtin-catalogue-control "$placement_tree" \
   && edit_tree placement-builtin-catalogue-control shell/Core/Plugins.qml 'return bar.builtinNames.map(name => ({' 'return bar.builtinNames.filter(name => Logic.layoutPositionOf(Config.effective, id + "/" + name, null) !== null).map(name => ({'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-builtin-catalogue-control" "$sandbox/placement-builtin-catalogue-control.log" || fail "the catalogue control starts"
-  expect "control: the clock leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/center-clock false
-  expect "control: Settings opens the catalogue with the hidden clock" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
-  expect_poll "control: placement-dependent discovery loses the hidden clock field" absent placement_builtin_field vgs.bar/center-clock
+  expect "control: the fixed item leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/fixed-item false
+  expect "control: Settings opens the catalogue with the hidden fixed item" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+  expect_poll "control: placement-dependent discovery loses the hidden fixed item field" absent placement_builtin_field vgs.bar/fixed-item
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-builtin-catalogue-restored.log" || fail "the shell starts after the catalogue control"
+  start_shell "$placement_tree" "$sandbox/placement-builtin-catalogue-restored.log" || fail "the shell starts after the catalogue control"
 fi
-if copy_tree placement-builtin-confirm-control \
+if copy_tree placement-builtin-confirm-control "$placement_tree" \
   && edit_tree placement-builtin-confirm-control shell/Ui/BarWidget.qml 'if (root.frame.describe().builtin) {' 'if (false) {'; then
   stop_shell
-  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-fixed-item.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-builtin-confirm-control" "$sandbox/placement-builtin-confirm-control.log" || fail "the confirmation control starts"
-  placement_clock_hide_menu || fail "control: the actual Hide menu executes"
-  expect_poll "control: a confirmation leaves the clock placed" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
-  expect_poll "control: the confirmation reader rejects direct Hide" true ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameDialogOpen
+  placement_fixed_item_hide_menu || fail "control: the actual Hide menu executes"
+  expect_poll "control: a confirmation leaves the fixed item placed" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_fixed_item_hidden
+  expect_poll "control: the confirmation reader rejects direct Hide" true ipc smoke readInstance "$(bar_key)" vgs.bar/fixed-item frameDialogOpen
   type_keys -k Escape
   expect_poll "control: Escape releases confirmation capture" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-builtin-confirm-restored.log" || fail "the shell starts after the confirmation control"
+  start_shell "$placement_tree" "$sandbox/placement-builtin-confirm-restored.log" || fail "the shell starts after the confirmation control"
 fi
 
 # A real ordinary plugin can share a catalogue suffix after the bar prefix's
-# length. Removing the bar's own prefix filter must create an unwanted clock.
+# length. Removing the bar's prefix filter must mount an extra fixed item.
 placement_foreign_builtin_state() {
-  ipc shell built | py_reply 'import json,sys; bars=[rows for host,rows in json.load(sys.stdin).items() if host.startswith("bar:")]; states={(any(r.get("id")=="vgs.bar/center-clock" for r in rows),any(r.get("id")=="acme.xyzcenter-clock" for r in rows)) for rows in bars}; print(json.dumps(sorted(states)) if bars else "absent")'
+  ipc shell built | py_reply 'import json,sys; bars=[rows for host,rows in json.load(sys.stdin).items() if host.startswith("bar:")]; states={(any(r.get("id")=="vgs.bar/fixed-item" for r in rows),any(r.get("id")=="acme.xyzfixed-item" for r in rows)) for rows in bars}; print(json.dumps(sorted(states)) if bars else "absent")'
 }
 cp -- "$placement_file" "$sandbox/shell-placement-catalogue-entry.json"
-install_plugin_copy acme.tick acme.xyzcenter-clock "Catalogue suffix fixture"
+install_plugin_copy acme.tick acme.xyzfixed-item "Catalogue suffix fixture"
 rescan "the private catalogue suffix plugin is discovered"
-expect_poll "the private catalogue suffix fixture is enabled" True plugin_enabled acme.xyzcenter-clock
-expect "the real clock is removed before the foreign catalogue read" ok ipc shell setPluginPlaced vgs.bar/center-clock false
-expect_poll "the bar rejects a foreign ID with its clock suffix" '[[false, true]]' placement_foreign_builtin_state
+expect_poll "the private catalogue suffix fixture is enabled" True plugin_enabled acme.xyzfixed-item
+expect "the real fixed item is removed before the foreign catalogue read" ok ipc shell setPluginPlaced vgs.bar/fixed-item false
+expect_poll "the bar rejects a foreign ID with its fixed item suffix" '[[false, true]]' placement_foreign_builtin_state
 cp -- "$placement_file" "$sandbox/shell-placement-catalogue-settled.json"
-if copy_tree placement-catalogue-control \
+if copy_tree placement-catalogue-control "$placement_tree" \
   && edit_tree placement-catalogue-control shell/plugins/vgs.bar/Bar.qml '.filter(entry => shell !== null && entry.id.indexOf(shell.manifest.id + "/") === 0)' '.filter(entry => true)'; then
   stop_shell
   start_shell "$sandbox/tree-placement-catalogue-control" "$sandbox/placement-catalogue-control.log" || fail "the independent bar catalogue control starts"
   expect_poll "control: removing the bar prefix filter makes its registration reader reject the foreign ID" '[[true, true]]' placement_foreign_builtin_state
 fi
 stop_shell
-rm -rf -- "$home/.config/vgshell/plugins/acme.xyzcenter-clock"
+rm -rf -- "$home/.config/vgshell/plugins/acme.xyzfixed-item"
 cp -- "$sandbox/shell-placement-catalogue-entry.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-start_shell "$repo" "$sandbox/placement-catalogue-restored.log" || fail "the shell starts after the independent catalogue control"
-expect_builtins "the full settled profile restores its builtin registration" '["vgs.bar/center-clock"]'
+start_shell "$placement_tree" "$sandbox/placement-catalogue-restored.log" || fail "the shell starts after the independent catalogue control"
+expect_builtins "the full settled profile restores its builtin registration" '["vgs.bar/fixed-item"]'
 
-if copy_tree placement-rebuild-control \
+if copy_tree placement-rebuild-control "$placement_tree" \
   && edit_tree placement-rebuild-control shell/Core/Plugins.qml 'if (at !== -1) {' 'if (false) {' \
   && edit_tree placement-rebuild-control shell/plugins/vgs.bar/Bar.qml 'const names = JSON.parse(key);' 'const names = JSON.parse(key); model.clear();'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-rebuild-control" "$sandbox/placement-rebuild-control.log" || fail "the rebuild control shell starts"
   expect_poll "control: the fixture is mounted before its snapshot" '[true]' placement_in_bars
-  expect "control: the identity snapshot includes the widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  expect "control: the identity snapshot includes the widgets" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "control: the target point is unreadable"
   placement_drag_widget acme.probe "$tick_x" "$tick_y" || fail "control: the pointer drop completes"
   expect_poll "control: the rebuild still commits the same order" "$placement_want_before" placement_order
   expect "control: restoring the rebuild makes the object check red" '["acme.probe","acme.tick","vgs.workspaces"]' ipc smoke barWidgetIdentities
   expect "control: the identity snapshot is released" ok ipc smoke forgetBarWidgets
   placement_add_gap || fail "control: the gap could not be written into the left section"
-  expect_builtins "control: a gap joins the clock as a second builtin" '["vgs.bar/center-clock","vgs.bar/gap-1"]'
-  expect "control: clock moves into left with the same ID" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
-  expect_builtins "control: both builtin IDs remain registered" '["vgs.bar/center-clock","vgs.bar/gap-1"]'
-  expect "control: the builtin identity snapshot includes both builtins and the widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-  expect "control: the gap moves before the clock" ok ipc shell movePluginWidget vgs.bar/gap-1 left 0
+  expect_builtins "control: a gap joins the fixed item as a second builtin" '["vgs.bar/fixed-item","vgs.bar/gap-1"]'
+  expect "control: fixed item moves into left with the same ID" ok ipc shell movePluginWidget vgs.bar/fixed-item left 0
+  expect_builtins "control: both builtin IDs remain registered" '["vgs.bar/fixed-item","vgs.bar/gap-1"]'
+  expect "control: the builtin identity snapshot includes both builtins and the widgets" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  expect "control: the gap moves before the fixed item" ok ipc shell movePluginWidget vgs.bar/gap-1 left 0
   geometry expect_poll "control: the rebuild still reorders the builtins" True placement_left_builtin_order
-  expect "control: rebuilding builtin delegates makes the object check red" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke barWidgetIdentities
+  expect "control: rebuilding builtin delegates makes the object check red" '["acme.probe","acme.tick","vgs.bar/fixed-item","vgs.bar/gap-1","vgs.workspaces"]' ipc smoke barWidgetIdentities
   expect "control: the builtin snapshot is released" ok ipc smoke forgetBarWidgets
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-rebuild-restored.log" || fail "the shell starts after the rebuild control"
+  start_shell "$placement_tree" "$sandbox/placement-rebuild-restored.log" || fail "the shell starts after the rebuild control"
 fi
 
-cp -- "$sandbox/shell-placement-entry.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+stop_shell || return 1
+user_config_restore "$placement_entry" || { fail "placement: the stock profile could not be restored"; return 1; }
+start_shell "$repo" "$sandbox/placement-stock-restored.log" || return 1
 expect_poll "the restored user file places the fixture again" '[true, true]' placement_listed acme.probe
 expect_poll "the restored fixture widget is in every bar" '[true]' placement_in_bars
+expect "the stock user file is restored byte for byte" unchanged placement_same_as "$placement_entry"

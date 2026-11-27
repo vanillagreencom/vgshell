@@ -22,7 +22,7 @@ Item {
     SettingField {
         id: field
         width: 420
-        pluginId: "vgs.bar"
+        pluginId: "vgs.clock"
         key: "clockFormat"
         spec: ({
             type: "string",
@@ -872,7 +872,7 @@ Item {
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.jarvis/manifest.json"), false);
             request.send();
             const home = JSON.parse(request.responseText).schema.home;
-            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.bar/manifest.json"), false);
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.clock/manifest.json"), false);
             request.send();
             const calendar = JSON.parse(request.responseText).schema.calendarUrl;
             return [

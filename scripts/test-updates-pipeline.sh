@@ -81,11 +81,15 @@ stub() { # DIR NAME BODY
 # pacman's lock, database download and package download errors. For
 # $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
 # and streams, after a mirror's failed download the next mirror served:
-# pm_printf's `error: ` line and the conflicting file on
+# pm_printf's `error: ` line, a conflict between two targets, and the
+# filesystem conflict on
 # stderr, then `Errors occurred, no packages were upgraded.` on stdout
 # (pacman src/pacman/sync.c sync_prepare_execute and src/pacman/util.c
 # pm_printf, master read through the GitLab API on 2026-10-17; both
-# strings are in pacman 7.1.0's /usr/bin/pacman). For
+# strings are in pacman 7.1.0's /usr/bin/pacman). The signature fixture
+# puts the trust diagnostic before pacman's cache question and commit
+# error. The preceding-transaction version puts a later sync between
+# that diagnostic and a commit whose signer is unknown to the reader. For
 # $FIX/transcript-gone-<id> it removes the run's transcript and fails, and
 # for $FIX/transcript-replaced-<id> it puts an empty file at the
 # transcript's path, which script(1) no longer writes, and fails; for
@@ -142,7 +146,20 @@ stub "$tree/bin" vgshell 'pkg_run() {
   [ ! -e "$FIX/locked-$5" ] || { printf "error: failed to init transaction (unable to lock database)\nerror: could not lock database: File exists\n" >&2; exit 1; }
   [ ! -e "$FIX/unreachable-$5" ] || { printf ":: Synchronizing package databases...\nerror: failed retrieving file \047core.db\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to synchronize all databases (failed to retrieve some files)\n" >&2; exit 1; }
   [ ! -e "$FIX/unfetched-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (failed to retrieve some files)\n" >&2; exit 1; }
-  [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
+  [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (conflicting files)\n/usr/bin/shared exists in both \047widget\047 and \047viewer\047\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
+  if [ -e "$FIX/signature-$5" ] || [ -e "$FIX/signature-generic-$5" ] || [ -e "$FIX/signature-stale-$5" ]; then
+    signature_error="invalid or corrupted package"
+    printf "error: crush: signature from \"Fixture Signing Key <fixture@example.invalid>\" is unknown trust\n" >&2
+    if [ -e "$FIX/signature-stale-$5" ]; then
+      printf ":: Synchronizing package databases...\n"
+    else
+      printf ":: File /var/cache/pacman/pkg/crush-2-1-x86_64.pkg.tar.zst is corrupted (invalid or corrupted package (PGP signature)).\n:: Do you want to delete it? [Y/n] n\n"
+    fi
+    [ ! -e "$FIX/signature-$5" ] || signature_error="$signature_error (PGP signature)"
+    printf "error: failed to commit transaction (%s)\n" "$signature_error" >&2
+    printf "Errors occurred, no packages were upgraded.\n"
+    exit 1
+  fi
   [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
   [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; }
   [ ! -e "$FIX/transcript-lost-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; exit 0; }
@@ -154,6 +171,7 @@ order() {
 }
 case "$1 $2" in
   "pkg review-run")
+    [ ! -e "$FIX/refuse-review-run" ] || { printf "vgshell: refused: review=directory-unsafe\n" >&2; exit 1; }
     d="$(mktemp -d "$FIX/update-XXXXXXXX")" || exit 1
     printf "%s\n" "$d" >"$FIX/current-run"
     printf "%s\n" "$d" ;;
@@ -772,18 +790,28 @@ row_cause() {
   assert "a refusal with only its key is a failed part" result_has "Failed parts: Flatpak"
   assert "an unworded failure stores its own title and next step" outcome_is failed "Flatpak failed" "VGS could not find the cause. Update again." ""
   # pacman's English errors read as VGS's sentences.
-  local fixture sentence
-  while IFS='|' read -r fixture sentence; do
+  local fixture sentence log_line
+  while IFS='|' read -r fixture sentence log_line; do
     reset_fix
     if [[ $fixture == conflict-paru ]]; then self_json package '"vgshell-git"' rebuild; fi
     touch "$fix/$fixture"
     pipeline update.sh
+    assert "$fixture ends the update with a failure" test "$status" == 1
     assert "$fixture reads as its sentence" result_has "$sentence"
+    if [[ -n $log_line ]]; then
+      assert "$fixture keeps its original evidence in the last log" grep -Fq -- "$log_line" "$log"
+    fi
+    if [[ $fixture == signature-* ]]; then
+      assert "$fixture keeps the signing key out of the result" result_lacks "Fixture Signing Key"
+    fi
   done <<'ROWS'
 locked-pacman|System packages failed. Another package manager is running, or one that stopped left its lock behind. Next: update again when it has finished. If none is running, delete the lock file pacman names, then update again.
 unreachable-pacman|System packages failed. The package servers could not be reached. Next: update again when the network works.
 unfetched-pacman|System packages failed. The package servers could not be reached. Next: update again when the network works.
-faulted-pacman|System packages failed. error: failed to commit transaction (conflicting files). Next: update again.
+faulted-pacman|System packages failed. crush could not install because /usr/bin/crush already exists. Nothing was installed in this transaction. Next: fix the file conflict by hand.|crush: /usr/bin/crush exists in filesystem
+signature-pacman|System packages failed. Pacman could not verify the signature for crush. Nothing was installed in this transaction. Next: update again later. If this happens again, fix the signature problem by hand.|crush: signature from "Fixture Signing Key <fixture@example.invalid>" is unknown trust
+signature-generic-pacman|System packages failed. Pacman could not verify the signature for crush. Nothing was installed in this transaction. Next: update again later. If this happens again, fix the signature problem by hand.|crush: signature from "Fixture Signing Key <fixture@example.invalid>" is unknown trust
+signature-stale-pacman|System packages failed. error: failed to commit transaction (invalid or corrupted package). Next: update again.
 conflict-paru|VGS package failed. quickshell conflicts with quickshell-git, which is installed. Next:
 ROWS
 }
@@ -1350,6 +1378,79 @@ row_busy() {
   assert "a busy run leaves the running run's log" test "$(cat "$log")" == "earlier run"
   assert "a busy run asks vgshell nothing" test ! -s "$tmp/seq"
 }
+# Allocation happens before the update owns the lock or replaces its log.
+row_review_start_refused() {
+  reset_fix
+  mkdir -p "$state/vgshell/updates"
+  printf 'previous update log\n' >"$fix/previous-log"
+  printf '{"version":1,"ended":"failed","title":"Previous failure","text":"Previous outcome","remedy":"","endedAt":1234567}\n' >"$fix/previous-outcome"
+  cp -- "$fix/previous-log" "$log"
+  cp -- "$fix/previous-outcome" "$outcome"
+  touch "$fix/refuse-review-run"
+  local held
+  exec {held}>>"$rt/vgs-tui-updates.lock"
+  flock -n "$held"
+  pipeline update.sh
+  exec {held}>&-
+  assert "a refused allocation exits before the held lock" test "$status" == 1
+  assert "the allocation refusal shows only the start sentence" test "$(tr -d '\r' <"$tmp/out")" == "VGS could not start the update."
+  assert "only the update's allocation is called" test "$(cat "$calls")" == "vgshell pkg review-run"
+  assert "the allocation refusal writes its key to diagnostics" diag_has "updates: unworded source=review-run refusal=review=directory-unsafe"
+  assert "the allocation refusal preserves the previous outcome" cmp -s -- "$fix/previous-outcome" "$outcome"
+  assert "the allocation refusal preserves the previous log" cmp -s -- "$fix/previous-log" "$log"
+}
+
+# The ordinary table route lets paru ask for its own password. The distinct
+# English sudo diagnostics map to one result, while a localized refusal
+# keeps sudo's line. Each test leaves a VGS package eligible to rebuild.
+row_aur_permissions() {
+  local name raw sentence summary
+  while IFS='|' read -r name raw; do
+    reset_fix
+    self_json package '"vgshell-git"' rebuild
+    printf '%s\n' "$raw" >"$fix/aur-password-line"
+    stub "$fix" transaction 'if [ "$1" = aur ]; then cat "$FIX/aur-password-line" >&2; exit 1; fi'
+    pipeline update.sh
+    summary=""
+    if [[ $name == localized ]]; then
+      sentence="$raw. Next: update again."
+      summary="AUR packages failed. "
+    else
+      sentence="VGS could not get permission to install the AUR packages. Next: update again and enter your password."
+      assert "$name keeps sudo's raw line out of the result" result_lacks "$raw"
+      assert "$name shows the failure without a generic lead" result_lacks "AUR packages failed. $sentence"
+    fi
+    assert "$name reaches the ordinary AUR update" has_call "vgshell pkg run upgrade --manager aur"
+    assert "$name ends the update with a failure" test "$status" == 1
+    assert "$name shows the password failure and next step" result_has "$summary$sentence"
+    assert "$name saves the same failure for the window" outcome_is failed "AUR packages failed" "$sentence" ""
+    assert "$name reports the VGS rebuild as skipped" result_has "VGS package skipped. The AUR update failed."
+    assert "$name starts no VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+  done <<'ROWS'
+attempts|sudo: 3 incorrect password attempts
+required|sudo: a password is required
+localized|sudo: se necesita una contraseña
+ROWS
+}
+
+# The package owner's typed refusal arrives before paru's closing error.
+row_review_refused() {
+  reset_fix
+  local key="review=active-password-session"
+  stub "$fix" transaction 'if [ "$1" = aur ]; then
+    printf "vgshell: refused: review=active-password-session\nerror: file manager did not execute successfully\n" >&2
+    exit 1
+  fi'
+  pipeline update.sh
+  assert "a key-only review refusal fails the update" test "$status" == 1
+  assert "a key-only review refusal shows the AUR review sentence" result_has "VGS could not start the AUR review."
+  assert "the review result omits a generic failure sentence" result_lacks "AUR packages failed. VGS could not start the AUR review."
+  assert "the review refusal stores one sentence for the window" outcome_is failed "AUR packages failed" "VGS could not start the AUR review." ""
+  assert "the review refusal keeps its key out of the result" result_lacks "$key"
+  assert "the review refusal keeps paru's wrapper error out of the result" result_lacks "file manager did not execute successfully"
+  assert "the review refusal writes its key to diagnostics" diag_has "updates: unworded source=aur refusal=$key"
+}
+
 row_aur_command() {
   reset_fix
   settings "paru -Sua --devel" false
@@ -2087,7 +2188,7 @@ SH
 if [[ $# -gt 0 ]]; then
   [[ $# == 2 && $1 == --case ]] || exit 2
   case "$2" in
-    row_aur_rebuild_stopped|row_build_progress|row_orphans|row_failed_end|row_vgs_devel) "$2" ;;
+    row_aur_permissions|row_aur_rebuild_stopped|row_build_progress|row_cause|row_orphans|row_failed_end|row_review_refused|row_review_start_refused|row_vgs_devel) "$2" ;;
     *) exit 2 ;;
   esac
   rows_done test-updates-pipeline
@@ -2142,7 +2243,7 @@ row_uncaused_outcomes() {
 row_uncaused_outcomes
 row_pty_shell; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
+row_declined; row_busy; row_review_start_refused; row_aur_command; row_aur_failure; row_aur_permissions; row_review_refused; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,

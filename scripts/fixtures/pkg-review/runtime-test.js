@@ -75,6 +75,26 @@ try{
   assert.equal(fs.statSync(target).mode&0o777,0o775,kind+": the linked folder keeps its mode");
  }
  for(const kind of ["link","parent-link","foreign","file"])unsafeUpdatesRoot(kind);
+ // The TUI exports the pid of its active password session. Use this test's
+ // own live pid for the refusal and pin the run directory's time so even
+ // creating and removing a transient snapshot is observable.
+ {
+  const world=create(path.join(scratch,"review-refused"),{choices:[]});
+  const allocation=cp.spawnSync(process.execPath,[world.owner,"review-run"],{env:world.env,encoding:"utf8",timeout:30000});
+  assert.equal(allocation.status,0,"review refusal allocates the run: "+allocation.stderr);
+  const run=allocation.stdout.trim(),context=path.join(run,"context.json"),view=path.join(world.protectedRoot,"view");
+  fs.mkdirSync(view,{mode:0o700});
+  fs.writeFileSync(context,'{"attempt":0}\n',{mode:0o600,flag:"wx"});
+  fs.utimesSync(run,1,1);
+  const priorMtime=fs.statSync(run).mtimeMs;
+  const result=tty(world,["review-files","--run",run,"--config",world.config,"--",view],{VGS_TUI_SUDO_SESSION:String(process.pid)});
+  assert.equal(result.status,1,"review refusal: exits with the refusal status");
+  assert.deepEqual(judge.transcriptLines(result.stdout),["vgshell: refused: review=active-password-session"],"review refusal: emits only its key");
+  assert.deepEqual(fs.readdirSync(run),["context.json"],"review refusal: leaves no outcome or snapshot");
+  assert.equal(fs.readFileSync(context,"utf8"),'{"attempt":0}\n',"review refusal: keeps the run context");
+  assert.equal(fs.statSync(run).mtimeMs,priorMtime,"review refusal: creates no transient run entry");
+  assert.deepEqual(world.calls(),[],"review refusal: reaches no stand-in");
+ }
  // Each entry point reaches the same file-manager operation. The picker and
  // requirement notice themselves route to these same public owner verbs.
  for(const [name,args] of [

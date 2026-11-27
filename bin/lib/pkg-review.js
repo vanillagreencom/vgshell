@@ -53,7 +53,7 @@ function settingsRead() {
     const file = path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "vgshell/shell.json");
     let text = null;
     try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code !== "ENOENT") refuse("user-config=unreadable"); }
-    const user = files.readUserConfig(configLogic, file, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+    const user = files.readUserConfig(configLogic, file, "user-config", shipped);
     const effective = configLogic.effectiveConfig(shipped, user);
     const settings = effective.packages?.review || { agent: "", command: "" };
     return { version: 1, text, settings };
@@ -375,10 +375,21 @@ function runtimeFolder(reviewed) {
 function runtimeRoot() { return runtimeFolder(true); }
 function workRoot(reviewed = false) { return ownedFolder(path.join(runtimeFolder(reviewed), "package-review")); }
 function agentHome() { return ownedFolder(path.join(workRoot(true), "agent")); }
+// Folder acquisition can fail before a private outcome exists. Keep its
+// keyed refusal on stderr so the caller can report it without a stack or path.
+function reviewRunStorage(operation) {
+    try { return operation(); }
+    catch (error) {
+        if (error instanceof files.Refusal || typeof error.code !== "string") throw error;
+        refuse("review=run-unavailable error=" + error.code);
+    }
+}
 function createRun(prefix = "review-") {
-    const dir = fs.mkdtempSync(path.join(repairedFolder(path.join(runtimeRoot(), "updates"), 0o077), prefix));
-    fs.chmodSync(dir, 0o700);
-    return dir;
+    return reviewRunStorage(() => {
+        const dir = fs.mkdtempSync(path.join(repairedFolder(path.join(runtimeRoot(), "updates"), 0o077), prefix));
+        fs.chmodSync(dir, 0o700);
+        return dir;
+    });
 }
 // One review's private run: its context, its verdict store by base and
 // tree, and, once the review ended the helper's step, its outcome.
@@ -389,9 +400,11 @@ function newRun() {
     return run;
 }
 function reviewRun(dir) {
-    if (!path.isAbsolute(dir) || path.dirname(dir) !== path.join(runtimeRoot(), "updates")) refuse("review=run-path");
-    ownedDirectory(dir);
-    return dir;
+    return reviewRunStorage(() => {
+        if (!path.isAbsolute(dir) || path.dirname(dir) !== path.join(runtimeRoot(), "updates")) refuse("review=run-path");
+        ownedDirectory(dir);
+        return dir;
+    });
 }
 function readJson(file) { return JSON.parse(privateFile(file)); }
 function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value) + "\n", { mode: 0o600 }); }
@@ -762,14 +775,14 @@ function skipSentence(name, risks, dependents) {
 }
 async function reviewFiles(run, view, config, bootstrapClone = null) {
     reviewRun(run);
-    const context = readJson(path.join(run, "context.json"));
+    if (process.env.VGS_TUI_SUDO_SESSION && fs.existsSync("/proc/" + process.env.VGS_TUI_SUDO_SESSION))
+        refuse("review=active-password-session");
+    const context = reviewRunStorage(() => readJson(path.join(run, "context.json")));
     const previousUmask = process.umask(0o077);
     // This invocation's pristine source is never inside an agent write root.
     // A failed agent may change its copy; a fallback gets these bytes again.
     const pristine = fs.mkdtempSync(path.join(run, "snapshot-"));
     try {
-        if (process.env.VGS_TUI_SUDO_SESSION && fs.existsSync("/proc/" + process.env.VGS_TUI_SUDO_SESSION))
-            throw new Error("The AUR review cannot run during an active password session.");
         const bases = copyView(view, pristine, bootstrapClone);
         writeJson(path.join(run, "tracking.json"), bases.map(base => develBase(base.fields)).filter(base => base !== null));
         const store = readJson(path.join(run, "verdicts.json"));

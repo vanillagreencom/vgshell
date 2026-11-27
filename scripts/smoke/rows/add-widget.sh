@@ -18,9 +18,8 @@
 # No latency budget: waits poll reported state at the harness interval.
 # The control removes the widget filter's result in a disposable tree;
 # the same inventory reader must then reject the missing fixture.
-# Generic Settings Open keeps the Calendar and an open chooser's click
-# context. Each same-title sibling can retake native keyboard focus. Its
-# control restores window preference in a disposable tree.
+# Opening the Clock calendar from Settings preserves an open chooser's
+# click context. Each window can retake native keyboard focus.
 # A place-then-move chooser control must fail the ordinary one-write judge.
 # loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
 set -euo pipefail
@@ -92,7 +91,6 @@ aw_open() {
   expect "the real menu includes Manage widgets before the spacer actions" '["Manage widgets","Add separator","Add gap"]' ipc smoke readInstance "$key" vgs.bar spacerMenuEntries
   type_keys -k Down -k Return
   expect_poll "the chooser is a real Bar application window" 1 window_count Bar
-  expect_poll "the chooser reads the new widget and excludes non-widgets" True aw_inventory
   expect "the chooser keeps the clicked bar screen and coordinate" True aw_payload "$key" "$x"
 }
 aw_payload() {
@@ -146,26 +144,27 @@ aw_one_write() {
 # The shipped Settings entry calls manager.open, not an explicit summon.
 aw_generic_open() {
   aw_generic_payload="$(aw_read payload)" || return 1
-  settings_page_open vgs.bar
-  expect "the Bar page's generic Open answers ok" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.bar
+  settings_page_open vgs.clock
+  expect "the Clock page's Open answers ok" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.clock
 }
 aw_generic_state() {
   local calendar payload
-  calendar="$(ipc smoke windowDrawn panel vgs.bar)" || return 1
+  calendar="$(ipc smoke windowDrawn panel vgs.clock)" || return 1
   payload="$(aw_read payload)" || return 1
   py_reply 'import json,sys; print(sys.argv[1]=="drawn" and json.load(sys.stdin)==json.loads(sys.argv[2]))' "$calendar" "$aw_generic_payload" <<<"$payload"
 }
 aw_open left
+expect_poll "the chooser reads the new widget and excludes non-widgets" True aw_inventory
 aw_generic_open
-expect_poll "generic Bar Open draws Calendar and preserves the chooser's original click context" True aw_generic_state
-expect_poll "generic Bar Open gives Calendar native keyboard focus" true ipc smoke windowFocused panel vgs.bar
+expect_poll "Clock Open draws the calendar and preserves the chooser's original click context" True aw_generic_state
+expect_poll "Clock Open gives the calendar native keyboard focus" true ipc smoke windowFocused panel vgs.clock
 expect "the existing chooser opens beside Calendar" ok ipc shell summon window vgs.bar "$aw_generic_payload"
-expect_poll "the same-title chooser retakes native keyboard focus" true ipc smoke windowFocused window vgs.bar
-expect "generic Open returns to the existing Calendar" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.bar
-expect_poll "the same-title Calendar retakes native keyboard focus" true ipc smoke windowFocused panel vgs.bar
+expect_poll "the chooser retakes native keyboard focus" true ipc smoke windowFocused window vgs.bar
+expect "Clock Open returns to the existing calendar" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.clock
+expect_poll "the calendar retakes native keyboard focus" true ipc smoke windowFocused panel vgs.clock
 expect "both native windows preserve the chooser's original click context" True aw_generic_state
-expect "Calendar closes after generic Open" ok ipc shell hide panel vgs.bar
-settings_page_close vgs.bar
+expect "the calendar closes after Clock Open" ok ipc shell hide panel vgs.clock
+settings_page_close vgs.clock
 expect "the chooser closes after generic Open" ok ipc shell hide window vgs.bar
 expect_poll "the generic Open chooser is gone" 0 window_count Bar
 
@@ -304,24 +303,6 @@ if edit_tree add-widget-inventory shell/plugins/vgs.bar/AddWidget.qml \
   expect "control: the disposable chooser is released" ok ipc smoke popupDrop chooser-inventory
 fi
 expect "the chooser closes after the control" ok ipc shell hide window vgs.bar
-
-# Load the real routing owner with only the former preference restored.
-# The same Settings entry and state reader must reject that preference.
-if copy_tree add-widget-open \
-  && edit_tree add-widget-open shell/Core/PluginLogic.js \
-    'manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1' \
-    'false && manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1'; then
-  stop_shell
-  start_shell "$sandbox/tree-add-widget-open" "$sandbox/add-widget-open-control.log" || { fail "the generic Open control shell starts"; return 1; }
-  aw_open left
-  aw_generic_open
-  expect_poll "control: generic Open replaces the chooser context" '{}' aw_read payload
-  expect "control: the ordinary generic Open judge rejects window preference" False aw_generic_state
-  settings_page_close vgs.bar
-  expect "control: the chooser closes after the generic Open control" ok ipc shell hide window vgs.bar
-  stop_shell
-  start_shell "$repo" "$sandbox/add-widget-open-restored.log" || { fail "the shell returns after the generic Open control"; return 1; }
-fi
 
 aw_cleanup
 smoke_row_abandon=()

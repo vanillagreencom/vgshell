@@ -18,7 +18,7 @@ cp -R -- "$repo/bin" "$tree/"
 cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/TuiArguments.js" "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/"
-printf '{ "version": 7, "plugins": [], "disabledPlugins": [], "conversationSettingsMigration": { "id": "acme.talk", "mode": "mode", "holdToTalk": "holdToTalk", "modeValues": { "hold": true, "toggle": false, "always": false }, "voiceProvider": "voiceProvider", "voiceAccount": "voiceAccount", "retiredKey": "mute" } }\n' >"$tree/config/shell.json"
+printf '{ "version": 8, "plugins": [], "disabledPlugins": [], "conversationSettingsMigration": { "id": "acme.talk", "mode": "mode", "holdToTalk": "holdToTalk", "modeValues": { "hold": true, "toggle": false, "always": false }, "voiceProvider": "voiceProvider", "voiceAccount": "voiceAccount", "retiredKey": "mute" } }\n' >"$tree/config/shell.json"
 
 cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
@@ -99,7 +99,7 @@ control() { # NAME FILE NEEDLE REPLACEMENT
 }
 control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
-control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);' 'const moved = { config: config, migrated: false };'
-control conversation-data bin/lib/judge-files.js 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration)' 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations)'
+control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, shipped);' 'const moved = { config: config, migrated: false };'
+control conversation-data bin/lib/judge-files.js 'logic.migrateConfig(config, shipped)' 'logic.migrateConfig(config, { ...shipped, conversationSettingsMigration: undefined })'
 
 rows_done test-vgshell-plugin-settings

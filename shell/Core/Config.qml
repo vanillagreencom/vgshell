@@ -24,10 +24,9 @@ import "ConfigLogic.js" as ConfigLogic
 // write answers. A user file of the previous format version is rewritten as
 // this one when it is read (ConfigLogic.migrateConfig), through the same
 // judge, and written once; one the judge refuses is never overwritten.
-// A former plugin id the scan maps to a scanned plugin is renamed in the
-// user file the same way (ConfigLogic.renamePlugins), by the map the scan
-// hands adoptRenames. A bundled split takes its source settings, disable
-// and placement on that same path (D110).
+// ConfigLogic.migratePlugins applies the scan's rename map and bundled
+// splits to the user file. A split is eligible when the user file does
+// not name its target before the plugin IDs are renamed (D110).
 Singleton {
     id: root
 
@@ -47,10 +46,16 @@ Singleton {
     property var shippedText: null
     property var userText: null
     property bool userAwaitingShipped: false
-    // Each former plugin id the scan's rename map holds, to the id of the
-    // plugin whose claim it keeps (PluginLogic.formerIdClaims), set by
-    // adoptRenames alone.
-    property var renames: ({})
+    // The scan can finish before the shipped file loads. Derive the active
+    // map from both so the retained format converter owns its former ID.
+    property var renameClaims: ({})
+    readonly property var renames: {
+        const migration = shipped === null ? undefined : shipped.builtinWidgetMigration;
+        if (migration === undefined || !Logic.hasOwn(renameClaims, migration.formerId)) return renameClaims;
+        const active = Object.assign({}, renameClaims);
+        delete active[migration.formerId];
+        return active;
+    }
     property var splits: []
     // "pending" until the first answer, then "loaded", "unparseable",
     // "unreadable" or "malformed" (parsed, refused by configError); the user
@@ -141,8 +146,8 @@ Singleton {
     // Judge one file's text: { state, value, migrated, renamed, split } with
     // `value` only when loaded. With `migrate`, the user file's case, the
     // parsed value is migrated first and `migrated` says whether the
-    // migration changed it; a loaded value then takes `renames`, and
-    // `renamed` says whether that changed it.
+    // migration changed it. A loaded value then takes the plugin
+    // migration, whose `renamed` and `split` flags report its changes.
     function judge(label, text, migrate) {
         let value;
         try {
@@ -151,15 +156,14 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration) : { config: value, migrated: false };
+        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped) : { config: value, migrated: false };
         const result = moved.error ? { state: "malformed", error: moved.error } : ConfigLogic.configResult(moved.config);
         if (result.state !== "loaded") {
             console.error("config: " + label + " " + result.state + ": " + (result.state === "newer" ? "version=" + result.version + " supported=" + ConfigLogic.CONFIG_VERSION : result.error));
             return result;
         }
-        const renamed = migrate ? ConfigLogic.renamePlugins(moved.config, renames) : { config: moved.config, renamed: false };
-        const split = migrate ? ConfigLogic.splitPlugins(renamed.config, splits) : { config: renamed.config, split: false };
-        return { state: "loaded", value: split.config, migrated: moved.migrated, renamed: renamed.renamed, split: split.split };
+        const plugins = migrate ? ConfigLogic.migratePlugins(moved.config, renames, splits) : { config: moved.config, renamed: false, split: false };
+        return { state: "loaded", value: plugins.config, migrated: moved.migrated, renamed: plugins.renamed, split: plugins.split };
     }
 
     WatchedFile {
@@ -320,25 +324,22 @@ Singleton {
     }
 
     // Take the scan's rename map and bundled split claims together, so
-    // the file names each renamed plugin by its new id. Registry calls it
-    // before it publishes the manifests, so nothing built from them reads a
-    // former id; a user file read later takes the map in judge(). A value
-    // the disk refuses to hold is renamed in memory, as a refused migrated
-    // write is.
+    // plugin migration finishes before Registry publishes the manifests.
+    // Later user-file reads apply both claims in judge(). If the disk
+    // refuses the write, publish the converted value in memory.
     function adoptRenames(map, splitClaims) {
-        renames = map;
+        renameClaims = map;
         splits = splitClaims || [];
         if (user === null) return;
-        const renamed = ConfigLogic.renamePlugins(user, renames);
-        const r = ConfigLogic.splitPlugins(renamed.config, splits);
-        if (!renamed.renamed && !r.split) return;
+        const r = ConfigLogic.migratePlugins(user, renames, splits);
+        if (!r.renamed && !r.split) return;
         const written = writeUser(r.config);
         if (written === "ok") {
-            if (renamed.renamed) console.info("config: user file plugins renamed: file=" + userPath);
+            if (r.renamed) console.info("config: user file plugins renamed: file=" + userPath);
             if (r.split) console.info("config: user file plugins split: file=" + userPath);
             return;
         }
-        if (renamed.renamed) console.error("config: user file plugins renamed in memory, not written: file=" + userPath + " refusal=" + written);
+        if (r.renamed) console.error("config: user file plugins renamed in memory, not written: file=" + userPath + " refusal=" + written);
         if (r.split) console.error("config: user file plugins split in memory, not written: file=" + userPath + " refusal=" + written);
         user = r.config;
         publish();

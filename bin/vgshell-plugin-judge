@@ -440,7 +440,7 @@ main(() => {
         const [form, shippedPath, userPath, id] = args;
         const json = format(form) === "json";
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped);
         const plugin = pluginOf(registryOf(readScan()), id);
         const enabled = logic.isEnabled(configLogic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
         const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, enabled));
@@ -451,7 +451,7 @@ main(() => {
     case "settings": {
         const [shippedPath, userPath, id] = args;
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped);
         const manifest = pluginOf(registryOf(readScan()), id).manifest;
         const settings = logic.settingsFor(configLogic.effectiveConfig(shipped, user), manifest);
         for (const key of Object.keys(manifest.schema)) {
@@ -466,7 +466,7 @@ main(() => {
         const json = format(form) === "json";
         if (!Object.prototype.hasOwnProperty.call(SESSION_LINES, graphicalSession)) refuse("graphical-session=" + graphicalSession);
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped);
         const core = coreRequirements(corePath);
         const report = doctorReport(registryOf(readScan()), shipped, user, core);
         report.session = { graphicalSession };

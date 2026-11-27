@@ -5257,7 +5257,7 @@ function instanceCapabilities(manifest, kind) {
 
 // The rename map of a scan, MANIFESTS being its id to manifest map in
 // scan order and SOURCE_OF naming where a manifest was found, `bundled` or
-// `installed` as Registry.sourceOf names it. Returns { renames, ignored }:
+// `installed` as Registry.sourceOf names it. Returns { renames, ignored, splits }:
 // RENAMES maps each former id a bundled manifest declares in `formerIds` to
 // that manifest's id, and IGNORED holds one { id, reason, formerIds } entry
 // for each claim the map leaves out, by reason:
@@ -5270,10 +5270,10 @@ function instanceCapabilities(manifest, kind) {
 // A left-out claim does not refuse its manifest. bin/lib/check-manifests.js
 // holds the shipped manifests to one claimant per former id and no former
 // id that a shipped plugin holds. Registry logs IGNORED and hands RENAMES
-// to Config.adoptRenames, which renames the user file by it
-// (ConfigLogic.renamePlugins). SPLITS holds each bundled splitFrom claim
-// as { from, to, keys }, the target settings keys alone. An installed
-// splitFrom is included in its one ignored record, never in SPLITS.
+// and SPLITS to Config.adoptRenames for ConfigLogic.migratePlugins.
+// SPLITS holds each bundled splitFrom claim as { from, to, keys }, with
+// the target settings keys. An installed splitFrom is included in its
+// one ignored record.
 function formerIdClaims(manifests, sourceOf) {
     var renames = {}, ignored = [], splits = [];
     Object.keys(manifests).forEach(function (id) {

@@ -26,20 +26,16 @@ Item {
     readonly property Item centerSection: center
     readonly property Item rightSection: rightZone.content
 
-    readonly property var builtinLabels: ({ "center-clock": "Clock" })
-    readonly property var builtinNames: Object.keys(builtinLabels)
+    readonly property var builtinNames: []
+    readonly property var builtinLabels: ({})
     // Gaps and separators the user adds from the bar's right-click menu:
     // one builtin per layout entry, `gap-<n>` or `separator-<n>`.
     readonly property var builtinFamilies: ["gap", "separator"]
     readonly property var familyLabels: ({ gap: "Gap", separator: "Separator" })
-    // The family of registration `name`, or "" for a fixed builtin.
+    // The family of registration `name`, or "" if it names no spacer.
     function familyOf(name) {
         const match = /^([a-z][a-z0-9]*)-[1-9][0-9]*$/.exec(name);
         return match !== null && builtinFamilies.indexOf(match[1]) !== -1 ? match[1] : "";
-    }
-    function builtinLabel(name) {
-        const family = familyOf(name);
-        return family !== "" ? familyLabels[family] : builtinLabels[name];
     }
     property var widgetLayout: ({ left: [], center: [], right: [] })
     readonly property string builtinKey: JSON.stringify(

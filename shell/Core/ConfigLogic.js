@@ -3,8 +3,8 @@
 
 // The configuration judgement: the shape a shell.json layer must have
 // (configError), the migration of a user file of the previous format
-// version (migrateConfig), the rename of a plugin's former ids
-// (renamePlugins), the merge of the two layers (effectiveConfig)
+// version (migrateConfig), the scan's plugin renames and splits
+// (migratePlugins), the merge of the two layers (effectiveConfig)
 // and the key grammar a plugins row's `keys` is judged by (hyprlandKey).
 // PluginLogic.js and the shell files that judge or read configuration
 // import it, and the offline judges that read shell.json load it alone, so
@@ -33,6 +33,7 @@ var SECTIONS = ["left", "center", "right"];
 // a manifest's `tui` key declares a script under.
 // Capabilities.checkName refuses any other.
 var NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+var SETTING_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/;
 
 // The modifiers a Hyprland key may hold, in the order a normalised key
 // writes them, and the key name after them: a keysym name, which Hyprland
@@ -49,7 +50,8 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // Version 5 also records retirement of a saved shortcut with null.
 // Version 6 retires a conversation mode and its private microphone key.
 // Version 7 resets selected saved shortcuts to their new defaults.
-var CONFIG_VERSION = 7;
+// Version 8 moves a former built-in and its settings to its own plugin.
+var CONFIG_VERSION = 8;
 
 // A newer build produces whole-number versions this build cannot read.
 // Classify them before inspecting any fields of that unknown format.
@@ -109,11 +111,15 @@ function configError(config) {
             return "conversationSettingsMigration must name a plugin id";
         var fields = ["mode", "holdToTalk", "voiceProvider", "voiceAccount", "retiredKey"];
         for (var f = 0; f < fields.length; f++) {
-            if (typeof migration[fields[f]] !== "string" || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(migration[fields[f]]))
+            if (typeof migration[fields[f]] !== "string" || !SETTING_KEY_PATTERN.test(migration[fields[f]]))
                 return "conversationSettingsMigration." + fields[f] + " must name a field";
         }
         if (!isPlainObject(migration.modeValues) || Object.keys(migration.modeValues).length === 0 || Object.keys(migration.modeValues).some(function (key) { return typeof migration.modeValues[key] !== "boolean"; }))
             return "conversationSettingsMigration.modeValues must map modes to booleans";
+    }
+    if (config.builtinWidgetMigration !== undefined) {
+        var claim = builtinWidgetMigrationClaim(config.builtinWidgetMigration);
+        if (claim.error !== undefined) return claim.error;
     }
     var rows = function (list, at) {
         if (!Array.isArray(list))
@@ -368,13 +374,14 @@ function migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyM
 // Select the retained chain by the saved version, since its converters
 // stamp CONFIG_VERSION. Only shipped data grants authority over a row.
 // Resolve automatic voice selection before removing the mode it used.
-function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
+function migrateConfig(config, shipped) {
     var same = { config: config, migrated: false };
-    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5, 6].indexOf(config.version) === -1)) return same;
-    var previous = migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations);
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5, 6, 7].indexOf(config.version) === -1)) return same;
+    var shortcutKeyMigrations = shipped.shortcutKeyMigrations;
+    var previous = migrateShortcutKeysV5(config, shipped.packageReviewSettingsSource, shortcutKeyMigrations);
     if (previous.error !== undefined) return previous;
     var out = clone(previous.config), moved = previous.migrated;
-    var migration = conversationSettingsMigration;
+    var migration = shipped.conversationSettingsMigration;
     if ((config.version === undefined || config.version < 6) && migration !== undefined && Array.isArray(out.plugins)) {
         for (var i = 0; i < out.plugins.length; i++) {
             var row = out.plugins[i];
@@ -404,7 +411,7 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
             }
         }
     }
-    if (shortcutKeyMigrations !== undefined && Array.isArray(out.plugins)) {
+    if ((config.version === undefined || config.version < 7) && shortcutKeyMigrations !== undefined && Array.isArray(out.plugins)) {
         shortcutKeyMigrations.forEach(function (replacement) {
             if (replacement.targetVersion !== 7) return;
             var key = hyprlandKey(replacement.to).key;
@@ -418,7 +425,10 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
             });
         });
     }
-    if (config.version === undefined && !moved) return same;
+    var widget = migrateBuiltinWidgetV8(out, shipped.builtinWidgetMigration);
+    if (widget.error !== undefined) return { config: config, migrated: false, error: widget.error };
+    if (config.version === undefined && !moved && !widget.migrated) return same;
+    out = widget.config;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };
 }
@@ -483,39 +493,128 @@ function renamePlugins(config, renames) {
     return renamed ? { config: out, renamed: true } : same;
 }
 
+// A migration descriptor's plugin ID is a dotted sequence of names. The
+// first part is the author namespace, whose grammar excludes hyphens.
+function migrationPluginId(id) {
+    if (typeof id !== "string") return false;
+    var parts = id.split(".");
+    return parts.length > 1 && parts[0].indexOf("-") === -1
+        && parts.every(function (part) { return NAME_PATTERN.test(part); });
+}
+
+// Convert trusted descriptor data to a split claim. A built-in's owner
+// comes from its former ID, so the migration cannot name a second source.
+function builtinWidgetMigrationClaim(migration) {
+    var label = "builtinWidgetMigration";
+    if (!isPlainObject(migration) || Object.keys(migration).length !== 3
+        || !hasOwn(migration, "formerId") || !hasOwn(migration, "to") || !hasOwn(migration, "keys"))
+        return { error: label + " must hold formerId, to and keys" };
+    var parts = typeof migration.formerId === "string" ? migration.formerId.split("/") : [];
+    if (parts.length !== 2 || !migrationPluginId(parts[0]) || !NAME_PATTERN.test(parts[1]))
+        return { error: label + ".formerId must name a built-in as <plugin id>/<name>" };
+    if (!migrationPluginId(migration.to) || migration.to === parts[0])
+        return { error: label + ".to must name a different plugin" };
+    var keys = migration.keys;
+    if (!Array.isArray(keys) || keys.length === 0 || keys.some(function (key, at) {
+        return typeof key !== "string" || !SETTING_KEY_PATTERN.test(key)
+            || key === "id" || key === "keys" || keys.indexOf(key) !== at;
+    })) return { error: label + ".keys must list unique setting names" };
+    return { from: parts[0], to: migration.to, keys: keys, settingsOnly: true };
+}
+
+function pluginReferenced(config, id) {
+    var layout = isPlainObject(config.bar) && isPlainObject(config.bar.layout) ? config.bar.layout : {};
+    var namesId = function (row) { return row.id === id; };
+    return (config.plugins || []).some(namesId) || (config.disabledPlugins || []).indexOf(id) !== -1
+        || SECTIONS.some(function (section) { return (layout[section] || []).some(namesId); });
+}
+
+// The layer merge keeps the last row for a plugin. A versioned extraction
+// reads the owner's saved settings from that same row.
+function lastPluginRow(rows, id) {
+    for (var at = rows.length - 1; at >= 0; --at)
+        if (rows[at].id === id) return rows[at];
+    return undefined;
+}
+
 // A split is recorded by its target's first reference in the user file.
-// Always add a plugins[] row with a copied disable or placement, so a later
-// enable or hide cannot repeat the split (D110). MARK_ONLY is for the first
-// write of an absent file: that edit is new user intent, not saved history.
-function splitPlugins(config, splits, markOnly) {
+// BEFORE_RENAMES supplies the references for a combined migration. Copy
+// from the renamed source and add a target row if the rename did not
+// produce one (D110). MARK_ONLY records a split on the first write of an
+// absent file without copying the new edit.
+function splitPlugins(config, splits, markOnly, beforeRenames) {
     var same = { config: config, split: false };
     if (!isPlainObject(config) || !Array.isArray(splits) || splits.length === 0) return same;
     var out = clone(config), changed = false;
     var layout = isPlainObject(out.bar) && isPlainObject(out.bar.layout) ? out.bar.layout : {};
+    var references = beforeRenames === undefined ? out : beforeRenames;
     splits.forEach(function (claim) {
+        if (pluginReferenced(references, claim.to)) return;
         var rows = out.plugins || [], disabled = out.disabledPlugins || [];
-        if (rows.some(function (row) { return row.id === claim.to; }) || disabled.indexOf(claim.to) !== -1 ||
-            SECTIONS.some(function (section) { return (layout[section] || []).some(function (row) { return row.id === claim.to; }); })) return;
-        var target = { id: claim.to };
+        var existing = lastPluginRow(rows, claim.to);
+        var target = existing === undefined ? { id: claim.to } : existing;
         if (!markOnly) {
-            var source = rows.filter(function (row) { return row.id === claim.from; })[0];
-            claim.keys.forEach(function (key) { if (source && hasOwn(source, key)) target[key] = clone(source[key]); });
-            if (disabled.indexOf(claim.from) !== -1) disabled.push(claim.to);
-            SECTIONS.forEach(function (section) {
-                if (!Array.isArray(layout[section])) return;
-                var placed = [];
-                layout[section].forEach(function (row) {
-                    if (row.id === claim.from) placed.push({ id: claim.to });
-                    placed.push(row);
-                });
-                layout[section] = placed;
+            var source = claim.settingsOnly === true ? lastPluginRow(rows, claim.from)
+                : rows.filter(function (row) { return row.id === claim.from; })[0];
+            claim.keys.forEach(function (key) {
+                if (!source || !hasOwn(source, key) || hasOwn(target, key)) return;
+                target[key] = clone(source[key]);
+                changed = true;
             });
+            // A former built-in's rename carries its own placement and
+            // disablement independently of the source plugin.
+            if (claim.settingsOnly !== true) {
+                if (disabled.indexOf(claim.from) !== -1 && disabled.indexOf(claim.to) === -1) {
+                    disabled.push(claim.to);
+                    changed = true;
+                }
+                SECTIONS.forEach(function (section) {
+                    if (!Array.isArray(layout[section])) return;
+                    var placed = [];
+                    layout[section].forEach(function (row) {
+                        if (row.id === claim.from) {
+                            placed.push({ id: claim.to });
+                            changed = true;
+                        }
+                        placed.push(row);
+                    });
+                    layout[section] = placed;
+                });
+            }
         }
+        if (existing !== undefined) return;
         rows.push(target);
         out.plugins = rows;
         changed = true;
     });
     return changed ? { config: out, split: true } : same;
+}
+
+// Decide eligibility before renaming IDs and apply both migrations before
+// publishing the user's configuration.
+function migratePlugins(config, renames, splits) {
+    var renamed = renamePlugins(config, renames);
+    var split = splitPlugins(renamed.config, splits, false, config);
+    return { config: split.config, renamed: renamed.renamed, split: split.split };
+}
+
+// Run after the retained format-7 step. Rename each saved reference and
+// transfer settings before the caller advances the saved version.
+function migrateBuiltinWidgetV8(config, migration) {
+    var same = { config: config, migrated: false };
+    if (migration === undefined) return same;
+    var claim = builtinWidgetMigrationClaim(migration);
+    if (claim.error !== undefined) return { config: config, migrated: false, error: claim.error };
+    // Unlike the registry path, this runs before the caller's final judge.
+    // The combined transfer requires valid rows and layout lists. Judge
+    // the previous step's shape under the current version before using it.
+    var bad = configError(isPlainObject(config) ? Object.assign(Object.create(null), config, { version: CONFIG_VERSION }) : config);
+    if (bad !== "") return { config: config, migrated: false, error: bad };
+    var source = lastPluginRow(config.plugins || [], claim.from);
+    var savedSettings = source !== undefined && claim.keys.some(function (key) { return hasOwn(source, key); });
+    if (!savedSettings && !pluginReferenced(config, migration.formerId)) return same;
+    var moved = migratePlugins(config, { [migration.formerId]: claim.to }, [claim]);
+    return { config: moved.config, migrated: moved.renamed || moved.split };
 }
 
 // Merge the shipped defaults with the user file. Every top-level key in the
