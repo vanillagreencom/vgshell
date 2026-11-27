@@ -58,7 +58,42 @@ function settingsRead() {
     const settings = effective.packages?.review || { agent: "", command: "" };
     return { version: 1, text, settings };
 }
+// The cause the terminal settings editor shows under its failed-save line,
+// by the key and value that lead each refusal settingsWrite can end with;
+// any other refusal takes SETTINGS_WRITE_UNKNOWN. Only
+// review-settings=changed tells the user to reopen the editor: it alone
+// means the editor's own read is out of date. The editor's snapshot and
+// choices come from this owner, so review-settings=snapshot takes the
+// general line.
+const SHIPPED_UNREADABLE = "VGS could not read its default settings.";
+const SETTINGS_WRITE_CAUSES = new Map([
+    ["review-settings=changed", "The settings file changed after this editor read it. Cancel and reopen this editor to read it again."],
+    ["review-settings=invalid", "VGS cannot save these choices because they are not valid."],
+    ["review-settings=live-unconfirmed", "The running shell did not confirm that it saved the settings."],
+    ["review-settings=live-unavailable", "VGS could not find out if the shell is running."],
+    ["user-config=unreadable", "VGS could not read your settings file."],
+    ["user-config=unparseable", "Your settings file contains an error, so VGS cannot read it."],
+    ["user-config=malformed", "Your settings file contains a value that this version of VGS does not accept."],
+    ["user-config=pre-conversion-unsaved", "VGS could not save a backup of your settings file, so it did not update the file to the new format."],
+    ["user-config=unwritable", "VGS could not write your settings file."],
+    ["user-config=changed", "Another program changed your settings file while VGS saved it."],
+    ["shipped-config=unreadable", SHIPPED_UNREADABLE],
+    ["shipped-config=unparseable", SHIPPED_UNREADABLE],
+    ["shipped-config=malformed", SHIPPED_UNREADABLE]
+]);
+const SETTINGS_WRITE_UNKNOWN = "No further detail is available.";
+
+// Save the editor's choices against its SNAPSHOT. A refusal carries the
+// editor's cause as its detail, printed under the refusal line.
 function settingsWrite(snapshot, settings) {
+    try {
+        return writeSettings(snapshot, settings);
+    } catch (e) {
+        if (!(e instanceof files.Refusal)) throw e;
+        throw new files.Refusal(e.first, e.reason, e.status, SETTINGS_WRITE_CAUSES.get(e.first.split(" ")[0]) ?? SETTINGS_WRITE_UNKNOWN);
+    }
+}
+function writeSettings(snapshot, settings) {
     if (!object(snapshot) || snapshot.version !== 1 || (snapshot.text !== null && typeof snapshot.text !== "string")) refuse("review-settings=snapshot");
     const latest = settingsRead();
     if (latest.text !== snapshot.text) refuse("review-settings=changed");
@@ -79,16 +114,13 @@ function settingsWrite(snapshot, settings) {
         // A failed/unconfirmed IPC write never falls through to this branch.
         if (live.status !== 69 || !live.stderr.startsWith("vgshell: refused: shell=not-running ")) refuse("review-settings=live-unavailable");
         const file = path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "vgshell/shell.json");
-        const failed = files.editFile("user-config", file, true, current => {
-            if ((current === undefined ? null : Buffer.from(current, "latin1").toString("utf8")) !== snapshot.text) refuse("review-settings=changed");
-            const shipped = files.readConfig(configLogic, path.join(repo, "config/shell.json"), "shipped-config");
-            const moved = latest.text === null ? { config: null } : configLogic.migrateConfig(JSON.parse(latest.text), shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
-            if (moved.error) refuse("review-settings=invalid");
-            const next = configLogic.withPackageReview(moved.config, settings);
+        const shipped = files.readConfig(configLogic, path.join(repo, "config/shell.json"), "shipped-config");
+        files.editUserConfig(configLogic, file, shipped, (config, text) => {
+            if (text !== snapshot.text) refuse("review-settings=changed");
+            const next = configLogic.withPackageReview(config, settings);
             if (!next.ok) refuse("review-settings=invalid error=" + next.error);
-            return Buffer.from(JSON.stringify(next.config, null, 2) + "\n", "utf8").toString("latin1");
+            return next.config;
         });
-        if (failed !== null) refuse(failed.failure);
     }
     return settingsRead();
 }

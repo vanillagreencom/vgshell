@@ -2,7 +2,7 @@
 # Terminal package-review editor. The package owner supplies snapshots and
 # retains live and offline persistence; this file only edits choices.
 vgs_pkg_review_settings() { # OWNER
-    local owner=$1 snapshot choices row value summary plan options presets_text id label state accounts saved directory shown
+    local owner=$1 snapshot choices row value summary plan options presets_text id label state accounts saved directory shown failure
     # gum 2.0.2 input cuts each header line at the terminal's last column and
     # does not wrap it. Each line fits an 80-column terminal after the
     # 3-column edge.
@@ -95,12 +95,17 @@ A custom AUR command that cannot run the review asks before continuing.'
                     mapfile -t words <<< "$plan"
                     vgs_pkg_review_command 'Review command' "${words[@]}"
                 fi
-                if "$owner" review-settings-write "$snapshot" "$choices" >/dev/null 2>&1; then
+                if failure="$("$owner" review-settings-write "$snapshot" "$choices" 2>&1 >/dev/null)"; then
                     vgs_tui_success 'Package review settings saved.' >&2
                     return 0
                 fi
                 vgs_tui_error 'VGS could not save the settings. Your choices are still open.'
-                vgs_tui_text 'The settings file may have changed. Cancel and reopen this editor to read it again.' >&2
+                # The owner prints the cause under its refusal line
+                # (pkg-review.js settingsWrite); any other output is not
+                # for the user, and the line above stands alone.
+                if [[ $failure == 'vgshell: refused: '*$'\n'* ]]; then
+                    vgs_tui_text "${failure#*$'\n'}" >&2
+                fi
                 vgs_pkg_review_choose 'Keep your choices' -- 'Return to editor' >/dev/null || return 130
                 ;;
             *) return 130 ;;

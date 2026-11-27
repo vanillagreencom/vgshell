@@ -1145,18 +1145,21 @@ printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"
 inst "add over a version 1 user file succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
 check "add writes a version 1 user file as version 6 with the entry's setting in its row" migrated_on_add "$cfg"
 check "add over a version 1 user file places the widget" widget_shown "$cfg"
-# The control: a judge copy whose edit reads the user file unmigrated.
+printf '%s\n' "$version_one_user" >"$tmp/version-one-before"
+check "add over a version 1 user file first saves its bytes as the pre-conversion copy" cmp -s -- "$tmp/version-one-before" "$tmp/home/.local/state/vgshell/shell-pre-conversion.json"
+# The control: a judge copy whose user-config edit (judge-files.js) reads the user file unmigrated.
 unmigrated="$tmp/unmigrated"; mkdir -p "$unmigrated/bin"
 cp -- "$repo/bin/vgshell" "$unmigrated/bin/vgshell"
 for sibling in shell config; do ln -s "$repo/$sibling" "$unmigrated/$sibling"; done
-for tool in vgshell-scan lib; do ln -s "$repo/bin/$tool" "$unmigrated/bin/$tool"; done
+ln -s "$repo/bin/vgshell-scan" "$unmigrated/bin/vgshell-scan"
+cp -- "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge"
+cp -R -- "$repo/bin/lib" "$unmigrated/bin/lib"
 python3 -c '
 import sys
 src, dst, old, new = sys.argv[1:]
 text = open(src).read()
 if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
-open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations, conversationSettingsMigration))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
-chmod +x "$unmigrated/bin/vgshell-plugin-judge"
+open(dst, "w").write(text.replace(old, new))' "$repo/bin/lib/judge-files.js" "$unmigrated/bin/lib/judge-files.js" 'moved = migratedConfig(logic, parsedJson(text, file, key), file, key, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);' 'moved = { config: judgedConfig(logic, parsedJson(text, file, key), file, key), migrated: false };'
 cfg="$tmp/cfg-version-one-mutant"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"
 INST_BIN="$unmigrated/bin/vgshell" inst "the unmigrated mutant refuses the version 1 user file" "$cfg" "$rt_empty" 1 "$any_out" "$any_out" plugin add --yes "$tmp/src/widget.git"

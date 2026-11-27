@@ -11,6 +11,7 @@
 // (a structured result) or undo a half-made change on the way out.
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
@@ -63,6 +64,11 @@ function readJson(file, key, optional = false) {
         if (optional && e.code === "ENOENT") return null;
         refuse(key + "=unreadable path=" + file + " error=" + e.code, "unreadable");
     }
+    return parsedJson(text, file, key);
+}
+
+// TEXT, read from FILE, parsed; refuses `KEY=unparseable path=<file>`.
+function parsedJson(text, file, key) {
     try {
         return JSON.parse(text);
     } catch (e) {
@@ -86,9 +92,75 @@ function readConfig(logic, file, key) {
 function readUserConfig(logic, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
     const config = readJson(file, key, true);
     if (config === null) return null;
+    return migratedConfig(logic, config, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration).config;
+}
+
+// ConfigLogic.migrateConfig's answer for the parsed user layer CONFIG, its
+// config judged; a migration error refuses as `malformed`.
+function migratedConfig(logic, config, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
     const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);
     if (moved.error) refuse(key + "=malformed path=" + file + " error=" + moved.error, "malformed");
-    return judgedConfig(logic, moved.config, file, key);
+    judgedConfig(logic, moved.config, file, key);
+    return moved;
+}
+
+// Edit the user's shell.json layer FILE through editFile, which keeps a
+// save the user makes in an editor meanwhile and makes the file when
+// absent. EDIT maps the configuration readUserConfig reads from the bytes
+// editFile read, null for an absent file, and that file's text, null when
+// absent, to the configuration to write, or null to leave the file. EDIT
+// may run twice, as editFile's may. A file migrateConfig converts is
+// replaced only once savePreConversion holds its exact bytes, as Config.qml
+// saves them before it writes a conversion; an edit that writes nothing
+// copies nothing. Refuses with readUserConfig's line, savePreConversion's or
+// editFile's failure, each led by `user-config`, and the user file left.
+function editUserConfig(logic, file, shipped, edit) {
+    const key = "user-config";
+    const failure = editFile(key, file, true, current => {
+        let next;
+        let moved = { migrated: false };
+        let bytes;
+        if (current === undefined) {
+            next = edit(null, null);
+        } else {
+            bytes = Buffer.from(current, "latin1");
+            const text = bytes.toString("utf8");
+            moved = migratedConfig(logic, parsedJson(text, file, key), file, key, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+            next = edit(moved.config, text);
+        }
+        if (next === null) return null;
+        if (moved.migrated) savePreConversion(bytes);
+        // editFile writes one byte per character; the JSON is UTF-8.
+        return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
+    });
+    if (failure !== null) refuse(failure.failure, failure.reason);
+}
+
+// Config.qml's preConversionPath: Paths.stateDir, XDG_STATE_HOME or else
+// HOME's .local/state, then vgshell, so the shell's newer-version notice
+// names the copy a CLI writer saved. HOME resolves as the CLI resolves it
+// for the user file (bin/lib/pkg-review.js, bin/vgshell-pkg), the
+// account's home when unset; Paths reads HOME alone, which a session sets.
+function preConversionPath() {
+    return (process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), ".local/state")) + "/vgshell/shell-pre-conversion.json";
+}
+
+// Save BYTES, a user file's source before its conversion, as the one
+// pre-conversion copy, replacing an earlier conversion's by rename, as
+// Config.qml's FileView commits it, so a failed save keeps the earlier copy
+// whole; then read it back. Refuses `user-config=pre-conversion-unsaved
+// path=<copy> error=<code|readback-mismatch>` when the save or the read
+// fails or the copy holds other bytes.
+function savePreConversion(bytes) {
+    const copy = preConversionPath();
+    let error = "readback-mismatch";
+    try {
+        stagedReplace(copy, bytes);
+        if (fs.readFileSync(copy).equals(bytes)) return;
+    } catch (e) {
+        error = e.code;
+    }
+    refuse("user-config=pre-conversion-unsaved path=" + copy + " error=" + error, "pre-conversion-unsaved");
 }
 
 function judgedConfig(logic, config, file, key) {
@@ -129,27 +201,39 @@ function refuseChanged(file, key) {
 // editor takes a lock, so a save inside the instant between that read and
 // the rename is still lost.
 function replaceFile(file, data, key, mode, current) {
-    const tmp = file + ".vgshell-" + process.pid;
-    let changed = false;
+    let kept = true;
     writing(file, key, () => {
-        try {
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            if (mode === undefined) {
-                fs.writeFileSync(tmp, data);
-            } else {
-                fs.rmSync(tmp, { force: true });
-                fs.writeFileSync(tmp, data, { flag: "wx", mode: 0o600 });
-                fs.chmodSync(tmp, mode);
-            }
-            if (current !== undefined) changed = !holds(file, current);
-            if (changed) fs.rmSync(tmp, { force: true });
-            else fs.renameSync(tmp, file);
-        } catch (e) {
-            fs.rmSync(tmp, { force: true });
-            throw e;
-        }
+        kept = stagedReplace(file, data, mode, current === undefined ? undefined : () => holds(file, current));
     });
-    if (changed) refuseChanged(file, key);
+    if (!kept) refuseChanged(file, key);
+}
+
+// replaceFile's staging and rename, made with FILE's directory: a failed
+// write leaves FILE as it was. KEEP, when given, is asked just before the
+// rename; false removes the staging copy and answers false, else the
+// rename answers true. Throws the fs error, for the caller to key, and
+// leaves no staging file.
+function stagedReplace(file, data, mode, keep) {
+    const tmp = file + ".vgshell-" + process.pid;
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        if (mode === undefined) {
+            fs.writeFileSync(tmp, data);
+        } else {
+            fs.rmSync(tmp, { force: true });
+            fs.writeFileSync(tmp, data, { flag: "wx", mode: 0o600 });
+            fs.chmodSync(tmp, mode);
+        }
+        if (keep !== undefined && !keep()) {
+            fs.rmSync(tmp, { force: true });
+            return false;
+        }
+        fs.renameSync(tmp, file);
+        return true;
+    } catch (e) {
+        fs.rmSync(tmp, { force: true });
+        throw e;
+    }
 }
 
 // Make LINK a symlink naming TO by renaming one made beside it over it, so
@@ -318,4 +402,4 @@ function shellWord(word) {
     return "'" + word.replace(/'/g, "'\\''") + "'";
 }
 
-module.exports = { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };
+module.exports = { Refusal, refuse, main, readJson, readConfig, readUserConfig, editUserConfig, writing, replaceFile, linkByRename, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };

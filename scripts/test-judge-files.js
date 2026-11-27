@@ -11,7 +11,10 @@
 // node process. `lockFile` holds a flock one holder at a time.
 // `editFile` keeps a save the user makes between its read and its write,
 // the edit run again on the saved text, and refuses `changed` when the file
-// changes under both runs.
+// changes under both runs. `editUserConfig` saves a converted user file's
+// exact bytes at Config.qml's preConversionPath under XDG_STATE_HOME, by
+// rename, before it replaces the file, and refuses, the file and an earlier
+// copy left, when it cannot.
 //
 // The controls at the end edit a copy of the helper, one rule at a time,
 // and require this suite to fail on each copy.
@@ -22,7 +25,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const helperFile = path.join(__dirname, "..", "bin", "lib", "judge-files.js");
+const repo = path.join(__dirname, "..");
+const helperFile = path.join(repo, "bin", "lib", "judge-files.js");
+const configLogic = require(path.join(repo, "bin", "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
+const shipped = JSON.parse(fs.readFileSync(path.join(repo, "config", "shell.json"), "utf8"));
 const STAGING = /\.vgshell-[0-9]+$/;
 process.umask(0o022);
 
@@ -70,6 +76,26 @@ const EDIT_ROWS = [
     ["a save before each write refuses changed", false, "a\n", [1, 2], "changed", "user 2\n", ["a\n", "user 1\n"]],
     ["a file made before the first create is kept and edited", false, undefined, [1], null, "user 1\nedit\n", [undefined, "user 1\n"]],
     ["a file made before the create, saved before the retry, refuses changed", false, undefined, [1, 2], "changed", "user 2\n", [undefined, "user 1\n"]]
+];
+
+// editUserConfig rows: the name, the user file's text before (undefined for
+// absent), what stands at the copy's path first ("stale" an earlier copy,
+// "locked" an earlier copy in a directory that takes no new file, "dir" a
+// directory, undefined nothing), whether EDIT writes, the error code of the
+// `pre-conversion-unsaved` refusal (null for none), and what the copy's
+// path then holds ("before" the file's bytes before, "stale" the earlier
+// copy, "dir" the directory, "none" nothing). EDIT lists acme.x disabled.
+// The older file carries a non-ASCII byte and its own spacing, which a copy
+// of the parsed value would lose.
+const OLDER = '{"version": ' + (configLogic.CONFIG_VERSION - 1) + ', "plugins": [ { "id": "acme.y", "label": "caf\u00e9" } ]}\n';
+const CURRENT = '{ "version": ' + configLogic.CONFIG_VERSION + ' }\n';
+const USER_ROWS = [
+    ["a previous-version file is copied, replacing the old copy, then written", OLDER, "stale", true, null, "before"],
+    ["a blocked copy refuses and leaves the file", OLDER, "dir", true, "EISDIR", "dir"],
+    ["a failed copy save keeps the earlier copy and leaves the file", OLDER, "locked", true, "EACCES", "stale"],
+    ["a previous-version file the edit leaves is not copied", OLDER, undefined, false, null, "none"],
+    ["a current-version file is written without a copy", CURRENT, undefined, true, null, "none"],
+    ["an absent file is made without a copy", undefined, undefined, true, null, "none"]
 ];
 
 // main rows: the name, the command's body, the exit status, the stderr.
@@ -120,6 +146,47 @@ function verify(helper, root, file) {
         assert.deepEqual(runs, given, name + ": the text each run was given");
         assert.deepEqual(fs.readdirSync(dir).sort(), linked ? ["link.lua", "real.lua"] : ["real.lua"], name + ": no staging file is left");
     }
+    for (const [name, before, standing, writes, error, held] of USER_ROWS) {
+        const dir = fs.mkdtempSync(path.join(root, "user-"));
+        const file = path.join(dir, "config", "shell.json");
+        const copy = path.join(dir, "state", "vgshell", "shell-pre-conversion.json");
+        fs.mkdirSync(path.dirname(file));
+        if (before !== undefined) fs.writeFileSync(file, before);
+        if (standing === "stale" || standing === "locked") {
+            fs.mkdirSync(path.dirname(copy), { recursive: true });
+            fs.writeFileSync(copy, "stale\n");
+        }
+        // The copy itself stays writable, so only a save made beside it fails.
+        if (standing === "locked") fs.chmodSync(path.dirname(copy), 0o555);
+        if (standing === "dir") fs.mkdirSync(copy, { recursive: true });
+        const savedState = process.env.XDG_STATE_HOME;
+        process.env.XDG_STATE_HOME = path.join(dir, "state");
+        let refusal = null;
+        try {
+            helper.editUserConfig(configLogic, file, shipped, config => writes ? Object.assign({}, config, { disabledPlugins: ["acme.x"] }) : null);
+        } catch (e) {
+            if (!(e instanceof helper.Refusal)) throw e;
+            refusal = e;
+        } finally {
+            if (savedState === undefined) delete process.env.XDG_STATE_HOME;
+            else process.env.XDG_STATE_HOME = savedState;
+            if (standing === "locked") fs.chmodSync(path.dirname(copy), 0o755);
+        }
+        assert.deepEqual(refusal === null ? null : [refusal.reason, refusal.first], error === null ? null : ["pre-conversion-unsaved", "user-config=pre-conversion-unsaved path=" + copy + " error=" + error], name + ": the refusal");
+        if (held === "before") assert.equal(fs.readFileSync(copy, "latin1"), Buffer.from(before, "utf8").toString("latin1"), name + ": the copy holds the bytes before");
+        if (held === "stale") assert.equal(fs.readFileSync(copy, "utf8"), "stale\n", name + ": the earlier copy is kept");
+        if (held === "dir") assert.ok(fs.statSync(copy).isDirectory(), name + ": the directory stays");
+        if (held === "none") assert.equal(fs.existsSync(path.dirname(copy)), false, name + ": no copy is made");
+        else assert.deepEqual(fs.readdirSync(path.dirname(copy)), ["shell-pre-conversion.json"], name + ": no staging file is left");
+        if (!writes || error !== null) {
+            assert.equal(fs.readFileSync(file, "utf8"), before, name + ": the file is left");
+            continue;
+        }
+        const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (before !== undefined) assert.equal(saved.version, configLogic.CONFIG_VERSION, name + ": the file is written at this version");
+        assert.deepEqual(saved.disabledPlugins, ["acme.x"], name + ": the file holds the edit");
+    }
+
     // A dangling symlink is no file that appeared: the create stays
     // unwritable, not retried, and the link is left as it was.
     const danglingDir = fs.mkdtempSync(path.join(root, "dangling-"));
@@ -191,10 +258,10 @@ try {
     // Each control removes one rule's behaviour from a copy of the helper.
     const CONTROLS = [
         ["owner-only staging", '{ flag: "wx", mode: 0o600 }', '{ flag: "wx" }'],
-        ["stale staging removed", "                fs.rmSync(tmp, { force: true });\n", ""],
-        ["kept mode", "                fs.chmodSync(tmp, mode);\n", ""],
-        ["a refused rename leaves no staging file", "if (changed) fs.rmSync(tmp, { force: true });", "if (changed) {}"],
-        ["the file is compared before the rename", "if (current !== undefined) changed = !holds(file, current);", ""],
+        ["stale staging removed", "            fs.rmSync(tmp, { force: true });\n            fs.writeFileSync(tmp, data, { flag", "            fs.writeFileSync(tmp, data, { flag"],
+        ["kept mode", "            fs.chmodSync(tmp, mode);\n", ""],
+        ["a refused rename leaves no staging file", "            fs.rmSync(tmp, { force: true });\n            return false;", "            return false;"],
+        ["the file is compared before the rename", "current === undefined ? undefined : () => holds(file, current)", "undefined"],
         ["a changed file is edited once more", 'first.reason === "changed" ? editOnce(key, file, create, edit) : first', 'false ? editOnce(key, file, create, edit) : first'],
         ["a file that appeared before the create is changed", 'e.code === "EEXIST" && fs.existsSync(file)', 'false'],
         ["a command is executable", "fs.accessSync(file, fs.constants.X_OK);", "fs.accessSync(file, fs.constants.F_OK);"],
@@ -207,7 +274,9 @@ try {
         ["a bounded wait is bounded", ': ["-w", String(wait), "-E", "75", "3"];', ': ["-n", "-E", "75", "3"];'],
         ["a held lock is held", 'if (taken.status === 0) return { state: "held"', 'if (taken.status === 0 || taken.status === 75) return { state: "held"'],
         ["a released lock is free", "release() { fs.closeSync(fd); } };", "release() {} };"],
-        ["a lock that cannot be made fails", 'return { state: "failed", error: e.code };', 'return { state: "busy" };']
+        ["a lock that cannot be made fails", 'return { state: "failed", error: e.code };', 'return { state: "busy" };'],
+        ["a converted user file is copied before it is written", "        if (moved.migrated) savePreConversion(bytes);\n", ""],
+        ["the copy is saved by rename", "        stagedReplace(copy, bytes);\n", "        fs.mkdirSync(path.dirname(copy), { recursive: true });\n        fs.writeFileSync(copy, bytes);\n"]
     ];
     const source = fs.readFileSync(helperFile, "utf8");
     CONTROLS.forEach(([label, needle, replacement], index) => {
@@ -222,7 +291,7 @@ try {
         }
         assert.ok(failed, `control "${label}": the suite passed on a helper without that rule`);
     });
-    console.log(`test-judge-files: ok rows=${ROWS.length + 1 + EDIT_ROWS.length + 1 + PATH_ROWS.length + MAIN_ROWS.length} controls=${CONTROLS.length}`);
+    console.log(`test-judge-files: ok rows=${ROWS.length + 1 + EDIT_ROWS.length + 1 + USER_ROWS.length + PATH_ROWS.length + MAIN_ROWS.length} controls=${CONTROLS.length}`);
 } finally {
     fs.writeFileSync = writeFileSync;
     fs.rmSync(root, { recursive: true, force: true });

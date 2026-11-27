@@ -34,7 +34,9 @@
 //       disabledPlugins when the configuration would enable it. Print
 //       `written` or `unchanged`. Either file that ConfigLogic.configError
 //       refuses is refused as `malformed`; a user file an editor keeps
-//       saving during the write is refused as `changed` (editFile).
+//       saving during the write is refused as `changed` (editFile); one of
+//       an older format version whose pre-conversion copy is not saved is
+//       refused as `pre-conversion-unsaved`, the file left.
 //   vgshell-plugin-judge requirements text|json <shipped-config> <user-config> <id>
 //       read `bin/vgshell-scan` JSON on stdin and print the requirements of
 //       plugin <id>, the one the shell's registry would hold under it, the
@@ -111,7 +113,7 @@ const logic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 // The configuration judgement, the ConfigLogic.js PluginLogic imports, so
 // the judge loads it once.
 const configLogic = logic.ConfigLogic;
-const { refuse, main, readJson, readConfig, readUserConfig, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { refuse, main, readJson, readConfig, readUserConfig, editUserConfig, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 
 // What detection answers on a system where no manager is looked for.
 const NO_MANAGERS = { primary: null, overlays: [], sources: [] };
@@ -324,20 +326,6 @@ function doctorLines(report) {
     return lines;
 }
 
-// Edit the user file at USERPATH through editFile, which keeps a save the
-// user makes in an editor meanwhile and makes the file when absent: EDIT
-// maps its configuration, null for an absent file, to the configuration to
-// write, or null to leave the file. EDIT may run twice, as editFile's may.
-function editUserConfig(userPath, source, shortcutKeyMigrations, conversationSettingsMigration, edit) {
-    const failure = editFile("user-config", userPath, true, current => {
-        const next = edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations, conversationSettingsMigration));
-        if (next === null) return null;
-        // editFile writes one byte per character; the JSON is UTF-8.
-        return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
-    });
-    if (failure !== null) refuse(failure.failure, failure.reason);
-}
-
 // `unmet`'s lines for PLUGIN: its missing requirements, then
 // the commands that install their packages, one per manager in detection
 // order, or the packages alone for a manager that installs nothing
@@ -440,7 +428,7 @@ main(() => {
         const defaultBarId = logic.activeBarId(shipped, "");
         const shown = logic.landsShown(manifest);
         let written = false;
-        editUserConfig(userPath, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration, user => {
+        editUserConfig(configLogic, userPath, shipped, user => {
             const effective = configLogic.effectiveConfig(shipped, user);
             written = shown !== logic.isEnabled(effective, manifest, defaultBarId) || (shown && !logic.isPlaced(effective, manifest));
             return written ? logic.withEnabled(user, manifest, shown, effective) : null;

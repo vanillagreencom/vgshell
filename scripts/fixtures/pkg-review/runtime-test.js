@@ -393,7 +393,7 @@ try{
 
  }
  // Every settings persistence mode keeps its existing Config contract.
- for(const mode of ["offline","saved-off","offline-race","live-confirm","live-unconfirmed","concurrent","malformed","future","unreadable"]){
+ for(const mode of ["offline","offline-previous","offline-copy-blocked","offline-editor-blocked","offline-editor-changed","saved-off","offline-race","live-confirm","live-unconfirmed","concurrent","malformed","future","unreadable"]){
   const world=create(path.join(scratch,"settings-"+mode),{settings:{agent:"",command:""}});
   const result=cp.spawnSync(process.execPath,[path.join(__dirname,"settings.js"),world.root,mode],{env:world.env,encoding:"utf8",timeout:30000});
   assert.equal(result.status,0,result.stdout+result.stderr);
