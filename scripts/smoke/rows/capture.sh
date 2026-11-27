@@ -611,6 +611,10 @@ capture_setting delay 3
 capture_setting smart true
 capture_setting processing '"save-copy"'
 capture_config real "{\"grim\":\"$capture_real_grim\",\"wl-copy\":\"$capture_real_copy\"}"
+# capture_sequence_delivery prints True or False for a clipboard it read in
+# the window, or `unmeasured LATE_MS` when its first look came after the
+# window, as under host load: it read no provider or payload, so the
+# reading is neither a pass nor a product failure.
 capture_sequence_delivery() {
   nested_input_check wl-paste || return 1
   python3 - "$capture_state" "$(capture_path)" "${shell_env[@]}" <<'PY'
@@ -625,6 +629,7 @@ limit = completed["at"] + 1
 answer = False
 command = b""
 observed_at = time.monotonic()
+expired = observed_at >= limit
 while observed_at < limit:
     try:
         reply = subprocess.run([*sys.argv[3:], "wl-paste", "--no-newline"], stdin=subprocess.DEVNULL, capture_output=True, env={}, timeout=max(0.001, limit-time.monotonic()))
@@ -641,12 +646,22 @@ while observed_at < limit:
         break
     time.sleep(0.01)
     observed_at = time.monotonic()
-sample = dict(completion=completed["event"], event_ms=round(1000*(saved["at"]-completed["at"])), delivered_ms=round(1000*(observed_at-completed["at"])), pid=saved["pid"], provider=command.decode(errors="replace").replace("\0", " "), copied=answer)
+sample = dict(completion=completed["event"], event_ms=round(1000*(saved["at"]-completed["at"])), delivered_ms=round(1000*(observed_at-completed["at"])), pid=saved["pid"], provider=None if expired else command.decode(errors="replace").replace("\0", " "), copied=None if expired else answer)
 with (root / "sequence-readings.jsonl").open("a") as log:
     log.write(json.dumps(sample) + "\n")
 print("capture-sequence: " + json.dumps(sample), file=sys.stderr)
-print(answer)
+print(f"unmeasured {sample['delivered_ms']}" if expired else answer)
 PY
+}
+capture_sequence_reading() { # LABEL
+  local got status=0 err="$sandbox/reader-$BASHPID.stderr"
+  got="$(capture_sequence_delivery 2>"$err")" || status=$?
+  reader_stderr "$1" "$err" || return 0
+  case "$status:$got" in
+    0:True) ok "$1" ;;
+    0:unmeasured\ *) not_measured capture "clipboard-observer-expired-first-look-${got#unmeasured }ms-past-1000ms" ;;
+    *) fail "$1: status=$status got $got" ;;
+  esac
 }
 capture_delivery_controls() {
   python3 - "$source_repo/scripts/smoke/rows/capture.sh" <<'PY_READER_CONTROLS'
@@ -667,10 +682,10 @@ with tempfile.TemporaryDirectory(prefix="capture-reader-controls-") as directory
         dict(event="saved", at=100.01, pid=os.getpid(), path=str(image)),
     ]) + "\n")
     cases = [
-        ("expired", "time.monotonic = lambda: 102\n", 'answer = False\ncommand = b""\n', 'answer = False\nif False: command = b""\n'),
-        ("timeout", "time.monotonic = lambda: 100\ndef unavailable(*args, **kwargs):\n    raise subprocess.TimeoutExpired(\"wl-paste\", 1)\nsubprocess.run = unavailable\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        break\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        raise\n"),
+        ("expired", "unmeasured 2000", "time.monotonic = lambda: 102\n", "expired = observed_at >= limit\n", "expired = False\n"),
+        ("timeout", "False", "time.monotonic = lambda: 100\ndef unavailable(*args, **kwargs):\n    raise subprocess.TimeoutExpired(\"wl-paste\", 1)\nsubprocess.run = unavailable\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        break\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        raise\n"),
     ]
-    for name, fixture, before, after in cases:
+    for name, verdict, fixture, before, after in cases:
         assert program.count(before) == 1, name
         for mutant in (False, True):
             body = program.replace(before, after) if mutant else program
@@ -681,12 +696,12 @@ with tempfile.TemporaryDirectory(prefix="capture-reader-controls-") as directory
             copy.write_text(body)
             result = subprocess.run([sys.executable, str(copy), str(root), str(image)], stdin=subprocess.DEVNULL,
                                     capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C", "VGS_TEST_RUN": "1"}, timeout=5)
-            state_failure = result.returncode == 0 and result.stdout.strip() == "False"
-            assert state_failure != mutant, (name, mutant, result.returncode, result.stdout, result.stderr)
+            reported = result.returncode == 0 and result.stdout.strip() == verdict
+            assert reported != mutant, (name, mutant, result.returncode, result.stdout, result.stderr)
 print(True)
 PY_READER_CONTROLS
 }
-expect "expired and timed-out clipboard readers fail as state words" True capture_delivery_controls
+expect "an expired clipboard reader reports not measured and a timed-out one fails as a state word" True capture_delivery_controls
 for capture_sequence_action in screenshot record screenshot-area screenshot-area screenshot-area; do
   expect "sequence: $capture_sequence_action starts" ok ipc vgs.capture invoke "$capture_sequence_action" ''
   if [[ $capture_sequence_action == record ]]; then
@@ -694,7 +709,7 @@ for capture_sequence_action in screenshot record screenshot-area screenshot-area
     expect "sequence: recording stops" ok ipc vgs.capture invoke record ''
   fi
   expect_poll "sequence: $capture_sequence_action finishes" idle capture_phase
-  expect "sequence: result reaches clipboard within one second, with only wl-copy as provider" True capture_sequence_delivery
+  capture_sequence_reading "sequence: result reaches clipboard within one second, with only wl-copy as provider"
   capture_sequence_previous_pid="$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1]).read().splitlines()[-1])["pid"])' "$capture_state/sequence-readings.jsonl")"
 done
 # The final provider remains until a real replacement on this same clipboard.
