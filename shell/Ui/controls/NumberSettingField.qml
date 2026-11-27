@@ -6,10 +6,12 @@ import qs.Ui
 // The editor of one number setting, from its schema entry `spec`, and the
 // value the configuration holds, `value`. Presets use Select; when custom
 // values are allowed, Custom… follows them, and a value no preset holds
-// shows under it in the custom row, a Slider for a bounded number, else a
-// text field. A bounded number with no presets uses Slider, and one with
-// neither presets nor bounds a text field. A unit makes the value read as
-// a quantity (SettingValues.quantityText).
+// shows under it in the custom row. With or without presets, the editor
+// uses Slider for a bounded number while its steps fit the slider's
+// travel. A text field takes over when they do not fit, states the range
+// in its hint and refuses an out-of-range draft without writing. A number
+// without bounds uses a text field. A unit makes a slider's reading a
+// quantity (SettingValues.quantityText).
 //
 // A Select or a Slider writes at once, through `apply`, and writes nothing
 // for the value held. A text field keeps what is typed until it is saved:
@@ -52,7 +54,10 @@ Column {
     property bool customChosen: false
     // The custom editor appeared and waits to be brought into view.
     property bool revealPending: false
+    // Keep a draft in view if a resize leaves room for a slider.
+    property bool draftHeld: false
     readonly property bool bounded: spec.min !== undefined && spec.max !== undefined
+    readonly property real readingWidth: Math.max(Theme.size.control.lg, minProbe.implicitWidth, maxProbe.implicitWidth, valueProbe.implicitWidth)
     // A list-like `presets`, as a spec read through a view's modelData
     // holds it (SettingValues.presetRows).
     readonly property bool hasPresets: spec.presets !== undefined && spec.presets !== null && typeof spec.presets.length === "number"
@@ -79,6 +84,11 @@ Column {
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
 
     onEditableChanged: if (!editable) discard()
+    onDisabledReasonChanged: if (disabledReason !== "") discard()
+    onEditedChanged: {
+        if (edited) draftHeld = true;
+        else Qt.callLater(root.releaseDraft);
+    }
     onValueChanged: if (selectedOfferIndex >= 0) customChosen = false
     onCustomVisibleChanged: if (!customVisible && editing(customLoader.item)) customLoader.item.revert()
     // The custom editor shows once this column has placed it
@@ -95,6 +105,41 @@ Column {
     }
 
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
+
+    function sliderWidth(width, readout) { return Math.max(0, width - readout - Theme.field.labelGap); }
+
+    function usesSlider(width) {
+        if (!bounded) return false;
+        // QQuickSliderPrivate::positionAt maps the pointer across the
+        // available width minus the handle. Leave two logical pixels per step.
+        // https://github.com/qt/qtdeclarative/blob/v6.11.2/src/quicktemplates/qquickslider.cpp
+        return spec.step === undefined || 2 * (spec.max - spec.min) / spec.step <= sliderWidth(width, readingWidth) - Theme.slider.handle;
+    }
+
+    // A Loader can replace the committed field once its save returns.
+    function releaseDraft() { if (!edited) draftHeld = false; }
+
+    function rangeAmount(number) {
+        // Use QLocale::FloatingPointShortest (-128) so a displayed bound
+        // round-trips even when it has more decimal places than the step.
+        // https://doc.qt.io/qt-6/qml-qtqml-number.html#toLocaleString-method
+        // https://doc.qt.io/qt-6/qlocale.html#FloatingPointPrecisionOption-enum
+        return Number(number).toLocaleString(Qt.locale("en_US"), "f", -128);
+    }
+
+    function rangeSpan() {
+        const unit = spec.unit === undefined ? "" : spec.unit;
+        const suffix = unit === "" || unit === "%" || unit === "×" ? unit : " " + unit;
+        return rangeAmount(spec.min) + " to " + rangeAmount(spec.max) + suffix;
+    }
+
+    function shownHint(typedRange) {
+        if (warning !== "") return warning;
+        if (!typedRange) return hint;
+        const range = "From " + rangeSpan();
+        return hint === "" ? range : hint + (/[.!?]$/.test(hint) ? " " : ". ") + range + ".";
+    }
+
     // Only the user's Custom… choice brings the row into view: a custom
     // value the field loads with, or another page writes, moves no page,
     // as Power's section, which a reveal would scroll from the row the
@@ -127,10 +172,24 @@ Column {
     // was accepted; the field then shows what the configuration holds.
     function commit(input) {
         const typed = SettingValues.typedNumber(input.text);
+        if (bounded && !(typed >= spec.min && typed <= spec.max)) {
+            input.refusal = "Enter a number from " + rangeSpan() + ".";
+            return;
+        }
+        input.refusal = "";
         apply(typed);
         if (typed !== value) return;
         input.text = heldText;
         wrote();
+    }
+
+    // Measure the resting readout independently of the editor so loading
+    // it or moving the slider cannot feed back into the choice.
+    Item {
+        visible: false
+        Label { id: minProbe; role: "label"; text: root.bounded ? root.displayNumber(root.spec.min) : "" }
+        Label { id: maxProbe; role: "label"; text: root.bounded ? root.displayNumber(root.spec.max) : "" }
+        Label { id: valueProbe; role: "label"; text: root.bounded && typeof root.value === "number" ? root.displayNumber(root.value) : "" }
     }
 
     Field {
@@ -139,10 +198,10 @@ Column {
         label: root.label
         info: root.info
         labelTooltip: root.tooltip
-        hint: root.customVisible ? "" : root.warning !== "" ? root.warning : root.hint
+        hint: root.customVisible ? "" : root.shownHint(!root.hasPresets && root.bounded && !loader.sliding)
         hintLink: root.customVisible || root.warning !== "" ? "" : root.hintLink
         hintTone: root.warning !== "" ? "warning" : ""
-        error: root.problem
+        error: loader.item instanceof DraftField && loader.item.refusal !== "" ? loader.item.refusal : root.problem
         inline: true
         onHintLinkActivated: root.hintLinkActivated()
         onHintPageActivated: (page, tab) => root.pageActivated(page, tab)
@@ -150,8 +209,9 @@ Column {
 
         Loader {
             id: loader
+            readonly property bool sliding: !root.hasPresets && !root.draftHeld && root.usesSlider(width)
             width: parent.width
-            sourceComponent: root.hasPresets ? presetChoice : root.bounded ? slider : text
+            sourceComponent: root.hasPresets ? presetChoice : sliding ? slider : text
         }
     }
 
@@ -160,18 +220,20 @@ Column {
         width: root.width
         visible: root.customVisible
         label: ""
-        hint: root.warning !== "" ? root.warning : root.hint
+        hint: root.shownHint(root.bounded && !customLoader.sliding)
         hintLink: root.warning !== "" ? "" : root.hintLink
         hintTone: root.warning !== "" ? "warning" : ""
+        error: customLoader.item instanceof DraftField ? customLoader.item.refusal : ""
         onHintLinkActivated: root.hintLinkActivated()
         onHintPageActivated: (page, tab) => root.pageActivated(page, tab)
         inline: true
 
         Loader {
             id: customLoader
+            readonly property bool sliding: root.allowCustom && !root.draftHeld && root.usesSlider(width)
             width: parent.width
             active: root.allowCustom
-            sourceComponent: root.bounded ? slider : customText
+            sourceComponent: sliding ? slider : text
         }
     }
 
@@ -200,22 +262,15 @@ Column {
         id: text
         DraftField {
             id: input
+            property string refusal: ""
             function save() { root.commit(input); }
             field: root
+            enabled: root.disabledReason === ""
             width: parent.width
-            focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus
-        }
-    }
-
-    // The custom row's text keeps its focus while the field turns
-    // read-only: Qt refuses a focus policy change of the active focus item.
-    Component {
-        id: customText
-        DraftField {
-            id: input
-            function save() { root.commit(input); }
-            field: root
-            width: parent.width
+            // The custom row keeps its focus while turning read-only. Qt
+            // refuses a focus policy change on the active focus item.
+            focusPolicy: parent === customLoader || root.editable ? Qt.StrongFocus : Qt.NoFocus
+            onTextChanged: refusal = ""
         }
     }
 
@@ -266,7 +321,7 @@ Column {
 
             Slider {
                 id: bar
-                width: parent.width - shown.width - Theme.field.labelGap
+                width: root.sliderWidth(parent.width, shown.width)
                 anchors.verticalCenter: parent.verticalCenter
                 from: root.spec.min
                 to: root.spec.max
@@ -280,13 +335,11 @@ Column {
                 onPressedChanged: if (!pressed) sliderRow.commit()
                 onMoved: if (!pressed) sliderRow.commit()
             }
-            Label { id: minProbe; visible: false; role: "label"; text: root.displayNumber(root.spec.min) }
-            Label { id: maxProbe; visible: false; role: "label"; text: root.displayNumber(root.spec.max) }
             Label {
                 id: shown
                 role: "label"
                 text: root.displayNumber(bar.value)
-                width: Math.max(implicitWidth, minProbe.implicitWidth, maxProbe.implicitWidth, Theme.size.control.lg)
+                width: Math.max(implicitWidth, root.readingWidth)
                 horizontalAlignment: Text.AlignRight
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter

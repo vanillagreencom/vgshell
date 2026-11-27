@@ -460,16 +460,14 @@ power_lock_choose() {
   type_keys "${keys[@]}" -k Return || { fail "typing in $id's Lock after list failed"; return 0; }
   expect_poll "Return closes $id's Lock after list" False power_list_open_in "$id"
 }
-# power_lock_custom ID KEY...: Tab from the Lock after list of ID to the
-# custom row's slider, which Custom… shows under it, and type each KEY on it.
-# Each Tab waits for the keys to move, so none is sent past the slider.
+# power_lock_custom ID SECONDS: Tab from the Lock after list of ID to the
+# custom number field, replace its text with SECONDS and commit it.
+# Each Tab waits for the keys to move, so none is sent past the field.
 power_lock_custom() {
-  local id="$1" focus next key keys=()
-  shift
-  for key in "$@"; do keys+=(-k "$key"); done
+  local id="$1" seconds="$2" focus next
   focus="$(ipc smoke activeFocusItem window "$id")" || { fail "the keys in $id are unreadable"; return 0; }
   for _ in 1 2 3 4 5 6; do
-    [[ $focus == '["Slider",'* ]] && break
+    [[ $focus == '["DraftField",'* ]] && break
     type_keys -k Tab || { fail "typing Tab in $id failed"; return 0; }
     smoke_poll_tries 50 1
     for _ in $(seq 1 "$smoke_poll_n"); do
@@ -479,8 +477,8 @@ power_lock_custom() {
     done
     focus="$next"
   done
-  [[ $focus == '["Slider",'* ]] || { fail "Tab from $id's Lock after list reached no custom slider: $focus"; return 0; }
-  type_keys "${keys[@]}" || fail "typing on $id's custom Lock after slider failed"
+  [[ $focus == '["DraftField",'* ]] || { fail "Tab from $id's Lock after list reached no custom field: $focus"; return 0; }
+  type_keys -M ctrl -k a -m ctrl "$seconds" -k Return || fail "typing in $id's custom Lock after field failed"
 }
 # power_lock_drawn HOST ID: power_lock_owner's readings, each once, so it
 # reads one entry exactly when every editor the surface draws agrees.
@@ -1358,7 +1356,7 @@ power_lock_shared() {
 
   # The list reads Never, the seven presets and Custom…, in that order.
   power_lock_choose "System Settings" vgs.system vgs.power "5 minutes" Down Down Down Down Down
-  power_lock_custom vgs.power Up
+  power_lock_custom vgs.power 330
   power_lock_seen "a custom time on the timeline" 330
   expect "Settings hides before the timeline's Never" ok ipc shell hide window vgs.settings
   power_lock_choose "System Settings" vgs.system vgs.power "Custom…" Up Up Up Up Up Up Up Up
@@ -1367,7 +1365,7 @@ power_lock_shared() {
   expect "Settings opens on Lock's page for its custom time" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
   expect_poll "Settings shows Lock's field for its custom time" '"vgs.lock" "idleLockSeconds"' power_settings_reveal
   power_lock_choose Plugins vgs.settings vgs.settings Never Down Down Down Down Down Down Down Down
-  power_lock_custom vgs.settings End
+  power_lock_custom vgs.settings 86400
   power_lock_seen "a custom time on Lock's page" 86400
   expect "Settings opens on Lock's page for its Never" ok ipc shell summon window vgs.settings '{"plugin":"vgs.lock","tab":"Settings/idleLockSeconds"}'
   expect_poll "Settings shows Lock's field for its Never" '"vgs.lock" "idleLockSeconds"' power_settings_reveal
@@ -1375,7 +1373,7 @@ power_lock_shared() {
   power_lock_seen "Never on Lock's page" 0
 
   power_lock_choose Plugins vgs.settings vgs.settings Never Down Down Down Down Down Down Down Down
-  power_lock_custom vgs.settings End Down
+  power_lock_custom vgs.settings 86370
   power_lock_seen "a custom time on Screensaver's row" 86370
   power_lock_choose Plugins vgs.settings vgs.settings "Custom…" Up Up Up Up Up Up Up Up
   power_lock_seen "Never on Screensaver's row" 0

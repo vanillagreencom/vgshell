@@ -9,7 +9,7 @@ import qs.Unit
 // runs, the list offers Immediately (<time>) after Never, in place of a
 // preset of that time; choosing it writes that time, which then reads as
 // Immediately with its hint, and the info dialog explains the snapshot. A
-// time no preset holds reads Custom… with its slider row; Never writes 0;
+// time no preset holds reads Custom… with its number field; Never writes 0;
 // the time held writes nothing. With no Immediately the list is the
 // owner's presets. On another plugin's page an owner that is off locks the
 // list with its reason, and the hint holds a page reference to the owner's
@@ -155,7 +155,9 @@ Item {
             const made = make({ value: 450 });
             compare(selectOf(made).currentText, "Custom…", "a time no preset holds reads Custom…");
             verify(made.customVisible);
-            verify(descendants(made).some(child => String(child).indexOf("Slider") === 0 && child.visible), "the custom row is the bounded slider");
+            const custom = descendants(made).find(child => child instanceof TextInput && child.visible);
+            verify(custom !== undefined, "the day in 30-second steps uses a number field");
+            compare(custom.text, "450");
             selectOf(made).choose(0);
             compare(root.written, [0], "Never writes 0");
             verify(!made.customVisible);

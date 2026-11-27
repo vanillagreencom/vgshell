@@ -195,7 +195,10 @@ FocusScope {
     }
 
     function add() {
-        root.forceActiveFocus(Qt.TabFocusReason);
+        // The clicked tool already has focus inside this scope. Focus the
+        // box itself so it gets the next key (Qt Item.forceActiveFocus).
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#forceActiveFocus-method
+        box.forceActiveFocus(Qt.TabFocusReason);
         edit(keys.length);
     }
 

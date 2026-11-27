@@ -18,10 +18,9 @@ import "../foundation/LineBreak.js" as LineBreak
 // A page reference in the text, `[words](page:<plugin id>)` or
 // `[words](page:<plugin id>/<tab>)`, or a file reference,
 // `[words](file:<encoded path>)`, which PageReference.js reads, draws its words
-// alone, as a link while the text holds no `link` words and the reference
-// names a page or a file, so an owner's fixed `link` gives way in a text
-// that does not cite it, and activating it emits `pageActivated` with that
-// page and tab, "" for no tab, in place of `activated`: a file
+// alone, as a link when the reference names a page or file and its words
+// do not overlap an explicit link. Activating it emits `pageActivated`
+// with that page and tab, "" for no tab, in place of `activated`: a file
 // reference's page is `file:<path>`. The owner hands it on to the core's
 // one reference route, which opens a page in Settings and a file or folder
 // through the core edit route (`shell.tui.edit`); a reference to no page,
@@ -78,7 +77,14 @@ T.Control {
     readonly property var citedWords: (Array.isArray(link) ? link : [link]).filter(item => item !== "" && plain.indexOf(item) !== -1)
     readonly property bool cited: citedWords.length > 0
     readonly property string words: cited ? citedWords[0] : reference.page !== "" ? reference.words : ""
-    readonly property var links: cited ? explicitLinks() : references.links.filter(item => item.page !== "")
+    readonly property var links: {
+        const pages = references.links.filter(item => item.page !== "");
+        if (!cited) return pages;
+        const explicit = explicitLinks();
+        const uncovered = pages.filter(item => !explicit.some(other => item.start < other.end && other.start < item.end));
+        return explicit.concat(uncovered).sort((a, b) => a.start - b.start);
+    }
+    readonly property bool distinctTargets: !cited || citedWords.length > 1 || links.some(item => item.page !== "")
     property int currentLink: 0
     property bool tabLinked: false
     // One link whose words are the whole text.
@@ -174,7 +180,7 @@ T.Control {
             for (let at = plain.indexOf(phrase); at !== -1; at = plain.indexOf(phrase, at + phrase.length))
                 result.push({ start: at, end: at + phrase.length, words: phrase, page: "", tab: "" });
         }
-        return result.sort((a, b) => a.start - b.start);
+        return result;
     }
 
     function positioned(font) {
@@ -263,7 +269,7 @@ T.Control {
     onLinksChanged: syncLinks()
     onClicked: {
         const target = links[currentLink];
-        if (target !== undefined && !cited && target.page !== "") pageActivated(target.page, target.tab);
+        if (target !== undefined && target.page !== "") pageActivated(target.page, target.tab);
         else activated(target === undefined ? "" : target.words);
     }
 
@@ -305,7 +311,7 @@ T.Control {
     // Qt Keys accepts handled events before the control's default handler:
     // https://doc.qt.io/qt-6/qml-qtquick-keys.html#key-handling-priorities
     // Arrows move between links only where they reach different targets.
-    Keys.onPressed: event => { event.accepted = links.length > 1 && (!cited || citedWords.length > 1) && navigation.handle(event); }
+    Keys.onPressed: event => { event.accepted = links.length > 1 && distinctTargets && navigation.handle(event); }
 
 
     Keys.onReturnPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }
