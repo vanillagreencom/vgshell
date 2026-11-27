@@ -48,7 +48,8 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // retired shortcut defaults. Retained converters run in saved-version order.
 // Version 5 also records retirement of a saved shortcut with null.
 // Version 6 retires a conversation mode and its private microphone key.
-var CONFIG_VERSION = 6;
+// Version 7 resets selected saved shortcuts to their new defaults.
+var CONFIG_VERSION = 7;
 
 // A newer build produces whole-number versions this build cannot read.
 // Classify them before inspecting any fields of that unknown format.
@@ -91,6 +92,11 @@ function configError(config) {
             var replacement = config.shortcutKeyMigrations[m];
             if (!isPlainObject(replacement) || typeof replacement.id !== "string" || typeof replacement.shortcut !== "string" || !NAME_PATTERN.test(replacement.shortcut))
                 return "shortcutKeyMigrations." + m + " must name a plugin id and shortcut";
+            if (replacement.targetVersion === 7) {
+                if (hasOwn(replacement, "from") || !hyprlandKey(replacement.to).ok)
+                    return "shortcutKeyMigrations." + m + " must name only a valid destination key";
+                continue;
+            }
             if (replacement.targetVersion !== undefined && replacement.targetVersion !== 5)
                 return "shortcutKeyMigrations." + m + " has unsupported targetVersion";
             if (!hyprlandKey(replacement.from).ok || !(replacement.targetVersion === 5 && replacement.to === null) && !hyprlandKey(replacement.to).ok)
@@ -364,12 +370,12 @@ function migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyM
 // Resolve automatic voice selection before removing the mode it used.
 function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
     var same = { config: config, migrated: false };
-    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5].indexOf(config.version) === -1)) return same;
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5, 6].indexOf(config.version) === -1)) return same;
     var previous = migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations);
     if (previous.error !== undefined) return previous;
     var out = clone(previous.config), moved = previous.migrated;
     var migration = conversationSettingsMigration;
-    if (migration !== undefined && Array.isArray(out.plugins)) {
+    if ((config.version === undefined || config.version < 6) && migration !== undefined && Array.isArray(out.plugins)) {
         for (var i = 0; i < out.plugins.length; i++) {
             var row = out.plugins[i];
             if (!isPlainObject(row) || row.id !== migration.id) continue;
@@ -397,6 +403,20 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
                 moved = true;
             }
         }
+    }
+    if (shortcutKeyMigrations !== undefined && Array.isArray(out.plugins)) {
+        shortcutKeyMigrations.forEach(function (replacement) {
+            if (replacement.targetVersion !== 7) return;
+            var key = hyprlandKey(replacement.to).key;
+            out.plugins.forEach(function (row) {
+                if (!isPlainObject(row) || row.id !== replacement.id || !isPlainObject(row.keys)) return;
+                var value = row.keys[replacement.shortcut];
+                if (value === undefined || value === null || keyValueError(value, "key", false) !== "") return;
+                if (value === key) return;
+                row.keys[replacement.shortcut] = key;
+                moved = true;
+            });
+        });
     }
     if (config.version === undefined && !moved) return same;
     out.version = CONFIG_VERSION;

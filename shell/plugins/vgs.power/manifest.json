@@ -304,7 +304,7 @@
     "binds": [
       {
         "shortcut": "power-menu",
-        "key": null,
+        "key": "SUPER+CTRL+code:119",
         "info": "Hold an action for 2 seconds with Space, Enter or the pointer to run it."
       }
     ]

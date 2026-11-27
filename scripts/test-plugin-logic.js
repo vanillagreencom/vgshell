@@ -218,7 +218,7 @@ function conversationMigration(configLogic, check) {
                 if (version !== undefined) user.version = version;
                 const before = JSON.stringify(user), got = migrate(user), row = got.config.plugins[0];
                 const label = "conversation migration: " + name + " version=" + version + " mute=" + JSON.stringify(mute);
-                check(label, [got.migrated, got.error, got.config.version, row.holdToTalk, Object.hasOwn(row, "mode"), Object.hasOwn(row.keys, "mute"), row.voiceProvider, row.keys.talk, row.keys.custom, row.keep], [true, undefined, 6, hold, false, false, provider, "SUPER+F8", null, false]);
+                check(label, [got.migrated, got.error, got.config.version, row.holdToTalk, Object.hasOwn(row, "mode"), Object.hasOwn(row.keys, "mute"), row.voiceProvider, row.keys.talk, row.keys.custom, row.keep], [true, undefined, 7, hold, false, false, provider, "SUPER+F8", null, false]);
                 check(label + " unrelated", [got.config.plugins[1], got.config.disabledPlugins, got.config.unrelated], [user.plugins[1], user.disabledPlugins, user.unrelated]);
                 check(label + " unchanged input", JSON.stringify(user), before);
                 check(label + " current once", migrate(got.config), { config: got.config, migrated: false });
@@ -237,7 +237,7 @@ function conversationMigration(configLogic, check) {
     }
     const injected = { version: 5, conversationSettingsMigration: { ...descriptor, id: "acme.other" }, plugins: [{ id: "acme.other", mode: "hold", keys: { mute: null } }] };
     check("conversation migration: user cannot redirect authority", migrate(injected).config.plugins, injected.plugins);
-    const current = { version: 6, plugins: [{ id: "vgs.jarvis", holdToTalk: true, keys: { talk: null, custom: "ALT+F8" } }] };
+    const current = { version: 7, plugins: [{ id: "vgs.jarvis", holdToTalk: true, keys: { talk: null, custom: "ALT+F8" } }] };
     check("conversation migration: current identity", migrate(current), { config: current, migrated: false });
 }
 
@@ -1395,7 +1395,7 @@ function suite(ctx, configLogic, check) {
     const stageRecord = (plugins, config) => {
         const manifests = Object.create(null);
         for (const [id, stages] of plugins) manifests[id] = stageOwner(id, stages);
-        return ctx.idleStages(manifests, plugins.map(p => p[0]), config || { version: 6, plugins: [] });
+        return ctx.idleStages(manifests, plugins.map(p => p[0]), config || { version: 7, plugins: [] });
     };
     const stageRows = record => record.stages.map(s => [s.stage, s.plugin, s.seconds, s.before]);
     for (const [name, plugins, want] of [
@@ -1420,8 +1420,8 @@ function suite(ctx, configLogic, check) {
     const contested = stageRecord([["acme.b", { lock: [60] }], ["acme.a", { lock: [600] }]]);
     check("idleStages: the later declarer of a stage is a problem", contested.problems.map(p => p.plugin), ["acme.b"]);
     check("idleStages: the record is frozen", Object.isFrozen(contested.stages) && Object.isFrozen(contested.stages[0]) && Object.isFrozen(contested.stages[0].before), true);
-    check("idleStages: a plugin not enabled owns no stage", stageRows(ctx.idleStages({ "acme.a": stageOwner("acme.a", { lock: [60] }) }, [], { version: 6, plugins: [] })), []);
-    const unfit = stageRecord([["acme.a", { dim: [60], lock: [120] }]], { version: 6, plugins: [{ id: "acme.a", lockSeconds: "soon" }] });
+    check("idleStages: a plugin not enabled owns no stage", stageRows(ctx.idleStages({ "acme.a": stageOwner("acme.a", { lock: [60] }) }, [], { version: 7, plugins: [] })), []);
+    const unfit = stageRecord([["acme.a", { dim: [60], lock: [120] }]], { version: 7, plugins: [{ id: "acme.a", lockSeconds: "soon" }] });
     check("idleStages: a stored time that does not fit leaves its stage out", stageRows(unfit), [["dim", "acme.a", 60, []]]);
     check("idleStages: a stored time that does not fit is a problem", unfit.problems.map(p => p.plugin), ["acme.a"]);
     // The bundled owners, read from their shipped manifests: their defaults
@@ -1430,11 +1430,11 @@ function suite(ctx, configLogic, check) {
     for (const id of ["vgs.displays", "vgs.lock", "vgs.screensaver", "vgs.power"])
         bundledStages[id] = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, id, "manifest.json"), "utf8")), "/p").manifest;
     const bundledRows = config => ctx.idleStages(bundledStages, Object.keys(bundledStages), config).stages.map(s => [s.stage, s.plugin, s.setting, s.seconds, s.before]);
-    check("idleStages: the bundled defaults read no before", bundledRows({ version: 6, plugins: [] }),
+    check("idleStages: the bundled defaults read no before", bundledRows({ version: 7, plugins: [] }),
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 150, []], ["displayOff", "vgs.power", "displayOffSeconds", 450, []], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
-    check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 6, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
+    check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 7, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []], ["displayOff", "vgs.power", "displayOffSeconds", 450, ["screensaver"]], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
-    check("idleStages: stored lock and display-off times override the bundled defaults", bundledRows({ version: 6, plugins: [{ id: "vgs.lock", idleLockSeconds: 300 }, { id: "vgs.power", displayOffSeconds: 600 }] }),
+    check("idleStages: stored lock and display-off times override the bundled defaults", bundledRows({ version: 7, plugins: [{ id: "vgs.lock", idleLockSeconds: 300 }, { id: "vgs.power", displayOffSeconds: 600 }] }),
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []], ["displayOff", "vgs.power", "displayOffSeconds", 600, []], ["sleep", "vgs.power", "sleepAfterSeconds", 0, []]]);
     // idleSettingRows refusals: [name, rows, the manifest's own stages,
     // capabilities, the refusal's path, null for accepted].
@@ -1488,14 +1488,14 @@ function suite(ctx, configLogic, check) {
         const manifests = Object.create(null);
         for (const [id, stages] of plugins) manifests[id] = stageOwner(id, stages);
         const enabled = plugins.filter(p => p[2] !== false).map(p => p[0]);
-        const cfg = config || { version: 6, plugins: [] };
+        const cfg = config || { version: 7, plugins: [] };
         return ctx.idleSettingFields(manifests, enabled, cfg, ctx.idleStages(manifests, enabled, cfg).stages);
     };
     const fieldOf = field => [field.plugin, field.reason, field.setting, field.value, field.immediately];
     for (const [name, plugins, config, stage, want] of [
         ["the enabled owner with Immediately at the screensaver's time", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, true] }]], null, "lock",
             ["acme.lock", "", "lockSeconds", 300, 150]],
-        ["a stored Never keeps its 0", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, true] }]], { version: 6, plugins: [{ id: "acme.lock", lockSeconds: 0 }] }, "lock",
+        ["a stored Never keeps its 0", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, true] }]], { version: 7, plugins: [{ id: "acme.lock", lockSeconds: 0 }] }, "lock",
             ["acme.lock", "", "lockSeconds", 0, 150]],
         ["a screensaver turned off offers no Immediately", [["acme.lock", { lock: [300] }], ["acme.saver", { screensaver: [150, false] }]], null, "lock",
             ["acme.lock", "", "lockSeconds", 300, 0]],
@@ -1519,7 +1519,7 @@ function suite(ctx, configLogic, check) {
     check("idleSettingFields: the answer is frozen", Object.isFrozen(lockAndSaver) && Object.isFrozen(lockAndSaver.lock) && Object.isFrozen(lockAndSaver.lock.spec), true);
     const revised = Object.create(null);
     revised["acme.lock"] = Object.assign({}, stageOwner("acme.lock", { lock: [300] }), { __sourceDir: "/p/acme.lock", __revision: 1 });
-    const identityAt = (manifest, revision) => ctx.idleSettingFields({ "acme.lock": Object.assign({}, manifest, { __revision: revision }) }, ["acme.lock"], { version: 6, plugins: [] }, []).lock.identity;
+    const identityAt = (manifest, revision) => ctx.idleSettingFields({ "acme.lock": Object.assign({}, manifest, { __revision: revision }) }, ["acme.lock"], { version: 7, plugins: [] }, []).lock.identity;
     check("idleSettingFields: a new revision of the owner's manifest is a new identity", identityAt(revised["acme.lock"], 1) === identityAt(revised["acme.lock"], 2), false);
     check("idleSettingFields: one revision keeps its identity", identityAt(revised["acme.lock"], 1), identityAt(revised["acme.lock"], 1));
     const offLock = settingFields([["acme.lock", { lock: [300] }, false]]);
@@ -1824,10 +1824,10 @@ function suite(ctx, configLogic, check) {
 
     // Installed builds can start after a newer build converted this file.
     for (const [name, config, state, version] of [
-        ["newer", { version: 7, plugins: "unknown format" }, "newer", 7],
-        ["current", { version: 6 }, "loaded", undefined],
+        ["newer", { version: 8, plugins: "unknown format" }, "newer", 8],
+        ["current", { version: 7 }, "loaded", undefined],
         ["unversioned", {}, "loaded", undefined],
-        ["damaged current", { version: 6, plugins: false }, "malformed", undefined],
+        ["damaged current", { version: 7, plugins: false }, "malformed", undefined],
         ["fractional", { version: 7.5 }, "malformed", undefined],
         ["string", { version: "7" }, "malformed", undefined],
         ["null version", { version: null }, "malformed", undefined],
@@ -1841,12 +1841,12 @@ function suite(ctx, configLogic, check) {
     // the error text.
     const configRows = [
         ["an empty object passes", {}, ""],
-        ["every key of the table, well formed, passes", { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "a.b" }], center: [], right: [] } }, plugins: [{ id: "a.c", x: 1 }], disabledPlugins: ["a.d"], disabledTargets: ["foot"] }, ""],
+        ["every key of the table, well formed, passes", { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "a.b" }], center: [], right: [] } }, plugins: [{ id: "a.c", x: 1 }], disabledPlugins: ["a.d"], disabledTargets: ["foot"] }, ""],
         ["a key outside the table is carried", { unrelated: { any: 1 } }, ""],
         ["a list is not a config", [], "config must be an object"],
         ["null is not a config", null, "config must be an object"],
-        ["version 1", { version: 1 }, "version must be 6"],
-        ["version 7", { version: 7 }, "version must be 6"],
+        ["version 1", { version: 1 }, "version must be 7"],
+        ["version 8", { version: 8 }, "version must be 7"],
         ["plugins not a list", { plugins: {} }, "plugins must be a list"],
         ["a plugins row without an id", { plugins: [{ id: "a.b" }, { x: 1 }] }, "plugins.1 must be an object with a string id"],
         ["a plugins row that is a string", { plugins: ["a.b"] }, "plugins.0 must be an object with a string id"],
@@ -1903,7 +1903,7 @@ function suite(ctx, configLogic, check) {
     // of its id, where the row's own value wins. No row reads a manifest, so
     // a plugin that is not installed moves the same way.
     const v1 = (layout, rest) => Object.assign({ version: 1, bar: { id: "vgs.bar", layout: layout } }, rest || {});
-    const v2 = (layout, rest) => Object.assign({ version: 6, bar: { id: "vgs.bar", layout: layout } }, rest || {});
+    const v2 = (layout, rest) => Object.assign({ version: 7, bar: { id: "vgs.bar", layout: layout } }, rest || {});
     const migrateRows = [
         ["a key the row lacks moves into the row",
             v1({ left: [], center: [{ id: "a.b", format: "HH:mm" }], right: [] }, { plugins: [{ id: "a.b", other: 1 }] }),
@@ -1933,11 +1933,11 @@ function suite(ctx, configLogic, check) {
             v1({ left: [{ id: "a.b", n: 1 }] }, { disabledPlugins: ["c.d"], unrelated: { keep: true }, appearance: { motion: false } }),
             v2({ left: [{ id: "a.b" }] }, { disabledPlugins: ["c.d"], unrelated: { keep: true }, appearance: { motion: false }, plugins: [{ id: "a.b", n: 1 }] }), true, ""],
         ["a version 1 file with nothing to move takes version 2",
-            { version: 1, plugins: [{ id: "a.b", x: 1 }] }, { version: 6, plugins: [{ id: "a.b", x: 1 }] }, true, ""],
+            { version: 1, plugins: [{ id: "a.b", x: 1 }] }, { version: 7, plugins: [{ id: "a.b", x: 1 }] }, true, ""],
         ["a version 1 file with no bar key moves nothing",
-            { version: 1, disabledPlugins: [] }, { version: 6, disabledPlugins: [] }, true, ""],
+            { version: 1, disabledPlugins: [] }, { version: 7, disabledPlugins: [] }, true, ""],
         ["an unversioned file with a key in an entry is migrated",
-            { bar: { layout: { right: [{ id: "a.b", on: false }] } } }, { bar: { layout: { right: [{ id: "a.b" }] } }, plugins: [{ id: "a.b", on: false }], version: 6 }, true, ""],
+            { bar: { layout: { right: [{ id: "a.b", on: false }] } } }, { bar: { layout: { right: [{ id: "a.b" }] } }, plugins: [{ id: "a.b", on: false }], version: 7 }, true, ""],
         ["an unversioned file with nothing to move is left as it is",
             { bar: { layout: { right: [{ id: "a.b" }] } } }, { bar: { layout: { right: [{ id: "a.b" }] } } }, false, ""],
         ["a current file is left as it is",
@@ -1945,9 +1945,9 @@ function suite(ctx, configLogic, check) {
         ["a current file with a key in an entry is left for the judge",
             v2({ right: [{ id: "a.b", on: true }] }), v2({ right: [{ id: "a.b", on: true }] }), false, "bar.layout.right.0 has key \"on\" beside its id; a setting belongs in its plugins[] row"],
         ["version 2 does not repeat the layout conversion",
-            { version: 2, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 6, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, true, "bar.layout.right.0 has key \"on\" beside its id; a setting belongs in its plugins[] row"],
+            { version: 2, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 7, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, true, "bar.layout.right.0 has key \"on\" beside its id; a setting belongs in its plugins[] row"],
         ["a later version is left for the judge",
-            { version: 7, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 7, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, false, "version must be 6, got 7"],
+            { version: 8, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, { version: 8, bar: { layout: { right: [{ id: "a.b", on: true }] } } }, false, "version must be 7, got 8"],
         ["a version 1 entry that is no object is left for the judge",
             v1({ center: ["a.b", { id: "c.d", k: 1 }] }), v2({ center: ["a.b", { id: "c.d" }] }, { plugins: [{ id: "c.d", k: 1 }] }), true, "bar.layout.center.0 must be an object with a string id"],
         ["a version 1 plugins key that is no list is left for the judge",
@@ -1974,6 +1974,9 @@ function suite(ctx, configLogic, check) {
         ["invalid source", [{ id: "acme.keys", shortcut: "talk", from: "SUPER+", to: "SUPER+code:30" }], false],
         ["invalid destination", [{ id: "acme.keys", shortcut: "talk", from: "SUPER+code:108", to: null }], false],
         ["version 5 unbinding", [{ id: "acme.keys", shortcut: "toggle", from: "SUPER+X", to: null, targetVersion: 5 }], true],
+        ["version 7 replacement", [{ id: "acme.keys", shortcut: "toggle", to: "SUPER+X", targetVersion: 7 }], true],
+        ["version 7 with a source", [{ id: "acme.keys", shortcut: "toggle", from: "SUPER+Y", to: "SUPER+X", targetVersion: 7 }], false],
+        ["version 7 without a destination key", [{ id: "acme.keys", shortcut: "toggle", to: null, targetVersion: 7 }], false],
         ["unsupported target version", [{ id: "acme.keys", shortcut: "toggle", from: "SUPER+X", to: null, targetVersion: 6 }], false],
         ["version 5 invalid source", [{ id: "acme.keys", shortcut: "toggle", from: "SUPER+", to: null, targetVersion: 5 }], false],
         ["version 5 invalid destination", [{ id: "acme.keys", shortcut: "toggle", from: "SUPER+X", to: 1, targetVersion: 5 }], false]
@@ -2002,7 +2005,7 @@ function suite(ctx, configLogic, check) {
         }
     }
     const currentKeys = { version: 4, plugins: [{ id: "vgs.jarvis", keys: { talk: "SUPER+code:108" } }] };
-    check("current-version deliberate shortcut edits stay intact", configLogic.migrateConfig(currentKeys, source, replacements), { config: { ...currentKeys, version: 6 }, migrated: true });
+    check("current-version deliberate shortcut edits stay intact", configLogic.migrateConfig(currentKeys, source, replacements), { config: { ...currentKeys, version: 7 }, migrated: true });
     const keyChangesV5 = [
         { id: "vgs.jarvis", shortcut: "voice-mute", from: "SUPER+ALT+code:44", to: "SUPER+CTRL+M", targetVersion: 5 },
         { id: "vgs.jarvis", shortcut: "stop", from: "SUPER+ALT+PERIOD", to: "SUPER+CTRL+X", targetVersion: 5 },
@@ -2039,10 +2042,39 @@ function suite(ctx, configLogic, check) {
             }
         }
     }
+    for (const version of [undefined, 6]) {
+        const powerKeys = { "power-menu": ["SUPER+END", "SUPER+P"], other: "ALT+F8" };
+        const screensaverKeys = { start: "SUPER+CTRL+DELETE" };
+        const unrelated = { id: "acme.other", keys: { start: "ALT+F9" } };
+        const user = { plugins: [
+            { id: "vgs.power", keys: powerKeys },
+            { id: "vgs.screensaver", keys: screensaverKeys },
+            unrelated,
+        ] };
+        if (version !== undefined) user.version = version;
+        const before = JSON.stringify(user);
+        const result = configLogic.migrateConfig(user, source, replacements);
+        const label = "version 7 shortcut migration: " + version;
+        check(label, result, { config: { ...user, version: 7, plugins: [
+            { id: "vgs.power", keys: { "power-menu": "SUPER+CTRL+code:119", other: "ALT+F8" } },
+            { id: "vgs.screensaver", keys: { start: "SUPER+SHIFT+code:119" } },
+            unrelated,
+        ] }, migrated: true });
+        check(label + " leaves input unchanged", JSON.stringify(user), before);
+        check(label + " runs once", configLogic.migrateConfig(result.config, source, replacements), { config: result.config, migrated: false });
+        const later = { ...user, version: 7 };
+        check(label + " respects later edits", configLogic.migrateConfig(later, source, replacements), { config: later, migrated: false });
+    }
+    const explicitUnbind = { version: 6, plugins: [{ id: "vgs.power", keys: { "power-menu": null } }, { id: "vgs.screensaver" }] };
+    check("version 7 shortcut migration preserves an unbind and an absent key",
+        configLogic.migrateConfig(explicitUnbind, source, replacements),
+        { config: { ...explicitUnbind, version: 7 }, migrated: true });
     const defaults = [
         ["vgs.jarvis", { talk: ["SUPER+code:44"], "voice-mute": ["SUPER+CTRL+M"], stop: ["SUPER+CTRL+X"], confirm: ["SUPER+CTRL+Y"], console: ["SUPER+ALT+C"] }],
         ["vgs.voice", { toggle: [null], tap: ["code:108", "code:105"], talk: ["F9"] }],
-        ["vgs.agent-warden", { toggle: [null] }]
+        ["vgs.agent-warden", { toggle: [null] }],
+        ["vgs.power", { "power-menu": ["SUPER+CTRL+code:119"] }],
+        ["vgs.screensaver", { start: ["SUPER+SHIFT+code:119"] }]
     ];
     for (const [id, expected] of defaults) {
         const raw = JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, id, "manifest.json"), "utf8"));
@@ -2140,7 +2172,7 @@ function suite(ctx, configLogic, check) {
     // `plugin add` asks for still holds and the plugin stays off.
     {
         const installed = declaring("acme.drive", ["acme.foo"]);
-        const leftover = { version: 6, plugins: [{ id: "acme.foo", x: 1 }] };
+        const leftover = { version: 7, plugins: [{ id: "acme.foo", x: 1 }] };
         const claims = ctx.formerIdClaims(scanOrder([installed]), claimSource);
         const renamed = configLogic.renamePlugins(leftover, claims.renames);
         check("formerIdClaims: an installed claim of a leftover row renames nothing", renamed, { config: leftover, renamed: false });
@@ -2159,7 +2191,7 @@ function suite(ctx, configLogic, check) {
     const splits = [{ from: "acme.source", to: "acme.split", keys: ["keep", "count"] }];
     const sourceRow = { id: "acme.source", keep: false, count: 0, retired: 9, keys: { toggle: "SUPER+S" } };
     const splitRows = [
-        ["no source reference still records the split", { version: 6 }, { version: 6, plugins: [{ id: "acme.split" }] }],
+        ["no source reference still records the split", { version: 7 }, { version: 7, plugins: [{ id: "acme.split" }] }],
         ["source settings copy only declared keys, including falsy values", { plugins: [sourceRow] }, { plugins: [sourceRow, { id: "acme.split", keep: false, count: 0 }] }],
         ["a disable alone also gains the marker", { disabledPlugins: ["acme.source"] }, { disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.split" }] }],
         ["every placement copies immediately before its source", { bar: { layout: { left: [{ id: "acme.source" }], center: [{ id: "acme.other" }, { id: "acme.source" }], right: [{ id: "acme.source" }, { id: "acme.source" }] } } }, { bar: { layout: { left: [{ id: "acme.split" }, { id: "acme.source" }], center: [{ id: "acme.other" }, { id: "acme.split" }, { id: "acme.source" }], right: [{ id: "acme.split" }, { id: "acme.source" }, { id: "acme.split" }, { id: "acme.source" }] } }, plugins: [{ id: "acme.split" }] }],
@@ -2178,7 +2210,7 @@ function suite(ctx, configLogic, check) {
     check("splitPlugins: enabling the target survives a re-read", configLogic.splitPlugins(enabledSplit, splits).config.disabledPlugins, ["acme.source"]);
     const firstWrite = ctx.withEnabled(null, Object.assign({}, plain, { id: "acme.source" }), false, {});
     const marked = configLogic.splitPlugins(firstWrite, splits, true).config;
-    check("splitPlugins: missing file then source disable survives restart", configLogic.splitPlugins(marked, splits).config, { version: 6, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }] });
+    check("splitPlugins: missing file then source disable survives restart", configLogic.splitPlugins(marked, splits).config, { version: 7, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }] });
 
     // renamePlugins rows: [name, user file, rename map, want file, want
     // renamed]. A plugins[] row, a disabledPlugins entry and a layout entry
@@ -2193,15 +2225,15 @@ function suite(ctx, configLogic, check) {
             v2({ left: [{ id: "acme.old" }], center: [{ id: "acme.old" }], right: [{ id: "acme.old" }] }), { "acme.old": "acme.new" },
             v2({ left: [{ id: "acme.new" }], center: [{ id: "acme.new" }], right: [{ id: "acme.new" }] }), true],
         ["a former id in disabledPlugins alone is renamed",
-            { version: 6, disabledPlugins: ["acme.old"] }, { "acme.old": "acme.new" }, { version: 6, disabledPlugins: ["acme.new"] }, true],
+            { version: 7, disabledPlugins: ["acme.old"] }, { "acme.old": "acme.new" }, { version: 7, disabledPlugins: ["acme.new"] }, true],
         ["an id of a plugin that is not installed stays",
             v2({ right: [{ id: "gone.plugin" }] }, { plugins: [{ id: "gone.plugin", x: 1 }], disabledPlugins: ["gone.plugin"] }), { "acme.old": "acme.new" },
             v2({ right: [{ id: "gone.plugin" }] }, { plugins: [{ id: "gone.plugin", x: 1 }], disabledPlugins: ["gone.plugin"] }), false],
         ["an empty map renames nothing",
-            { version: 6, disabledPlugins: ["acme.old"] }, {}, { version: 6, disabledPlugins: ["acme.old"] }, false],
+            { version: 7, disabledPlugins: ["acme.old"] }, {}, { version: 7, disabledPlugins: ["acme.old"] }, false],
         ["every other key naming a former id stays",
-            { version: 6, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, { "acme.old": "acme.new" },
-            { version: 6, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, false],
+            { version: 7, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, { "acme.old": "acme.new" },
+            { version: 7, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, false],
         ["a row or entry that is no object is left for the judge",
             v2({ right: ["acme.old"] }, { plugins: ["acme.old"] }), { "acme.old": "acme.new" }, v2({ right: ["acme.old"] }, { plugins: ["acme.old"] }), false],
         ["a list is left for the judge", [], { "acme.old": "acme.new" }, [], false],
@@ -2212,7 +2244,7 @@ function suite(ctx, configLogic, check) {
         check("renamePlugins leaves its input: " + name, JSON.stringify(user), before);
     }
 
-    const shipped = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
+    const shipped = { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
 
     // effectiveConfig rows: [name, user, path, want]
     const mergeRows = [
@@ -2392,7 +2424,7 @@ function suite(ctx, configLogic, check) {
         ["restores clock at its default before automatic widgets", "vgs.bar/center-clock", { left: [], center: [{ id: "acme.extra" }], right: [] },
             { left: [], center: [{ id: "vgs.bar/center-clock" }, { id: "acme.extra" }], right: [] }],
     ]) {
-        const user = { version: 6, bar: { id: "vgs.bar", layout }, plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }], disabledPlugins: [], unrelated: { keep: true } };
+        const user = { version: 7, bar: { id: "vgs.bar", layout }, plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }], disabledPlugins: [], unrelated: { keep: true } };
         const restored = ctx.withPlaced(user, manifests["vgs.bar"], true, user, id, builtinDefaults);
         check("builtin default restore: " + name, restored, Object.assign({}, user, { bar: { id: "vgs.bar", layout: expected } }));
         check("builtin restore twice is once: " + name, ctx.withPlaced(restored, manifests["vgs.bar"], true, restored, id, builtinDefaults), restored);
@@ -2436,8 +2468,8 @@ function suite(ctx, configLogic, check) {
 
     // withEnabled rows: [name, user, effective, id, enabled, path, want].
     // `effective` is the merged configuration the manager reads presence from.
-    const placedClock = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "vgs.clock", format: "HH:mm:ss" }] };
-    const listedSvc = { version: 6, plugins: [{ id: "acme.svc", x: 1 }] };
+    const placedClock = { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "vgs.clock", format: "HH:mm:ss" }] };
+    const listedSvc = { version: 7, plugins: [{ id: "acme.svc", x: 1 }] };
     const withRows = [
         ["disable preserves inherited disabled plugins", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock"] }), "acme.svc", false, "disabledPlugins", ["vgs.clock", "acme.svc"]],
         ["enable removes only its inherited disabled entry", null, Object.assign({}, shipped, { disabledPlugins: ["vgs.clock", "acme.svc"] }), "acme.svc", true, "disabledPlugins", ["vgs.clock"]],
@@ -2462,7 +2494,7 @@ function suite(ctx, configLogic, check) {
         ["disable third-party service keeps its row", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "plugins", [{ id: "acme.svc", x: 1 }]],
         ["disable third-party service lists it", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
         ["enable first-party service does not list it in plugins", { disabledPlugins: ["vgs.svc"] }, shipped, "vgs.svc", true, "plugins", undefined],
-        ["writes version 6", null, shipped, "acme.svc", true, "version", 6],
+        ["writes version 7", null, shipped, "acme.svc", true, "version", 7],
         ["enable bar sets it active", null, shipped, "acme.bar", true, "bar.id", "acme.bar"],
         ["enable bar seeds the layout from the effective bar", null, shipped, "acme.bar", true, "bar.layout.center.0.id", "vgs.clock"],
         ["enable the active bar changes nothing but the disabled list", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", true, "bar", undefined],
@@ -2498,8 +2530,8 @@ function suite(ctx, configLogic, check) {
     for (const [name, config, id, want] of placedRefusalRows) check("placedRefusal: " + name, ctx.placedRefusal(config, manifests[id], "vgs.bar"), want);
 
     // withPlaced rows: [name, user, effective, id, placed, path, want].
-    const placedBoth = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both" }] } } };
-    const placedPanel = { version: 6, bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "vgs.widgetpanel" }] } } };
+    const placedBoth = { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [{ id: "acme.both" }] } } };
+    const placedPanel = { version: 7, bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "vgs.widgetpanel" }] } } };
     const inheritedDisabled = Object.assign({}, shipped, { disabledPlugins: ["vgs.workspaces"] });
     const placeRows = [
         ["place puts the widget in its default section", null, shipped, "acme.both", true, "bar.layout.right", [{ id: "acme.both" }]],
@@ -2510,7 +2542,7 @@ function suite(ctx, configLogic, check) {
         ["place a placed widget changes nothing", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", true, "bar", placedBoth.bar],
         ["place keeps the user's disabled list", { disabledPlugins: ["vgs.svc"] }, configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "acme.both", true, "disabledPlugins", ["vgs.svc"]],
         ["place writes no inherited disabled list", null, inheritedDisabled, "acme.both", true, "disabledPlugins", undefined],
-        ["place writes version 6", null, shipped, "acme.both", true, "version", 6],
+        ["place writes version 7", null, shipped, "acme.both", true, "version", 7],
         ["unplace removes every entry in every section and keeps other widgets", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.layout", { left: [], center: [{ id: "vgs.clock" }], right: [] }],
         ["unplace keeps the bar id", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.id", "vgs.bar"],
         ["unplace seeds the user bar from the effective bar", null, shipped, "vgs.clock", false, "bar.layout", { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
@@ -2540,14 +2572,14 @@ function suite(ctx, configLogic, check) {
     check("withPlaced does not alias the user file on place", (() => { const u = { bar: { layout: { left: [], center: [], right: [] } } }; ctx.withPlaced(u, manifests["acme.both"], true, configLogic.effectiveConfig(shipped, u)); return u.bar.layout.right; })(), []);
     // A third-party plugin whose only kind is bar-widget: unplacing lists a
     // row, it still reads disabled, and the disabled list stays the user's.
-    const placedWidget = { version: 6, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } };
+    const placedWidget = { version: 7, disabledPlugins: ["vgs.svc"], bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "vgs.clock" }], right: [{ id: "acme.widget" }] } } };
     const unplacedWidget = ctx.withPlaced(placedWidget, manifests["acme.widget"], false, configLogic.effectiveConfig(shipped, placedWidget));
     check("withPlaced: unplace a third-party widget-only plugin lists it", unplacedWidget.plugins, [{ id: "acme.widget" }]);
     check("withPlaced: unplace a third-party widget-only plugin keeps the user's disabled list", unplacedWidget.disabledPlugins, ["vgs.svc"]);
     check("withPlaced: a third-party widget-only plugin reads disabled once unplaced", ctx.isEnabled(configLogic.effectiveConfig(shipped, unplacedWidget), manifests["acme.widget"], "vgs.bar"), false);
 
     // moveRefusal rows: [name, config, id, section, index, want].
-    const movedConfig = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [] } } };
+    const movedConfig = { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }], center: [{ id: "vgs.clock" }], right: [] } } };
     const moveRefusalRows = [
         ["a placed widget may move", movedConfig, "acme.both", "right", 0, ""],
         ["a service has no widget", movedConfig, "acme.svc", "right", 0, "refused: moved=acme.svc reason=no-bar-widget"],
@@ -2562,7 +2594,7 @@ function suite(ctx, configLogic, check) {
 
     // Entries hold their ids alone, so each row tells two entries of one id
     // apart by where they stand.
-    const moveUser = { version: 6, bar: { id: "vgs.bar", layout: {
+    const moveUser = { version: 7, bar: { id: "vgs.bar", layout: {
         left: [{ id: "vgs.workspaces" }, { id: "acme.both" }, { id: "acme.widget" }],
         center: [{ id: "vgs.clock" }, { id: "acme.both" }],
         right: []
@@ -2581,7 +2613,7 @@ function suite(ctx, configLogic, check) {
     for (const [name, user, effective, from, section, index, want] of moveRows)
         check("withMoved: " + name, ctx.withMoved(user, manifests["acme.both"], from, section, index, effective).bar.layout, want);
     check("withMoved: a move keeps the plugins row", ctx.withMoved(moveUser, manifests["acme.both"], { section: "left", nth: 0 }, "right", 0, moveEffective).plugins, [{ id: "acme.both", label: "row" }]);
-    const duplicateMoveUser = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }, { id: "vgs.workspaces" }, { id: "acme.both" }], center: [], right: [] } } };
+    const duplicateMoveUser = { version: 7, bar: { id: "vgs.bar", layout: { left: [{ id: "acme.both" }, { id: "vgs.workspaces" }, { id: "acme.both" }], center: [], right: [] } } };
     check("withMoved: from nth 1 moves the second copy", ctx.withMoved(duplicateMoveUser, manifests["acme.both"], { section: "left", nth: 1 }, "right", 0, configLogic.effectiveConfig(shipped, duplicateMoveUser)).bar.layout,
         { left: [both, ws], center: [], right: [both] });
     check("withMoved: seeds the user bar from the effective bar", ctx.withMoved(null, manifests["vgs.clock"], null, "right", 0, shipped).bar.layout.right, [{ id: "vgs.clock" }]);
@@ -2951,7 +2983,7 @@ function suite(ctx, configLogic, check) {
         ["updates the user row in place", { plugins: [{ id: "acme.tune", size: 4 }, { id: "b.c" }] }, shippedTune, "plugins", [{ id: "acme.tune", size: 4, label: "new" }, { id: "b.c" }]],
         ["leaves a placed widget's layout entry alone", { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } }, tunePlaced, "bar.layout.right", [{ id: "acme.tune" }]],
         ["seeds no bar key", null, tunePlaced, "bar", undefined],
-        ["writes version 6", null, tunePlaced, "version", 6],
+        ["writes version 7", null, tunePlaced, "version", 7],
     ];
     for (const [name, user, effective, p, want] of settingRows) {
         check("withSetting: " + name, dig(ctx.withSetting(user, tunable, "label", "new", effective), p), want);
@@ -2965,14 +2997,14 @@ function suite(ctx, configLogic, check) {
         ["leaves the layout alone", labelled, "bar.layout", { left: [{ id: "acme.tune" }], center: [{ id: "b.c" }], right: [] }],
         ["a file with no row seeds none", null, "plugins", undefined],
         ["a file with no bar seeds none", null, "bar", undefined],
-        ["writes version 6", null, "version", 6],
+        ["writes version 7", null, "version", 7],
     ];
     for (const [name, user, p, want] of unsetRows) {
         check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label"), p), want);
     }
     // Both ordinary writers must filter the row they update, and keep every
     // other row and key intact.
-    const savedTune = { version: 6, extra: "kept", plugins: [
+    const savedTune = { version: 7, extra: "kept", plugins: [
         { id: "acme.tune", label: "p", size: 0, on: false, retired: "old", keys: { toggle: "SUPER+A" } },
         { id: "acme.gone", retired: "unrelated" }
     ], bar: { layout: { left: [{ id: "acme.tune" }], center: [], right: [] } } };
@@ -3073,7 +3105,7 @@ function suite(ctx, configLogic, check) {
     }
 
     // withKey rows: [name, user, effective, shortcut, key, path, want]
-    const keyRow = { version: 6, plugins: [{ id: "acme.keys", x: 1, keys: { toggle: "SUPER+K" } }] };
+    const keyRow = { version: 7, plugins: [{ id: "acme.keys", x: 1, keys: { toggle: "SUPER+K" } }] };
     const keyRows = [
         ["a key is written normalised into a new row", null, {}, "toggle", "ctrl+super+k", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+CTRL+K" } }]],
         ["Settings writes a normalized keycode", null, {}, "toggle", "shift+super+CODE:00108", "plugins", [{ id: "acme.keys", keys: { toggle: "SUPER+SHIFT+code:108" } }]],
@@ -3086,19 +3118,19 @@ function suite(ctx, configLogic, check) {
         ["a reset of the last entry removes keys", { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }, {}, "toggle", undefined, "plugins", [{ id: "acme.keys" }]],
         ["a reset no row needs writes no row", null, {}, "toggle", undefined, "plugins", undefined],
         ["a reset seeds from an effective row that holds the entry", null, keyRow, "toggle", undefined, "plugins", [{ id: "acme.keys", x: 1 }]],
-        ["writes version 6", null, {}, "toggle", "SUPER+K", "version", 6],
+        ["writes version 7", null, {}, "toggle", "SUPER+K", "version", 7],
     ];
     for (const [name, user, effective, shortcut, key, p, want] of keyRows) {
         check("withKey: " + name, dig(ctx.withKey(user, keyed, shortcut, key, effective), p), want);
     }
     // withAppearance rows: [name, user, effective, key, value, want file]
     const appearanceRows = [
-        ["a value is written into a new file", null, {}, "windowRadius", 12, { version: 6, appearance: { windowRadius: 12 } }],
-        ["a value joins the user's others and leaves other keys", { version: 6, plugins: [{ id: "a.b" }], appearance: { motion: false } }, {}, "windowRadius", "hyprland", { version: 6, plugins: [{ id: "a.b" }], appearance: { motion: false, windowRadius: "hyprland" } }],
-        ["a value replaces the user's", { appearance: { windowRadius: 4 } }, {}, "windowRadius", 8, { appearance: { windowRadius: 8 }, version: 6 }],
-        ["the user key is seeded from the effective one", null, { appearance: { motion: false } }, "windowRadius", 6, { version: 6, appearance: { motion: false, windowRadius: 6 } }],
-        ["an unset removes the member alone", { appearance: { windowRadius: 4, motion: true } }, {}, "windowRadius", undefined, { appearance: { motion: true }, version: 6 }],
-        ["an unset of the last member removes the key", { version: 6, appearance: { windowRadius: 4 } }, {}, "windowRadius", undefined, { version: 6 }],
+        ["a value is written into a new file", null, {}, "windowRadius", 12, { version: 7, appearance: { windowRadius: 12 } }],
+        ["a value joins the user's others and leaves other keys", { version: 7, plugins: [{ id: "a.b" }], appearance: { motion: false } }, {}, "windowRadius", "hyprland", { version: 7, plugins: [{ id: "a.b" }], appearance: { motion: false, windowRadius: "hyprland" } }],
+        ["a value replaces the user's", { appearance: { windowRadius: 4 } }, {}, "windowRadius", 8, { appearance: { windowRadius: 8 }, version: 7 }],
+        ["the user key is seeded from the effective one", null, { appearance: { motion: false } }, "windowRadius", 6, { version: 7, appearance: { motion: false, windowRadius: 6 } }],
+        ["an unset removes the member alone", { appearance: { windowRadius: 4, motion: true } }, {}, "windowRadius", undefined, { appearance: { motion: true }, version: 7 }],
+        ["an unset of the last member removes the key", { version: 7, appearance: { windowRadius: 4 } }, {}, "windowRadius", undefined, { version: 7 }],
     ];
     for (const [name, user, effective, key, value, want] of appearanceRows) {
         check("withAppearance: " + name, ctx.withAppearance(user, effective, key, value), want);
@@ -3205,19 +3237,19 @@ function suite(ctx, configLogic, check) {
 
     // soundEdit rows: [name, user, effective, event, value, want]
     const soundEditRows = [
-        ["a choice is written into a new file", null, {}, "ping", "pop", { ok: true, user: { version: 6, sounds: { "acme.svc": { ping: "pop" } } } }],
-        ["off is written", null, {}, "ping", "", { ok: true, user: { version: 6, sounds: { "acme.svc": { ping: "" } } } }],
-        ["a choice joins the plugin's others and leaves other keys", { version: 6, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping" }, "acme.other": { x: "pop" } } }, {}, "ping", "pop", { ok: true, user: { version: 6, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping", ping: "pop" }, "acme.other": { x: "pop" } } } }],
-        ["the user key is seeded from the effective one", null, { sounds: { "acme.other": { x: "pop" } } }, "ping", "pop", { ok: true, user: { version: 6, sounds: { "acme.other": { x: "pop" }, "acme.svc": { ping: "pop" } } } }],
-        ["the default removes the choice alone", { sounds: { "acme.svc": { ping: "pop", quiet: "ping" } } }, {}, "ping", "chime", { ok: true, user: { sounds: { "acme.svc": { quiet: "ping" } }, version: 6 } }],
-        ["the default of the plugin's last choice removes its object", { version: 6, sounds: { "acme.svc": { ping: "pop" }, "acme.other": { x: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 6, sounds: { "acme.other": { x: "pop" } } } }],
-        ["the default of the last choice removes the key", { version: 6, sounds: { "acme.svc": { ping: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 6 } }],
-        ["an own event is turned off", null, {}, "tone", "", { ok: true, user: { version: 6, sounds: { "acme.svc": { tone: "" } } } }],
+        ["a choice is written into a new file", null, {}, "ping", "pop", { ok: true, user: { version: 7, sounds: { "acme.svc": { ping: "pop" } } } }],
+        ["off is written", null, {}, "ping", "", { ok: true, user: { version: 7, sounds: { "acme.svc": { ping: "" } } } }],
+        ["a choice joins the plugin's others and leaves other keys", { version: 7, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping" }, "acme.other": { x: "pop" } } }, {}, "ping", "pop", { ok: true, user: { version: 7, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping", ping: "pop" }, "acme.other": { x: "pop" } } } }],
+        ["the user key is seeded from the effective one", null, { sounds: { "acme.other": { x: "pop" } } }, "ping", "pop", { ok: true, user: { version: 7, sounds: { "acme.other": { x: "pop" }, "acme.svc": { ping: "pop" } } } }],
+        ["the default removes the choice alone", { sounds: { "acme.svc": { ping: "pop", quiet: "ping" } } }, {}, "ping", "chime", { ok: true, user: { sounds: { "acme.svc": { quiet: "ping" } }, version: 7 } }],
+        ["the default of the plugin's last choice removes its object", { version: 7, sounds: { "acme.svc": { ping: "pop" }, "acme.other": { x: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 7, sounds: { "acme.other": { x: "pop" } } } }],
+        ["the default of the last choice removes the key", { version: 7, sounds: { "acme.svc": { ping: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 7 } }],
+        ["an own event is turned off", null, {}, "tone", "", { ok: true, user: { version: 7, sounds: { "acme.svc": { tone: "" } } } }],
         ["a sound the set lacks is refused", null, {}, "ping", "gong", { ok: false, answer: "refused: sound=ping reason=value" }],
         ["a value that is no string is refused", null, {}, "ping", true, { ok: false, answer: "refused: sound=ping reason=value" }],
         ["a core sound for an own event is refused", null, {}, "tone", "pop", { ok: false, answer: "refused: sound=tone reason=value" }],
         ["an undeclared event is refused", null, {}, "gong", "pop", { ok: false, answer: "refused: sound=gong reason=undeclared" }],
-        ["a held event's choice writes no file", { version: 6 }, {}, "relay", "", { ok: true, held: true }],
+        ["a held event's choice writes no file", { version: 7 }, {}, "relay", "", { ok: true, held: true }],
         ["a held event's choice is judged first", null, {}, "relay", "pop", { ok: false, answer: "refused: sound=relay reason=value" }],
     ];
     for (const [name, user, effective, event, value, want] of soundEditRows) check("soundEdit: " + name, ctx.soundEdit(user, effective, noisy, "acme.svc", event, value), want);
@@ -3519,8 +3551,8 @@ const bundled = Object.create(null);
         bundled[r.manifest.id] = r.manifest;
     }
     const layout = right => ({ id: "vgs.bar", layout: { left: [], center: [], right: right } });
-    const user = { version: 6, bar: layout([{ id: "c.d" }, { id: "vgs.cloud-sync" }]), plugins: [{ id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] };
-    const want = { version: 6, bar: layout([{ id: "c.d" }, { id: "vgs.google-drive" }]), plugins: [{ id: "vgs.google-drive", x: 1 }], disabledPlugins: ["c.d", "vgs.google-drive"] };
+    const user = { version: 7, bar: layout([{ id: "c.d" }, { id: "vgs.cloud-sync" }]), plugins: [{ id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] };
+    const want = { version: 7, bar: layout([{ id: "c.d" }, { id: "vgs.google-drive" }]), plugins: [{ id: "vgs.google-drive", x: 1 }], disabledPlugins: ["c.d", "vgs.google-drive"] };
     const sourceOf = m => m.__sourceDir.indexOf(PLUGINS_DIR + "/") === 0 ? "bundled" : "installed";
     const claims = logic.formerIdClaims(bundled, sourceOf);
     report("renamePlugins: the bundled manifests rename vgs.cloud-sync to vgs.google-drive", configLogic.renamePlugins(user, claims.renames), { config: want, renamed: true });
@@ -3529,7 +3561,7 @@ const bundled = Object.create(null);
     // the same section at the same index, its neighbours unchanged. Rows:
     // [name, saved left, saved center, want left, want center].
     const sides = (left, center) => ({ id: "vgs.bar", layout: { left: left, center: center, right: [{ id: "vgs.sound" }] } });
-    const savedFile = (left, center) => ({ version: 6, bar: sides(left, center), plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }] });
+    const savedFile = (left, center) => ({ version: 7, bar: sides(left, center), plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }] });
     const launcher = { id: "vgs.launcher" }, tray = { id: "vgs.tray" }, clockBuiltin = { id: "vgs.bar/center-clock" };
     const oldWorkspaces = { id: "vgs.bar/left-workspaces" }, workspaces = { id: "vgs.workspaces" };
     const builtinRenames = [
@@ -3550,7 +3582,7 @@ const bundled = Object.create(null);
     const firstStarts = [
         ["a saved bar that holds the built-in shows Workspaces", savedFile([launcher, oldWorkspaces, tray], [clockBuiltin]), true],
         ["a saved bar without the built-in keeps Workspaces off", savedFile([launcher, tray], [clockBuiltin]), false],
-        ["a user file with no bar shows Workspaces where the shipped layout places it", { version: 6 }, true],
+        ["a user file with no bar shows Workspaces where the shipped layout places it", { version: 7 }, true],
     ];
     for (const [name, user, want] of firstStarts) {
         const renamed = configLogic.renamePlugins(user, claims.renames).config;
@@ -4208,6 +4240,7 @@ const CONFIG_CONTROLS = [
     ["new key replacements run", "if (hyprlandKey(key).key === from) {", "if (false) {", "version 5 key migration:"],
     ["retired key gets explicit unbinding", "values.length === 0 ? null : Array.isArray(value) ? values : values[0]", "values.length === 0 ? undefined : Array.isArray(value) ? values : values[0]", "version 5 key migration:"],
     ["retired shortcut values migrate", "if (hyprlandKey(key).key !== from) return key;", "return key;"],
+    ["selected saved shortcuts reset once", "if (value === key) return;", "if (value !== key) return;", "version 7 shortcut migration:"],
     ["shortcut migration data is judged", "if (config.shortcutKeyMigrations !== undefined)", "if (false)"],
     ["a migration leaves its input", "    var out = clone(config);\n    var layout = isPlainObject(out.bar)", "    var out = config;\n    var layout = isPlainObject(out.bar)"],
     ["only a version 1 or unversioned file migrates", "(config.version !== 1 && config.version !== undefined)", "(config.version === 3)"],

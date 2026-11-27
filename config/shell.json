@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "packageReviewSettingsSource": "vgs.updates",
   "conversationSettingsMigration": {
     "id": "vgs.jarvis",
@@ -19,7 +19,9 @@
     { "id": "vgs.jarvis", "shortcut": "stop", "from": "SUPER+ALT+PERIOD", "to": "SUPER+CTRL+X", "targetVersion": 5 },
     { "id": "vgs.jarvis", "shortcut": "confirm", "from": "SUPER+ALT+Y", "to": "SUPER+CTRL+Y", "targetVersion": 5 },
     { "id": "vgs.voice", "shortcut": "toggle", "from": "SUPER+CTRL+X", "to": null, "targetVersion": 5 },
-    { "id": "vgs.agent-warden", "shortcut": "toggle", "from": "SUPER+CTRL+Y", "to": null, "targetVersion": 5 }
+    { "id": "vgs.agent-warden", "shortcut": "toggle", "from": "SUPER+CTRL+Y", "to": null, "targetVersion": 5 },
+    { "id": "vgs.power", "shortcut": "power-menu", "to": "SUPER+CTRL+code:119", "targetVersion": 7 },
+    { "id": "vgs.screensaver", "shortcut": "start", "to": "SUPER+SHIFT+code:119", "targetVersion": 7 }
   ],
   "bar": {
     "id": "vgs.bar",

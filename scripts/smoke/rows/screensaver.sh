@@ -434,7 +434,7 @@ idle_start() { # LABEL
   idle_started_ms="$(now_ms)"
 }
 ms_since_idle() { echo $(( $(now_ms) - idle_started_ms )); }
-measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no [window]
+measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no [window|key]
   local label="$1" want_cover_first="$2" control="${3:-}" deadline cover_ms="" lock_ms="" covers="" lock="" window_pid=""
   deadline=$(( $(now_ms) + 10000 ))
   while (( $(now_ms) < deadline )); do
@@ -462,7 +462,9 @@ measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no [window]
   fi
   if [[ $want_cover_first == yes ]]; then
     if [[ -z $cover_ms ]]; then fail "$label: cover maps before lock"; return; fi
-    if [[ $cover_ms -lt 1500 ]]; then fail "$label: cover waits at least 1.5 s from idle start"; else ok "$label: cover waits at least 1.5 s from idle start (t=${cover_ms}ms)"; fi
+    if [[ $control != key ]]; then
+      if [[ $cover_ms -lt 1500 ]]; then fail "$label: cover waits at least 1.5 s from idle start"; else ok "$label: cover waits at least 1.5 s from idle start (t=${cover_ms}ms)"; fi
+    fi
     if [[ $cover_ms -lt $lock_ms ]]; then ok "$label: cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; else fail "$label: cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; fi
   else
     if [[ -z $cover_ms ]]; then ok "$label: no cover maps before lock"; else fail "$label: no cover maps before lock (cover=${cover_ms}ms lock=${lock_ms}ms)"; fi
@@ -517,6 +519,42 @@ type_keys b || fail "typing the next key under the lock failed"
 expect_poll "the next key reaches the lock's field" '"b"' ipc smoke readInstance service vgs.lock password
 expect "no PAM check started under the screensaver" '[false, 0]' ss_lock_checks
 release "screensaver lock-order"
+set_screensaver '{"idleEnabled": false}'
+expect "reload before testing the screensaver shortcut" ok ipc shell reloadConfig
+expect_poll "the automatic screensaver start is off" false ipc smoke readInstance service vgs.screensaver idleEnabled
+hold_start_keyboard screensaver "$sandbox/keyboard" us "" || fail "the physical Delete keyboard did not start"
+ss_press_shortcut() {
+  idle_started_ms="$(now_ms)"
+  hold_send "down 133" "down 50" "down 119" "up 119" "up 50" "up 133"
+  expect_poll "Super+Shift+Delete starts the desktop cover" '["vgs.screensaver", "desktop", "manual"]' ss_presentation
+}
+ss_expect_cover_in_lock() {
+  expect_poll "the shortcut cover transfers into the idle lock" '["vgs.screensaver", "secure", "manual"]' ss_presentation
+}
+ss_press_shortcut
+measure_idle_order "shortcut lock ordering" yes key
+ss_expect_cover_in_lock
+release "screensaver shortcut lock"
+
+set_lock_seconds 0
+expect "reload with the lock timer disabled for the shortcut control" ok ipc shell reloadConfig
+expect_poll "the shortcut control reads the disabled lock timer" 0 lock_seconds_read
+ss_press_shortcut
+ss_shortcut_control_failures="$(
+  failures=0 behaviour_failures=0
+  ss_expect_cover_in_lock >"$smoke_log_dir/screensaver-shortcut-control.log"
+  printf '%s\n' "$failures"
+)"
+expect "the shortcut lock assertion rejects a start with no lock timer" 1 printf '%s\n' "$ss_shortcut_control_failures"
+expect "the shortcut cover stays on the desktop without the lock timer" '["vgs.screensaver", "desktop", "manual"]' ss_presentation
+expect "stop the shortcut control cover" ok ipc vgs.screensaver invoke stop ''
+hold_stop_keyboard
+set_lock_seconds 5
+set_screensaver '{"idleEnabled": true}'
+expect "reload the automatic screensaver and lock timers" ok ipc shell reloadConfig
+expect_poll "the automatic screensaver is restored" true ipc smoke readInstance service vgs.screensaver idleEnabled
+expect_poll "the lock timer is restored" 5 lock_seconds_read
+
 idle_start "window mapping control"
 measure_idle_order "control window restarts idle" yes window
 release "screensaver window mapping control"

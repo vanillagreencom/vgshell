@@ -1,7 +1,7 @@
 # The power menu, vgs.power's overlay, over the shared inert logind
 # transport in scripts/smoke/power-fakes.sh. The row enables Power with
 # Log out, Suspend, Reboot and Shut down offered, reads the Settings Keys
-# row of the unbound `power-menu` shortcut, opens the menu through that
+# row of the default `power-menu` shortcut, opens the menu through that
 # shortcut, and drives it on the nested seat: the keyboard selection, a
 # hold with nothing selected, a release before 2 s, a release with Shift
 # down, a full key hold, Escape and focus loss during a hold, a pointer hold and
@@ -149,7 +149,7 @@ EOF_STAND
   expect_poll "the session offers Log out again" '["logout", "suspend", "reboot", "poweroff"]' pm_offered
 
   expect "Settings opens Power's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
-  expect_poll "Settings draws the power menu's Keys row, unbound" '[null]' pm_keys_row
+  expect_poll "Settings draws the power menu's physical Delete default" '["SUPER+CTRL+code:119"]' pm_keys_row
   expect "Settings closes" ok ipc shell hide window vgs.settings
 
   pm_open "keyboard"

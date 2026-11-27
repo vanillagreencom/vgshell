@@ -80,7 +80,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "start", "key": null }
+      { "shortcut": "start", "key": "SUPER+SHIFT+code:119" }
     ]
   },
   "menu": {
