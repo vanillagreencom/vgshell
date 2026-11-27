@@ -3103,28 +3103,51 @@ expect_poll "control: the History panel lists every kept entry and the toasts on
 expect "the panel closes over IPC" ok notes close
 expect_poll "the panel closed" '""' read_notes panelMode
 
-# A rebuild restores the toasts on screen from the state file, without live
-# actions, and keeps Silence; the restored toast answers only Dismiss.
+# A plugin rescan keeps the on-screen notifications and their actions.
 notes silence off >/dev/null
-notify smoke-chat 0 "Survivor" "" '["default", "Open"]' '{}' 0 >/dev/null
+survivor_id="$(notify smoke-chat 0 "Survivor" "" '["default", "Open"]' '{"urgency": <byte 2>}' 0)"
 expect_poll "a toast to survive the rebuild shows" True has_row live "Survivor"
 notes silence on >/dev/null
 printf '\n' >>"$repo/shell/plugins/vgs.notifications/README.md"
 rescan "a rescan after editing the plugin answers ok"
-restored_sorted() { row_summaries restored | py_reply 'import json,sys; print(json.dumps(sorted(json.load(sys.stdin))))'; }
-expect_poll "the rebuilt service restored the toasts on screen" '["Survivor", "Urgent CLI"]' restored_sorted
+expect_poll "the rebuilt service reattaches Survivor" True has_row live Survivor
+expect "the rebuilt service keeps Urgent CLI on screen" True has_row live "Urgent CLI"
 expect "a rebuild keeps Silence" true note_status silence
-rest_on_card Survivor || fail "the pointer never rested on the restored toast"
-expect_poll "a restored toast offers no live action" '["Dismiss"]' shown_pills Survivor
-hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the restored toast failed"
+rest_on_card Survivor || fail "the pointer never rested on the reattached toast"
+expect_poll "the reattached toast keeps Open and Dismiss" '["Open", "Dismiss"]' shown_pills Survivor
+hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the reattached toast failed"
 
 # A stored toast whose time ran out while the service was down goes into
 # the history, not onto the screen. The history is emptied first, so the
 # stale entry is not cut as its oldest.
 expect "clearing the history before the stale entry is allowed" ok notes clear-history
 expect_poll "the history is empty before the stale entry" 0 history_count
-expect "disabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+# A file edit bypasses turnedOff(). Another plugin keeps the server lent
+# while Notifications' own tracked object must close.
+survivor_probe_enabled="$(plugin_enabled acme.probe)"
+if [[ $survivor_probe_enabled == False ]]; then
+  expect "the passive notification probe enables" ok ipc shell setPluginEnabled acme.probe true
+fi
+expect_poll "the passive notification probe is built before the disable" True record_exists acme.probe
+expect "Survivor is still tracked before the disable" 0 closed_on_server "$survivor_id"
+python3 - "$home/.config/vgshell/shell.json" <<'PY' || return 1
+import json, os, sys
+path = sys.argv[1]
+with open(path) as source:
+    config = json.load(source)
+config.setdefault("disabledPlugins", []).append("vgs.notifications")
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+expect "the notification disable is read from shell.json" ok ipc shell reloadConfig
 expect_poll "the service is gone" False record_exists vgs.notifications
+expect_poll "the removed service closes Survivor on the server" 1 closed_on_server "$survivor_id"
+expect "the passive probe is still subscribed after Survivor closes" '["acme.probe"]' lent subscribers
+if [[ $survivor_probe_enabled == False ]]; then
+  expect "the passive notification probe disables again" ok ipc shell setPluginEnabled acme.probe false
+  expect_poll "the passive notification probe is gone" False record_exists acme.probe
+fi
 python3 - "$note_state" <<'PY'
 import json, os, sys, time
 p = sys.argv[1]
@@ -3137,6 +3160,7 @@ PY
 expect "re-enabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the re-enabled service is built" True record_exists vgs.notifications
 expect_poll "the re-enabled service restored the live toasts" True has_row restored Survivor
+expect_poll "a toast restored after disabling offers only Dismiss" '["Dismiss"]' shown_pills Survivor
 expect "a toast whose time ran out is not shown again" none key_of Stale
 expect_poll "it went into the history instead" True in_history Stale
 
@@ -5096,22 +5120,88 @@ act_silence_back=off
 [[ $act_silenced == true ]] && act_silence_back=on
 expect "Silence is put back after the act shortcut" "$act_silence_back" notes silence "$act_silence_back"
 
-# A shell restart keeps Sound and Do Not Disturb: each is set away from its
-# default, the shell stops and starts over the same state file, and the new
-# service reads both back.
+# The harness owns this disposable probe. The runner disables file
+# watching. Quickshell 0.3.1 reload(false) starts another QML generation
+# in the same process (src/core/qmlglobal.cpp, QuickshellGlobal::reload).
+note_reload_probe="$repo/shell/Probe.qml"
+note_reload_probe_saved="$sandbox/notifications-reload-Probe.qml"
+note_reload_probe_staged="$sandbox/notifications-reload-staged.qml"
+cp -p -- "$note_reload_probe" "$note_reload_probe_saved" || return 1
+python3 - "$note_reload_probe" <<'PY' || return 1
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+needle = '        target: "smoke"\n'
+assert source.count(needle) == 1, "the reload fixture needs one smoke IPC handler"
+path.write_text(source.replace(needle, needle + '''
+        readonly property double notificationGeneration: Date.now()
+        function notificationReloadGeneration(): string { return String(notificationGeneration); }
+        function notificationReload(): string {
+            Qt.callLater(() => Quickshell.reload(false));
+            return "ok";
+        }
+'''))
+PY
+cp -p -- "$note_reload_probe" "$note_reload_probe_staged" || return 1
+notification_reload_generation() {
+  local current
+  current="$(ipc smoke notificationReloadGeneration)" || return
+  if [[ $current =~ ^[0-9]+$ && $current != "$1" ]]; then echo replaced; else echo waiting; fi
+}
+
+# A process restart keeps Sound, Do Not Disturb and the stored toast. Its
+# old sender action must be absent once the new server starts.
 expect "Sound turns off before the shell restart" off notes sound off
+expect "Do Not Disturb is off when the toast arrives" off notes silence off
+notify smoke-reload 0 "Restored without sender" "A toast from the previous process" '["old-action", "Old action"]' '{"urgency": <byte 2>}' 0 >/dev/null
+expect_poll "the actionable toast is stored before the shell restart" True in_live "Restored without sender"
+expect_poll "the toast offers its sender action before the restart" '["Old action", "Dismiss"]' shown_pills "Restored without sender"
+cold_key="$(key_of "Restored without sender")"
 expect "Do Not Disturb turns on before the shell restart" on notes silence on
 expect_poll "Sound off is stored before the shell restart" false state_at sound
 expect_poll "Do Not Disturb on is stored before the shell restart" true state_at dnd
 if stop_shell && start_shell "$repo" "$sandbox/notifications-restart-qs.log"; then
+  # The loaded probe keeps its trigger. Restore the source before the
+  # safety check, which may end the sandbox without returning to this row.
+  cp -p -- "$note_reload_probe_saved" "$note_reload_probe" || return 1
   expect_poll "the restarted shell built the notification service" True record_exists vgs.notifications
   expect_poll "a shell restart keeps Sound off" false note_status sound
   expect "a shell restart keeps Do Not Disturb on" true note_status silence
+  expect_poll "the restarted shell restores the persisted toast" "$cold_key" key_of "Restored without sender"
+  expect_poll "the restarted toast offers only Dismiss" '["Dismiss"]' shown_pills "Restored without sender"
+  click_card_clear "Restored without sender" || fail "the restarted toast body could not be clicked"
+  rest_on_card "Restored without sender" || fail "the restarted toast did not stay on screen after the click"
+  expect "the restarted toast body click leaves no action notice" '""' card_value "Restored without sender" caption
+  click_item vgs:layer vgs.notifications PillButton text Dismiss ||
+    fail "the restarted toast could not be dismissed"
+  expect_poll "the restarted toast leaves" none key_of "Restored without sender"
+  expect "Do Not Disturb is off before the reload toast arrives" off notes silence off
+  reload_id="$(notify smoke-reload 0 "Reply after reload" "One reply reaches the app" '["vgs-2777-reply", "Reply after reload"]' '{"urgency": <byte 2>}' 0)"
+  expect_poll "the reply toast is stored before the QML reload" True in_live "Reply after reload"
+  rest_on_card "Reply after reload" || fail "the reply toast did not show before the QML reload"
+  reload_key="$(key_of "Reply after reload")"
+  if ! reload_generation="$(ipc smoke notificationReloadGeneration)" || [[ ! $reload_generation =~ ^[0-9]+$ ]]; then
+    fail "the QML generation before the reload could not be read"
+  elif hypr_reload_clear "Quickshell QML reload"; then
+    cp -p -- "$note_reload_probe_staged" "$note_reload_probe" || return 1
+    expect "the reload trigger accepts the request" ok ipc smoke notificationReload
+    expect_poll "a fresh QML generation has loaded" replaced notification_reload_generation "$reload_generation"
+    expect "the QML reload keeps the same Quickshell process" "$shell_qs_pid" "${shell_env[@]}" "$repo/bin/vgshell" pid
+    expect_poll "the reply toast keeps its stored key" "$reload_key" key_of "Reply after reload"
+    expect_poll "the reloaded toast offers Reply and Dismiss" '["Reply after reload", "Dismiss"]' shown_pills "Reply after reload"
+    expect "the original notification has received no Reply yet" 0 delivered "$reload_id" vgs-2777-reply
+    rest_on_card "Reply after reload" && click_item vgs:layer vgs.notifications PillButton text "Reply after reload" ||
+      fail "the reloaded Reply could not be clicked"
+    expect_poll "the reloaded Reply reaches the original notification once" 1 delivered "$reload_id" vgs-2777-reply
+    expect_poll "the replied-to toast leaves" none key_of "Reply after reload"
+  fi
   expect "Sound turns on after the shell restart" on notes sound on
-  expect "Do Not Disturb turns off after the shell restart" off notes silence off
 else
   fail "the shell did not stop and start again for the Sound and Do Not Disturb restart"
 fi
+cp -p -- "$note_reload_probe_saved" "$note_reload_probe" || return 1
 
 # An app's own notification sound under Do Not Disturb or Sound off.
 # App audio uses only the sandbox's private PipeWire, WirePlumber and

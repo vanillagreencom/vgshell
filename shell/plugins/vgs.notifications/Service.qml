@@ -34,6 +34,7 @@ Item {
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     property bool registered: false
     property var layerRelease: null
+    readonly property string rowNamePrefix: shell === null ? "" : "vgs-notification:" + shell.manifest.id + ":"
 
     // The rows every screen's stack draws, newest toast first, then the
     // panel's rows: key, originalId, app, appIcon, summary, body, image,
@@ -301,9 +302,12 @@ Item {
         });
         shell.ipc.handle("dismiss-all", () => root.dismissAll() === 0 ? "none" : "ok");
         shell.ipc.handle("dismiss-latest", () => root.onLatest(key => root.leave(key, "dismiss")));
-        shell.ipc.handle("invoke-latest", () => root.onLatest(key => root.choose(key, "open")));
+        shell.ipc.handle("invoke-latest", () => root.onLatest(key => root.choose(key, "open", false)));
         shell.ipc.handle("status", () => root.status());
-        shell.notifications.subscribe(n => root.receive(n));
+        shell.notifications.subscribe(n => n.lastGeneration ? root.reconnect(n) : root.receive(n));
+        const tracked = shell.notifications.tracked;
+        if (tracked !== null)
+            for (const n of Array.from(tracked.values)) reconnect(n);
     }
 
     function syncLayer() {
@@ -504,6 +508,11 @@ Item {
     readonly property var updateSignals: ["summaryChanged", "bodyChanged", "appNameChanged", "appIconChanged", "imageChanged", "urgencyChanged", "expireTimeoutChanged", "desktopEntryChanged"]
 
     function link(n, key) {
+        // Quickshell 0.3.1 re-emits the same Notification QObject on reload
+        // (NotificationServer::switchGeneration). Its writable QObject name
+        // names this plugin and its row for NotificationHub's handoff.
+        // https://doc.qt.io/qt-6/qml-qtqml-qtobject.html#objectName-prop
+        n.objectName = rowNamePrefix + key;
         const links = [];
         const connect = (name, fn) => {
             if (!n[name] || typeof n[name].connect !== "function") {
@@ -542,9 +551,8 @@ Item {
         for (const key of keys) refresh(key);
     }
 
-    // Let go of a held notification: disconnect everything, then close it
-    // on the server as `how` says, expire or dismiss; drop tells the server
-    // nothing, for an object that closed already or is handed on.
+    // Disconnect the row; expire or dismiss closes its server object.
+    // Drop clears its identity, while handoff keeps it for the next service.
     function unlink(key, how) {
         if (!Logic.hasOwn(held, key)) return;
         const ref = held[key];
@@ -553,6 +561,7 @@ Item {
         held = next;
         try {
             for (const [name, fn] of ref.links) ref.notification[name].disconnect(fn);
+            if (how !== "handoff") ref.notification.objectName = "";
             if (how === "expire") ref.notification.expire();
             else if (how === "dismiss") ref.notification.dismiss();
         } catch (e) {
@@ -591,7 +600,7 @@ Item {
     // draws the change; one held for the history arrives again, as a new
     // notification under a new key, since the sender sent something new,
     // and the history keeps what was shown.
-    function refresh(key) {
+    function refresh(key, keepClock = false) {
         if (!Logic.hasOwn(held, key)) return;
         if (!onScreen(key)) {
             const n = held[key].notification;
@@ -617,10 +626,11 @@ Item {
         for (const role of Logic.ENTRY_ROLES) rowModel.setProperty(at, role, updated[role]);
         bumpPanel();
         const stored = Logic.persistable(updated, store.imagesDir);
+        if (keepClock && Logic.hasOwn(clocks, key)) Object.assign(stored.entry, Logic.clockFields(clocks[key]));
         store.copy(stored.copies, null);
         store.putLive(stored.entry);
-        // New content deserves a whole look: the clock starts over.
-        startClock(key, Logic.lifetimeFor(updated.urgency, updated.expireTimeout, root.normalLifetime));
+        // A sender update starts the clock over. Reconnecting keeps its plan.
+        if (!keepClock) startClock(key, Logic.lifetimeFor(updated.urgency, updated.expireTimeout, root.normalLifetime));
     }
 
     // A silenced notification goes straight into the history, held once
@@ -675,8 +685,8 @@ Item {
     }
 
 
-    // The toasts the previous shell left on screen come back, with no live
-    // actions, and the ones whose time ran out meanwhile go into the history.
+    // The previous toasts come back on their saved clock plan. The ones
+    // whose time ran out meanwhile go into the history.
     function restore() {
         const now = Date.now();
         const plan = Logic.restorePlan(store.live, now, root.normalLifetime);
@@ -688,6 +698,31 @@ Item {
             if (entry.deadline !== undefined) startClock(entry.key, entry.deadline - now);
         }
         countShown();
+    }
+
+    // Join the stored row to its exact server object when it comes back.
+    // An object no longer owned by a row is discarded by the server during
+    // replay, or dismissed here if it was temporarily kept for this join.
+    function reconnect(n) {
+        if (!n.objectName.startsWith(rowNamePrefix)) return;
+        const key = n.objectName.slice(rowNamePrefix.length);
+        if (Logic.hasOwn(held, key)) {
+            n.tracked = true;
+            return;
+        }
+        const at = indexOf(key);
+        if (at === -1 && (!store.hasKey(key) || n.transient)) {
+            n.objectName = "";
+            if (n.tracked) n.dismiss();
+            return;
+        }
+        n.tracked = true;
+        link(n, key);
+        if (at !== -1) {
+            rowModel.setProperty(at, "origin", "live");
+            refresh(key, true);
+        }
+        bumpPanel();
     }
 
 
@@ -859,7 +894,7 @@ Item {
     // it itself. Logs what the choice reached, with no content. A card
     // whose rule keeps a message log then has its message opened in the
     // sender (readMessage), which no choice waits for.
-    function choose(key, choice) {
+    function choose(key, choice, fromToast = true) {
         const at = indexOf(key);
         const entry = at === -1 ? entryFor(key) : rowModel.get(at);
         if (entry === null) return false;
@@ -889,7 +924,7 @@ Item {
         if (plan.unavailable)
             return refuseAction(key, notification ? "The app no longer offers this action." : "This entry can no longer send actions.");
         if (choice === "open" && !notification && senders.length === 0 && message === null)
-            return refuseAction(key, "This entry can no longer send actions.");
+            return fromToast && entry.origin === "restored" ? false : refuseAction(key, "This entry can no longer send actions.");
         let delivered = false;
         if (plan.deliver !== "") {
             try {
@@ -1107,7 +1142,7 @@ Item {
             if (typeof request.key !== "string" || typeof request.choice !== "string") return "refused: choose=shape";
             const mode = panelMode === "history" ? "history" : "inbox";
             const shown = panelMode;
-            const chosen = choose(request.key, request.choice);
+            const chosen = choose(request.key, request.choice, false);
             // A dismiss on a panel card clears that entry or marks it
             // read, a toast's on screen too, whose leave put it in the
             // history.
@@ -1168,11 +1203,15 @@ Item {
         });
     }
 
-    // Every held object goes back to the server as dismissed, since a
-    // notification nobody draws would otherwise stay tracked; a toast stays
-    // in the store and comes back restored, with no live actions.
-    Component.onDestruction: {
+    function turnedOff() {
         for (const key of Object.keys(held)) unlink(key, "dismiss");
+        for (const key of Object.keys(silencedRefs)) releaseSilenced(key);
+    }
+
+    // A rebuild replaces the handlers while the server keeps their objects.
+    // A silenced notification with a pending copy loses that copy's owner.
+    Component.onDestruction: {
+        for (const key of Object.keys(held)) unlink(key, "handoff");
         for (const key of Object.keys(silencedRefs)) releaseSilenced(key);
     }
 }

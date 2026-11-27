@@ -47,8 +47,7 @@ Item {
     // At most three right-side pills; overflow keeps every remaining action in Menu.
     property var actions: []
     property bool showActions: false
-    // A short muted line at the right end in the actions' place, such as
-    // the no-action state the act shortcut leaves; "" for none.
+    // A notice below the message, in place of actions; "" for none.
     property string caption: ""
     // The last caption, which the tray keeps drawing while it fades out
     // after the caption ends, so the actions do not show for that fade.
@@ -67,13 +66,17 @@ Item {
     signal closeRequested()
     signal cardClicked()
 
-    readonly property real fullWidth: captionOnly ? Math.ceil(captionText.implicitWidth) + 2 * pad : look.card.width
+    readonly property real fullWidth: captionOnly ? captionText.width + 2 * pad : look.card.width
     // Finish the shared text layout before its virtual slot reads height.
     function settleHeight() {
         content.ensurePolished();
         textBlock.settleLayout();
     }
-    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + captionInset.topPadding + captionInset.bottomPadding : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
+    readonly property real messageHeight: textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
+    readonly property real captionSpace: captionMode && !captionOnly ? captionText.height + look.card.lineGap : 0
+    readonly property real fullHeight: captionOnly
+        ? captionText.height + captionInset.topPadding + captionInset.bottomPadding
+        : messageHeight + captionSpace
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -149,6 +152,7 @@ Item {
     RowLayout {
         id: content
         anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: -card.captionSpace / 2
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.horizontalCenterOffset: card.contentOffset
         width: card.contentWidth
@@ -189,7 +193,7 @@ Item {
             // As CardScroll does, texture the text alone while its alpha
             // mask is needed; its layout and the media remain unchanged.
             // https://doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html
-            layer.enabled: card.visible && tray.visible && !card.captionOnly && width > 0 && height > 0
+            layer.enabled: card.visible && tray.visible && !card.captionMode && !card.captionOnly && width > 0 && height > 0
             layer.smooth: true
             layer.effect: MultiEffect {
                 // ImageText's underline and styled ink extend outside the
@@ -208,16 +212,19 @@ Item {
     Item {
         id: tray
         anchors.right: parent.right
-        anchors.rightMargin: card.pad
+        anchors.rightMargin: card.captionMode
+            ? (card.width - card.fullWidth) / 2 + (card.captionOnly ? card.pad : card.textColumn)
+            : card.pad
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2 : 0
-        width: card.captionMode ? captionText.implicitWidth : actionRow.width
-        height: card.captionMode ? captionText.implicitHeight : actionRow.height
+        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2
+            : card.captionMode ? card.messageHeight / 2 - card.pad + card.look.card.lineGap / 2 : 0
+        width: card.captionMode ? captionText.width : actionRow.width
+        height: card.captionMode ? captionText.height : actionRow.height
         visible: opacity > 0
         opacity: card.trayShown && card.contentOpacity >= 1 ? 1 : 0
         Behavior on opacity { Anim { duration: card.look.motion.duration.short4; curve: card.look.motion.curve.standard } }
         onOpacityChanged: if (opacity === 0 && card.caption === "") card.heldCaption = ""
-        transform: Translate { x: (1 - tray.opacity) * card.look.tray.slide }
+        transform: Translate { x: card.captionMode ? 0 : (1 - tray.opacity) * card.look.tray.slide }
 
         // The hidden gradient is texture alpha for the text's own layer,
         // mapped to the row's drawn start, including its slide and fade.
@@ -233,7 +240,7 @@ Item {
             readonly property real textAlpha: 1 - tray.opacity * (1 - card.look.tray.fadeAlpha)
             readonly property real rowTop: tray.y - content.y - textBlock.y - textBlock.verticalOffset + card.pad
             // The text lines fade whole: a line whose ink meets the ink of
-            // the row's words, the labels' glyphs or the caption's, fades,
+            // a pill label fades,
             // and every other line keeps its ink. A words' line box would
             // reach past its glyphs into the clear space under the line
             // above and fade a line no word covers. The fade's edges fall
@@ -269,10 +276,7 @@ Item {
                 const row = rowTop - card.pad;
                 let wordsTop = row + tray.height / 2;
                 let wordsBottom = wordsTop;
-                if (card.captionMode) {
-                    wordsTop = row + captionText.y + captionText.inkAbove;
-                    wordsBottom = row + captionText.y + captionText.height - captionText.inkBelow;
-                } else if (actionRepeater.count > 0) {
+                if (actionRepeater.count > 0) {
                     wordsTop = Infinity;
                     wordsBottom = -Infinity;
                     for (let i = 0; i < actionRepeater.count; i++) {
@@ -325,6 +329,11 @@ Item {
             objectName: "notificationCaption"
             anchors.verticalCenter: parent.verticalCenter
             visible: card.captionMode
+            width: card.captionOnly ? Math.min(Math.ceil(implicitWidth), card.look.card.width - 2 * card.pad) : textBlock.width
+            height: Math.ceil(implicitHeight)
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            maximumLineCount: card.look.card.bodyLines
+            elide: Text.ElideRight
             textFormat: Text.PlainText
             text: card.caption !== "" ? card.caption : card.heldCaption
             color: card.look.text.subtitle.color

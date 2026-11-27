@@ -3396,6 +3396,15 @@ for screen, (x, y, w, h), v in json.load(sys.stdin):
 on_screen() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["onScreen"])'; }
 acme_emoji() { notes status | python3 -c 'import json,sys; print(json.load(sys.stdin)["slack"]["emoji"]["teams"].get("T0ACME", 0))'; }
 slack_badges() { ipc smoke layerItems vgs.notifications NotificationCard showsBadge,app | python3 -c 'import json,sys; print(json.dumps([v["showsBadge"] for _, _, v in json.load(sys.stdin) if v["app"] == "Slack"][:3]))'; }
+notification_refusal_actions() { # SUMMARY
+  ipc smoke layerItems vgs.notifications CardSlot summary,actions | py_reply 'import json,sys
+print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), None)))' "$1"
+}
+notification_refusal_shown() {
+  ipc smoke layerItems vgs.notifications QQuickText objectName,text,visible,parent.opacity | py_reply 'import json,sys
+print(any(v["objectName"] == "notificationCaption" and v["text"] == "The app no longer offers this action."
+    and v["visible"] and v["parent.opacity"] == 1 for _, _, v in json.load(sys.stdin)))'
+}
 # notification_header_shot NAME: one shot of the open panel, with its
 # header's box on the output recorded for a crop.
 notification_header_box() {
@@ -3440,7 +3449,9 @@ notification_header_shots() { # MODE
   expect_poll "the panel is the inbox again" '"inbox"' ipc smoke readInstance panel vgs.notifications mode
 }
 scene_notifications() { # MODE
-  local ids=() at
+  local ids=() at refusal_id refusal_key refusal_box
+  local refusal_title="Lunch plans" refusal_body="Would noon at the usual spot work for you?"
+  local refusal_hints='{"urgency": <byte 2>, "resident": <true>}'
   notes_on "Notifications shots"
   ids+=("$(notify smoke-build "Build finished" "vgs main is green in 2 min" '[]' '{}')")
   ids+=("$(notify smoke-power "Battery low" "12% left" '[]' '{"urgency": <byte 2>}')")
@@ -3540,6 +3551,29 @@ scene_notifications() { # MODE
   done
   expect "the history clears" ok notes clear-history
   expect_poll "no toast is left" 0 on_screen
+
+  # Withdraw Edit after the card offers it. The stale choice exercises
+  # the same refusal in both revisions of the screenshot pair.
+  refusal_id="$(notify smoke-chat "$refusal_title" "$refusal_body" '["edit", "Edit"]' "$refusal_hints")" ||
+    { fail "the refusal notification could not be sent"; return; }
+  shots_baseline_safety expect_poll "the refusal fixture initially offers Edit" '["Edit", "Dismiss"]' notification_refusal_actions "$refusal_title"
+  refusal_key="$(ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys
+print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "absent"))' "$refusal_title")"
+  "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.Notify smoke-chat "$refusal_id" "" "$refusal_title" "$refusal_body" '[]' "$refusal_hints" 30000 >/dev/null ||
+    { fail "withdrawing Edit failed"; return; }
+  shots_baseline_safety expect_poll "the app has withdrawn Edit" '["Dismiss"]' notification_refusal_actions "$refusal_title"
+  shots_baseline_safety expect "a stale Edit press keeps the toast on screen" held notes choose "{\"key\":\"$refusal_key\",\"choice\":\"action:edit\"}"
+  shots_baseline_safety expect_poll "the notification draws the action refusal" True notification_refusal_shown
+  # Capture the lit tray in one frame. Its dismissal clock keeps running
+  # while the capture waits for matching frames.
+  SHOT_SETTLE_S=0 take_posed "notifications-$1-action-refused"
+  refusal_box="$(nl_stack_box "$refusal_title")" || refusal_box=unreadable
+  shots_baseline_safety expect "the action refusal is still drawn after capture" True notification_refusal_shown
+  record_item "notifications-$1-action-refused" "$refusal_box"
+  expect "the refusal fixture is dismissed" ok notes dismiss-latest
+  expect_poll "the refusal fixture leaves" 0 on_screen
+  expect "the refusal fixture is cleared from history" ok notes clear-history
 }
 
 # The notification-limits scene: the longest notice each of twenty-one senders
@@ -3620,14 +3654,14 @@ nl_count=21
 nl_batch=7
 # The box around every card on screen, on the output: the stack's layer
 # starts under the bar, as card_centre reads it.
-nl_stack_box() {
+nl_stack_box() { # [SUMMARY]
   ipc smoke layerItems vgs.notifications NotificationCard summary | py_reply 'import json,sys
-boxes = [b for _, b, _ in json.load(sys.stdin) if b[2] > 0 and b[3] > 0]
+boxes = [b for _, b, v in json.load(sys.stdin) if b[2] > 0 and b[3] > 0 and (not sys.argv[2] or v["summary"] == sys.argv[2])]
 top = int(sys.argv[1])
 if not boxes: print("absent"); sys.exit()
 x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
 x1, y1 = max(b[0] + b[2] for b in boxes), max(b[1] + b[3] for b in boxes)
-print(json.dumps([x0, top + y0, x1 - x0, y1 - y0]))' "$bar_reserved"
+print(json.dumps([x0, top + y0, x1 - x0, y1 - y0]))' "$bar_reserved" "${1:-}"
 }
 nl_panel_box() {
   local layer
