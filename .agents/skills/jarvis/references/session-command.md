@@ -23,6 +23,8 @@ Read by section, only for the step that needs it: [Session command](#session-com
 - Start the controller through `.agents/skills/jarvis/scripts/jarvis-session start --home HOME --harness claude|codex|copilot|pi --account DIR --mode resume|new --origin manual`.
   - Use the Jarvis package installed in HOME.
   - Supply the account directory for the selected app.
+  - Start refuses `account-walled` when the accounts judge reads a spent account where Start would open: the recorded account a resume keeps, or the account `--account` names. A spent account has used 100 percent of its monthly, weekly or model window, or its plan has ended. The detail names that account.
+  - Start makes that refusal before it records the start, so Start records no failure. Where no controller runs, status keeps its reading.
 - Append `--model MODEL --effort LEVEL`, both or neither, to launch a stated model.
   - `MODEL` accepts the model class or native model spelling the task command takes.
   - The session records the pair as its choice.
@@ -67,18 +69,19 @@ Read by section, only for the step that needs it: [Session command](#session-com
   - A boot caller uses `start --origin boot`; a repeated call in the same login does not start another session.
 - A controller whose harness process exited without a Stop, as after a crash or a `/logout`, reads `stopped` with reason `ended`. A recorded controller whose record holds a Start failure reads that failure: `failed` with `launch-failed`, or `blocked` with `sign-in-required`. The [watch loop](control-host-events.md#delivery) starts either again by this route:
   1. Start with `--mode resume --origin manual --keep-brief` on the recorded harness and account.
-  2. If that Start refuses, at once or once its detached start records the refusal, run `jarvis-session succeed --home HOME --exited`. It hands the exited controller over to the next account the walk picks, never the recorded one, and retires nothing live.
+  2. If that Start refuses, at once, as with `account-walled`, or once its detached start records the refusal, run `jarvis-session succeed --home HOME --exited`. It hands the exited controller over to the next account the walk picks, never the recorded one, and retires nothing live.
      - `--exited` refuses `record-unreadable` while the controller runs, while a start is open, and after a Stop. After an app-off Stop it refuses `app-off`. During an open hand-over it answers `handing-over`, as every `succeed` does.
 - After a machine restart, or once a tmux server holding the delegate, an overseer or a lane is gone, run `.agents/skills/jarvis/scripts/jarvis-session resume --home HOME`.
   - It resumes the recorded delegate first, through Start's resume of its recorded conversation. It never opens a new conversation.
-  - It then resumes the overseer of each checkout `kendex project list --json` registers, through `orch-runtime resume-controller --fleet` run from that checkout. It skips the home's own controller, which is the delegate, and a controller stopped on purpose.
+  - It then relaunches each lane whose record reads `running`, and each lane recorded `stopped` with `restart_closed`, through `orch-runtime lane relaunch --fleet ITEM` run from its checkout, in each checkout `kendex project list --json` registers. It leaves a lane hosted on another machine as it is.
+  - It then resumes the overseer of each registered checkout, through `orch-runtime resume-controller --fleet` run from that checkout. It skips the home's own controller, which is the delegate, and a controller stopped on purpose.
     - That resume first brings the checkout to the landed base. Where `sync-base` refuses to move the checkout, the overseer still starts, and its line reads `refused` with `cause=sync-base-REASON`, such as `sync-base-dirty` for a checkout with tracked changes.
-  - It then relaunches each lane whose record reads `running`, and each lane recorded `stopped` with `restart_closed`, through `orch-runtime lane relaunch --fleet ITEM` run from its checkout. It leaves a lane hosted on another machine as it is.
   - Each session starts only after the one before it ends, so the command runs past the 60-second bound an app gives Start.
   - It does nothing to a session that still runs and prints it `resumed`: a delegate Start answers `existing`, an overseer whose start fails `controller-resume-failed` with `note=overseer-live`, and a lane refused `lane-live`.
   - A lane whose launch failed after its close, `launch-failed ... close=ID` at exit 3, is left `stopped` with `restart_closed`. A rerun relaunches it, and `lane relaunch` sends its launch alone. The rerun prints `resumed` or `refused` for it.
   - A lane whose launch is still open after its close, `launch-unconfirmed ... close=ID` at exit 75, is left `preparing` until its reconcile settles it. A rerun prints no line for it while it reads `preparing`.
   - It prints one line per session on stdout: `resumed kind=delegate|overseer|lane checkout=PATH`, with `item=KEY` for a lane, or `refused` with the same fields, then `cause=KEY` and the refusal's own fields. A refusal's field named `kind` or `cause`, or one naming the line's own field with another value, reads `orch_NAME`, such as `orch_cause=`.
+  - A relaunched lane's `resumed` line adds `route=resume` or `route=fresh`, as orch's outcome line names it. A `fresh` lane started a new conversation: check its work. A lane that was still running carries no `route`.
   - A delegate's cause is the reason Start answers, such as `new-no-record`, `app-off` or `launch-failed`.
   - An overseer's or a lane's cause is orch's refusal key. Where a close, launch or resume failed or is unconfirmed, it is the key that leads orch's outcome line, with that line's fields.
   - An overseer's, a lane's or a fleet's `orch-runtime` call that cannot start or does not end has cause `unanswered`, and an answer with no key it can read has cause `answer-unread` with `exit=N`. A delegate's call that cannot start or does not end has cause `record-unreadable`.

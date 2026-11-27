@@ -40,7 +40,7 @@ STATE_REASONS = {
     "starting": {"launching"}, "handing-over": {"succession"}, "stopping": {"stop-requested"},
     "stopped": {"never-started", "stopped", "ended"}, "off": {"app-off"},
     "blocked": {"app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing",
-                "trust-required", "home-not-dedicated"},
+                "trust-required", "home-not-dedicated", "account-walled"},
     "failed": {"launch-failed", "handover-failed"},
 }
 # The seat the controller record keeps through every hand-over: the turn end
@@ -684,6 +684,20 @@ class Session:
                 recorded = (status or {}).get("recorded") or {}
             self.initialized_fleet()
             pending, reason = self.choose(args, recorded, resume_only)
+            if pending.get("account") and (reason == "resumed" or args.account is not None):
+                # No walk judged this account. A window opened on a spent one
+                # closes at once; refused before the start intent, the record
+                # still reads the controller ended, so the watch loop hands it
+                # to an account with room. The bound is 100 percent: below it
+                # the account still runs, past the selection bound too. A
+                # judge that cannot answer leaves Start as it was before it
+                # judged.
+                room = self.room(pending["harness"], pending["account"], pending.get("model"), max_pct=100)
+                if room is None:
+                    print("jarvis-session: account-judge=unavailable account=" + pending["account"], file=sys.stderr)
+                elif room.get("answer") == "walled":
+                    raise Refusal("account-walled", short(pending["account"] + " has no room left."
+                                                          " Start Jarvis on an account with room."))
             problem = setup_problem(pending["harness"], pending.get("account") or self.env["HOME"])
             if problem:
                 raise Refusal("trust-required", problem)
@@ -899,17 +913,29 @@ class Session:
             raise Refusal("handover-failed", "The successor could not be chosen: " + str(refusal) + ".", "failed")
         return choice
 
+    def room(self, harness, account, model=None, max_pct=None):
+        """The controller's own judgement of ACCOUNT for HARNESS and MODEL,
+        under the bound MAX_PCT where given, else the selection bound:
+        `accounts pick --for-controller`'s reply, or None where the judge
+        refused to answer, its diagnostic on stderr."""
+        pick = ["accounts", "pick", "--harness", harness, "--account", account, "--record", self.fleet(),
+                "--for-controller"]
+        if model:
+            pick.extend(("--native-model", model))
+        if max_pct is not None:
+            pick.extend(("--max-pct", str(max_pct)))
+        room, code, _, errors = self.runtime(*pick)
+        if code:
+            sys.stderr.write(errors)
+            return None
+        return room
+
     def resume_wall(self, recorded, cursor=None):
         if cursor is None:
             if not recorded.get("account"):
                 return {"wall_recovery": "waiting"}
-            pick = ["accounts", "pick", "--harness", recorded["harness"], "--account", recorded["account"],
-                    "--record", self.fleet(), "--for-controller"]
-            if recorded.get("model"):
-                pick.extend(("--native-model", recorded["model"]))
-            room, code, _, errors = self.runtime(*pick)
-            if code:
-                sys.stderr.write(errors)
+            room = self.room(recorded["harness"], recorded["account"], recorded.get("model"))
+            if room is None:
                 raise Refusal("record-unreadable")
             if room.get("exit") != 0:
                 return {"wall_recovery": "waiting"}
@@ -1068,9 +1094,10 @@ class Session:
 
     def resume(self):
         """After a restart, each recorded session through its owner's verb, one
-        at a time: the delegate, then each registered checkout's overseer, then
-        each lane the restart left down. One line each; exit 1 where any
-        refused."""
+        at a time: the delegate, then each lane the restart left down, then
+        each registered checkout's overseer. An overseer resumed first reads
+        its not-yet-relaunched lanes `window-gone` and relaunches them beside
+        this loop. One line each; exit 1 where any refused."""
         refused = 0
 
         def report(kind, refusal, **names):
@@ -1124,17 +1151,19 @@ class Session:
             lanes += [(root, lane["item"]) for lane in state.get("lanes") or []
                       if lane.get("status") == "running"
                       or (lane.get("status") == "stopped" and lane.get("restart_closed"))]
-        for root in overseers:
-            self.deadline = time.monotonic() + RESUME_SECONDS
-            refusal = self.orch_step(root, "resume-controller", "--fleet")
-            report("overseer", None if still_running("overseer", refusal) else refusal, checkout=root)
         for root, item in lanes:
             self.deadline = time.monotonic() + RESUME_SECONDS
-            refusal = self.orch_step(root, "lane", "relaunch", "--fleet", item)
+            refusal, fields = self.orch_step(root, "lane", "relaunch", "--fleet", item)
             # A hosted lane runs on its own host: this machine's restart left it.
             if refusal and refusal[0] == "lane-hosted":
                 continue
-            report("lane", None if still_running("lane", refusal) else refusal, checkout=root, item=item)
+            # A fresh route lost the conversation, so its work may need a look.
+            route = {name: value for name, value in fields if name == "route"}
+            report("lane", None if still_running("lane", refusal) else refusal, checkout=root, item=item, **route)
+        for root in overseers:
+            self.deadline = time.monotonic() + RESUME_SECONDS
+            refusal, _ = self.orch_step(root, "resume-controller", "--fleet")
+            report("overseer", None if still_running("overseer", refusal) else refusal, checkout=root)
         return None, 1 if refused else 0
 
     def resume_delegate(self):
@@ -1188,16 +1217,21 @@ class Session:
         return refusal, None, None
 
     def orch_step(self, root, *words):
-        """orch-runtime WORDS run from ROOT: None at exit 0, else its refusal."""
+        """orch-runtime WORDS run from ROOT as (refusal, fields): at exit 0 no
+        refusal and the NAME=VALUE fields of orch's outcome line, else its
+        refusal and no fields."""
         try:
             result = self.run([str(ORCH_RUNTIME), *words], check=False, env=dict(os.environ), cwd=root)
         except (OSError, subprocess.TimeoutExpired) as failure:
             print("jarvis-session: operation=orch-runtime " + " ".join(words[:2]) + " cause=" + type(failure).__name__,
                   file=sys.stderr)
-            return "unanswered", ()
+            return ("unanswered", ()), ()
         # The session log keeps orch's own lines, its outcome line included.
         sys.stderr.write(result.stdout + result.stderr)
-        return None if result.returncode == 0 else orch_refusal(result)
+        if result.returncode:
+            return orch_refusal(result), ()
+        line = outcome_line(result.stdout)
+        return None, line[1] if line else ()
 
 
 # orch's answer for a session the restart did not end, by kind: a lane's
@@ -1217,19 +1251,27 @@ def orch_refusal(result):
     """A failed orch-runtime call as (key, fields): its reply's refusal, else
     the key that leads its last line, as a close, launch or resume that failed
     or is unconfirmed after the fact prints it, with that line's NAME=VALUE
-    fields, else `answer-unread`. A field's value runs to the next field, since
-    a cause is free text."""
+    fields, else `answer-unread`."""
     try:
         refusal = json.loads(result.stdout.splitlines()[-1])["refusal"]
         return refusal["key"], [tuple(field) for field in refusal.get("fields") or []]
     except (IndexError, KeyError, TypeError, ValueError):
         pass
     for text in (result.stdout, result.stderr):
-        lines = text.strip().splitlines()
-        match = re.match(r"(?:orch-runtime: )?([a-z][a-z0-9-]*)(?: (.*)|$)", lines[-1]) if lines else None
-        if match:
-            return match[1], re.findall(r"([a-z_]+)=(.*?)(?= [a-z_]+=|$)", match[2] or "")
+        line = outcome_line(text)
+        if line:
+            return line
     return "answer-unread", (("exit", result.returncode),)
+
+
+def outcome_line(text):
+    """The key leading TEXT's last line and that line's NAME=VALUE fields, or
+    None. A field's value runs to the next field, since a cause is free text."""
+    lines = text.strip().splitlines()
+    match = re.match(r"(?:orch-runtime: )?([a-z][a-z0-9-]*)(?: (.*)|$)", lines[-1]) if lines else None
+    if not match:
+        return None
+    return match[1], re.findall(r"([a-z_]+)=(.*?)(?= [a-z_]+=|$)", match[2] or "")
 
 
 class Arguments(argparse.ArgumentParser):
