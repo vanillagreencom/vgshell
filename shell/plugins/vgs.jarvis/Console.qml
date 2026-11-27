@@ -1033,6 +1033,7 @@ FocusScope {
                                 padded: false
                                 sender: activeCard.live ? activeCard.ask.askedBy.name : ""
                                 title: activeCard.live ? activeCard.ask.what : ""
+                                titleLines: 1
                                 bodyText: !activeCard.live || activeCard.ask.statusText === undefined ? "" : activeCard.ask.statusText
                                 linkText: activeCard.live && activeCard.ask.link !== null ? activeCard.ask.link.label : ""
                                 stateText: activeCard.live ? root.askState(activeCard.ask) : ""
@@ -1061,6 +1062,7 @@ FocusScope {
                                 Accessible.description: snoozedCard.live ? "Returns " + root.when(Date.parse(snoozedCard.ask.snoozedUntil)) : ""
                                 sender: snoozedCard.live ? snoozedCard.ask.askedBy.name : ""
                                 title: snoozedCard.live ? snoozedCard.ask.what : ""
+                                titleLines: 1
                                 linkText: snoozedCard.live && snoozedCard.ask.link !== null ? snoozedCard.ask.link.label : ""
                                 stateText: "Snoozed"
                                 actions: snoozedCard.live ? root.askActions(snoozedCard.ask) : []

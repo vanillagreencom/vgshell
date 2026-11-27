@@ -21,11 +21,12 @@ import qs.Ui
 // text keeps the content edge as its sides, as a heading or a notice
 // beside it does: a reply's text reaches the row's sides, and an own
 // turn's fill reaches its end side and pads its text inside.
-// `bodyLines` cuts the body at that many lines with an ellipsis (0 keeps
-// it whole); `bodyTruncated` says it was cut, and then `cutHint`, when
-// set, says under it how to read the rest. `bodyComponent` draws an item
-// in the body's place, such as Jarvis's words as it speaks them. `marked`
-// stands the row on the `messageRow.mark` plate, its whole box, fading in
+// `titleLines` and `bodyLines` cut the title and body at that many lines
+// with an ellipsis (0 keeps the text whole). `bodyTruncated` says the body
+// was cut, and `cutHint`, when set, says under it how to read the rest.
+// `bodyComponent` draws an item in the body's place, such as Jarvis's
+// words as it speaks them. `marked` stands the row on the
+// `messageRow.mark` plate, its whole box, fading in
 // and out over `motion.duration.slow`; a padded turn's plate reaches
 // `markOutset` past each side, so the marked text keeps a clearance.
 Item {
@@ -36,6 +37,7 @@ Item {
     property string initials: ""
     property string avatarIcon: ""
     property string title: ""
+    property int titleLines: 0
     property string bodyText: ""
     property string linkText: ""
     property string stateText: ""
@@ -177,6 +179,8 @@ Item {
             visible: root.title !== ""
             width: parent.width
             role: "bodyStrong"
+            maximumLineCount: root.titleLines > 0 ? root.titleLines : undefined
+            elide: root.titleLines > 0 ? Text.ElideRight : Text.ElideNone
             text: root.title
             textFormat: Text.PlainText
             wrapMode: Text.Wrap

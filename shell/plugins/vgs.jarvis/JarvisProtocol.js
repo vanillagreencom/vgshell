@@ -92,8 +92,11 @@ function ownerAskRows(rows, view) {
         var fields = ["id", "revision", "kind", "what", "askedBy", "askedAt", "link", "threadRef", "state", "snoozedUntil", "actions"];
         if (object(row) && row.statusText !== undefined) fields.push("statusText");
         keys(row, fields, "owner-ask-row");
+        // The package supplies the complete request. The page byte limit
+        // bounds it, and LF is allowed so the action dialog retains its lines.
         if (!printable(row.id, 1, 128) || Object.prototype.hasOwnProperty.call(ids, row.id)
-                || !printable(row.revision, 1, 128) || !printable(row.what, 1, 200)
+                || !printable(row.revision, 1, 128) || typeof row.what !== "string" || row.what.length === 0
+                || /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(row.what)
                 || ["jarvis-ask", "tracker-item", "fleet-approval"].indexOf(row.kind) === -1
                 || !instant(row.askedAt) || !printable(row.threadRef, 1, 200)
                 || ["open", "checking", "snoozed"].indexOf(row.state) === -1

@@ -179,6 +179,69 @@ function client(extra = {}) {
     const mixed = { v: 1, homeId: "home", revision: "1", observedAt: new Date().toISOString(), activeCount: 2, snoozedCount: 0,
         rows: [linked, { ...linked, id: "unposted", link: null }], nextCursor: null, complete: true };
     assert.doesNotThrow(() => Protocol.ownerAsksPage(mixed, "active", null), "an ask never posted on a tracker has no link");
+    // A synthetic bug report with the decision and Markdown example an ask can carry.
+    const what = [
+        "Choose a shorter title for the reading shelf card.",
+        "",
+        "**Bug:** The title of the reading shelf wraps on small catalog cards.",
+        "At the narrow card width, the second line crowds the opening-hours label. The cards appear in a single row.",
+        "",
+        "**Recommended:** Use `Shared reading shelf` as the catalog title.",
+        "",
+        "**Alternative:** Keep `Community book exchange` and give the title room.",
+        "The longer title pushes the opening-hours label down and out of alignment.",
+        "",
+        "**Decision:** Pick a catalog title that readers can understand on its own.",
+        "The sample shows the catalog record for the reported card, including the text from the printed sign.",
+        "Volunteers can compare the small card with the sign near the entrance before the next printing.",
+        "",
+        "```json",
+        "{",
+        '  "collection": "Shared reading shelf",',
+        '  "location": "Library entrance",',
+        '  "sign": "Take a book, leave a book",',
+        '  "catalogTitle": "Shared reading shelf",',
+        '  "access": "Open to all visitors during library hours",',
+        '  "categories": ["Fiction", "Nonfiction", "Children\'s books"],',
+        '  "additions": "Leave a book in good condition on the shelf",',
+        '  "loans": "Take a book home without checking it out",',
+        '  "returns": "Return books here or pass them along to someone else",',
+        '  "capacity": "Leave enough room for visitors to browse",',
+        '  "labels": "Use large, clear print for the shelf sign",',
+        '  "audience": "Visitors who are new to the library or to book exchanges",',
+        '  "examples": ["A paperback novel", "An illustrated guide", "A picture book"],',
+        '  "hours": "Follow the posted library schedule",',
+        '  "care": "Keep books away from the front door on rainy days",',
+        '  "review": "Read the narrow card and check that the opening-hours label lines up with adjacent cards",',
+        '  "sortOrder": "Group books by audience with the covers facing outward",',
+        '  "overflow": "Set aside spare books to rotate onto the shelf when there is room",',
+        '  "contacts": ["Library desk", "Volunteer coordinator"],',
+        '  "supplies": ["Shelf labels", "Bookends", "Catalog cards"],',
+        '  "placement": "Use a reachable shelf alongside the library notice board",',
+        '  "reminder": "Compare the old and new cards side by side under the same display settings",',
+        [
+            '  "description": "The shared reading shelf is open to everyone.',
+            "Visitors can take any book they would like to read, leave a book for someone else,",
+            "or do both on different visits. Families can browse the shelf together and choose",
+            "books to bring home. The library sorts the books from time to time so each section",
+            "is easy to reach. Books scattered about may be returned to a shelf with room.",
+            'The shelf has a mix of titles and will change as readers bring books from their own collections."'
+        ].join(" "),
+        "}",
+        "```",
+        "",
+        "Reply with the catalog title to use on the fixed card."
+    ].join("\n");
+    const withWhat = what => ({ ...mixed, rows: [{ ...linked, what }, mixed.rows[1]] });
+    assert.equal(Protocol.ownerAsksPage(withWhat(what), "active", null).rows[0].what, what);
+    const separated = "First line\u2028Second line\u2029Another paragraph";
+    assert.equal(Protocol.ownerAsksPage(withWhat(separated), "active", null).rows[0].what, separated);
+    for (const invalid of ["", "text\u0000", "text\t", "text\r\n", "text\u007f", "text\u0085"])
+        assert.throws(() => Protocol.ownerAsksPage(withWhat(invalid), "active", null), /protocol=owner-ask-row$/);
+    const remainingBytes = 16 * 1024 - Buffer.byteLength(JSON.stringify(withWhat(what)));
+    const atLimit = what + "é".repeat(Math.floor(remainingBytes / 2)) + "x".repeat(remainingBytes % 2);
+    assert.equal(Protocol.ownerAsksPage(withWhat(atLimit), "active", null).rows[0].what, atLimit);
+    assert.throws(() => Protocol.ownerAsksPage(withWhat(atLimit + "x"), "active", null), /protocol=owner-asks-page$/);
     function doneChecks(judge) {
         assert.throws(() => judge.ownerAskAnswer({ v: 1, requestId: "done", kind: "accepted", state: "closed", cause: "" }, "done"));
     }
