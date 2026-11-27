@@ -92,7 +92,14 @@ function detailEntries(status) {
 function rowsEntries(status, tab) {
     return status.filter(function (entry) { return entry.placement === "rows" && entry.tab === tab; });
 }
-function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && !entry.requestOnly; }); }
+// The tools Details reads out of REQUIREMENTS: every requirement but a
+// request-only one, which has no passive placement, the required ones
+// first, each group in manifest order, so a user sees what the plugin
+// depends on beside what it can add.
+function detailRequirements(requirements) {
+    var listed = requirements.filter(function (entry) { return !entry.requestOnly; });
+    return listed.filter(function (entry) { return !entry.optional; }).concat(listed.filter(function (entry) { return entry.optional; }));
+}
 // The action that opens the plugin's notice for every missing or outdated
 // tool, the one install action of Setup's Tools and Optional tools steps.
 var REVIEW_LABEL = "Review all missing or outdated tools";

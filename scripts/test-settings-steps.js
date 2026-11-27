@@ -103,7 +103,15 @@ function verify(logic, producer) {
     const optionalOnly = requirements(["optional-tool"]).filter(row => row.optional);
     same(items(logic.setupSections(screens, [], optionalOnly)).map(item => item.key), ["optional-tools"], "optional tools alone create Setup, with their one step");
     same(logic.toolsStep(optionalOnly, false), null, "optional tools never create the Tools step");
-    same(logic.detailRequirements(requirements([])).map(row => row.name), ["optional-tool", "org.example.Tool", "automatic-tool"], "every optional tool is on Details");
+    same(logic.detailRequirements(requirements(["required-b", "optional-tool"])).map(row => [row.name, row.badge.text]),
+        [["required-a", "Present"], ["required-b", "Missing"], ["optional-tool", "Optional"], ["org.example.Tool", "Present"], ["automatic-tool", "Present"]],
+        "every tool is on Details with its badge, required and optional");
+    const optionalFirst = { requirements: producer.normalRequirements([
+        { command: "extra-tool", optional: true, purpose: "Optional feature" },
+        { command: "base-tool", purpose: "Basic work" }
+    ]) };
+    same(logic.detailRequirements(producer.requirementRows(optionalFirst, [], {})).map(row => row.name), ["base-tool", "extra-tool"],
+        "Details lists required tools before optional ones");
     for (const [label, values, missing, enabled, expected] of [
         ["all required work ready", allDone, [], true, false],
         ["only Home blocked", Object.assign({}, allDone, { home: blocked }), [], true, true],
@@ -590,7 +598,7 @@ function verify(logic, producer) {
             [state, [], [], false, false], "request-only tools have no passive placement: " + state);
         const mixed = requirements([]).concat(held);
         same([logic.detailRequirements(mixed).map(row => row.name), items(logic.setupSections(screens, [], mixed)).map(item => item.key)],
-            [["optional-tool", "org.example.Tool", "automatic-tool"], ["required-tools", "optional-tools"]],
+            [["required-a", "required-b", "optional-tool", "org.example.Tool", "automatic-tool"], ["required-tools", "optional-tools"]],
             "request-only tools preserve ordinary tools and completed required work: " + state);
     }
     const requestFailure = { action: "install", manager: "pacman", packages: ["builder"], lines: [] };
@@ -651,7 +659,7 @@ const controls = [
     ["an excluded tool offers Review", 'button: actionable ? reviewButton() : null', 'button: lacking.length > 0 ? reviewButton() : null', "architecture exclusion: a required tool is unfinished but has no install action"],
     ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.tab === tab;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
     ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
-    ["request-only tools appear on Details", 'return entry.optional && !entry.requestOnly;', 'return entry.optional;', "request-only tools have no passive placement"],
+    ["request-only tools appear on Details", 'var listed = requirements.filter(function (entry) { return !entry.requestOnly; });', 'var listed = requirements;', "request-only tools have no passive placement"],
     ["request-only tools create Setup", 'return row.optional === optional && !row.requestOnly;', 'return row.optional === optional;', "request-only tools have no passive placement"],
     ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional && !row.requestOnly; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional && !row.requestOnly; }) : requirements.filter(function (row) { return !row.requestOnly; });', "optional tools alone create Setup"],
     ["the optional tools step names the required tools", 'var lacking = rows.filter(requirementApplies);', 'var lacking = requirements.filter(requirementApplies);', "tools steps a required tool missing"],
@@ -684,7 +692,7 @@ const controls = [
     ["a Details fact offers no action", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(null, entry.action !== null, plugin)', "Details: on: a former Settings entry offers its action"],
     ["a Details fact offers no Turn on while the plugin is off", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Details: off: a former Settings entry offers Turn on"],
     ["a Details fact draws its declared action dead", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), entry.action !== null, plugin)', "Details: on: a fact whose feature is set up offers nothing"],
-    ["optional tools leave Details", 'return requirements.filter(function (entry) { return entry.optional && !entry.requestOnly; });', 'return requirements.filter(function (entry) { return entry.optional && !entry.requestOnly && entry.name === "automatic-tool"; });', "every optional tool is on Details"],
+    ["optional tools leave Details", 'return listed.filter(function (entry) { return !entry.optional; }).concat(listed.filter(function (entry) { return entry.optional; }));', 'return listed.filter(function (entry) { return !entry.optional; });', "every tool is on Details with its badge"],
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
     ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line alone"],
     ["a step that could not start keeps the declaration's hint", 'if (entry.report !== "reported" && reading === "unavailable") {', 'if (false) {', "Not available after a failed build: the step draws the plain line alone"],

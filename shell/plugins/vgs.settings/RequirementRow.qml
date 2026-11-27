@@ -10,7 +10,7 @@ import qs.Ui
 // for a missing optional requirement, since the purpose under it says what
 // the tool adds, or Outdated for a command below the version the plugin
 // needs, optional or not, since an installed tool the plugin calls fails
-// below that version. Details lists the optional tools with it, by the
+// below that version. Details lists every tool with it, by the
 // requirement's title, its command or its D-Bus label; the row draws no
 // step of its own, and the section's Review action installs them. The row
 // is the Field its column places, so it stands under the row above it as

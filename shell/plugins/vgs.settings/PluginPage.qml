@@ -1437,8 +1437,9 @@ FocusScope {
 
                     Section {
                         id: toolsSection
-                        // The optional tools, as readings: Setup's Optional
-                        // tools step installs the missing or outdated ones.
+                        // The plugin's tools, as readings: Setup's Tools and
+                        // Optional tools steps install the missing or
+                        // outdated ones.
                         readonly property var tools: page.row === null ? [] : Steps.detailRequirements(page.row.requirements)
                         width: parent.width
                         title: "Tools"
