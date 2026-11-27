@@ -7,7 +7,8 @@ import "VpnLogic.js" as Logic
 // one check at a time, of one WireGuard profile, which the service starts
 // when a connect it ran ends and on a press of Check, never on a timer.
 // It reads the tunnel's interface first; once that answers, the route of
-// each family and systemd-resolved's settings; with those and the kill
+// each family, systemd-resolved's settings and any DNS servers programs
+// ask directly; with those and the kill
 // switch status in, for a connected profile, the public address through
 // the tunnel's interface, only when VpnLogic.publicPlan places every
 // lookup of the provider's name in the tunnel. The kill switch status
@@ -76,16 +77,46 @@ Item {
     // A reader's end: CODE as Service.codeOf gives it, ABSENT the command
     // when it is not installed, else "".
     function ended(key, code, text, errors, absent) {
-        if (run === null || run.waiting.indexOf(key) === -1) return;
+        if (run === null || run.waiting.indexOf(key === "dns-route" ? "dns" : key) === -1) return;
         if (code !== 0) console.log("vpn: operation=leak-check reading=" + key + " completion=" + (absent !== "" ? "missing" : code === -1 ? "interrupted" : "failed") + " code=" + code);
         const notInstalled = { kind: "missing", command: absent };
         switch (key) {
         case "link": linked(absent !== "" ? { kind: "unreadable" } : Logic.linkRead(code, text)); break;
         case "ipv4":
         case "ipv6": settle(key, absent !== "" ? notInstalled : Logic.routeRead(code, text, errors)); break;
-        case "dns": settle(key, absent !== "" ? notInstalled : Logic.dnsRead(code, text)); break;
+        case "dns": dnsRead(absent !== "" ? notInstalled : Logic.dnsRead(code, text)); break;
+        case "dns-route":
+            const route = absent !== "" ? notInstalled : Logic.routeRead(code, text, errors);
+            run.dns.routes.push(route);
+            if (route.kind === "via" || route.kind === "none") nextDnsRoute();
+            else settle("dns", run.dns);
+            break;
         case "public": settle(key, absent !== "" ? { kind: "failed", reason: "missing" } : Logic.insights(code, text)); break;
         }
+    }
+    function dnsRead(reading) {
+        if (reading.kind !== "direct") {
+            settle("dns", reading);
+            return;
+        }
+        run.dns = reading;
+        resolvFile.path = "/etc/resolv.conf";
+    }
+    function readDnsServers(text) {
+        const commands = Logic.dnsServerRoutes(text);
+        if (commands === null) {
+            settle("dns", run.dns);
+            return;
+        }
+        run.dnsCommands = commands;
+        run.dns.routes = [];
+        nextDnsRoute();
+    }
+    function nextDnsRoute() {
+        if (run.dnsCommands.length === 0) settle("dns", run.dns);
+        // Process supports restarting from onRunningChanged once it ends.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+        else launch(dnsRouteReader, run.dnsCommands.shift(), "ip");
     }
     // With the interface read, the routes and the DNS settings are read.
     function linked(link) {
@@ -130,7 +161,12 @@ Item {
     // as a read that never started.
     function expired() {
         if (run === null) return;
-        for (const reader of [linkReader, ipv4Reader, ipv6Reader, dnsReader, publicReader]) if (reader.running) reader.signal(9);
+        for (const reader of [linkReader, ipv4Reader, ipv6Reader, dnsReader, dnsRouteReader, publicReader]) if (reader.running) reader.signal(9);
+        if (resolvFile.path !== "") {
+            resolvFile.path = "";
+            settle("dns", run.dns);
+        }
+        if (run === null) return;
         if (run.waiting.indexOf("status") !== -1) settle("status", Logic.killStatus(-1, "", ""));
     }
     // curl's own bound is INSIGHTS_SECONDS; the deadline leaves it room to end.
@@ -164,5 +200,24 @@ Item {
     Reader { id: ipv4Reader; key: "ipv4" }
     Reader { id: ipv6Reader; key: "ipv6" }
     Reader { id: dnsReader; key: "dns" }
+    Reader { id: dnsRouteReader; key: "dns-route" }
     Reader { id: publicReader; key: "public" }
+
+    // Setting the path preloads asynchronously. Defer clearing it until
+    // FileView has finished its loaded/loadFailed handler (FileView::operationFinished).
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/
+    FileView {
+        id: resolvFile
+        printErrors: false
+        onLoaded: {
+            const contents = text();
+            Qt.callLater(() => root.resolvEnded(contents));
+        }
+        onLoadFailed: Qt.callLater(() => root.resolvEnded(""))
+    }
+    function resolvEnded(contents) {
+        if (resolvFile.path === "") return;
+        resolvFile.path = "";
+        readDnsServers(contents);
+    }
 }

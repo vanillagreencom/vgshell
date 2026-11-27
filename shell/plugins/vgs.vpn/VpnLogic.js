@@ -1044,8 +1044,9 @@ function linkRead(code, text) {
 // names in particular. `ip route get` follows the policy rules a
 // WireGuard profile adds and sends nothing.
 var ROUTE_PROBES = { ipv4: "192.0.2.1", ipv6: "2001:db8::1" };
-function routeArgv(family) {
-    return ["ip", "-j", family === "ipv6" ? "-6" : "-4", "route", "get", ROUTE_PROBES[family]];
+function routeArgv(family, address = ROUTE_PROBES[family], link = "") {
+    const argv = ["ip", "-j", family === "ipv6" ? "-6" : "-4", "route", "get", address];
+    return link === "" ? argv : argv.concat(["oif", link]);
 }
 // iproute2 7.3.0 under LC_ALL=C, recorded in network namespaces on
 // 2026-11-11 (scripts/fixtures/vpn/route-*.txt): one JSON route whose `dev`
@@ -1078,16 +1079,15 @@ var GLOBAL_DNS = "global servers";
 // resolved's routing holds for programs that read /etc/resolv.conf only
 // while it names resolved's stub (the global entry's `resolvConfMode`,
 // stub or static). In uplink or foreign mode it lists servers that such
-// programs (musl or static binaries, dig, Go's own resolver) ask directly,
-// the Wi-Fi's among them; with missing, or no mode read, it is unknown.
+// programs (musl or static binaries, dig, Go's own resolver) ask directly.
+// Programs using nss-resolve still use resolved's scopes in both modes.
 var RESOLVED_MODES = ["stub", "static"];
 var DIRECT_MODES = ["uplink", "foreign"];
 // { kind: "scopes", scopes: [{ link, defaultRoute, domains }], fallback }
 // for each entry that holds a DNS server, the global servers taking every
 // name no domain routes, as for a default-route link; `fallback` when the
-// global settings list fallback servers. `direct` for a resolv.conf that
-// programs ask past resolved (DIRECT_MODES). Else `unreadable`: a reading
-// the judge cannot fully evaluate is no pass.
+// global settings list fallback servers. `direct` keeps those same scopes
+// while the listed servers' routes are still pending. Else `unreadable`.
 function dnsRead(code, text) {
     const unreadable = { kind: "unreadable" };
     if (code !== 0) return unreadable;
@@ -1118,9 +1118,33 @@ function dnsRead(code, text) {
         const names = domains.map(domain => domain.name === "." ? "." : domain.name.toLowerCase().replace(/\.$/, ""));
         scopes.push({ link: link, defaultRoute: global || entry.defaultRoute, domains: names });
     }
-    if (DIRECT_MODES.indexOf(mode) !== -1) return { kind: "direct" };
-    if (RESOLVED_MODES.indexOf(mode) === -1) return unreadable;
-    return { kind: "scopes", scopes: scopes, fallback: fallback };
+    if (DIRECT_MODES.indexOf(mode) !== -1) return { kind: "direct", scopes: scopes, fallback: fallback };
+    return RESOLVED_MODES.indexOf(mode) !== -1 ? { kind: "scopes", scopes: scopes, fallback: fallback } : unreadable;
+}
+
+// resolv.conf(5) § Description: one IPv4 or IPv6 address per nameserver
+// line. A malformed entry or no entries leaves the reading incomplete.
+// Both stubs stand for the scopes already read (systemd-resolved.service(8)
+// § /etc/resolv.conf and § Description).
+function dnsServerRoutes(text) {
+    const servers = String(text).split("\n").filter(line => /^nameserver(?:[ \t\r]|$)/.test(line));
+    if (servers.length === 0) return null;
+    const routes = [];
+    for (const line of servers) {
+        const server = /^nameserver[ \t]+([^ \t\r#;]+)/.exec(line);
+        if (server === null) return null;
+        const address = server[1];
+        if (address === "127.0.0.53" || address === "127.0.0.54") continue;
+        if (IPV4.test(address)) routes.push(routeArgv("ipv4", address));
+        else {
+            // ip validates the IPv6 literal. Admit only an address and an
+            // optional interface scope, never additional route-get terms.
+            const ipv6 = /^([\da-f.]*:[\da-f:.]*)(?:%([A-Za-z0-9_.-]{1,15}))?$/i.exec(address);
+            if (ipv6 === null) return null;
+            routes.push(routeArgv("ipv6", ipv6[1], ipv6[2] || ""));
+        }
+    }
+    return routes;
 }
 // The domains Tailscale routes to tailscale0 for its own names: MagicDNS
 // under ts.net and the reverse zones of its addresses, 100.64.0.0/10 and
@@ -1284,14 +1308,23 @@ function leakCheck(readings, before, host) {
     }
     const unread = reading => reading.kind === "missing" ? unknown("missing", reading.command) : unknown("read");
     const route = reading => reading.kind === "via" ? [reading.link] : reading.kind === "none" ? [] : unread(reading);
-    // A lookup no target takes goes nowhere this reading can judge.
-    const lookups = readings.dns.kind === "direct" ? unknown("direct")
-        : readings.dns.kind !== "scopes" ? unread(readings.dns)
-        : host === undefined ? lookupLinks(readings.dns) : nameLinks(readings.dns, host);
+    function dnsTargets(dns) {
+        if (dns.kind === "direct" && dns.routes === undefined) return unknown("resolv-conf");
+        if (dns.kind !== "scopes" && dns.kind !== "direct") return unread(dns);
+        const links = host === undefined ? lookupLinks(dns) : nameLinks(dns, host);
+        if (dns.kind === "direct") {
+            for (const server of dns.routes) {
+                if (server.kind === "missing") return unread(server);
+                if (server.kind === "unreadable") return unknown("dns-route");
+                if (server.kind === "via") links.push(server.link);
+            }
+        }
+        return links.length === 0 ? unknown("lookups") : links;
+    }
     return {
         uuid: readings.uuid, kill: kill, public: readings.public,
         ipv4: judge(route(readings.ipv4)), ipv6: judge(route(readings.ipv6)),
-        dns: judge(Array.isArray(lookups) && lookups.length === 0 ? unknown("lookups") : lookups)
+        dns: judge(dnsTargets(readings.dns))
     };
 }
 
@@ -1362,7 +1395,8 @@ function familyLine(key, family) {
     case "link": return checkLine("Could not check", CHECK_REASONS.link);
     case "kill": return checkLine("Could not check", "VGS could not check whether the kill switch blocks it");
     case "lookups": return checkLine("Could not check", "VGS could not find where name lookups go");
-    case "direct": return checkLine("Could not check", "Some programs can ask DNS servers that VGS cannot check");
+    case "resolv-conf": return checkLine("Could not check", "VGS could not read a DNS server from /etc/resolv.conf");
+    case "dns-route": return checkLine("Could not check", "VGS could not read the route to a DNS server");
     }
     return checkLine("Could not check", dns ? "VGS could not read the DNS settings" : "VGS could not read the route");
 }

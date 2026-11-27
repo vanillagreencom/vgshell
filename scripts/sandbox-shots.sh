@@ -1046,6 +1046,19 @@ fi
 source "$checkout/scripts/smoke/harness.sh"
 shots_baseline_start || exit 1
 source "$checkout/scripts/smoke/jarvis-console.sh"
+if [[ " ${scenes[*]} " == *" vpn "* ]] && tree_has shell/plugins/vgs.vpn/VpnLogic.js 'function dnsServerRoutes('; then
+  # Use the fixture in the sandbox copy before the VPN plugin loads.
+  python3 - "$repo" <<'PY' || exit 1
+import json, pathlib, sys
+repo = pathlib.Path(sys.argv[1])
+reader = repo / "shell/plugins/vgs.vpn/LeakCheck.qml"
+fixture = repo / "scripts/fixtures/vpn/resolv-tunnel.conf"
+source = reader.read_text()
+path = '"/etc/resolv.conf"'
+assert source.count(path) == 1 and fixture.is_file()
+reader.write_text(source.replace(path, json.dumps(str(fixture))))
+PY
+fi
 if [[ $launcher_fixture == true ]]; then
   # DesktopEntries otherwise reads /usr/share/applications. Plant before
   # its first load, with no host applications in the capture's data paths.
@@ -11133,13 +11146,23 @@ vpn_shot_leak() { # MODE
   expect_poll "the flyout shows Check" true vpn_shot_read panel RowAction "vpn-check-run:$vpn_shot_home" visible
   park_pointer
   take "vpn-$1-dropdown-leak"
-  # The same scroll over a /etc/resolv.conf systemd-resolved does not
-  # manage (dns-foreign.json): DNS reads Could not check with its reason.
+  # Over a resolver file systemd-resolved does not manage, both listed
+  # servers and resolved's scopes use the tunnel.
   vpn_shot_readers route-none.txt dns-foreign.json
+  if tree_has shell/plugins/vgs.vpn/VpnLogic.js 'function dnsServerRoutes('; then
+    device_reply ip 0 "$(<"$repo/scripts/fixtures/vpn/route-tunnel.json")" -j -4 route get 10.20.0.1
+    device_reply ip 0 "$(<"$repo/scripts/fixtures/vpn/route-tunnel.json")" -j -6 route get 2001:db8::53
+  fi
   expect "Home tunnel's Check starts over a resolv.conf resolved does not manage" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-check\",\"id\":\"$vpn_shot_home\"}"
   expect_poll "Home tunnel's check shows IPv6 not used" '"Not used"' vpn_shot_read panel Label "vpn-ipv6:$vpn_shot_home" text
-  expect_poll "Home tunnel's check could not check DNS" '"Could not check"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
-  expect "the check asked no outside service while lookups are unknown" absent vpn_shot_curl_called
+  if tree_has shell/plugins/vgs.vpn/VpnLogic.js 'function dnsServerRoutes('; then
+    expect_poll "Home tunnel's check shows DNS in the VPN with listed servers" '"In the VPN"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
+    expect_poll "Home tunnel's check shows the exit location" '"Amsterdam, Netherlands"' vpn_shot_read panel Label "vpn-place:$vpn_shot_home" text
+    expect "the check asked the VPN provider for the exit location" called vpn_shot_curl_called
+  else
+    expect_poll "Home tunnel's check could not check DNS" '"Could not check"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
+    expect "the check asked no outside service while lookups are unknown" absent vpn_shot_curl_called
+  fi
   expect_poll "the flyout shows Check" true vpn_shot_read panel RowAction "vpn-check-run:$vpn_shot_home" visible
   park_pointer
   take "vpn-$1-dropdown-dns-foreign"

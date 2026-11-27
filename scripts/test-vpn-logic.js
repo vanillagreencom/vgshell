@@ -2026,8 +2026,10 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         // names resolved's stub.
         ["resolv.conf naming resolved's static stub", dnsWith({ global: { resolvConfMode: "static" } }), { kind: "scopes", fallback: true, scopes: [
             { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
-        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), { kind: "direct" }],
-        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), { kind: "direct" }],
+        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), { kind: "direct", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
+        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), { kind: "direct", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
         ["no resolv.conf", dnsWith({ global: { resolvConfMode: "missing" } }), { kind: "unreadable" }],
         ["no resolv.conf mode read", dnsWith({ global: { resolvConfMode: null } }), { kind: "unreadable" }],
         ["resolved not reachable", logic.dnsRead(1, ""), { kind: "unreadable" }],
@@ -2037,6 +2039,15 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         ["a domain with no name", dnsWith({ wlan0: { searchDomains: [{ routeOnly: false }] } }), { kind: "unreadable" }],
         ["fallback servers that are no list", dnsWith({ global: { fallbackServers: "192.0.2.53" } }), { kind: "unreadable" }]
     ]) assert.deepEqual(plain(read), expected, name);
+
+    const serverCommands = [
+        ["ip", "-j", "-4", "route", "get", "10.20.0.1"],
+        ["ip", "-j", "-6", "route", "get", "2001:db8::53"]
+    ];
+    assert.deepEqual(plain(logic.dnsServerRoutes(text("resolv-tunnel.conf"))), serverCommands);
+    assert.deepEqual(plain(logic.dnsServerRoutes("nameserver 127.0.0.53\nnameserver 127.0.0.54\n")), []);
+    assert.equal(logic.dnsServerRoutes("# nameserver 192.0.2.53\nsearch example.net\n"), null);
+    assert.equal(logic.dnsServerRoutes("nameserver 10.20.0.1\nnameserver -help\n"), null);
 
     // The provider's answer: a good one, a failed request and malformed
     // answers, each never a blank, zero or guessed field.
@@ -2083,6 +2094,9 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const wlan = { kind: "via", link: "wlan0" };
     const wifiDomain = logic.dnsRead(0, text("dns-wifi-domain.json"));
     const wifiRoute = logic.dnsRead(0, text("dns-wifi-route.json"));
+    const foreign = logic.dnsRead(0, text("dns-foreign.json"));
+    const uplink = dnsWith({ global: { resolvConfMode: "uplink" } });
+    const direct = (dns, ...routes) => Object.assign({}, dns, { routes });
     const domains = (...names) => names.map(name => ({ name, routeOnly: true }));
     const tailnetDomains = domains("tail0000.ts.net", "ts.net", "0.e.1.a.c.5.1.1.a.7.d.f.ip6.arpa", "64.100.in-addr.arpa", "127.100.in-addr.arpa");
     const GLOBAL = "leak:" + logic.GLOBAL_DNS;
@@ -2119,8 +2133,17 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
             ["tunnel", "none", "leak:wlan0", "off"]],
         ["the Wi-Fi holding the DNS default route beside a tunnel with no DNS server is a DNS leak", { dns: wifiRoute },
             ["tunnel", "none", "leak:wlan0", "off"]],
-        ["resolv.conf listing the uplink servers is unknown", { dns: dnsWith({ global: { resolvConfMode: "uplink" } }) },
-            ["tunnel", "none", "unknown:direct", "off"]],
+        ["every listed server routes through the tunnel", { dns: direct(foreign, base.ipv4, base.ipv4) },
+            ["tunnel", "none", "tunnel", "off"]],
+        ["one listed server routes through the Wi-Fi", { dns: direct(uplink, base.ipv4, wlan) },
+            ["tunnel", "none", "leak:wlan0", "off"]],
+        ["the kill switch blocks a listed server outside the tunnel", { dns: direct(foreign, wlan), status: status("passing", 7) },
+            ["tunnel", "none", "blocked", "on"]],
+        ["a listed stub uses resolved's scopes", { dns: direct(dnsWith({ global: { resolvConfMode: "foreign" }, wlan0: { searchDomains: root } })) },
+            ["tunnel", "none", "leak:wlan0", "off"]],
+        ["an unreadable listed route leaves DNS unknown", { dns: direct(foreign, base.ipv4, unreadable) },
+            ["tunnel", "none", "unknown:dns-route", "off"]],
+        ["an unreadable resolver file leaves DNS unknown", { dns: foreign }, ["tunnel", "none", "unknown:resolv-conf", "off"]],
         ["an IPv6 default route outside the tunnel with the kill switch off is an IPv6 leak", { ipv6: wlan }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
         ["the same with the kill switch set up and off", { ipv6: wlan, status: status("off", 0, "", "") }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
         ["the same with the kill switch armed is blocked", { ipv6: wlan, status: status("passing", 7) }, ["tunnel", "blocked", "tunnel", "on"]],
@@ -2170,7 +2193,9 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         ["with no ~. and no default route, the fallback servers", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false } }) }, leaks],
         ["no server takes the provider's name", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false }, global: { fallbackServers: [] } }) },
             { kind: "failed", reason: "lookups-unknown" }],
-        ["resolv.conf listing the uplink servers", { dns: dnsWith({ global: { resolvConfMode: "uplink" } }) }, { kind: "failed", reason: "lookups-unknown" }],
+        ["foreign servers and resolved both use the tunnel", { dns: direct(foreign, base.ipv4, base.ipv4) }, asked],
+        ["a lookup can leave by a listed server", { dns: direct(uplink, wlan) }, leaks],
+        ["a listed route is unreadable", { dns: direct(foreign, base.ipv4, unreadable) }, { kind: "failed", reason: "lookups-unknown" }],
         ["DNS settings not read", { dns: unreadable }, { kind: "failed", reason: "lookups-unknown" }],
         ["varlinkctl not installed", { dns: { kind: "missing", command: "varlinkctl" } }, { kind: "failed", reason: "lookups-unknown" }],
         ["a lookup outside with the kill switch unread", { dns: wifiRoute, status: logic.killStatus(1, "", "") }, { kind: "failed", reason: "lookups-unknown" }],
@@ -2317,19 +2342,12 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         logic.checkView(done({ ipv6: wlan }), connected, "").families[1].text,
         logic.checkView(done({ ipv6: unreadable }), connected, "").families[1].text,
         logic.checkView(done({ ipv6: { kind: "via", link: "wg-home" } }), connected, "").families[1].text]).size, 4, "each verdict reads apart");
-    // A resolv.conf that programs ask past resolved is unknown with a
-    // reason of its own, whose DNS line reads apart from a failed read's.
-    const dnsLine = dns => plain(logic.checkView(done({ dns }), connected, "")).families[2];
-    const failedRead = dnsLine(logic.dnsRead(0, "Link 3 (wlan0)"));
     for (const [name, dns, reason] of [
-        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), "direct"],
-        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), "direct"],
         ["resolved not reachable", logic.dnsRead(1, ""), "read"],
         ["a reply that is no JSON", logic.dnsRead(0, "Link 3 (wlan0)"), "read"]
     ]) {
         const result = plain(logic.leakCheck(Object.assign({}, base, { dns }), null)).dns;
         assert.deepEqual([result.verdict, result.reason], ["unknown", reason], name);
-        assert.equal(dnsLine(dns).error !== failedRead.error, reason === "direct", name + ": its DNS line against a failed read's");
     }
     const reasons = new Set();
     const unchecked = plain(logic.checkView(null, connected, "")).public.text;
@@ -2387,21 +2405,23 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     // by another network, and a question already out is ended.
     const leakChecker = () => {
         const owner = { run: null, value: null, lastKill: null, rows: null, action: null, missing: [], signalled: [],
-            deadline: { restart() {}, stop() {} }, statusWanted() {}, console: { log() {} } };
+            deadline: { restart() {}, stop() {} }, statusWanted() {}, console: { log() {} }, resolvFile: { path: "" } };
         owner.root = owner;
-        for (const key of ["link", "ipv4", "ipv6", "dns", "public"])
+        for (const key of ["link", "ipv4", "ipv6", "dns", "dns-route", "public"])
             owner[key + "Reader"] = { key, running: false, completion: "old", command: [], signal(code) { owner.signalled.push([key, code]); } };
-        for (const name of ["judgeStale", "start", "statusRead", "launch", "ended", "linked", "settle", "finish"]) sourceFn(leak, owner, name);
+        owner.dnsRouteReader = owner["dns-routeReader"];
+        for (const name of ["judgeStale", "start", "statusRead", "launch", "ended", "dnsRead", "readDnsServers",
+            "nextDnsRoute", "resolvEnded", "linked", "settle", "finish"]) sourceFn(leak, owner, name);
         return owner;
     };
-    const readLocal = (owner, beforeDns) => {
+    const readLocal = (owner, beforeDns, dnsFixture = "dns-tunnel.json") => {
         owner.start(HOME, true);
         owner.ended("link", 0, text("link.txt"), "", "");
         owner.statusRead(null);
         owner.ended("ipv4", 0, text("route-tunnel.json"), "", "");
         owner.ended("ipv6", 0, text("route-tunnel.json"), "", "");
         beforeDns(owner);
-        owner.ended("dns", 0, text("dns-tunnel.json"), "", "");
+        owner.ended("dns", 0, text(dnsFixture), "", "");
     };
     const disconnect = owner => {
         owner.rows = listed("");
@@ -2410,6 +2430,19 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const asking = leakChecker();
     readLocal(asking, () => {});
     assert.deepEqual(plain([asking.publicReader.running, asking.publicReader.command]), [true, plain(logic.insightsArgv("wg-home"))], "a connected check asks through the tunnel");
+    const foreignCheck = leakChecker();
+    readLocal(foreignCheck, () => {}, "dns-foreign.json");
+    assert.equal(foreignCheck.resolvFile.path, "/etc/resolv.conf");
+    foreignCheck.resolvEnded(text("resolv-tunnel.conf"));
+    for (const command of serverCommands) {
+        assert.deepEqual(plain(foreignCheck.dnsRouteReader.command), command);
+        assert.equal(foreignCheck.publicReader.running, false, "no request while a listed route is unread");
+        foreignCheck.ended("dns-route", 0, text("route-tunnel.json"), "", "");
+    }
+    assert.equal(foreignCheck.publicReader.running, true);
+    foreignCheck.ended("public", 0, text("insights.json"), "", "");
+    const foreignView = logic.checkView(foreignCheck.value, connected, "");
+    assert.deepEqual([foreignView.public.text, foreignView.place], ["198.51.100.7", "Amsterdam, Netherlands"]);
     const droppedFirst = leakChecker();
     readLocal(droppedFirst, disconnect);
     assert.deepEqual(plain([droppedFirst.publicReader.running, droppedFirst.run, droppedFirst.value]), [false, null, { uuid: HOME, busy: false, active: true, result: null }],
@@ -3160,8 +3193,9 @@ try {
         ["only Tailscale's own zones on tailscale0 are exempt", 'return scope.link === "tailscale0" && TAILNET_ZONE.test(domain);', 'return scope.link === "tailscale0";'],
         ["global servers take unrouted lookups", "defaultRoute: global || entry.defaultRoute", "defaultRoute: entry.defaultRoute === true"],
         ["with no default route, lookups go to the fallback servers", "return links.length === 0 && dns.fallback ? [GLOBAL_DNS] : links;", "return links;"],
-        ["lookups are judged only while resolv.conf names resolved's stub", "if (RESOLVED_MODES.indexOf(mode) === -1) return unreadable;", ""],
-        ["the provider's own name decides whether VGS asks", ": nameLinks(readings.dns, host);", ": lookupLinks(readings.dns);"],
+        ["lookups require a known resolv.conf mode", 'RESOLVED_MODES.indexOf(mode) !== -1 ? { kind: "scopes", scopes: scopes, fallback: fallback } : unreadable', '{ kind: "scopes", scopes: scopes, fallback: fallback }'],
+        ["direct DNS needs the listed servers' routes", 'if (dns.kind === "direct" && dns.routes === undefined) return unknown("resolv-conf");', 'if (dns.kind === "direct") return unknown("resolv-conf");'],
+        ["the provider's own name decides whether VGS asks", ": nameLinks(dns, host);", ": lookupLinks(dns);"],
         ["a name goes to its longest matching domain", "if (depth > best) { best = depth; links = []; }", "if (depth > best) best = depth;"],
         ["a domain matches whole labels", 'name !== domain && !name.endsWith("." + domain)', "!name.endsWith(domain)"],
         ["a question VGS did not ask reads as not checked", 'NOT_ASKED.indexOf(reason) !== -1 ? "Not checked" : "Could not check"', '"Could not check"'],
