@@ -7,7 +7,11 @@ import sys
 repo, models = map(Path, sys.argv[1:])
 program = repo / "shell/plugins/vgs.jarvis/measure-local"
 spec = json.loads((program.parent / "artifacts.json").read_text())
-ids = [a["id"] for a in spec["artifacts"]]
+# Chatterbox is outside this row. Its runtime, onnxruntime-gpu, cannot share
+# the one prepared environment with sherpa-onnx (measure-local runtimes()),
+# and it speaks only in a reference voice this row has no redistributable
+# copy of. Home's prepared environment lacks it, so it exited 77 (VGS-2774).
+ids = [a["id"] for a in spec["artifacts"] if a["id"] != "chatterbox"]
 if len(ids) < 6 or "nemotron" not in ids:
     raise RuntimeError("artifact discovery is incomplete")
 for name in ids:
