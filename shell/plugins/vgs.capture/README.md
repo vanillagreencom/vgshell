@@ -14,6 +14,7 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 - Text recognition from a selected area, in one or more languages.
 - A screen sharing picker: when an app asks to share your screen, you choose a display, a window or an area while a live preview shows it. VGS sets the picker up for you, once no app shares your screen. Turning Capture off gives screen sharing its own picker back once no app shares your screen, and a notification says so when it cannot.
 - A notification for each capture. Open and Edit start your own viewer, editor or player.
+- Show opens the saved capture's folder in your default file manager, and a file manager script can read the capture's absolute path from `VGS_SHOW_FILE`.
 - A window to choose and start a capture, opened from the bar, and a bar indicator that stops a recording.
 - Shortcuts: Print for a screenshot, `SUPER+SHIFT+S` for an area, `SUPER+SHIFT+R` for a recording, `SUPER+CTRL+PRINT` for text and `SUPER+CTRL+SHIFT+S` for the Capture options. The Keys row on the plugin's Settings page changes them.
 

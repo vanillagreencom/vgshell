@@ -4459,11 +4459,46 @@ capture_notice_end() { # STATE CAPTURE_FOUND NOTES_FOUND
   capture_shot_return "$2"
 }
 
+# The toast lives in Layers, so the instance popup reader cannot find its
+# menu. Read the Menu's own focus and selection before sending any keys.
+capture_notice_menu() { # focus | index
+  ipc smoke layerItems vgs.notifications Menu objectName,opened,surface.scope.activeFocus,currentIndex | py_reply 'import json,sys
+menu=next((v for _, _, v in json.load(sys.stdin) if v["objectName"] == "notificationOverflowMenu"
+           and v["opened"] and v.get("surface.scope.activeFocus")), None)
+print("absent" if menu is None else "ready" if sys.argv[1] == "focus" else menu["currentIndex"])' "$1"
+}
+
+capture_notice_dismiss() { # EXPECTED_PILLS
+  if [[ $1 != *'"Show"'* ]]; then
+    click_item vgs:layer vgs.notifications PillButton text Dismiss
+    return
+  fi
+  click_item vgs:layer vgs.notifications PillButton text "…" || return 1
+  shots_baseline_safety expect_poll "the screenshot action menu holds the keys" ready capture_notice_menu focus
+  [[ $(capture_notice_menu focus) == ready ]] && type_keys d || return 1
+  # Show and Dismiss are the two entries. Typeahead selects Dismiss.
+  shots_baseline_safety expect_poll "the screenshot action menu selects Dismiss" 1 capture_notice_menu index
+  [[ $(capture_notice_menu index) == 1 ]] && type_keys -k Return
+}
+
 # The shipped Capture producer, with the existing confined tool fixture.
 # --rev exports only product sources; this scene and its readers stay current.
 scene_capture-notifications() { # MODE
-  local mode="$1" real_grim state tool sequence index label program pair expected path at result notify_before held_before capture_found notes_found
+  local mode="$1" real_grim state tool sequence index label program pair expected expected_pills path at result notify_before held_before capture_found notes_found
+  local archived_diagnostic=false
   local -a labels=()
+  # A standalone archive can reproduce the old one-shot sender. A baseline
+  # pair checks the same live actions on both archived product trees.
+  if [[ -n $rev && -z $baseline_side ]]; then archived_diagnostic=true; fi
+  expected_pills="$(python3 -c 'import json,sys
+schema = json.load(open(sys.argv[1]))["schema"]
+pills = ["Open", "Edit"]
+if "browser" not in schema:
+    pills.append("Show")
+print(json.dumps(pills + ["Dismiss"]))' "$tree/shell/plugins/vgs.capture/manifest.json")" || {
+    fail "Capture's manifest schema is unreadable in its notification scene"
+    return
+  }
   state="$sandbox/capture-notifications-$mode"
   capture_found="$(capture_shot_state)" || capture_found="unreadable: $capture_found"
   capture_shot_known "$capture_found" || { fail "Capture's state is unreadable before its notification scene: $capture_found"; return; }
@@ -4522,7 +4557,7 @@ PY
     # shellcheck disable=SC2086
     hover $at || fail "the pointer did not reach the screenshot card"
     expect_poll "the screenshot card is hovered" True card_hovered "Screenshot saved"
-    expect_poll "the screenshot offers current Open/Edit/Dismiss" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+    expect_poll "the screenshot offers its actions" "$expected_pills" capture_notice_pills
     capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-initial" "$pair" "$(capture_notice_pills)" "$(capture_notice_calls)"
     take_posed "capture-notifications-$mode-$sequence-initial"
     index=0
@@ -4535,7 +4570,7 @@ PY
       expect_poll "$sequence $index: exactly one ordered $label argv is delivered" "$expected" capture_notice_calls
       result="$(capture_notice_pair)"
       capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-$index-$label" "$result" "$(capture_notice_pills)" "$(capture_notice_calls)"
-      if [[ -n $rev ]]; then
+      if [[ $archived_diagnostic == true ]]; then
         expect_poll "before failure: the first action loses that live key/id" null capture_notice_pair
         capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-before-failure" "$(capture_notice_pair)" "$(capture_notice_pills)" "$(capture_notice_calls)"
         take_posed "capture-notifications-$mode-$sequence-after-first"
@@ -4546,15 +4581,15 @@ PY
       expect "$sequence $index: no replacement Notify is sent" "$((notify_before + 1))" capture_notice_notify_count
       expect "$sequence $index: no close signal is emitted" 0 capture_notice_closed_count
       expect "$sequence $index: the notification remains held" "$((held_before + 1))" capture_notice_held
-      expect "$sequence $index: current Open/Edit/Dismiss remain" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+      expect "$sequence $index: the same actions remain" "$expected_pills" capture_notice_pills
       # A repeated click can draw identical pixels; ordered logs prove that
       # delivery. Capture the first action and each changed action pose.
       if [[ $index == 1 || $index == 3 || ( $sequence == edit-first && $index == 2 ) || $index == 5 ]]; then
         take_posed "capture-notifications-$mode-$sequence-$index-${label,,}"
       fi
     done
-    if [[ -z $rev ]]; then
-      click_item vgs:layer vgs.notifications PillButton text Dismiss || fail "Dismiss was not clicked"
+    if [[ $archived_diagnostic == false ]]; then
+      capture_notice_dismiss "$expected_pills" || fail "Dismiss was not clicked"
       expect_poll "Dismiss removes the screenshot's live identity" null capture_notice_pair
       expect "Dismiss launches no viewer or editor" "$expected" capture_notice_calls
       expect_poll "Dismiss closes the original sender id once" 1 capture_notice_closed_count

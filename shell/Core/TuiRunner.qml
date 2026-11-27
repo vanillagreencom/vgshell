@@ -80,6 +80,7 @@ Scope {
             get entries() { return root.entries; },
             open: key => root.open(key),
             edit: (path, line, done) => root.edit(path, line, root.guarded(ctx, done, "tui=edit")),
+            showInFolder: file => root.showInFolder(file),
             ssh: (name, host, done) => root.ssh(name, host, root.guarded(ctx, done, "tui=ssh")),
             get state() { return root.stateOf(ctx); }
         };
@@ -405,15 +406,23 @@ Scope {
         else if (answer !== "ok") console.warn("tui: " + answer);
     }
 
-    // Opens PATH, an absolute path editRoute read as a folder, in the
+    // A saved capture is an absolute filename from the worker. Keep it in
+    // one environment assignment and check its parent before opening it.
+    function showInFolder(file) {
+        if (typeof file !== "string" || !file.startsWith("/") || file.endsWith("/") || file.includes("\u0000"))
+            return "refused: tui=showInFolder reason=path";
+        return openFolder(file.slice(0, file.lastIndexOf("/")) || "/", undefined, file);
+    }
+
+    // Opens PATH, an absolute folder path, in the
     // default file manager once `test -d` finds a folder there: gio drops a
     // trailing `/`, so a path naming a file would open that file in its
     // default application, and a notification's sender chooses the path of
     // a link on its card. Answers `ok` once the check starts, as
     // runDetached answers once gio starts; the check's end goes to DONE, when
     // given, else to the log (folderChecked).
-    function openFolder(path, done) {
-        const check = folderCheckComponent.createObject(root, { path: path });
+    function openFolder(path, done, showFile) {
+        const check = folderCheckComponent.createObject(root, { path: path, showFile: showFile === undefined ? "" : showFile });
         check.done = done === undefined ? null : done;
         check.running = true;
         return "ok";
@@ -425,11 +434,14 @@ Scope {
     // reason=not-a-folder`, or `reason=unreadable` for a check that never
     // started. The answer goes to DONE, when not null, else to the log when
     // it is no `ok`.
-    function folderChecked(path, completion, done) {
+    function folderChecked(path, completion, done, showFile) {
         let answer;
         if (completion === null) answer = "refused: file=" + JSON.stringify(path) + " reason=unreadable";
         else if (completion.status !== 0 || completion.code !== 0) answer = "refused: file=" + JSON.stringify(path) + " reason=not-a-folder";
-        else answer = Capabilities.runDetached(DesktopLaunch.open(path));
+        else {
+            const argv = DesktopLaunch.open(path);
+            answer = Capabilities.runDetached(showFile === "" ? argv : ["env", "VGS_SHOW_FILE=" + showFile].concat(argv));
+        }
         if (done !== null) done(answer);
         else if (answer !== "ok") console.warn("tui: " + answer);
     }
@@ -633,13 +645,14 @@ Scope {
         Process {
             id: check
             property string path: ""
+            property string showFile: ""
             property var done: null
             property var completion: null
             command: ["test", "-d", check.path]
             onExited: (code, status) => { check.completion = { code: code, status: status }; }
             onRunningChanged: {
                 if (running) return;
-                root.folderChecked(check.path, check.completion, check.done);
+                root.folderChecked(check.path, check.completion, check.done, check.showFile);
                 check.destroy();
             }
         }

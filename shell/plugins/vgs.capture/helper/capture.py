@@ -29,6 +29,8 @@ no enabled output, ends with an error and records nothing more.
 A recording emits stopped once the recorder ends, then saved after processing.
 saved carries `actions`, its notification's buttons: one `{id, label, argv}`
 for each program that opens the file and is installed; `default` opens it.
+The `show` button carries `{id, label, file}`, with the saved file's absolute
+path for the shell's show-in-folder action.
 probe emits the offered audio sources and cameras and the missing languages.
 SIGTERM releases all owned children, including during service replacement.
 After a copied result, this process becomes wl-copy --foreground; only that
@@ -673,7 +675,7 @@ class Capture:
                     child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
                 except (OSError, RuntimeError) as error:
                     raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
-                offered = actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser")))
+                offered = actions(request, path, (("default", "Open", "player"),))
             except (OSError, ValueError, RuntimeError):
                 # End every writer before the failure artifact becomes immutable.
                 self.release()
@@ -954,13 +956,13 @@ def open_with(setting, path):
 
 
 def actions(request, path, offered):
-    """The notification buttons for PATH: each (id, label, setting) of OFFERED
-    whose setting names an installed program."""
+    """Offer the installed programs and the saved file's containing folder."""
     out = []
     for action_id, label, setting in offered:
         argv = open_with(request[setting], path)
         if argv is not None:
             out.append({"id": action_id, "label": label, "argv": argv})
+    out.append({"id": "show", "label": "Show", "file": str(path)})
     return out
 
 

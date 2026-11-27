@@ -1994,10 +1994,29 @@ for capture_reset in 'quality "very_high"' 'frameRate 60' 'codec "auto"' 'consta
 done
 expect "earlier capture notices expire before the failure notices" 0 capture_wait_cards
 # Notifications. vgs.notifications now shows each finished capture with the
-# worker's buttons. Stand-ins for the viewer, the editor and the player, in
-# the row's own folder, record their argv; nothing opens a real program.
+# worker's buttons. The viewer, editor, player and gio stand-ins record the
+# launches without opening a desktop app.
 source "$source_repo/scripts/smoke/fixtures/capture/notifications.sh"
 capture_notice_tools "$capture_state"
+# Stand over the harness's gio sentinel for the Show presses. Keep its
+# launch protection and record only argv and the variable Show passes.
+capture_gio_restore() {
+  if [[ -e $(sentinel_saved "$shim/gio") ]]; then sentinel_restore "$shim/gio"; fi
+}
+smoke_row_abandon=(capture_gio_restore)
+capture_gio_ready=false
+if [[ -f $shim/gio && ! -L $shim/gio && $(shell_resolves gio) == "$shim/gio" ]] &&
+  printf '#!/usr/bin/env bash
+case ${1-} in open|launch) exec %q -c %q %q "$@" ;; esac
+exec %q "$@"
+' "$(command -v python3)" 'import json, os, sys
+with open(sys.argv[1], "a") as output:
+    output.write(json.dumps({"program": "gio", "argv": sys.argv[2:], "showFile": os.environ.get("VGS_SHOW_FILE")}) + "\n")
+' "$capture_open/sequence.jsonl" "$(sentinel_saved "$shim/gio")" | sentinel_stand_over "$shim/gio"; then
+  capture_gio_ready=true
+else
+  fail "capture: the sandbox's gio stand-in could not be installed"
+fi
 capture_setting viewer "\"$capture_open/viewer %f\""
 capture_setting editor "\"$capture_open/editor --filename %f --output-filename %f\""
 capture_setting player "\"$capture_open/player\""
@@ -2036,6 +2055,17 @@ capture_choose_key() { # KEY CHOICE
 }
 capture_choose_unshown() { capture_choose "Screenshot unshown" action:edit; }
 capture_opened() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps([json.loads(l) for l in p.read_text().splitlines()][-1] if p.exists() else None))' "$capture_open/$1.calls"; }
+capture_show_call() { # EXPECTED FILE: append one gio launch for the saved file
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+from pathlib import Path
+calls, file = json.loads(sys.argv[1]), sys.argv[2]
+path = Path(file)
+if not path.is_absolute():
+    sys.exit("Show requires an absolute saved capture path")
+print(json.dumps(calls + [{"program": "gio", "argv": ["open", str(path.parent)], "showFile": file}]))
+PY
+}
 capture_held_count() { ipc vgs.notifications invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["held"])'; }
 # The helper path belongs to this disposable plugin copy. Its --notify
 # workers are the managed Capture senders in the private PID namespace.
@@ -2062,10 +2092,11 @@ capture_quiet() {
 capture_quiet "screenshot notification"
 expect "a screenshot for its notification" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the screenshot for its notification finishes" idle capture_phase
-expect_poll "the saved screenshot offers Open, Edit and Dismiss" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+capture_screenshot_actions='["Open", "Edit", "Show", "Dismiss"]'
+expect_poll "the saved screenshot offers Open, Edit, Show and Dismiss" "$capture_screenshot_actions" capture_labels "Screenshot saved"
 expect "control: a choice keyed to no toast on screen fails the Edit reading" False capture_is capture_choose_unshown kept
-capture_actions_hold() { # LABEL; the same live identity and ordered argv survive every action.
-  local label="$1" pair path expected choice program count
+capture_actions_hold() { # LABEL; the same live identity and ordered launches survive every action.
+  local label="$1" pair path expected choice count
   shift
   pair="$(capture_notice_pair)"
   path="$(capture_path)"
@@ -2073,14 +2104,20 @@ capture_actions_hold() { # LABEL; the same live identity and ordered argv surviv
   capture_notice_id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$pair")"
   count="$(capture_notice_notify_count)"
   for choice in "$@"; do
-    [[ $choice == edit ]] && program=editor || program=viewer
-    expected="$(capture_notice_expect_call "$expected" "$program" "$path")"
+    case "$choice" in
+      default) expected="$(capture_notice_expect_call "$expected" viewer "$path")" ;;
+      edit) expected="$(capture_notice_expect_call "$expected" editor "$path")" ;;
+      show)
+        [[ $capture_gio_ready == true ]] || continue
+        expected="$(capture_show_call "$expected" "$path")"
+        ;;
+    esac
     expect "$label $choice reaches the original notification" kept capture_choose "Screenshot saved" "action:$choice"
-    expect_poll "$label $choice delivers exactly one ordered argv" "$expected" capture_notice_calls
+    expect_poll "$label $choice delivers exactly one expected launch" "$expected" capture_notice_calls
     expect "$label $choice sends no replacement Notify" "$count" capture_notice_notify_count
     expect "$label $choice emits no close signal" 0 capture_notice_closed_count
     expect "$label $choice keeps its key/id" "$pair" capture_notice_pair
-    expect "$label $choice keeps its Open/Edit/Dismiss" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+    expect "$label $choice keeps its buttons" "$capture_screenshot_actions" capture_notice_pills
   done
   expect "$label Dismiss closes the notification" left capture_choose "Screenshot saved" dismiss
   expect_poll "$label Dismiss removes its live key/id" null capture_notice_pair
@@ -2091,12 +2128,12 @@ capture_actions_hold Open-first default default edit edit default
 capture_quiet "screenshot click"
 expect "another screenshot starts for Edit-first actions" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the Edit-first screenshot finishes" idle capture_phase
-expect_poll "the Edit-first screenshot offers its buttons" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
-capture_actions_hold Edit-first edit default edit
+expect_poll "the Edit-first screenshot offers its buttons" "$capture_screenshot_actions" capture_labels "Screenshot saved"
+capture_actions_hold Edit-first edit default show edit
 capture_quiet "screenshot history actions"
 expect "a screenshot starts for History" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the History screenshot finishes" idle capture_phase
-expect_poll "the History screenshot offers its buttons on the toast" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+expect_poll "the History screenshot offers its buttons on the toast" "$capture_screenshot_actions" capture_labels "Screenshot saved"
 capture_history_key="$(capture_key "Screenshot saved")"
 capture_saved_path="$(capture_path)"
 hover 0 "$((mon_h / 2))" || fail "moving the pointer clear of the screenshot toast failed"
@@ -2126,26 +2163,25 @@ helper.write_text(changed)
 PYCONTROL
 expect "control: a screenshot uses the one-shot sender" ok ipc vgs.capture invoke screenshot ''
 expect_poll "control: the one-shot screenshot finishes" idle capture_phase
-expect_poll "control: the one-shot notification offers buttons" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+expect_poll "control: the one-shot notification offers buttons" "$capture_screenshot_actions" capture_labels "Screenshot saved"
 capture_control_pair="$(capture_notice_pair)"
 expect "control: Open reaches the one-shot sender" kept capture_choose "Screenshot saved" action:default
 expect_poll "control: the one-shot sender loses its live identity" null capture_notice_pair
 expect "control: the identity retention assertion rejects one-shot delivery" False capture_is capture_notice_pair "$capture_control_pair"
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 capture_quiet "recording notification"
-cp -- "$capture_open/player" "$capture_open/browser"
-capture_setting browser "\"$capture_open/browser --select %f\""
 capture_record record-output "notification"
 expect_poll "the saved recording offers Open, Show and Dismiss" '["Open", "Show", "Dismiss"]' capture_labels "Recording saved"
 expect "Open is chosen on the recording's notification" kept capture_choose "Recording saved" action:default
 expect_poll "Open hands the player the saved file last" "$(capture_words "$(capture_path)")" capture_opened player
-expect "Show is chosen on the recording's notification" kept capture_choose "Recording saved" action:show
-expect_poll "Show hands the browser the selected recording" "$(capture_words --select "$(capture_path)")" capture_opened browser
+if [[ $capture_gio_ready == true ]]; then
+  capture_expected_calls="$(capture_show_call "$(capture_notice_calls)" "$(capture_path)")"
+  expect "Show is chosen on the recording's notification" kept capture_choose "Recording saved" action:show
+  expect_poll "Show sends the recording folder and VGS_SHOW_FILE to gio" "$capture_expected_calls" capture_notice_calls
+fi
+capture_gio_restore
+smoke_row_abandon=()
 expect "the recording's link is on the clipboard" True capture_uri
-capture_quiet "missing recording browser"
-rm -- "$capture_open/browser"
-capture_record record-output "missing browser notification"
-expect_poll "a missing browser leaves Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
 capture_quiet "text notification"
 expect "text capture for its notification" ok ipc vgs.capture invoke text ''
 expect_poll "the text capture finishes" idle capture_phase
@@ -2211,7 +2247,7 @@ expect "control: a screenshot without buttons" ok ipc vgs.capture invoke screens
 expect_poll "control: the screenshot without buttons finishes" idle capture_phase
 expect_poll "control: the copy's notification shows" '["Dismiss"]' capture_labels "Screenshot saved"
 capture_screenshot_labels() { capture_labels "Screenshot saved"; }
-expect "control: dropping the buttons fails the Open, Edit and Dismiss readback" False capture_is capture_screenshot_labels '["Open", "Edit", "Dismiss"]'
+expect "control: dropping the buttons fails the saved screenshot's button readback" False capture_is capture_screenshot_labels "$capture_screenshot_actions"
 capture_notice_restore no-buttons
 capture_notice_control no-close
 capture_waiting "control: no close"

@@ -1271,14 +1271,14 @@ for (const [label, needle, replacement] of [
 // file while the editor is live answers busy-other while it raises the
 // live one, so a notice card that leaves on `ok` stays; a folder path opens
 // in the file manager only once `test -d` finds a folder there, since gio
-// drops the trailing `/` and opens a file in its default application. edit,
-// editFor, openPath, openEditor, fileKind, fileProbed, guarded,
-// recordStarted, openFolder and folderChecked run as TuiRunner.qml holds
-// them, with the judge above, against stand-ins for the launcher, the
-// folder check, the file read and runDetached.
+// drops the trailing `/` and opens a file in its default application.
+// showInFolder checks the parent and adds the saved file to that launch.
+// The TuiRunner.qml methods run with the judge above and stand-ins for the
+// launcher, the folder check, the file read and runDetached.
 function editSuite(source, logic, check) {
-    const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done, operation)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
-        "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)", "openFolder(path, done)", "folderChecked(path, completion, done)"]
+    const functions = ["provider(ctx)", "edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done, operation)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
+        "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)",
+        "showInFolder(file)", "openFolder(path, done, showFile)", "folderChecked(path, completion, done, showFile)"]
         .map(header => runnerFunction(source, header)).join("");
     // STEPS run in order in one context, each [busy keys, call, the end of
     // the check the call starts: a folder check's { code, status }, a file
@@ -1305,8 +1305,8 @@ function editSuite(source, logic, check) {
             folderCheckComponent: {
                 createObject: (parent, props) => {
                     seen.checks.push(props.path);
-                    const process = { path: props.path };
-                    Object.defineProperty(process, "running", { set: () => sandbox.folderChecked(process.path, end, process.done) });
+                    const process = Object.assign({}, props);
+                    Object.defineProperty(process, "running", { set: () => sandbox.folderChecked(process.path, end, process.done, process.showFile) });
                     return process;
                 },
             },
@@ -1320,6 +1320,8 @@ function editSuite(source, logic, check) {
             },
         });
         vm.runInContext(functions, sandbox);
+        sandbox.root.showInFolder = sandbox.showInFolder;
+        sandbox.tui = sandbox.provider(sandbox.ctxLive);
         const answers = steps.map(([stepBusy, call, stepEnd]) => {
             busy = stepBusy;
             end = stepEnd;
@@ -1396,6 +1398,19 @@ function editSuite(source, logic, check) {
             want({ answers: ["ok"], checks: ["/home/me/Docs/"], done: ["refused: file=\"/home/me/Docs/\" reason=unreadable"] })],
         ["a folder check that never started opens nothing and is logged", [[[], "editFor(\"acme.tui\", \"acme/\")", null]],
             want({ answers: ["ok"], checks: ["/home/me/.config/acme/"], logs: 1 })],
+        ["Show checks the parent and passes the saved file to that folder launch only", [
+            [[], 'tui.showInFolder("/home/me/My Captures/screen shot.png")', folder],
+            [[], 'edit("/home/me/My Captures/")', folder]
+        ], want({ answers: ["ok", "ok"], checks: ["/home/me/My Captures", "/home/me/My Captures/"], opened: [
+            ["env", "VGS_SHOW_FILE=/home/me/My Captures/screen shot.png", "gio", "open", "/home/me/My Captures"],
+            ["gio", "open", "/home/me/My Captures/"]
+        ] })],
+        ["Show opens the root for a file saved there", [[[], 'tui.showInFolder("/recording.mp4")', folder]],
+            want({ answers: ["ok"], checks: ["/"], opened: [["env", "VGS_SHOW_FILE=/recording.mp4", "gio", "open", "/"]] })],
+        ["Show opens nothing if the saved capture's parent is no longer a directory", [[[], 'tui.showInFolder("/home/me/My Captures/recording.mp4")', notFolder]],
+            want({ answers: ["ok"], checks: ["/home/me/My Captures"], logs: 1 })],
+        ["Show refuses a relative path before checking the parent", [[[], 'tui.showInFolder("captures/recording.mp4")', null]],
+            want({ answers: ["refused: tui=showInFolder reason=path"] })],
         ["a refused path starts nothing", [[[], "edit(\"a/../x\")", null]],
             want({ answers: ["refused: edit=a/../x reason=parent"] })],
     ];
@@ -1422,11 +1437,12 @@ function editSuite(source, logic, check) {
 }
 editSuite(RUNNER, load(LOGIC), report);
 // Each control drops one rule from a copy of TuiRunner: the editor reading
-// every busy key as its own file's window, and a folder path opening
-// whatever the check found.
+// every busy key as its own file's window, a folder path opening whatever
+// the check found, and Show losing the file it was asked to reveal.
 for (const [label, needle, replacement] of [
     ["the editor drops the started-arguments comparison", "return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);", "return Logic.tuiShownAnswer(named.label, answer);"],
     ["the folder check admits a /-suffixed file", "else if (completion.status !== 0 || completion.code !== 0) answer", "else if (false) answer"],
+    ["Show drops the file from the launch", "showFile === \"\" ? argv : [\"env\", \"VGS_SHOW_FILE=\" + showFile].concat(argv)", "argv"],
     ["a folder's end never reaches its done", "check.done = done === undefined ? null : done;", ""],
     ["every file opens in the editor", "return type[1].indexOf(\"text/\") === 0 || texts.indexOf(type[1]) !== -1 ? \"editor\" : \"default\";", "return \"editor\";"],
     ["a file gio cannot find still opens", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", ""],

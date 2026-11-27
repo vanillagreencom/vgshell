@@ -100,7 +100,6 @@ Recommends:     tmux
 Recommends:     ydotool
 Recommends:     imv
 Recommends:     mpv
-Recommends:     nautilus
 Recommends:     inotify-tools
 Recommends:     rsync
 Recommends:     unison

@@ -256,7 +256,7 @@ Item {
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
-            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, browser: s.browser, stateDir: Paths.stateDir, outputs: outputRectangles(outputs) };
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, outputs: outputRectangles(outputs) };
         const job = workerComponent.createObject(root, { actionName: name, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
@@ -457,8 +457,8 @@ Item {
             event.message, event.log);
     }
 
-    // The sender gets labels and hints; only this run retains the worker's
-    // argv. A failed post-process keeps the recording as recorded.
+    // The sender gets labels and hints. Only this run retains the worker's
+    // action arguments. A failed post-process keeps the recording as recorded.
     function noticeRequest(job, event) {
         const recording = isRecord(job.actionName);
         const text = job.actionName === "text";
@@ -519,7 +519,7 @@ Item {
         run.serverOwner = "";
     }
 
-    // Only a typed action from the live sender can use this run's argv.
+    // Only the live sender can invoke one of this run's saved actions.
     function noticeLine(run, line) {
         let event;
         try { event = JSON.parse(line); } catch (error) {
@@ -540,7 +540,7 @@ Item {
         } else if (event.event === "action" && typeof event.id === "string" && run.noticeId !== 0 && !run.closing) {
             const action = run.actions.find(item => item.id === event.id);
             if (action === undefined) return;
-            const reply = shell.run.detached(action.argv);
+            const reply = action.id === "show" ? shell.tui.showInFolder(action.file) : shell.run.detached(action.argv);
             if (reply !== "ok") console.error("capture: action=" + action.id + " " + reply);
         } else if (event.event === "closed" && Number.isInteger(event.reason) && event.reason >= 0 && event.reason <= 4294967295) {
             run.closing = true;

@@ -2426,6 +2426,14 @@ function suite(ctx, configLogic, check) {
     const prototypeEntry = JSON.parse('{"id":"vgs.bar","constructor":1,"__proto__":2}');
     check("copyEntrySettings excludes inherited declaration names", ctx.copyEntrySettings({}, prototypeEntry, manifests["vgs.bar"], true), { id: "vgs.bar" });
 
+    const captureManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, "vgs.capture", "manifest.json"), "utf8")), "/p").manifest;
+    const savedCapture = { version: shipped.version, plugins: [{ id: "vgs.capture", browser: "yazi %f", player: "mpv --loop %f" }] };
+    const effectiveCapture = configLogic.effectiveConfig(shipped, savedCapture);
+    const captureSettings = ctx.settingsFor(effectiveCapture, captureManifest);
+    check("Capture's runtime settings omit the saved file browser", [Object.hasOwn(captureSettings, "browser"), captureSettings.player], [false, "mpv --loop %f"]);
+    const writtenCapture = ctx.withSetting(savedCapture, captureManifest, "recordCursor", true, effectiveCapture);
+    check("Capture's next setting write drops the saved file browser", writtenCapture.plugins[0], { id: "vgs.capture", player: "mpv --loop %f", recordCursor: true });
+
     // withEnabled rows: [name, user, effective, id, enabled, path, want].
     // `effective` is the merged configuration the manager reads presence from.
     const placedClock = { version: 6, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "vgs.clock", format: "HH:mm:ss" }] };

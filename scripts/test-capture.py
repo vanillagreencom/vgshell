@@ -427,6 +427,7 @@ def delay_choice():
         return [key for key in ("delay", "timeout") if key in manifest["settings"]]
 
     assert fields(manifest) == [] and stored(manifest) == ["delay"], "the manifest keeps the delay, with no field for it and no time limit"
+    assert "browser" not in manifest["settings"] and "browser" not in manifest["schema"], "the capture manifest has no file manager setting"
     drawn = {**manifest, "settings": {**manifest["settings"], "timeout": 30}, "schema": {**manifest["schema"], "delay": {"type": "number", "label": "Delay"}, "timeout": {"type": "number", "label": "Limit"}}}
     assert fields(drawn) == ["delay", "timeout"] and stored(drawn) == ["delay", "timeout"], "control did not fail: delay-field-drawn"
 
@@ -458,9 +459,7 @@ console.log(JSON.stringify(sent));
         assert options.count(before) == 1, name
         assert chosen(options.replace(before, after)) != wanted, "control did not fail: " + name
 
-    # `launch` with a stored delay that is not the default, and a time limit
-    # a row written before this manifest may still hold: its reply and the
-    # request each started worker was handed.
+    # `launch` forwards the stored delay and ignores the removed settings.
     start = """
 const input = JSON.parse(process.argv[1]);
 const requests = [];
@@ -471,13 +470,13 @@ console.log(JSON.stringify([launch("screenshot", "NESTED"), requests]));
 """
     def launched(source):
         reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30, "browser": "fixture-browser --select %f"}})
-        return reply == "ok" and len(requests) == 1 and requests[0].get("delay") == 7 and "timeout" not in requests[0] and requests[0].get("browser") == "fixture-browser --select %f"
-    assert launched(service), "the worker's request carries the stored delay and browser, with no time limit"
+        return (reply == "ok" and len(requests) == 1 and requests[0].get("delay") == 7
+                and "timeout" not in requests[0] and "browser" not in requests[0])
+    assert launched(service), "the worker's request carries the delay and omits removed settings"
     for name, before, after in [
         ("delay-unread", " delay: s.delay,", " delay: 0,"),
         ("delay-overwritten", "        const job = workerComponent.createObject(", "        request.delay = 0;\n        const job = workerComponent.createObject("),
         ("timeout-sent", " delay: s.delay,", " delay: s.delay, timeout: s.timeout,"),
-        ("browser-unread", "browser: s.browser,", "browser: s.player,"),
     ]:
         assert service.count(before) == 1, name
         assert not launched(service.replace(before, after)), "control did not fail: " + name
@@ -706,7 +705,7 @@ def request(root, action):
     return {"action": action, "output": "NESTED", "folder": str(root / "pictures"), "recordFolder": str(root / "videos"), "audio": "desktop", "smart": False,
             "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": True, "recordCursor": False, "audioSources": [],
             "webcam": False, "webcamDevice": "", "postProcess": True, "ocrLanguages": "eng", "stateDir": str(root / "state"),
-            "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f", "browser": "nautilus --select %f",
+            "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f",
             "outputs": [{"x": 0, "y": 0, "width": 320, "height": 240, "name": "NESTED", "scale": 1, "transform": 0}]}
 
 
@@ -923,7 +922,7 @@ def choice_holds(root, helper, payload, geometry=None, boxes=None, cursor=False,
         if not slurps or "-r" not in slurps[-1]["args"] or (root / "slurp-input").read_text() != boxes:
             return False
     if processing == "copy":
-        return (messages[-1]["event"] == "copied" and "path" not in messages[-1]
+        return (messages[-1]["event"] == "copied" and "path" not in messages[-1] and "actions" not in messages[-1]
                 and not (root / "pictures").exists() and all(not Path(row["path"]).exists() for row in crop_requests(root))
                 and (root / "clipboard").exists())
     if messages[-1]["event"] != "saved" or not Path(messages[-1]["path"]).is_file():
@@ -1840,13 +1839,44 @@ console.log(JSON.stringify([commands, shown]));
 
 
 def notice_shape(request, hints, actions, path):
-    """The transport receives presentation data and action keys, never argv."""
+    """The transport receives presentation data and action keys only."""
     body = request["message"]
     return (set(request) == {"title", "message", "hints", "actions"}
             and isinstance(request["title"], str) and request["title"] != ""
             and request["hints"] == hints and request["actions"] == actions
             and isinstance(body, str) and 0 < len(body) <= 200
             and (path is None or body == path or body.startswith(path + "\n")))
+
+
+def service_notice_launches(source, events):
+    """Activate the worker's saved actions and record the capability calls."""
+    functions = "\n".join(service_function(source, name) for name in ("isRecord", "noticeRequest", "closeNotice", "noticeLine"))
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const { load } = require(input.loader);
+const launches = [];
+const shell = {
+    run: { detached: argv => { launches.push({ detached: argv }); return "ok"; } },
+    tui: { showInFolder: file => { launches.push({ showInFolder: file }); return "ok"; } },
+};
+const { noticeLine, noticeRequest } = new Function("shell", "PageReference", input.functions + "; return { noticeLine, noticeRequest };")(
+    shell, load(input.pageReference));
+for (const [actionName, saved] of input.events) {
+    const request = noticeRequest({ actionName }, saved);
+    const run = { noticeId: 0, serverOwner: "", closing: false, actions: saved.actions };
+    noticeLine(run, JSON.stringify({ event: "ready", owner: ":1.2", id: 1 }));
+    for (const action of request.actions)
+        noticeLine(run, JSON.stringify({ event: "action", id: action.id }));
+}
+console.log(JSON.stringify(launches));
+'''
+    # loads: bin/lib/qml-library.js shell/Commons/PageReference.js -- Node loads the QML library reader and its input from the payload
+    payload = {"functions": functions, "events": events, "loader": str(REPO / "bin/lib/qml-library.js"),
+               "pageReference": str(REPO / "shell/Commons/PageReference.js")}
+    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
 
 def process_ended(pid):
@@ -1862,10 +1892,8 @@ def process_ended(pid):
     return False
 
 
-def open_with_holds(root, helper, action, installed, folder, wanted):
-    """The worker's buttons for one saved or copied capture: WANTED lists
-    (id, label, argv) with argv's "FILE" the saved path. INSTALLED names
-    the stand-in programs on the worker's PATH; FOLDER holds the file."""
+def capture_notice_event(root, helper, action, installed, folder):
+    """The worker's completion event with stand-ins on its PATH."""
     for program in installed:
         stand_in = root / "bin" / program
         stand_in.write_text("#!/bin/sh\nexit 0\n")
@@ -1876,14 +1904,20 @@ def open_with_holds(root, helper, action, installed, folder, wanted):
     payload["viewer"] = "imv --title=%f %f"
     payload["player"] = "mpv"
     code, messages, err = worker(root, payload, helper, recording=action.startswith("record"))
-    if code != 0 or not messages or messages[-1]["event"] not in ("saved", "copied"):
+    assert code == 0 and messages, (action, code, messages, err)
+    return messages[-1]
+
+
+def open_with_holds(event, folder, wanted):
+    """WANTED lists (id, label, argv) for installed capture tools."""
+    if folder is None:
+        return event == {"event": "copied"}
+    if event["event"] != "saved":
         return False
-    last = messages[-1]
-    if last["event"] == "copied":
-        return "actions" not in last and wanted == []
-    path = last["path"]
+    path = event["path"]
     expected = [{"id": i, "label": label, "argv": [path if word == "FILE" else word for word in argv]} for i, label, argv in wanted]
-    return last["actions"] == expected
+    expected.append({"id": "show", "label": "Show", "file": path})
+    return Path(path).is_absolute() and Path(path).parent == folder and event["actions"] == expected
 
 
 def open_with_cases():
@@ -1895,34 +1929,50 @@ def open_with_cases():
          [("default", "Open", ["imv", "--title=%f", "FILE"]), ("edit", "Edit", ["satty", "--filename", "FILE", "--output-filename", "FILE"])]),
         ("screenshot-no-editor", "screenshot", ("imv",), "pictures", [("default", "Open", ["imv", "--title=%f", "FILE"])]),
         ("screenshot-no-tools", "screenshot", (), "pictures", []),
-        ("recording-browser", "record-output", ("mpv", "nautilus"), "my recordings", [("default", "Open", ["mpv", "FILE"]), ("show", "Show", ["nautilus", "--select", "FILE"])]),
-        ("recording-player", "record-output", ("imv", "satty", "mpv"), "pictures", [("default", "Open", ["mpv", "FILE"])]),
-        ("recording-browser-no-player", "record-output", ("nautilus",), "pictures", [("show", "Show", ["nautilus", "--select", "FILE"])]),
+        ("recording-player", "record-output", ("imv", "satty", "mpv"), "my recordings", [("default", "Open", ["mpv", "FILE"])]),
         ("recording-no-player", "record-output", ("imv", "satty"), "pictures", []),
         ("text", "text", ("imv", "satty", "mpv"), "pictures", []),
     ]
 
 
 def notification_functions(base, source, plant_world):
-    """The argv each finished capture offers, and controls that break it."""
-    def holds(name, helper):
+    """The actions each finished capture offers, and controls that break them."""
+    def captured(name, helper):
         _, action, installed, folder, wanted = cases[name]
-        return open_with_holds(plant_world(name + "-" + helper.stem), helper, action, installed, folder, wanted)
+        root = plant_world(name + "-" + helper.stem)
+        event = capture_notice_event(root, helper, action, installed, folder)
+        return event, root / folder if action != "text" else None, wanted
+
     cases = {case[0]: case for case in open_with_cases()}
-    for name in cases:
-        assert holds(name, HELPER), name
-    def mutated(name, before, after):
+    captures = {name: captured(name, HELPER) for name in cases}
+    for name, captured_args in captures.items():
+        assert open_with_holds(*captured_args), name
+    saved = [(cases[name][1], captures[name][0]) for name in ("screenshot-spaced-path", "recording-player")]
+    expected = []
+    for _, event in saved:
+        expected.extend({"detached": action["argv"]} for action in event["actions"] if action["id"] != "show")
+        expected.append({"showInFolder": event["path"]})
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    assert service_notice_launches(service, saved) == expected, "Show passes each absolute saved file to showInFolder"
+    before = "shell.tui.showInFolder(action.file)"
+    assert service.count(before) == 1, "Show file path control boundary"
+    folder_only = service.replace(before, 'shell.tui.showInFolder(action.file.slice(0, action.file.lastIndexOf("/")))')
+    assert service_notice_launches(folder_only, saved) != expected, "control did not fail: show-folder-for-file"
+
+    controls = [
+        ("absent-tool-offered", "screenshot-no-editor", "if not words or shutil.which(words[0]) is None:", "if not words:"),
+        ("file-appended", "screenshot-tools", 'if "%f" not in words:', "if True:"),
+        ("file-split", "screenshot-spaced-path", 'return [str(path) if word == "%f" else word for word in words]',
+         'return " ".join(str(path) if word == "%f" else word for word in words).split()'),
+    ]
+    for name, case, before, after in controls:
         assert source.count(before) == 1, name
         changed = source.replace(before, after)
         assert changed != source, name
         helper = base / (name + ".py")
         helper.write_text(changed)
-        return helper
-    assert not holds("screenshot-no-editor", mutated("absent-tool-offered", "if not words or shutil.which(words[0]) is None:", "if not words:")), "control did not fail: absent-tool-offered"
-    assert not holds("screenshot-tools", mutated("file-appended", 'if "%f" not in words:', "if True:")), "control did not fail: file-appended"
-    assert not holds("screenshot-spaced-path", mutated("file-split", "return [str(path) if word == \"%f\" else word for word in words]", "return \" \".join(str(path) if word == \"%f\" else word for word in words).split()")), "control did not fail: file-split"
-    assert not holds("recording-browser", mutated("recording-show-dropped", '("show", "Show", "browser")', '("show", "Show", "player")')), "control did not fail: recording-show-dropped"
-    return "absent-tool-offered,file-appended,file-split,recording-show-dropped"
+        assert not open_with_holds(*captured(case, helper)), "control did not fail: " + name
+    return ",".join([name for name, _, _, _ in controls] + ["show-folder-for-file"])
 
 
 def failure_log_holds(root, helper, reason):
