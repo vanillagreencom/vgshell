@@ -159,9 +159,70 @@ FocusScope {
         askProblem = reply === "ok" ? "" : "The original thread could not be opened.";
     }
     // A time in the shell's one wording, against the shared minute clock,
-    // so a recent one reads as its age. No row shows one; a snooze names
-    // its return in a sentence and a snoozed ask in its description.
+    // so a recent one reads as its age. A snooze names its return in a
+    // sentence and a snoozed ask in its description.
     function when(at) { return Timestamp.text(at, Time.now.getTime()); }
+    // How long an ask has waited, as its age at any length, never a clock
+    // time, in the wording Timestamp gives an age, against the same minute
+    // clock. A moment in the clock's current minute can lie ahead of it.
+    function waited(at) {
+        const seconds = Math.max(0, Math.floor((Time.now.getTime() - at) / 1000));
+        return seconds < 60 ? "just now" : Duration.format(seconds, 1) + " ago";
+    }
+    // Ask text as Markdown that loads nothing. Qt draws a Markdown image,
+    // and an <img> in the raw HTML GitHub's dialect passes through, by
+    // loading its source from the network or a file:
+    // https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop
+    // Outside fenced code and code spans, found as best it can, an inline
+    // image, and a full, collapsed or shortcut one whose label a definition
+    // names, becomes its alt text. Safety rests on the last step alone,
+    // over the whole text: a word joiner, U+2060, follows every "<" and
+    // every "!" before "[", so no tag, HTML block, autolink or image can
+    // start, and code keeps its characters, since the joiner is a default
+    // ignorable that draws nothing:
+    // https://www.unicode.org/reports/tr44/#Default_Ignorable_Code_Point
+    function inertMarkdown(text) {
+        const label = key => key.trim().replace(/\s+/g, " ").toLowerCase();
+        const defined = {};
+        text.replace(/^ {0,3}\[((?:[^\[\]\\]|\\.)+)\]:/gm, (all, name) => { defined[label(name)] = true; return all; });
+        const escaped = (prose, at) => at > 0 && prose[at - 1] === "\\";
+        const images = prose => prose
+            .replace(/!\[((?:[^\[\]\\]|\\.|\[[^\[\]]*\])*)\]\((?:[^()]|\([^()]*\))*\)/g,
+                (all, alt, at, whole) => escaped(whole, at) ? all : alt)
+            .replace(/!\[((?:[^\[\]\\]|\\.|\[[^\[\]]*\])*)\](?:\[((?:[^\[\]\\]|\\.)*)\])?/g,
+                (all, alt, name, at, whole) => !escaped(whole, at) && defined[label(name ? name : alt)] ? alt : all);
+        const code = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:\n {0,3}\1[`~]*[ \t]*(?=\n|(?![\s\S]))|(?![\s\S]))|(`+)(?!`)[\s\S]*?[^`]\2(?!`)/gm;
+        let out = "";
+        let at = 0;
+        for (let found = code.exec(text); found !== null; found = code.exec(text)) {
+            out += images(text.slice(at, found.index)) + found[0];
+            at = code.lastIndex;
+        }
+        return (out + images(text.slice(at))).replace(/</g, "<\u2060").replace(/!\[/g, "!\u2060[");
+    }
+    // Shows or hides one ask card's whole question. Its delegate is kept
+    // per ask id (ScriptModel), so an open ask stays open across a refresh.
+    // Accessible carries expandable and expanded, as a disclosure button's
+    // state: https://doc.qt.io/qt-6/qml-qtquick-accessible.html
+    component AskOpener: RowAction {
+        property bool open: false
+        text: open ? "Show less" : "Show full ask"
+        Accessible.expandable: true
+        Accessible.expanded: open
+        onClicked: open = !open
+    }
+    // An open ask's whole question, drawn once: its card drops the one-line
+    // title while open. A link opens nothing, since no handler takes
+    // linkActivated, so it reads as the text around it.
+    component AskQuestion: Label {
+        property string question: ""
+        width: parent ? parent.width : 0
+        role: "body"
+        text: root.inertMarkdown(question)
+        textFormat: Text.MarkdownText
+        linkColor: color
+        wrapMode: Text.Wrap
+    }
     // The one sentence for the ask and the action a pending or unconfirmed
     // REQUEST holds: what is being sent, or what Jarvis has not confirmed,
     // which the notice's Retry sends again. An ask off the current page
@@ -1032,9 +1093,11 @@ FocusScope {
                                 width: parent.width
                                 padded: false
                                 sender: activeCard.live ? activeCard.ask.askedBy.name : ""
-                                title: activeCard.live ? activeCard.ask.what : ""
+                                timeText: activeCard.live ? root.waited(Date.parse(activeCard.ask.askedAt)) : ""
+                                title: activeCard.live && !activeOpener.open ? activeCard.ask.what : ""
                                 titleLines: 1
                                 bodyText: !activeCard.live || activeCard.ask.statusText === undefined ? "" : activeCard.ask.statusText
+                                bodyComponent: activeOpener.open ? activeQuestion : null
                                 linkText: activeCard.live && activeCard.ask.link !== null ? activeCard.ask.link.label : ""
                                 stateText: activeCard.live ? root.askState(activeCard.ask) : ""
                                 stateTone: activeCard.live && activeCard.ask.state === "checking" ? "info" : "warning"
@@ -1042,6 +1105,11 @@ FocusScope {
                                 onSourceActivated: if (activeCard.live) root.openAskLink(activeCard.ask)
                                 onActionTriggered: action => { if (activeCard.live) root.chooseAsk(action, activeCard.ask, actionAt(["reply", "done", "later"].indexOf(action))); }
                             }
+                            Component {
+                                id: activeQuestion
+                                AskQuestion { question: activeCard.live ? activeCard.ask.what : "" }
+                            }
+                            AskOpener { id: activeOpener }
                         }
                     }
                     Repeater {
@@ -1057,18 +1125,25 @@ FocusScope {
                             MessageRow {
                                 width: parent.width
                                 padded: false
-                                // No row shows a time: the return time stays
-                                // in the snoozed ask's description.
+                                // The row shows how long the ask has waited;
+                                // the return time stays in its description.
                                 Accessible.description: snoozedCard.live ? "Returns " + root.when(Date.parse(snoozedCard.ask.snoozedUntil)) : ""
                                 sender: snoozedCard.live ? snoozedCard.ask.askedBy.name : ""
-                                title: snoozedCard.live ? snoozedCard.ask.what : ""
+                                timeText: snoozedCard.live ? root.waited(Date.parse(snoozedCard.ask.askedAt)) : ""
+                                title: snoozedCard.live && !snoozedOpener.open ? snoozedCard.ask.what : ""
                                 titleLines: 1
+                                bodyComponent: snoozedOpener.open ? snoozedQuestion : null
                                 linkText: snoozedCard.live && snoozedCard.ask.link !== null ? snoozedCard.ask.link.label : ""
                                 stateText: "Snoozed"
                                 actions: snoozedCard.live ? root.askActions(snoozedCard.ask) : []
                                 onSourceActivated: if (snoozedCard.live) root.openAskLink(snoozedCard.ask)
                                 onActionTriggered: action => { if (snoozedCard.live) root.chooseAsk(action, snoozedCard.ask, actionAt(["reply", "done", "later"].indexOf(action))); }
                             }
+                            Component {
+                                id: snoozedQuestion
+                                AskQuestion { question: snoozedCard.live ? snoozedCard.ask.what : "" }
+                            }
+                            AskOpener { id: snoozedOpener }
                         }
                     }
                 }

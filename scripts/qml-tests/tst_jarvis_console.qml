@@ -382,6 +382,35 @@ Item {
             jarvisConsole.snoozedExpanded = false;
         }
 
+        // An ask hours old reads its wait, not a clock time. Opened, it
+        // drops its one-line title and draws the whole question once, as
+        // Markdown in which no image or HTML tag can start, so drawing it
+        // loads nothing; an image reads as its alt text.
+        function test_an_open_ask_reads_its_wait_and_draws_its_question_without_images() {
+            const what = "Choose the cover\n\n**Context:** the old one\n\n![the old cover](https://example.invalid/cover.png)\n\n"
+                + "<img src=\"file:///etc/hostname\">\n\n![the new cover][new]\n\n[new]: https://example.invalid/new.png";
+            const values = root.values({});
+            values.ownerAsks = { kind: "ready", homeId: "home", revision: "one", activeCount: 1, snoozedCount: 0, snoozed: [],
+                active: [{ id: "cover", revision: "one", kind: "jarvis-ask", what: what, askedBy: { id: "jarvis", name: "Jarvis" },
+                    askedAt: new Date(Time.now.getTime() - (2 * 60 + 5) * 60000).toISOString(), link: null, state: "open", snoozedUntil: null,
+                    actions: { reply: { allowed: true, reason: "" }, done: { allowed: true, reason: "" }, later: { allowed: true, reason: "" } } }] };
+            jarvisConsole.shell = root.shellWith(values);
+            jarvisConsole.tab = 1;
+            wait(0);
+            const message = collect(jarvisConsole, n => n instanceof MessageRow && n.title === what, [])[0];
+            verify(message !== undefined && message.visible, "the ask draws its card");
+            compare(message.timeText, "2h ago");
+            collect(jarvisConsole, n => n instanceof RowAction && n.text === "Show full ask", [])[0].clicked();
+            wait(0);
+            compare(message.title, "", "the open ask draws its question once, with no title over it");
+            const question = collect(message, n => n instanceof Label && n.textFormat === Text.MarkdownText, [])[0];
+            verify(question !== undefined && question.visible, "the open ask draws its question");
+            for (const alt of ["the old cover", "the new cover", "**Context:**"])
+                verify(question.text.indexOf(alt) !== -1, alt);
+            verify(!/!\[/.test(question.text), "no image can start: " + question.text);
+            verify(!/<[A-Za-z\/!?]/.test(question.text), "no HTML tag can start: " + question.text);
+        }
+
         // Recovery names the ask its Retry acts on, for each
         // action, while the ask is on the page.
         function test_ask_recovery_names_its_ask_data() {
