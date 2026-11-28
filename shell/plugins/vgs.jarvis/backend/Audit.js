@@ -1,6 +1,7 @@
 // The daemon owns one synchronous audit writer. The router and network door
 // must use before() after their own authorization and before starting work.
 "use strict";
+const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const Tools = require("./Tools.js");
@@ -12,6 +13,8 @@ const LINE_BYTES = 4 * 1024;
 const STORE_BYTES = 64 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TAIL_BYTES = 64 * 1024;
+const MIGRATION_PREFIX = ".audit-migrate-";
+const MIGRATION_STALE_MINUTES = 15;
 const owners = new Set();
 const effects = ["read", "reversible", "input", "persistent", "exec", "external", "destructive"];
 // Why a duplex voice stream failed, as ChainedEngine closes its release
@@ -257,7 +260,7 @@ function readUsage({ state, now = Date.now(), since = now - 7 * DAY_MS, until = 
  * auditDays is the manifest owner's setting; now returns wall-clock ms.
  * Creation converts an unversioned store once, then reads the newest daily
  * file's bounded tail. close() ends this owner's lifetime.
- * The VGS instance/child lease supplies process exclusivity, not this API.
+ * Standalone account helpers can share the state directory across processes.
  */
 function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     if (typeof state !== "string" || !path.isAbsolute(state) || path.normalize(state) !== state
@@ -271,16 +274,42 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     let lifetime = "open";
     let recent = [];
     let seedError = null;
-    let migrations = 0;
     let causeCurrent = false;
     let usageIncomplete = false;
 
-    function replace(file, lines, previous = null) {
-        const candidate = path.join(state, ".audit-migrate-" + process.pid + "-" + (++migrations));
-        let fd, owned = false;
+    function reapMigrations() {
+        const parent = fs.openSync(state, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
         try {
-            fd = fs.openSync(candidate, "wx", 0o600);
-            owned = true;
+            if (fs.fstatSync(parent).uid !== process.getuid()) fail("directory-owner");
+            const base = "/proc/self/fd/" + parent;
+            // Replacement writes at most one bounded day synchronously. A
+            // grace period keeps a concurrent writer's fresh file in place.
+            const cutoff = Date.now() - MIGRATION_STALE_MINUTES * 60 * 1000;
+            for (const name of fs.readdirSync(base)) {
+                if (!name.startsWith(MIGRATION_PREFIX)
+                        || !/^(?:[1-9]\d*-[1-9]\d*|[0-9a-f]{32})$/.test(name.slice(MIGRATION_PREFIX.length))) continue;
+                const file = path.join(base, name);
+                try {
+                    const stat = fs.lstatSync(file);
+                    if (stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1 && stat.mtimeMs < cutoff)
+                        fs.unlinkSync(file);
+                } catch (error) { if (error.code !== "ENOENT") throw error; }
+            }
+        } finally { fs.closeSync(parent); }
+    }
+
+    function openMigration() {
+        for (;;) {
+            const candidate = path.join(state, MIGRATION_PREFIX + randomBytes(16).toString("hex"));
+            try { return { candidate, fd: fs.openSync(candidate, "wx", 0o600) }; }
+            catch (error) { if (error.code !== "EEXIST") throw error; }
+        }
+    }
+
+    function replace(file, lines, previous = null) {
+        let { candidate, fd } = openMigration();
+        let owned = true;
+        try {
             for (const line of lines) fs.writeFileSync(fd, line);
             fs.fsyncSync(fd);
             fs.closeSync(fd);
@@ -408,6 +437,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
         try { fs.lstatSync(state); }
         catch (error) { if (error.code === "ENOENT") return; throw error; }
         Private.directory(state);
+        reapMigrations();
         const moved = converted();
         try { fs.lstatSync(directory); }
         catch (error) { if (error.code === "ENOENT") { causeCurrent = moved; return; } throw error; }

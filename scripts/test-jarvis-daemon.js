@@ -115,7 +115,8 @@ async function inside() {
         // A real bound detects a daemon that retained a lease after EOF.
         const timeout = setTimeout(() => child.kill("SIGKILL"), 3000);
         try {
-            for (const chunk of chunks) child.stdin.write(chunk);
+            const input = typeof chunks === "function" ? chunks(child.pid) : chunks;
+            for (const chunk of input) child.stdin.write(chunk);
             child.stdin.end();
             const [actual, signal] = await closed;
             assert.equal(signal, null, "stdin EOF must end the daemon");
@@ -186,12 +187,36 @@ async function inside() {
         }
         return lines;
     }
-    const startup = file => run(file, [JSON.stringify({ ...hello, directories: { ...hello.directories,
-        state: fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "startup-lists-")) } }) + "\n"],
-        0, null, states([false]), [
+    const startup = async file => {
+        const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "startup-lists-"));
+        // An unversioned audit directory makes the first hello publish a
+        // marker through the same replace path that converts daily records.
+        fs.mkdirSync(path.join(state, "audit"), { mode: 0o700 });
+        const unrelated = path.join(state, ".audit-migrate-1-2.keep");
+        const aged = new Date(Date.now() - 60 * 60 * 1000);
+        fs.writeFileSync(unrelated, "keep");
+        fs.utimesSync(unrelated, aged, aged);
+        for (const name of [".audit-migrate-1-2", ".audit-migrate-" + "f".repeat(32)]) {
+            const file = path.join(state, name);
+            fs.writeFileSync(file, "{", { mode: 0o600, flag: "wx" });
+            fs.utimesSync(file, aged, aged);
+        }
+        let fresh;
+        await run(file, pid => {
+            assert.ok(Number.isInteger(pid) && pid > 0, "the daemon PID must be known before hello");
+            fresh = `.audit-migrate-${pid}-1`;
+            fs.writeFileSync(path.join(state, fresh), "{", { mode: 0o600, flag: "wx" });
+            return [JSON.stringify({ ...hello, directories: { ...hello.directories, state } }) + "\n"];
+        }, 0, null, states([false]), [
             { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
             { v: 1, type: "task-list", gen: 1, revision: hello.revision, rows: [] }
         ]);
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, "audit-cause-version.json"), "utf8")), { version: 1 });
+        assert.deepEqual(fs.readdirSync(state).filter(name => name.startsWith(".audit-migrate-")).sort(),
+            [path.basename(unrelated), fresh].sort());
+        assert.equal(fs.readFileSync(path.join(state, fresh), "utf8"), "{");
+        assert.equal(fs.readFileSync(unrelated, "utf8"), "keep");
+    };
     await startup(daemon);
     const auditRows = () => {
         const directory = path.join(hello.directories.state, "audit");
@@ -312,6 +337,24 @@ async function inside() {
     await control("audit-startup-list", "auditFailures(audit.failures());", "void audit;", startup);
     await control("task-startup-list", 'write({ v: 1, type: "task-list", gen: runner.state.gen,',
         'void ({ v: 1, type: "task-list", gen: runner.state.gen,', startup);
+    {
+        const copy = daemonCopy("audit-migration-leftover");
+        const audit = path.join(path.dirname(copy), "Audit.js");
+        const before = fs.readFileSync(audit, "utf8");
+        const allocation = /^    function openMigration\(\) \{\n[\s\S]*?^    \}/gm;
+        assert.equal([...before.matchAll(allocation)].length, 1, "audit migration control mutation match");
+        fs.writeFileSync(audit, before.replace(allocation, [
+            "    let migrations = 0;",
+            "    function openMigration() {",
+            '        const candidate = path.join(state, MIGRATION_PREFIX + process.pid + "-" + (++migrations));',
+            '        return { candidate, fd: fs.openSync(candidate, "wx", 0o600) };',
+            "    }"
+        ].join("\n")));
+        await assert.rejects(() => startup(copy), error => error instanceof assert.AssertionError
+            && error.actual === 74 && error.expected === 0 && error.message.includes("jarvis: audit=read cause=EEXIST"));
+        controls++;
+        console.log("test-jarvis-daemon: control=audit-migration-leftover detected cause=EEXIST");
+    }
     // The home folder each hello names, on one daemon: it writes nothing in
     // a folder (D126); a folder it refuses, one Setup has not set up among
     // them, leads the status causes with its own keyed cause, and a text
