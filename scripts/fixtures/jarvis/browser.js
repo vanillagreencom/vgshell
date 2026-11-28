@@ -118,7 +118,7 @@ async function daemonLease(ending, removeClose = false) {
                     playback: { kind: "idle" }, cue: { kind: "none" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
                     input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
-                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" }, orbSize: { kind: "normal" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
                     restart: { kind: "none" }, failures: []

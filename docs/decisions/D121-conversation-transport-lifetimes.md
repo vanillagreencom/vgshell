@@ -4,7 +4,7 @@
 
 **Date**: 2026-11-05
 
-**Status**: Active (voice connections that still owe usage → [D145](D145-retired-voice-connection-reads-usage.md))
+**Status**: Active (voice connections that still owe usage → [D145](D145-retired-voice-connection-reads-usage.md), user-ended calls → [D146](D146-user-ended-voice-calls.md))
 
 **Research**: [VGS-2209](https://linear.app/vanillagreen/issue/VGS-2209/jarvis-talk-flow-superj-opens-and-closes-a-free-conversation-hold-is-a)
 

@@ -28,6 +28,7 @@ const FORMAT = Object.freeze({ type: "audio/pcm", rate: PCM_RATE });
 // The transcription guide's model for text that arrives while the user
 // speaks, which the captions need.
 const TRANSCRIBE = "gpt-live-transcribe";
+const RETIRED_ANSWER = Symbol("retired captured answer");
 // Recovery bounds and grouping rules, not measured latency budgets.
 const START_WAIT_MS = 20000;      // connect, session.created and session.updated
 // Realtime conversations guide, read 2026-11-05: maximum session duration.
@@ -226,7 +227,7 @@ function eventOf(data, usage) {
  * usage receives each usage row; drains(count) hears how many connections
  * a session left still wait for the usage they owe.
  */
-function create({ provider, clock, conversation, captionLimit, log, usage = () => {}, drains = () => {} }) {
+function create({ provider, clock, conversation, captionLimit, log, answerAtStart, answerHeld, usage = () => {}, drains = () => {} }) {
     Providers.assertRow(provider);
     if (provider.driver !== "openai-realtime") fail("driver");
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
@@ -355,13 +356,18 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         if (forced) {
             const interrupted = (session.capture?.inputRecord.bytes ?? 0) !== 0
                 || session.pending.length !== 0 || session.commits.length !== 0 || session.inputs.size !== 0;
-            for (const capture of [...session.commits, ...Array.from(session.inputs.values(), item => item.capture)]) capture.discarded = true;
+            const discarded = new Set([...session.commits, ...session.inputs.values(), ...session.pending]
+                .map(entry => entry.capture).filter(capture => capture?.committed && !capture.reported && !capture.discarded));
             session.commits = [];
             session.inputs.clear();
             session.pending = [];
             session.pendingBytes = 0;
             if (interrupted) {
                 session.capture?.discardInput();
+                for (const capture of discarded) {
+                    capture.discarded = true;
+                    session.events.inputDiscarded(capture.op);
+                }
                 repeatNotice(session);
             }
             // No timing can identify unplayed words inside a partial native
@@ -421,7 +427,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                         // Bound native results a connected provider has not
                         // returned; each committed gate segment owns one.
                         if (session.commits.length + session.inputs.size >= 128) fail("input-results-overflow");
-                        session.commits.push(queued.capture);
+                        session.commits.push(queued);
                         send(session, { type: "input_audio_buffer.commit" });
                     }
                 } catch (error) { failed(session, reasonOf(error)); return false; }
@@ -621,11 +627,12 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             case "activity": break;
             case "stopped": break;
             case "committed": {
-                const capture = session.commits.shift();
+                const input = session.commits.shift();
+                const capture = input?.capture;
                 const early = session.early.get(event.item);
                 session.early.delete(event.item);
                 if (capture === undefined) break;
-                session.inputs.set(event.item, { capture, partial: "" });
+                session.inputs.set(event.item, { capture, answer: input.answer, partial: "" });
                 // The held text opens the turn's caption, as its later text extends it.
                 if (early === undefined || capture.discarded) break;
                 concludeAssistant(session);
@@ -644,17 +651,17 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
                 const capture = item?.capture;
                 session.early.delete(event.item);
                 session.inputs.delete(event.item);
-                if (capture === undefined) break;
-                inputResult(session, capture, event.text);
-                if (capture?.discarded || session.state.kind === "ended") break;
-
+                if (capture === undefined || capture.discarded) break;
                 concludeAssistant(session);
                 const transcript = clean(event.text);
                 if (transcript.trim() !== "") {
                     for (let text = transcript; text.length !== 0; text = text.slice(captionLimit))
                         emit(session, "user", text.slice(0, captionLimit), "final", event.item);
                 } else if (item.partial !== "") emit(session, "user", "", "final", event.item);
-                if (event.text.trim() === "") break;
+                // An empty aggregate can end the call synchronously. Retract
+                // this item's provisional caption while its owner is live.
+                inputResult(session, capture, event.text);
+                if (session.state.kind === "ended" || event.text.trim() === "" || item.answer === RETIRED_ANSWER || answerHeld(item.answer, event.text)) break;
                 // Words still waiting answer the request this one replaces.
                 session.speech.queue = [];
                 session.speech.chars = 0;
@@ -803,8 +810,8 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
         flush(e) {
             const session = live;
             if (session === null || session.op !== e.target) return;
-            for (const capture of session.commits) capture.discarded = true;
-            for (const item of session.inputs.values()) item.capture.discarded = true;
+            for (const { capture } of session.commits) capture.discarded = true;
+            for (const { capture } of session.inputs.values()) capture.discarded = true;
             if (session.capture !== null) session.capture.inputRecord.discarded = true;
             session.pending = [];
             session.pendingBytes = 0;
@@ -865,20 +872,40 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
     function captureSink(e) {
         const session = live;
         if (session === null) return null;
+        // A hold pins its card when the recorder opens. Continuous listening
+        // observes the card when Audio acquires a microphone read, before its gate.
+        const heldAnswer = e.mode === "hold" ? answerAtStart() : null;
         const record = () => ({ op: e.op, bytes: 0, committed: false, pending: 0,
             closed: false, words: false, reported: false, discarded: false });
         let capture = record();
+        let answer = null;
         let discarding = false;
+        const origins = new WeakMap();
         const sink = new Writable({
             write(pcm, encoding, done) {
                 if (session.capture !== sink || session.state.kind === "ended") { done(); return; }
                 if (pcm.length % 2 !== 0) { done(new Error("jarvis: live=input-frame")); return; }
                 if (discarding) { done(); return; }
+                const origin = origins.get(pcm);
+                origins.delete(pcm);
+                if (capture.bytes === 0 && pcm.length !== 0) {
+                    answer = origin?.answer ?? null;
+                    // Buffered words for a retired recorder or socket remain a held
+                    // answer. They can be captioned but cannot become a new request.
+                    if (answer !== null && (origin.capture !== capture || origin.channel !== session.channel))
+                        answer = RETIRED_ANSWER;
+                }
                 capture.bytes += pcm.length;
                 input(session, pcm);
                 done();
             }
         });
+        sink.captureOrigin = () => ({ capture, channel: session.channel, answer: e.mode === "hold" ? heldAnswer : answerAtStart() });
+        sink.writeCaptured = (pcm, origin) => {
+            const frame = pcm.subarray();
+            origins.set(frame, origin);
+            return sink.write(frame);
+        };
         sink.inputRecord = capture;
         sink.discardInput = () => { capture.discarded = true; discarding = true; };
         // Audio calls this only when its level gate closes. A true answer
@@ -906,7 +933,7 @@ function create({ provider, clock, conversation, captionLimit, log, usage = () =
             }
             capture.committed = true;
             capture.pending++;
-            session.pending.push({ capture });
+            session.pending.push({ capture, answer });
             pump(session);
             return true;
         };

@@ -593,13 +593,17 @@ world(async () => {
                 engine.brain.send({ gen, op, owner, text: "first" }, () => {});
                 await until(() => fs.existsSync(trace) && fs.readFileSync(trace, "utf8").includes("unfinished"),
                     "native inference is running");
-                w.runner.dispatch({ type: "toggle" });
+                const environment = { type: "snapshot", configured: true, engine: w.runner.state.engine.kind,
+                    settings: w.runner.state.settings };
+                w.runner.dispatch({ ...environment, locked: true });
                 await until(() => read("codex-log").some(row => row.direction === "barrier"), "native cancellation remains unacknowledged");
                 if (adopted) {
                     // A generation's speech/capture owner can adopt history
                     // before its next brain request crosses the quiet barrier.
+                    w.runner.dispatch({ ...environment, locked: false });
+                    w.runner.dispatch({ type: "talk-down" });
                     Fixture.control.utterances.push(Fixture.utterance(""));
-                    engine.captureSink({ gen: w.runner.state.gen, op: op + 20, mode: "conversation" });
+                    engine.captureSink({ gen: w.runner.state.gen, op: op + 20, mode: "hold" });
                 }
                 w.time(2000);
                 w.runner.dispatch({ type: "deadline", gen, op });
@@ -654,20 +658,20 @@ world(async () => {
             assert.deepEqual(reads, [existing], "the native bridge reads the current fixture file before release");
             w.show(); w.time(1000); w.confirm();
             await until(() => w.runner.state.turn.kind === "none", "first native turn completes");
-            w.runner.dispatch({ type: "toggle" });
+            const expiredAt = w.runner.state.quiet.deadline;
+            w.time(expiredAt);
+            w.runner.dispatch({ type: "deadline", gen, op: w.runner.state.quiet.op });
             await until(() => w.runner.state.conversation.kind === "ended"
                 && w.runner.state.capture.kind === "closed"
-                && w.runner.state.brain.kind === "closed", "ordinary close releases the first generation");
-            // Session collapses presses inside TOGGLE_DEBOUNCE_MS. A second physical
-            // press has a distinct injected time, after close acknowledged.
-            w.time(1500);
-            w.runner.dispatch({ type: "toggle" });
+                && w.runner.state.brain.kind === "closed", "quiet expiry releases the first generation");
+            w.time(expiredAt + 500);
+            w.runner.dispatch({ type: "talk-down" });
             await until(() => w.runner.state.approval.kind === "held", "retained file context needs new release consent");
             assert.equal(w.runner.state.approval.purpose, "release");
             assert.equal(received("turn/start").length, 1, "retained content is rejudged before native resume sends a turn");
             assert.deepEqual(writes, [], "old release or action grants do not cross generations");
             const release = w.runner.state.approval;
-            w.show(); w.time(2500); w.confirm();
+            w.show(); w.time(expiredAt + 1500); w.confirm();
             assert.equal(w.runner.state.approval.kind, "none", "the matching retained release ends before native resume");
             await until(() => received("turn/start").length === 2, "renewed release admits the second actual native turn");
             await until(() => w.runner.state.approval.kind === "held"
@@ -675,7 +679,7 @@ world(async () => {
             assert.equal(w.runner.state.approval.purpose, "action");
             assert.equal(w.runner.state.approval.gen, release.gen, "the action belongs to the released generation");
             assert.deepEqual(writes, []);
-            w.show(); w.time(3500); w.confirm();
+            w.show(); w.time(expiredAt + 2500); w.confirm();
             await until(() => w.runner.state.turn.kind === "none", "resumed native turn completes");
             assert.equal(writes.length, 1);
             assert.deepEqual(memory.pending().map(row => [row.target, [...row.labels].sort()]),

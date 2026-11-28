@@ -316,7 +316,7 @@ world(async () => {
             const w = await make(folder);
             const c = await w.ready();
             const gen = w.runner.state.gen;
-            w.dispatch({ type: "toggle" }); w.newTurn();
+            w.dispatch({ type: "close" }); w.newTurn();
             assert.notEqual(w.runner.state.gen, gen);
             assert.equal(w.runner.state.turn.kind, "thinking", "a newer conversation has a live turn");
             c.send(call(40, "windows_list", {}));
@@ -347,7 +347,7 @@ world(async () => {
             // The router still owns the real completion. Its old bridge result
             // must neither answer twice nor attach to the next generation.
             w.answers[0]({ outcome: "completed", content: "old result" });
-            w.dispatch({ type: "toggle" });
+            w.dispatch({ type: "close" });
             w.newTurn();
             const recipients = w.Policy.recipients({ ...w.recipients, conversation: "resumed" });
             w.launch.resume({ gen: w.runner.state.gen, recipients });

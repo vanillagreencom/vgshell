@@ -75,6 +75,7 @@ Item {
             return {
                 entry: all.find(n => n.placeholderText === "Message Jarvis"),
                 send: all.find(n => n.label === "Send message"),
+                stop: all.find(n => n.label === "Stop Jarvis"),
                 speechHint: displayedTextItems(jarvisConsole).find(n => n instanceof LinkText && n.text === jarvisConsole.speechOnlyText),
                 tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Chat")
             };
@@ -487,6 +488,47 @@ Item {
                 verify(!focused.activeFocus, "replaced control releases focus");
                 compare(expected.focusReason, Qt.TabFocusReason, "replacement keeps the keyboard reason");
             }
+        }
+
+        function test_composer_and_more_follow_the_call_data() {
+            const call = regions => Object.assign({ conversation: { kind: "active", purpose: "conversation" } }, regions);
+            return [
+                { tag: "closed", regions: {}, stop: false, close: false },
+                { tag: "opening", regions: call({ capture: { kind: "opening" } }), stop: false, close: true },
+                { tag: "listening", regions: call({ capture: { kind: "open" } }), stop: false, close: true },
+                { tag: "thinking", regions: call({ turn: { kind: "thinking" } }), stop: true, close: true },
+                { tag: "speaking", regions: call({ playback: { kind: "playing" } }), stop: true, close: true },
+                { tag: "working on a cancellable tool", regions: call({ action: { kind: "running", cancellation: { kind: "available" } } }), stop: true, close: true },
+                { tag: "holding a request", regions: call({ approval: { kind: "held" } }), stop: true, close: true },
+                { tag: "faulted", regions: { fault: { kind: "error", reason: "brain=stream-error", category: "other" } }, stop: false, close: true },
+                { tag: "muted", regions: call({ voiceMute: { kind: "on" } }), stop: false, close: true },
+                { tag: "closing", regions: { capture: { kind: "closing" } }, stop: false, close: false }
+            ];
+        }
+        function test_composer_and_more_follow_the_call(data) {
+            const shell = root.shellWith(root.values(data.regions)), calls = [];
+            shell.ipc.call = (name, arg) => { calls.push(name); return "ok"; };
+            jarvisConsole.shell = shell;
+            const controls = composerControls();
+            compare(controls.send.visible, !data.stop);
+            compare(controls.stop.visible, data.stop);
+            if (data.stop) mouseClick(controls.stop);
+            const more = findChild(jarvisConsole, "moreButton");
+            mouseClick(more);
+            const menu = collect(more, item => item instanceof Menu, [])[0];
+            tryCompare(menu, "opened", true);
+            const entries = menu.items().filter(item => item.visible);
+            verify(!entries.some(item => item.text.indexOf("Stop") === 0));
+            const close = entries.find(item => item.text === "Close Jarvis");
+            compare(close !== undefined, data.close);
+            if (data.close) close.triggered(); else menu.close();
+            tryCompare(menu, "opened", false);
+            // A unit popup is a plain window. Reacquire the fixture window
+            // after the popup closes, as the history-filter test does.
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            compare(calls.filter(name => name === "stop" || name === "close"),
+                (data.stop ? ["stop"] : []).concat(data.close ? ["close"] : []));
         }
 
         function test_system_mute_keeps_the_typed_composer_available() {

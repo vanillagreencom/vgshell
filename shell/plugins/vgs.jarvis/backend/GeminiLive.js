@@ -262,7 +262,8 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (forced) {
             const interrupted = (session.capture?.inputRecord.bytes ?? 0) !== 0
                 || session.pending.length !== 0 || session.commits.length !== 0 || session.inputText !== "";
-            for (const capture of session.commits) capture.discarded = true;
+            const discarded = new Set([...session.commits, ...session.pending.map(entry => entry.capture)]
+                .filter(capture => capture?.committed && !capture.reported && !capture.discarded));
             session.commits = [];
             session.pending = [];
             session.pendingBytes = 0;
@@ -273,6 +274,10 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             clear(session, "hold");
             if (interrupted) {
                 session.capture?.discardInput();
+                for (const capture of discarded) {
+                    capture.discarded = true;
+                    session.events.inputDiscarded(capture.op);
+                }
                 session.segments.user = null;
                 repeatNotice(session);
             }
@@ -517,7 +522,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         const turn = session.turn;
         if (turn === null || turn.delegated) return;
         turn.delegated = true;
-        if (turn.text.trim() === "") return;
+        if (turn.text.trim() === "" || !session.events.canDelegate()) return;
         // Words still waiting answer the request this one replaces. A
         // playing reply left with none to wait for ends after its gap, which
         // the voice's own turn's end starts.

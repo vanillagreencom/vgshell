@@ -61,9 +61,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "SMOKE-1"
+        property bool callPlaced: true
         property var consoleBox: null
         property var consoleKey: null
-        property var heldKey: null
+        property var placementKey: null
         property var effectiveKeys: null
         property var values: ({})
         property string orbStyle: "glass-bead"
@@ -91,6 +92,7 @@ Item {
         when: windowShown
 
         function init() {
+            service.bubbleWanted = false;
             UnitTheme.reset();
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             root.opened = [];
@@ -147,7 +149,7 @@ Item {
                 { tag: "ready", over: {}, name: "Ready" },
                 { tag: "listening", over: { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }, name: "Listening" },
                 { tag: "thinking", over: { turn: { kind: "thinking" } }, name: "Thinking" },
-                { tag: "acting", over: { action: { kind: "running" } }, name: "Thinking" },
+                { tag: "acting", over: { action: { kind: "running", cancellation: { kind: "available" } } }, name: "Thinking" },
                 { tag: "speaking", over: { playback: { kind: "playing" } }, name: "Speaking" },
                 { tag: "stopping", over: { gate: { kind: "down" } }, name: "" }
             ];
@@ -161,6 +163,9 @@ Item {
             verify(renderedFrame(bubble));
             const orb = orbOf();
             const resting = orb.mapToItem(bubble, 0, 0);
+            mouseMove(root, 1, 1);
+            tryCompare(bubble, "nameHovered", false);
+            tryCompare(bubble, "nameOpacity", 0);
             service.sessionState = conversation(data.over);
             verify(renderedFrame(bubble));
             compare(JSON.stringify(drawnStateWords()), "[]", "no state name draws at rest");
@@ -309,6 +314,12 @@ Item {
             // How far under its rest the overlay stands.
             const lowered = () => overlay.y - restY;
             verify(bubble.presented, "the open overlay presents");
+            // The offscreen window test checks motion. The X11 plates test
+            // separately observes the real polish, sync and swap sequence.
+            bubble.approvalPolished();
+            bubble.approvalSynchronized();
+            bubble.rememberDrawnPlacement();
+            verify(bubble.lastPlacement !== null, "the open position was measured");
             for (const opening of [false, true]) {
                 service.bubbleWanted = opening;
                 compare(bubble.presented, opening, "only a wanted overlay presents");
@@ -547,7 +558,7 @@ Item {
                 wait(bubble.look.icon.hold + 1);
                 compare(bubble.iconOpacity, 1);
                 const controls = collect(overlay, item => item.entry !== undefined, []);
-                for (const intent of ["voice-mute", "microphone-mute", "stop"]) {
+                for (const intent of ["voice-mute", "microphone-mute", "close"]) {
                     const control = controls.find(item => item.entry.intent === intent);
                     verify(control !== undefined && control.visible && control.enabled);
                     const point = control.mapToItem(root, control.width / 2, control.height / 2);
@@ -557,7 +568,7 @@ Item {
                     compare(bubble.iconOpacity, 1);
                     mouseClick(root, point.x, point.y);
                 }
-                compare(root.intents, ["voice-mute", "microphone-mute", "stop"],
+                compare(root.intents, ["voice-mute", "microphone-mute", "close"],
                     "the revealed controls deliver their real pointer actions");
             }
             if (data.wraps) {

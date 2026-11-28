@@ -2448,37 +2448,25 @@ function verifyLimitPresentation(gate) {
 
 verify(load(file));
 
-// The Bubble, physical key and IPC Stop all enter this shipped function.
-// Execute it with timer/child ports, including every daemon lifetime that
-// can receive a user intent, without running a process or a notification.
-function verifyStopIntents(serviceSource) {
-    const found = serviceSource.match(/^    function intent\(name\) \{\n[\s\S]*?^    \}/m);
-    assert.ok(found, "the service intent entry");
+// Stop and Close address an admitted call. Starting the service and its
+// retry lifecycle remain independent of all three action entry points.
+function verifyCallControls(serviceSource) {
+    const found = serviceSource.match(/^    function callControl\(name, physicalStop\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(found, "the shared call-control gate");
     for (const [kind, running, cause] of [["new", false, ""], ["starting", true, ""],
         ["retry", false, "jarvis: daemon=ended"], ["problem", false, "jarvis: daemon=ended"],
         ["stopped", false, ""], ["ready", false, ""], ["ready", true, "jarvis: hello=timeout"], ["ready", true, ""]]) {
-        const sent = [], notices = [];
-        const timer = () => ({ running: true, stop() { this.running = false; }, restart() { this.running = true; } });
-        const root = { shell: { status: { set: () => "ok", isOk: value => value === "ok" } }, lifetime: { kind }, cause, sessionState: {},
-            pendingStart: {}, child: { running, stdinEnabled: true }, retry: timer(), helloDeadline: timer(), startWait: timer(),
-            stopDeadline: { running: false, restart() { this.running = true; } },
-            cancelDictation() { this.cancelled = true; }, cancelled: false,
-            publishDaemon: () => true, notice: value => notices.push(value), sendIntent: name => sent.push(name) };
-        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { ...SERVICE_IMPORTS, root, Gate: load(file) });
-        intent("stop");
-        if (kind === "ready" && running && cause === "") {
-            assert.deepEqual(sent, ["stop"], "ready Stop reaches Session");
-            continue;
-        }
-        assert.equal(root.lifetime.kind, "stopped", kind + ": Stop ends the lifetime");
-        assert.deepEqual([root.retry.running, root.helloDeadline.running, root.startWait.running, root.pendingStart,
-            root.sessionState, root.child.stdinEnabled, root.cancelled, root.stopDeadline.running],
-            [false, false, false, null, null, false, true, running], kind + ": Stop cancels retry, capture and child lease");
-        assert.equal(sent.length, 0);
-        assert.equal(notices.length, 1, kind + ": Stop reports how to start again");
-        intent("talk-down");
-        assert.equal(notices.length, 2, kind + ": an unavailable intent is visible");
-        assert.equal(sent.length, 0);
+        const sent = [];
+        const state = Object.assign(session.initial(), { conversation: { kind: "active", purpose: "conversation" } });
+        const root = { shell: {}, lifetime: { kind }, cause, sessionState: state,
+            child: { running }, sendIntent: name => sent.push(name) };
+        const control = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { root, Session: session });
+        control("stop", true);
+        control("stop");
+        control("close");
+        assert.deepEqual(sent, kind === "ready" && running && cause === "" ? ["stop", "close"] : [],
+            kind + ": only an admitted call can close; only the physical Stop revokes an idle grant");
+        assert.equal(root.lifetime.kind, kind, "call controls leave service startup running");
     }
 }
 // start() runs synchronously on shell assignment, before voiceProvider's
@@ -2542,6 +2530,7 @@ function verifyShortcutRegistration(serviceSource) {
         },
         publishMicrophoneMute: () => {}, publishGrants: () => {}, ownerAskOperation: () => null, setOwnerAskOperation: () => {},
         bubble: {}, start: () => {}, intent: name => intents.push(name),
+        callControl: (name, physicalStop) => intents.push([name, physicalStop === true]),
         displayedApproval: () => hold, send: value => sent.push(plain(value)),
         confirmApproval: (value, source) => confirmed.push([value, source])
     };
@@ -2558,9 +2547,12 @@ function verifyShortcutRegistration(serviceSource) {
     shortcuts.talk.release();
     shortcuts["voice-mute"].press();
     shortcuts.stop.press();
+    shortcuts.close.press();
+    ipc.stop();
+    ipc.close();
     shortcuts.deny.press();
     shortcuts.confirm.press();
-    assert.deepEqual(intents, ["talk-down", "talk-up", "voice-mute", "stop"]);
+    assert.deepEqual(intents, ["talk-down", "talk-up", "voice-mute", ["stop", true], ["close", false], ["stop", false], ["close", false]]);
     assert.deepEqual(sent, [{ type: "intent", intent: "cancel", gen: hold.gen, id: hold.id }], "Deny sends the displayed request identity");
     assert.deepEqual(confirmed, [[hold, "key"]]);
     assert.equal(Object.hasOwn(shortcuts, "mute"), false, "privacy mute has no registration");
@@ -2593,16 +2585,14 @@ for (const value of [{ kind: "unavailable" }, { kind: "ready", muted: false }, {
     assert.deepEqual(writes, [["microphoneMute", value]], "status publishes the actual microphone observation");
 }
 
-verifyStopIntents(fs.readFileSync(serviceFile, "utf8"));
-const stopControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-intent-"));
-try {
-    const source = fs.readFileSync(serviceFile, "utf8");
-    const needle = 'if (name === "stop" && (lifetime.kind';
-    assert.equal(source.split(needle).length - 1, 1);
-    const mutant = path.join(stopControl, "Service.qml");
-    fs.writeFileSync(mutant, source.replace(needle, 'if (false && name === "stop" && (lifetime.kind'));
-    assert.throws(() => verifyStopIntents(fs.readFileSync(mutant, "utf8")), assert.AssertionError);
-} finally { fs.rmSync(stopControl, { recursive: true }); }
+verifyCallControls(registeredSource);
+const controlGate = 'if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)';
+const methodStart = registeredSource.indexOf("function callControl(");
+const startGate = registeredSource.indexOf(controlGate, methodStart);
+assert.ok(startGate > methodStart);
+assert.throws(() => verifyCallControls(registeredSource.slice(0, startGate)
+    + registeredSource.slice(startGate).replace(controlGate, 'if (sessionState === null)')), assert.AssertionError,
+    "letting an unready service admit call controls fails the startup assertion");
 verifyVoiceConsumers(load(file));
 console.log("test-jarvis-setup-gate: consumer=Setup hint=" + readiness(load(file), { kind: "answered", causes: ["brain=unselected"] }).setupModel.hint);
 
@@ -2898,11 +2888,19 @@ try {
         ["drift-any-page-open", "onPageViewedChanged: if (pageViewed) hello()", "onPageViewedChanged: if (pageViewed) { hello(); askDrift(); }", verifyHomeDrift],
         ["drift-any-tab", 'readonly property bool setupViewed: shell !== null && shell.status.viewedTab === "Setup"', "readonly property bool setupViewed: shell !== null && shell.status.viewed", verifyHomeDrift],
         ["drift-update-unasked", "onRecheck: { root.hello(); root.askDrift(); }", "onRecheck: { root.hello(); }", verifyHomeDrift],
-        ["drift-before-ready", 'if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;', "if (!driftWanted || shell === null) return;", verifyHomeDrift],
-        ["drift-at-voice-start", "        sendIntent(name);\n    }\n\n    function newConversation", "        askDrift();\n        sendIntent(name);\n    }\n\n    function newConversation", verifyHomeDrift]]) {
+        ["drift-before-ready", 'if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;', "if (!driftWanted || shell === null) return;", verifyHomeDrift]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
         assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
+    }
+    {
+        const entry = "function intent(name) {";
+        assert.equal(serviceSource.split(entry).length, 2, "one voice intent entry");
+        const withDrift = serviceSource.replace(entry, entry + '\n        if (name === "talk-down") askDrift();');
+        assert.throws(() => verifyHomeDrift(load(file), withDrift),
+            error => error instanceof assert.AssertionError && error.message.includes("talk-down: a Voice start asks for no drift reading"),
+            "a drift request on Talk must fail the voice-start assertion");
+        console.log("test-jarvis-setup-gate: control=drift-at-voice-start rejected=true");
     }
     verifyDiagnosticSeverity(serviceSource);
     {

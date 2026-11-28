@@ -93,7 +93,7 @@ world(async () => {
             router.route({ kind, id: "model-" + tool, tool, arguments: args }, { gen: identity.gen, op: identity.op });
         const show = () => dispatch({ type: "shown", gen: runner.state.gen,
             op: runner.state.approval.op, id: runner.state.approval.id });
-        const confirm = (extra = {}) => dispatch({ type: "confirm", gen: runner.state.gen,
+        const confirm = (extra = {}) => dispatch({ type: "confirm", gen: runner.state.gen, op: runner.state.approval.op,
             id: runner.state.approval.id, digest: runner.state.approval.digest, source: "key", ...extra });
         const refusal = () => JSON.parse(results.at(-1).results[0].item.content);
         // These ports acquire no resource. A defective reducer can leave an
@@ -576,6 +576,18 @@ esac
             assert.equal(w.runner.state.approval.text, "Type this exact text:\n" + exact);
             assert.equal(w.runner.state.approval.physical, true);
         }],
+        ["approval-action", implementation => {
+            for (const [tool, args, verb, destructive] of [
+                ["files.delete", { path: path.join(fixtures.project, "existing") }, "Delete", true],
+                ["input.text", text, "Type", false]
+            ]) {
+                const w = make(implementation);
+                assert.equal(w.call(tool, args).kind, "held");
+                assert.equal(w.runner.state.approval.verb, verb);
+                assert.equal(w.runner.state.approval.destructive, destructive);
+                assert.equal(w.starts.length, 0);
+            }
+        }],
         ["folderless-sentence", implementation => {
             // The user confirms where a command runs; a named folder is shown as it is.
             const w = make(implementation);
@@ -802,7 +814,7 @@ esac
             first.answers[1]({ outcome: "completed", content: "typed twice" });
             const second = make(implementation);
             assert.equal(second.call("input.text", text).kind, "held", "a new router cannot inherit a grant");
-            first.dispatch({ type: "toggle" }); first.newTurn();
+            first.dispatch({ type: "close" }); first.newTurn();
             assert.equal(first.call("input.text", text).kind, "held", "a new conversation cannot inherit a grant");
         }],
         ["grant-bound", implementation => {
@@ -1205,7 +1217,8 @@ esac
             ["digest", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + "{}"', "immutable-digest"],
             ["held-harness-kind", "id, tool: value.call.id,", 'id, tool: "harness.command",', "harness-approval"],
             ["held-harness-path", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + canonical({...value.call.args, write: []})', "harness-approval"],
-            ["sentence", 'sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined)', '"model text"', "typed-sentence"],
+            ["sentence", 'sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined)',
+                '({ text: "model text", verb: "Type" })', "typed-sentence"],
             ["window-active-sentence", 'if (field === "window" && value === "active") return "in focus";', "", "window-target-sentence"],
             ["window-class-sentence", 'if (field === "window" && value.startsWith("class:")) return "of class " + value.slice("class:".length);', "", "window-target-sentence"],
             ["proposer-judged", 'if (request.proposer !== undefined && (request.proposer !== "matcher" || request.kind !== "tool-call"))', "if (false)", "matcher"],

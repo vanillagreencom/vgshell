@@ -33,8 +33,7 @@ import "AccountProviders.js" as Providers
 // over the look's `icon.fade`; the bridge, one rectangle from inside the
 // hit square to the capsule's far edge, and the look's `icon.hold` keep it
 // shown on the way to an icon. A right click on any of them opens the
-// Jarvis menu (WidgetView.menuEntries) at the click; the overlay stays
-// shown while it is open. A conversation at rest keeps its icon row
+// size and visibility menu at the click. A conversation at rest keeps its icon row
 // reachable. An unavailable service takes no pointer.
 Item {
     id: root
@@ -47,11 +46,12 @@ Item {
     readonly property string orbStyle: service === null || service.shell === null ? "" : service.shell.settings.orbStyle
     readonly property var state: service === null ? null : service.sessionState
     readonly property string phase: state === null ? "down" : Session.phaseOf(state)
+    readonly property real orbSize: state !== null && state.orbSize.kind === "small" ? look.orb.smallSize : look.orb.size
     readonly property bool hidden: state !== null && state.visibility.kind === "hidden"
     // The service wants the overlay on this screen. The menu holds it: qs.Ui's
     // Menu closes when the item it opened from hides.
     readonly property bool wanted: service !== null && screen !== null
-        && (menuOpened || service.bubbleWanted && screen.name === service.focusedOutput)
+        && service.bubbleWanted && service.callPlaced && (menuOpened || screen.name === service.focusedOutput)
     // The open and the close: 1 at rest, 0 the look's `orb.rise` under it.
     // It follows `wanted` over the look's `orb.move`. While it falls after a
     // close the overlay still draws whole as it sinks, but presents nothing
@@ -60,27 +60,41 @@ Item {
     // its disc, which then reads as two halves over a half-light window.
     property real rest: wanted ? 1 : 0
     Behavior on rest { NumberAnimation { duration: root.look.orb.move; easing.type: root.look.orb.moveEasing } }
-    readonly property bool closing: !wanted && rest > 0
     // Whether the layer maps the overlay (LayerHost reads `shown`): while
-    // it is wanted and while it closes.
-    readonly property bool shown: wanted || closing
+    // it is wanted and while it closes. Read rest directly so a wanted
+    // change cannot clear placement before the closing binding updates.
+    readonly property bool shown: wanted || rest > 0
+    readonly property bool closing: shown && !wanted
+    onShownChanged: {
+        if (shown) return;
+        lastPlacement = null;
+        polishedPlacement = null;
+        synchronizedPlacement = null;
+    }
     readonly property bool presented: wanted && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
         && overlay.width <= width && overlay.height + look.layout.bottom <= height
     // A capture shows only on an orb a pointer can use: one at least as
     // wide as one of its own icon buttons.
     readonly property bool capturePresented: presented && !hidden && orb.visible && orb.width >= icons.width
-    readonly property var hold: state !== null && state.approval.kind === "held" ? state.approval : null
+    readonly property var liveHold: state !== null && state.approval.kind === "held" ? state.approval : null
+    // A new card can arrive while an orb already stands beside the console.
+    // Keep that orb in place until the card's own geometry is known. A card
+    // replacing another card never borrows its predecessor's presentation.
+    readonly property var waitingPlacement: wanted && !placed && liveHold !== null
+        && lastPlacement !== null && !lastPlacement.held && lastPlacement.gen === state.gen ? lastPlacement : null
+    readonly property var hold: waitingPlacement === null ? liveHold : null
     // Judge the centred bottom box, not the fitted box: moving beside the
     // Console or wrapping a line there must not change this decision.
     // Both boxes are in this layer's coordinates (Service.consoleBox).
     readonly property real bottomWidth: Math.min(look.layout.width, Math.max(0, width - 2 * look.layout.margin))
-    readonly property real bottomInset: Math.round((1 - look.orb.reach) * look.orb.size / 2)
-    readonly property real bottomOrbTop: (words.visible ? words.y + words.height + look.plate.card.paddingY + look.plate.gap : 0) - bottomInset
+    readonly property real bottomInset: Math.round((1 - look.orb.reach) * orbSize / 2)
+    readonly property real bottomRowTop: words.visible ? words.y + words.height + look.plate.card.paddingY + look.plate.gap : 0
+    readonly property real bottomRowEnd: bottomRowTop + Math.max(orbSize - 2 * bottomInset, iconPill.height)
     readonly property real bottomBelow: hidden ? look.plate.card.paddingY
-        : bottomOrbTop + look.orb.size - bottomInset + look.plate.gap + look.plate.card.paddingY
+        : bottomRowEnd + look.plate.gap + look.plate.card.paddingY
     readonly property real bottomHeight: hold !== null ? overlay.height
-        : Math.max(hidden ? 0 : bottomOrbTop + look.orb.size - bottomInset, stateBox.visible ? bottomBelow + bottomMeasure.height + look.plate.card.paddingY : 0)
+        : Math.max(hidden ? 0 : bottomRowEnd, stateBox.visible ? bottomBelow + bottomMeasure.height + look.plate.card.paddingY : 0)
     // A card's side inset on a side BOX_WIDTH wide whose widest word is
     // WIDEST: the look's padding where that word fits inside it, so the
     // lines break only at spaces; on a narrower side, as much less as the
@@ -115,10 +129,20 @@ Item {
     // The current hold's placement is known: the service's last finished
     // read answers this hold. Until then the request neither draws nor
     // acknowledges a frame, so its first drawn frame is the placed one.
-    readonly property bool placed: service !== null && service.consoleKey === service.heldKey
+    readonly property bool placed: service !== null && service.consoleKey === service.placementKey
     property var displayedHold: null
     property var approvalFrames: []
+    // Keep just the coordinates of the last drawn scene for its exit.
+    // Cleanup can clear the card or restore the full orb size immediately.
+    readonly property var currentPlacement: !wanted || !visible || !placed ? null : ({
+        held: hold !== null, gen: state === null ? -1 : state.gen,
+        top: overlay.state === "top", x: overlay.x, width: overlay.width, height: overlay.height,
+        orbX: orb.x, orbY: orb.y, orbSize: orb.width })
+    property var polishedPlacement: null
+    property var synchronizedPlacement: null
     property var synchronizedHold: null
+    property var lastPlacement: null
+    readonly property var retainedPlacement: closing ? lastPlacement : waitingPlacement
     // The frames the engine numbered that drew a hold, oldest first, as
     // { serial, hold }, until the compositor answers them.
     property var submittedFrames: []
@@ -139,11 +163,11 @@ Item {
         && overlay.x + approvalText.x >= 0 && overlay.x + approvalText.x + approvalText.width <= width
         && overlay.y + approvalText.y >= 0 && overlay.y + approvalText.y + approvalText.height <= height
     readonly property bool approvalPresented: presented && displayedHold !== null && hold !== null
-        && displayedHold.id === hold.id && displayedHold.digest === hold.digest && displayedHold.gen === hold.gen
+        && displayedHold.id === hold.id && displayedHold.digest === hold.digest && displayedHold.gen === hold.gen && displayedHold.op === hold.op
         && approvalWhole
     onHoldChanged: {
         if (hold === null || displayedHold === null || hold.id !== displayedHold.id
-                || hold.gen !== displayedHold.gen || hold.digest !== displayedHold.digest) displayedHold = null;
+                || hold.gen !== displayedHold.gen || hold.op !== displayedHold.op || hold.digest !== displayedHold.digest) displayedHold = null;
     }
     // A request is shown only when the compositor presents a frame that
     // drew it. Qt's frameSwapped means only that a frame was queued for
@@ -184,10 +208,17 @@ Item {
     // the pointer's hover over an answer, can still acknowledge it.
     // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
     function approvalPolished() {
+        polishedPlacement = currentPlacement;
         approvalFrames.push(wanted && visible && placed && approvalWhole ? hold : null);
     }
     function approvalSynchronized() {
+        // A skipped sync drew no new position. The next sync takes the most
+        // recent layout; only consent keeps the conservative queue above.
+        synchronizedPlacement = polishedPlacement;
         synchronizedHold = approvalFrames.length === 0 ? null : approvalFrames.shift();
+    }
+    function rememberDrawnPlacement() {
+        if (shown && synchronizedPlacement !== null) lastPlacement = synchronizedPlacement;
     }
     function approvalSubmitted(serial) {
         const drawn = synchronizedHold;
@@ -200,7 +231,7 @@ Item {
         // hold changes.
         const current = hold;
         const isCurrent = frame => frame !== null && current !== null && frame.id === current.id
-            && frame.gen === current.gen && frame.digest === current.digest;
+            && frame.gen === current.gen && frame.op === current.op && frame.digest === current.digest;
         if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();
         if (drawn !== null) submittedFrames.push({ serial: serial, hold: drawn });
     }
@@ -212,7 +243,8 @@ Item {
         submittedFrames = submittedFrames.filter(record => record.serial > serial);
         if (frame === undefined || displayedHold !== null) return;
         const drawn = frame.hold;
-        if (!presented || hold === null || hold.id !== drawn.id || hold.gen !== drawn.gen || hold.digest !== drawn.digest) return;
+        if (!presented || hold === null || hold.id !== drawn.id || hold.gen !== drawn.gen
+                || hold.op !== drawn.op || hold.digest !== drawn.digest) return;
         displayedHold = drawn;
         if (service !== null) service.shownApproval(root, drawn);
     }
@@ -223,6 +255,7 @@ Item {
         target: root.Window.window
         function onAfterAnimating() { root.approvalPolished(); }
         function onAfterSynchronizing() { root.approvalSynchronized(); }
+        function onFrameSwapped() { root.rememberDrawnPlacement(); }
     }
     Connections {
         target: root.host
@@ -255,8 +288,7 @@ Item {
         : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
     readonly property var shortcutKeys: service === null ? null : service.effectiveKeys
     readonly property string orbPhase: micMuted ? "muting" : phase
-    readonly property bool active: state !== null && state.conversation.kind !== "ended"
-        || ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
+    readonly property bool active: Session.canClose(state)
     // The pointer rests on the shown name, the orb, the bridge or an icon;
     // the icons stay `icon.hold` after it leaves them all. Qt delivers a
     // hover only to the topmost item with a HoverHandler under the
@@ -266,16 +298,17 @@ Item {
     // So the orb's middle is a child of its hit square, each sibling laid
     // over the square, the name and the bridge, counts here itself, and
     // the shown name stands over the bridge, which its ends reach.
-    readonly property bool pointerOver: plateHover.hovered || orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
+    readonly property bool pointerOver: plateHover.hovered || orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered || closeButton.hovered || more.hovered
     onPointerOverChanged: if (pointerOver) iconHold.stop(); else iconHold.restart()
     readonly property bool iconsWanted: !hidden && active && (pointerOver || iconHold.running)
     property real iconOpacity: iconsWanted ? 1 : 0
     Behavior on iconOpacity { NumberAnimation { duration: root.look.icon.fade; easing.type: root.look.icon.easing } }
     readonly property bool iconsShown: !hidden && iconOpacity > 0
-    readonly property var menuEntries: View.menuEntries(microphoneMute, voiceMuted, hidden, Session.hideRefusal(state))
-    // The Jarvis menu's entry that sends INTENT.
-    function entryFor(intent) {
-        return menuEntries.find(entry => entry.intent === intent);
+    readonly property var muteEntries: View.muteEntries(microphoneMute, voiceMuted)
+    readonly property var menuEntries: View.presentationEntries(state)
+    function openMenu(x, y) {
+        menuUi.active = true;
+        menuUi.item.openAt(x, y);
     }
     readonly property bool menuOpened: menuUi.item !== null && menuUi.item.opened
     // The open menu's entries, which scripts/smoke/rows/jarvis-bubble.sh
@@ -294,12 +327,9 @@ Item {
             if (!at.visible) return false;
         return true;
     }
-    // A Jarvis menu entry: its intent, as its key sends it, or the page it
-    // opens.
     function runEntry(entry) {
         if (service === null || entry.disabledReason) return;
-        if (entry.intent !== undefined) service.intent(entry.intent);
-        else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
+        service.intent(entry.intent);
     }
     // The state's name on a deliberate hover over the orb's middle: one of
     // the four names of the approved design (VGS-2593), acting reading as
@@ -325,6 +355,7 @@ Item {
     onWantedChanged: {
         nameRested = false;
         nameDelay.stop();
+        if (!wanted && menuUi.item !== null) menuUi.item.close();
     }
     // Where the name may stand: the overlay at rest, not hidden, in a
     // state with a name. Outside it the shown name goes at once, with no
@@ -340,12 +371,11 @@ Item {
     // reads, with the effective key, or the label alone with none. An
     // inline component does not share this file's scope
     // (https://doc.qt.io/qt-6/qtqml-documents-definetypes.html#inline-components),
-    // so each takes the look, the service and the keys. Its instances read
+    // so each takes the look and the keys. Its instances read
     // as type RowButton, not IconButton (qml-unit run, Qt 6.12.0), which
     // scripts/smoke/rows/jarvis-bubble.sh names.
     component RowButton: IconButton {
         required property var look
-        required property var service
         required property var keys
         required property var entry
         size: "sm"
@@ -358,22 +388,14 @@ Item {
         onColor: look.icon.on
         ringColor: look.icon.ring
         disabledReason: entry.disabledReason || ""
-        onClicked: if (service !== null) service.intent(entry.intent)
     }
 
-    // One answer of the approval prompt in the look's form (Appearance.js
-    // `answer`): a capsule, Confirm or Yes on the tint, Cancel or No quiet,
-    // and the confirming answer of a destructive request quiet too.
-    // It is a qs.Ui Button handed the look's values, since a surface draws
-    // no private control for what a component draws (design-system.md
-    // § Components). Its variant names its role, ghost for the answer that
-    // declines and secondary for the one that confirms, which
-    // scripts/smoke/rows/jarvis-bubble.sh reads; the look hands every
-    // value the variant would draw.
+    // Each approval answer draws as a shared button with the look's form.
+    // A destructive answer also has its own fill and danger icon.
     component Answer: Button {
         required property var look
         property bool quiet: false
-        readonly property var form: quiet ? look.answer.quiet : look.answer.tinted
+        readonly property var form: quiet ? look.answer.quiet : variant === "danger" ? look.answer.danger : look.answer.tinted
         size: "sm"
         controlHeight: look.answer.height
         paddingX: look.answer.paddingX
@@ -387,7 +409,7 @@ Item {
         ringColor: look.icon.ring
     }
 
-    visible: shown && (hold === null ? true : placed)
+    visible: shown && (closing ? lastPlacement !== null : hold === null || placed)
     Component.onCompleted: if (service !== null) service.attachBubble(root)
 
     // Text implicit sizes measure the un-fitted bottom column without
@@ -469,7 +491,7 @@ Item {
         // the full side: the orb's drawn height, the capsule and the state
         // card. It reads only sizes this box's width sets, never this box's
         // height or the chosen orb, which both follow the choice.
-        readonly property real belowOrb: Math.min(root.look.orb.size, width)
+        readonly property real belowOrb: Math.min(root.orbSize, width)
         readonly property real belowExtent: rowTop + belowOrb - 2 * Math.round((1 - root.look.orb.reach) * belowOrb / 2)
             + root.look.plate.gap + iconPill.height
             + (stateBox.visible ? root.look.plate.gap + 2 * card.paddingY + stateBox.height : 0)
@@ -492,11 +514,11 @@ Item {
         // whole number of pixels, so the plates stand that far inside it.
         readonly property real orbInset: Math.round((1 - root.look.orb.reach) * orb.width / 2)
         readonly property real orbEnd: orb.y + orb.height - orbInset
-        readonly property real rowEnd: root.besideConsole ? Math.max(orbEnd, iconPill.y + iconPill.height) : orbEnd
+        readonly property real rowEnd: Math.max(orbEnd, iconPill.y + iconPill.height)
         // A taller capsule beside the orb reserves room above and below the
         // fitted orb so neither it nor the next card is clipped.
         readonly property real orbTop: rowTop - orbInset
-            + (root.besideConsole && !capsuleBelow ? Math.max(0, (iconPill.height - orb.height + 2 * orbInset) / 2) : 0)
+            + (capsuleBelow ? 0 : Math.max(0, (iconPill.height - orb.height + 2 * orbInset) / 2))
         // The first line under the orb row: inside its card, the plates'
         // gap under both the orb and its capsule.
         readonly property real below: root.hidden ? card.paddingY
@@ -507,11 +529,11 @@ Item {
         // The state card's and the words card's side insets on this side.
         readonly property real stateInset: root.cardInset(width, root.stateWidest)
         readonly property real wordsInset: root.cardInset(width, wordsWidestWord.implicitWidth)
-        width: Math.min(root.look.layout.width, Math.max(0, root.placementRoom.width - 2 * root.look.layout.margin))
-        height: Math.max(root.hidden ? 0 : rowEnd,
+        width: root.retainedPlacement !== null ? root.retainedPlacement.width : Math.min(root.look.layout.width, Math.max(0, root.placementRoom.width - 2 * root.look.layout.margin))
+        height: root.retainedPlacement !== null ? root.retainedPlacement.height : Math.max(root.hidden ? 0 : rowEnd,
             root.hold !== null ? approvalText.y + approvalText.height + card.paddingY
             : stateBox.visible ? stateBox.y + stateBox.height + card.paddingY : 0)
-        x: root.placementRoom.x + (root.placementRoom.width - width) / 2
+        x: root.retainedPlacement !== null ? root.retainedPlacement.x : root.placementRoom.x + (root.placementRoom.width - width) / 2
         // Qt Quick clips descendants to this box, including overwide
         // words on a side too narrow for their natural size.
         // https://doc.qt.io/qt-6/qml-qtquick-item.html#clip-prop
@@ -529,7 +551,7 @@ Item {
         // overlay: https://doc.qt.io/qt-6/qml-qtquick-anchorchanges.html
         states: State {
             name: "top"
-            when: root.overConsole && root.hold !== null
+            when: root.retainedPlacement !== null ? root.retainedPlacement.top : root.overConsole && root.hold !== null
             AnchorChanges { target: overlay; anchors.bottom: undefined; anchors.top: root.top }
         }
 
@@ -538,9 +560,9 @@ Item {
             id: orb
             look: root.look
             // On whole pixels, so each point draws on the pixel grid.
-            x: Math.round((root.besideConsole ? overlay.orbRoom : overlay.width) / 2 - width / 2)
-            y: overlay.orbTop
-            width: root.besideConsole ? Math.min(root.look.orb.size, overlay.orbRoom) : root.look.orb.size
+            x: root.retainedPlacement !== null ? root.retainedPlacement.orbX : Math.round((root.besideConsole ? overlay.orbRoom : overlay.width) / 2 - width / 2)
+            y: root.retainedPlacement !== null ? root.retainedPlacement.orbY : overlay.orbTop
+            width: root.retainedPlacement !== null ? root.retainedPlacement.orbSize : root.besideConsole ? Math.min(root.orbSize, overlay.orbRoom) : root.orbSize
             height: width
             phase: root.orbPhase
             style: root.orbStyle
@@ -702,28 +724,51 @@ Item {
             RowButton {
                 id: voice
                 look: root.look
-                service: root.service
                 keys: root.shortcutKeys
-                entry: root.entryFor("voice-mute")
+                entry: root.muteEntries[0]
                 iconName: root.voiceMuted ? "volume-x" : "volume-2"
                 checked: root.voiceMuted
+                onClicked: root.runEntry(entry)
             }
             RowButton {
                 id: mic
                 look: root.look
-                service: root.service
                 keys: root.shortcutKeys
-                entry: root.entryFor("microphone-mute")
+                entry: root.muteEntries[1]
                 iconName: root.micMuted ? "mic-off" : "mic"
                 checked: root.micMuted
+                onClicked: root.runEntry(entry)
             }
             RowButton {
                 id: stop
+                visible: Session.canStop(root.state)
                 look: root.look
-                service: root.service
                 keys: root.shortcutKeys
-                entry: root.entryFor("stop")
-                iconName: "square"
+                entry: View.STOP
+                iconName: entry.icon
+                onClicked: root.runEntry(entry)
+            }
+            RowButton {
+                id: closeButton
+                objectName: "closeJarvis"
+                visible: Session.canClose(root.state)
+                look: root.look
+                keys: root.shortcutKeys
+                entry: View.CLOSE
+                iconName: entry.icon
+                onClicked: root.runEntry(entry)
+            }
+            RowButton {
+                id: more
+                objectName: "orbMore"
+                look: root.look
+                keys: null
+                entry: View.MORE
+                iconName: entry.icon
+                onClicked: {
+                    const anchor = more.mapToItem(overlay, more.width, more.height);
+                    root.openMenu(anchor.x, anchor.y);
+                }
             }
         }
 
@@ -969,12 +1014,10 @@ Item {
                 Answer {
                     id: confirm
                     look: root.look
-                    variant: "secondary"
-                    // A request that needs a press is the destructive kind,
-                    // whose confirming answer takes no tint.
-                    quiet: root.hold !== null && root.hold.physical
+                    variant: root.hold !== null && root.hold.destructive ? "danger" : "secondary"
+                    iconName: variant === "danger" ? "circle-alert" : ""
                     width: (answerButtons.width - answerButtons.spacing) / 2
-                    text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
+                    text: root.hold === null ? "" : root.hold.purpose === "release" ? "Yes" : root.hold.verb
                     disabledReason: root.approvalUnavailable ? root.unavailableReason : ""
                     onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
                 }
@@ -1001,10 +1044,7 @@ Item {
         TapHandler {
             acceptedButtons: Qt.RightButton
             enabled: root.active
-            onTapped: eventPoint => {
-                menuUi.active = true;
-                menuUi.item.openAt(eventPoint.position.x, eventPoint.position.y);
-            }
+            onTapped: eventPoint => root.openMenu(eventPoint.position.x, eventPoint.position.y)
         }
 
         // The menu is built on the first right click and released once
@@ -1030,6 +1070,7 @@ Item {
                     y = clickY;
                     orbMenu.open("pointer");
                 }
+                function close() { orbMenu.close(); }
 
                 width: root.look.layout.anchor
                 height: root.look.layout.anchor

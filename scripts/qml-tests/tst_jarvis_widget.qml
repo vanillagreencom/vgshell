@@ -230,29 +230,44 @@ Item {
             compare(JSON.stringify(root.calls), '[["console",""]]');
         }
 
-        // The right-click menu holds the Jarvis menu the overlay opens too:
-        // each entry calls its intent's handler once, or opens Jarvis's
-        // Keys section through shell.surfaces, as the overlay's menu does,
-        // and each toggle names its next action.
+        function test_bar_key_hints_opens_the_keys_section() {
+            widget.frame = {
+                hide: () => "ok",
+                describe: () => ({ name: "Jarvis", page: "", readme: "", keys: [], stops: false, builtin: false, owner: "" })
+            };
+            widget.shell = root.shellWith(root.ready({}));
+            mouseClick(button(), button().width / 2, button().height / 2, Qt.RightButton);
+            tryCompare(widget, "frameMenuOpen", true);
+            const menu = frameMenu();
+            verify(renderedFrame(menu.surface.scope));
+            const hints = menu.items().find(item => item.text === "Key hints");
+            verify(hints !== undefined && hints.visible);
+            mouseClick(hints);
+            tryCompare(widget, "frameMenuOpen", false);
+            tryVerify(() => root.pages.length === 1);
+            compare(JSON.stringify(root.pages), '[["vgs.jarvis","Settings/Keys"]]');
+            compare(root.calls.length, 0);
+        }
+
         function test_the_menu_holds_the_jarvis_menu_data() {
             return [
-                { tag: "Mute microphone", index: 1, calls: '[["microphone-mute",""]]', pages: "[]" },
-                { tag: "Mute Jarvis's voice", index: 0, calls: '[["voice-mute",""]]', pages: "[]" },
-                { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]', pages: "[]" },
-                { tag: "New conversation", index: 3, calls: '[["new-conversation",""]]', pages: "[]" },
-                { tag: "Hide Jarvis", index: 4, calls: '[["hide",""]]', pages: "[]" },
-                { tag: "Key hints", index: 5, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
+                { tag: "Mute microphone", index: 1, calls: '[["microphone-mute",""]]' },
+                { tag: "Mute Jarvis's voice", index: 0, calls: '[["voice-mute",""]]' },
+                { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]' },
+                { tag: "Close Jarvis", index: 3, calls: '[["close",""]]' },
+                { tag: "New conversation", index: 4, calls: '[["new-conversation",""]]' },
+                { tag: "Minimize", index: 5, calls: '[["minimize",""]]' },
+                { tag: "Hide Jarvis", index: 6, calls: '[["hide",""]]' }
             ];
         }
         function test_the_menu_holds_the_jarvis_menu(data) {
-            let framePages = [];
-            widget.frame = { hide: () => "ok", openPage: (page, tab) => { framePages = framePages.concat([[page, tab]]); return "ok"; } };
-            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"]));
+            widget.frame = { hide: () => "ok" };
+            widget.shell = root.shellWith(root.ready({ conversation: { kind: "active", purpose: "conversation" }, turn: { kind: "thinking" } }));
+            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "Close Jarvis", "New conversation", "Minimize", "Hide Jarvis", "Key hints"]));
             widget.frameActions[data.index].action();
-            tryVerify(() => JSON.stringify(root.calls) === data.calls && JSON.stringify(root.pages) === data.pages);
+            tryVerify(() => JSON.stringify(root.calls) === data.calls);
             compare(JSON.stringify(root.calls), data.calls);
-            compare(JSON.stringify(root.pages), data.pages);
-            compare(JSON.stringify(framePages), "[]", "the menu opens its page through shell.surfaces, as the overlay's does");
+            compare(root.pages.length, 0);
             widget.frame = null;
             const values = root.ready({ voiceMute: { kind: "on" } });
             values.microphoneMute = { kind: "ready", muted: true };
@@ -315,10 +330,10 @@ Item {
                 current.microphoneMute = { kind: "ready", muted: !muted };
                 const changed = root.ready({ voiceMute: { kind: "on" }, visibility: { kind: "hidden" } });
                 changed.microphoneMute = { kind: "ready", muted: !muted };
-                const actions = ["Mute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"];
+                const actions = ["Mute Jarvis's voice", label, "New conversation", "Hide Jarvis", "Key hints"];
                 const rows = [
                     { tag: "same labels", values: current, actions: actions },
-                    { tag: "changed labels", values: changed, actions: ["Unmute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Show Jarvis", "Key hints"] }
+                    { tag: "changed labels", values: changed, actions: ["Unmute Jarvis's voice", label, "New conversation", "Show Jarvis", "Key hints"] }
                 ];
                 for (const row of rows) {
                     widget.shell = root.shellWith(row.values);
@@ -354,7 +369,7 @@ Item {
 
         function test_hidden_icon_keeps_shared_listening_dot_and_count() {
             const values = root.ready({ visibility: { kind: "hidden" }, conversation: { kind: "active", purpose: "conversation" },
-                input: { kind: "conversation" }, capture: { kind: "closed" } });
+                input: { kind: "conversation", heard: false }, capture: { kind: "closed" } });
             widget.shell = root.shellWith(values);
             compare(icon().name, "vgs-letter-j-hidden");
             compare(button().stateDot, "success", "demand, not admitted capture, draws the badge");

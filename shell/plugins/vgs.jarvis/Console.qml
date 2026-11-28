@@ -266,10 +266,7 @@ FocusScope {
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
     // Jarvis works while it thinks, waits for a confirmation, runs a task or
     // speaks: Stop then takes Send's place in the message box.
-    readonly property bool working: detail !== null && ["thinking", "confirming", "acting", "speaking"].indexOf(detail.phase) !== -1
-    // More's Stop has nothing to stop while Jarvis is ready and idle; while
-    // it starts, fails or works, Stop ends that.
-    readonly property bool nothingToStop: detail !== null && (detail.phase === "idle" || detail.phase === "listening")
+    readonly property bool working: Session.canStop(state)
     // The header's status chip: the bar widget's own state reading.
     readonly property var statusLook: WidgetView.stateView(values, Providers.cloudVoice(shell === null ? "" : shell.settings.voiceProvider))
     // The shortcut keys as people read them, the bar's own spelling.
@@ -649,11 +646,11 @@ FocusScope {
         }
     }
 
-    function stop() {
+    function callControl(name) {
         if (shell === null) return;
-        const reply = shell.ipc.call("stop", "");
+        const reply = shell.ipc.call(name, "");
         if (reply !== "ok") {
-            problem = "Jarvis did not stop";
+            problem = name === "close" ? "The call could not close" : "Jarvis did not stop";
             console.warn("jarvis console: " + reply);
         }
     }
@@ -804,9 +801,10 @@ FocusScope {
                     MenuItem { text: "Message limits"; info: root.messageLimit.info; helpReturnFocus: moreButton }
                     MenuItem { text: "History limits"; info: root.historyLimit; helpReturnFocus: moreButton }
                     MenuItem {
-                        text: "Stop Jarvis startup or current work"
-                        disabledReason: root.nothingToStop ? "Jarvis has no current work to stop." : ""
-                        onTriggered: root.stop()
+                        text: "Close Jarvis"
+                        iconName: "x"
+                        visible: Session.canClose(root.state)
+                        onTriggered: root.callControl("close")
                     }
                 }
             }
@@ -1408,7 +1406,7 @@ FocusScope {
                             iconName: "square"
                             label: "Stop Jarvis"
                             tooltip: root.spelledKeys.stop === null ? "Stop Jarvis" : "Stop Jarvis " + root.spelledKeys.stop
-                            onClicked: root.stop()
+                            onClicked: root.callControl("stop")
                         }
                     }
                 }

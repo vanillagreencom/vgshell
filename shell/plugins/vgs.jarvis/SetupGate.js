@@ -435,7 +435,7 @@ function voiceCheck(value, check, talk) {
 function talkHint(holdToTalk, talk) {
     if (talk === null) return "Set the [Talk key](page:vgs.jarvis/Settings) in the Keys section";
     if (Commons.PageReference.parse(talk).page !== "") return talk;
-    return holdToTalk ? "Hold " + talk + " while you speak" : "Press " + talk + " to open or close the conversation";
+    return holdToTalk ? "Hold " + talk + " while you speak" : "Press " + talk + " to talk, then press again to finish speaking";
 }
 
 // Each cause a failed local voice setup records (setup-local

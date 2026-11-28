@@ -22,21 +22,18 @@ var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
 var CONVERSATION_QUIET_MS = 30 * 60 * 1000;
 var TOGGLE_DEBOUNCE_MS = 250;
-// A shorter press is a close request only if its capture heard no speech.
-// The boundary follows HyprlandLayer's hold/tap repeat-delay convention.
-var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
 // The engine's cause categories (ChainedEngine's cause table), which a
 // brain-failed event names and the restart region keeps for the shell's
 // plain words (WidgetView.FAULT_WORDS).
 var FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other", "voice", "audio", "slow", "dictation"];
 var EVENTS = [
-    "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
+    "snapshot", "indicator", "hide", "show", "hidden", "minimize", "restore", "talk-down", "talk-up", "close", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "always", "confirm", "approval-cancel", "approval-input-failed", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound", "input-unbroken",
-    "preview", "speech-input-ended", "new-conversation", "conversation-reset"
+    "preview", "speech-input-ended", "speech-input-discarded", "new-conversation", "conversation-reset"
 ];
 
 function initial() {
@@ -48,15 +45,20 @@ function initial() {
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" }, cue: { kind: "none" },
         conversation: { kind: "ended" }, history: { kind: "current", epoch: 0 },
         input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
-        indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
+        indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" }, orbSize: { kind: "normal" },
         duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
         restart: { kind: "none" }, failures: []
     };
 }
 
-// One phase judge for the wire and the shell. Closing/flushing do not claim
-// listening/speaking.
+// A reply can wait behind a spoken line or a player that is still flushing.
+// Finishing that cleanup alone needs no Stop, but its waiting reply does.
+function playbackReply(s) {
+    return s.playback.kind === "playing" || s.playback.reply?.kind === "waiting";
+}
+
+// One phase judge for the wire and the shell.
 function phaseOf(s) {
     if (s.check.kind === "recording" && s.capture.kind === "open") return "listening";
     if (s.gate.kind === "down") return "down";
@@ -66,9 +68,8 @@ function phaseOf(s) {
     // A duplex reply speaks from the moment its words go to the voice, as a
     // chained reply does from its play, before the voice's first audio, and
     // as one held behind a spoken line does.
-    if (s.playback.kind === "playing" || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
-            || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
-    if (s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "thinking";
+    if (playbackReply(s) || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
+    if (s.turn.kind === "thinking" || s.turn.kind === "cancelling" || s.input.kind === "finishing-input") return "thinking";
     if (s.capture.kind === "open") return "listening";
     return "idle";
 }
@@ -76,11 +77,23 @@ function phaseOf(s) {
 // Demand precedes capture admission. Waiting for capture here would wait
 // forever for the indicator that must be presented before capture opens.
 function indicatorWanted(s) {
-    if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) return true;
-    if (s.capture.kind !== "closed") return true;
-    var phase = phaseOf(s);
-    if (phase !== "idle" && phase !== "down") return true;
-    return canEngage(s) && s.conversation.kind !== "ended";
+    return canClose(s);
+}
+
+// Only a call, fault or running microphone check owns an overlay. A
+// retired recorder, player or worker may still owe its cleanup receipt.
+function canClose(s) {
+    return s !== null && (s.conversation.kind !== "ended" || s.fault.kind !== "none"
+        || ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1);
+}
+
+function canStop(s) {
+    if (!canClose(s) || s.fault.kind !== "none") return false;
+    return previewConversation(s) || s.turn.kind === "thinking" || s.approval.kind === "held"
+        || s.action.kind === "running" && s.action.cancellation.kind === "available"
+        || playbackReply(s) || s.speech.kind === "open" && s.speech.reply.kind !== "none"
+        || s.input.kind === "finishing-input"
+        || ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1;
 }
 
 function operation(s) { return s.nextOp++; }
@@ -98,6 +111,7 @@ function closeCapture(s, effects) {
     // still belongs to the recorder's acquired generation.
     var e = effect(s, effects, "capture-close", { gen: s.capture.gen, target: s.capture.op });
     s.capture = { kind: "closing", gen: e.gen, op: e.op };
+    if (s.input.kind === "conversation") s.input.heard = false;
 }
 
 function cancelTurn(s, effects, at) {
@@ -123,8 +137,7 @@ function closeBrain(s, effects) {
     s.brain = { kind: "closed" };
 }
 
-// Live generations expire on close. The history identity survives an ordinary
-// close so the engine can retain context after voice and grants end.
+// The history epoch retires retained brain context independently of live callbacks.
 function resetHistory(s, reason) {
     s.history = reason === null ? { kind: "current", epoch: s.history.epoch + 1 }
         : { kind: "reset", epoch: s.history.epoch + 1, reason: reason };
@@ -167,6 +180,7 @@ function end(s, effects, at, reason, stopTool) {
     var soundedClose = s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.sounds === true && s.fault.kind === "none"
         && ["lease", "gate", "settings", "voice-unavailable", "brain-failed"].indexOf(reason) === -1;
     s.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };
+    s.orbSize = { kind: "normal" };
     s.quiet = { kind: "none" };
     s.sound = { kind: "none" };
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
@@ -174,8 +188,7 @@ function end(s, effects, at, reason, stopTool) {
         s.gen++;
         s.conversation = { kind: "ended" };
     }
-    // A dismissed fault stays paused through teardown until Talk starts again.
-    if (s.input.kind !== "stopped") s.input = { kind: "released" };
+    s.input = { kind: "released" };
     closeCapture(s, effects);
     cancelTurn(s, effects, at);
     if (s.turn.kind === "none") closeBrain(s, effects);
@@ -183,6 +196,33 @@ function end(s, effects, at, reason, stopTool) {
     closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");
     dropApproval(s, effects, reason, at);
     if (stopTool) requestToolCancel(s, effects);
+}
+
+// D146: ending a call by hand retires its context even while cancellation drains.
+function closeCall(s, effects, at) {
+    if (!canClose(s)) return;
+    end(s, effects, at, "close", true);
+    closeBrain(s, effects);
+    resetHistory(s, null);
+    s.fault = { kind: "none" };
+    s.restart = { kind: "none" };
+    s.failures = [];
+}
+
+// Both Talk settings commit through the recorder and provider. A pending
+// final owns the decision until the recorder proves silence or words arrive.
+function finishInput(s, effects, at) {
+    if (s.input.heard) {
+        s.input = releasedInput(s);
+        closeCapture(s, effects);
+        return;
+    }
+    if (["opening", "open"].indexOf(s.capture.kind) === -1) {
+        closeCall(s, effects, at);
+        return;
+    }
+    s.input = { kind: "finishing-input", source: s.capture.op };
+    closeCapture(s, effects);
 }
 
 // The engine's answer whether a failed turn's cause may restart: { kind:
@@ -332,7 +372,7 @@ function commitUserText(s, effects, text, at, rev) {
         userConversation(s);
     }
     spendRestart(s);
-    if (s.input.kind === "held" || s.input.kind === "closing-tap") s.input = { kind: "released" };
+    if (s.input.kind === "held" || s.input.kind === "finishing-input") s.input = releasedInput(s);
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
     think(s, effects, { text: text }, at);
@@ -346,7 +386,7 @@ function activity(s, at) {
 
 function releasedInput(s) {
     return s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.holdToTalk !== true
-        ? { kind: "conversation" } : { kind: "released" };
+        ? { kind: "conversation", heard: false } : { kind: "released" };
 }
 
 function promotePreview(s, effects, at) {
@@ -436,7 +476,7 @@ function start(s, effects, mode, at) {
         userConversation(s);
         if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
-    s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: mode };
+    s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: "conversation", heard: false };
     activity(s, at);
     reconcile(s, effects, at);
 }
@@ -452,6 +492,13 @@ function deviceLost(reason) {
 function live(s, e, region, kinds) {
     var owner = s[region];
     return kinds.indexOf(owner.kind) !== -1 && e.gen === owner.gen && e.op === owner.op;
+}
+
+// A native voice checks before it replaces the reply and queued words for
+// the previous delegation. Session applies the same rule to the callback.
+function canDelegate(s, e) {
+    return s.engine.kind === "duplex" && live(s, e, "speech", ["open"])
+        && canEngage(s) && s.approval.kind !== "held";
 }
 
 function stale(s) { s.stale++; }
@@ -492,8 +539,7 @@ function interrupt(s, effects, at) {
 // what is left of that conversation so the press starts a new one.
 function recover(s, effects, at) {
     if (s.fault.kind === "none" || s.gate.kind !== "up") return;
-    end(s, effects, at, "recover", false);
-    s.fault = { kind: "none" };
+    closeCall(s, effects, at);
 }
 
 // A press within the debounce interval is a bounce, not a press: it
@@ -505,8 +551,9 @@ function toggle(s, effects, at) {
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended" || previewConversation(s) || s.input.kind === "stopped") start(s, effects, "conversation", at);
-    else end(s, effects, at, "toggle", false);
+    if (s.conversation.kind === "ended") start(s, effects, "conversation", at);
+    else if (!previewConversation(s) && phaseOf(s) === "listening") finishInput(s, effects, at);
+    else closeCall(s, effects, at);
 }
 
 function expire(s, effects, at, restartFor) {
@@ -642,6 +689,10 @@ function reduce(state, e, restartFor) {
     case "hidden":
         s.visibility = { kind: "hidden" };
         break;
+    case "minimize":
+    case "restore":
+        if (canClose(s)) s.orbSize = { kind: e.type === "minimize" ? "small" : "normal" };
+        break;
     case "voice-check":
         if (!canCheck(s)) break;
         end(s, effects, e.at, "voice-check", false);
@@ -660,7 +711,7 @@ function reduce(state, e, restartFor) {
         break;
     case "talk-down":
         if (s.approval.kind === "held") {
-            if (s.input.kind !== "held") {
+            if (s.input.kind !== "held" && !bounced(s, e.at)) {
                 // Toggle can reopen capture before the brain proposes a hold.
                 // Its transcript owns no answer identity. Talk replaces it,
                 // then capture-closed admits an answer bound to this hold.
@@ -677,6 +728,7 @@ function reduce(state, e, restartFor) {
         }
         if (s.settings.holdToTalk !== true) { toggle(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
+        if (bounced(s, e.at)) break;
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);
         start(s, effects, "held", e.at);
@@ -684,19 +736,16 @@ function reduce(state, e, restartFor) {
     case "talk-up":
         if (s.settings.holdToTalk !== true && s.approval.kind !== "held") break;
         if (s.input.kind !== "held") break;
-        if (s.approval.kind !== "held" && e.at - s.input.since < TAP_MS && !s.input.heard && s.fault.kind === "none") {
-            if (["opening", "open"].indexOf(s.capture.kind) === -1) end(s, effects, e.at, "tap", false);
-            else {
-                s.input = { kind: "closing-tap", source: s.capture.op };
-                closeCapture(s, effects);
-            }
-            break;
+        s.toggleAt = s.input.since;
+        if (s.approval.kind !== "held" && s.fault.kind === "none")
+            finishInput(s, effects, e.at);
+        else {
+            s.input = { kind: "released" };
+            closeCapture(s, effects);
         }
-        s.input = { kind: "released" };
-        closeCapture(s, effects);
         break;
-    case "toggle":
-        toggle(s, effects, e.at);
+    case "close":
+        closeCall(s, effects, e.at);
         break;
     case "new-conversation": {
         var open = s.conversation.kind !== "ended" && !previewConversation(s);
@@ -742,11 +791,11 @@ function reduce(state, e, restartFor) {
     case "stop":
         // Stop keeps Talk live, but ends its forwarding grant (D134).
         s.stops++;
+        if (!canStop(s)) break;
         if (previewConversation(s)) {
             end(s, effects, e.at, "preview", true);
             break;
         }
-        var faulted = s.fault.kind !== "none" || s.input.kind === "stopped";
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
         interrupt(s, effects, e.at);
         requestToolCancel(s, effects);
@@ -756,7 +805,6 @@ function reduce(state, e, restartFor) {
         s.input = releasedInput(s);
         s.fault = { kind: "none" };
         activity(s, e.at);
-        if (faulted) s.input = { kind: "stopped" };
         break;
     case "lease-ended":
         end(s, effects, e.at, "lease", true);
@@ -768,7 +816,7 @@ function reduce(state, e, restartFor) {
         break;
     case "cancel":
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "cancel", false);
-        if (s.input.kind !== "stopped") s.input = { kind: "released" };
+        s.input = { kind: "released" };
         closeCapture(s, effects);
         cancelTurn(s, effects, e.at);
         dropApproval(s, effects, "cancel", e.at);
@@ -798,9 +846,9 @@ function reduce(state, e, restartFor) {
     case "capture-closed":
         if (!live(s, e, "capture", ["closing"])) { stale(s); break; }
         s.capture = { kind: "closed" };
-        if (s.engine.kind === "duplex" && s.input.kind === "closing-tap") {
+        if (s.engine.kind === "duplex" && s.input.kind === "finishing-input") {
             if (typeof e.speech !== "boolean") throw new Error("jarvis: session=capture-speech");
-            if (!e.speech) end(s, effects, e.at, "tap", false);
+            if (!e.speech) closeCall(s, effects, e.at);
         }
         break;
     case "partial":
@@ -811,9 +859,8 @@ function reduce(state, e, restartFor) {
     case "delegation":
     case "final":
         if (e.type === "delegation") {
-            if (s.engine.kind !== "duplex" || !live(s, e, "speech", ["open"]) || !canEngage(s)) { stale(s); break; }
+            if (!canDelegate(s, e)) { stale(s); break; }
             cancelTurn(s, effects, e.at);
-            dropApproval(s, effects, "replaced", e.at);
             // A new request drops the words the voice held for the old one.
             if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
             if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
@@ -823,7 +870,7 @@ function reduce(state, e, restartFor) {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
             if (String(e.text).trim() === "") {
                 s.turn = { kind: "none" };
-                if (s.input.kind === "closing-tap") end(s, effects, e.at, "tap", false);
+                if (s.input.kind === "finishing-input") closeCall(s, effects, e.at);
                 break;
             }
             commitUserText(s, effects, e.text, e.at, e.op);
@@ -987,7 +1034,8 @@ function reduce(state, e, restartFor) {
         s.approval = { kind: "held", purpose: purpose, gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
             deadline: e.at + APPROVAL_TIMEOUT_MS, shownAt: null, physical: e.physical,
             text: e.text, tool: e.tool, timeoutMs: e.timeoutMs, cancellable: e.cancellable,
-            brain: e.op, grantable: grantable, always: false, label: grantable ? e.label : "" };
+            brain: e.op, grantable: grantable, always: false, label: grantable ? e.label : "",
+            verb: purpose === "action" ? e.verb ?? "Confirm" : "Confirm", destructive: purpose === "action" && e.destructive === true };
         // The held request has its own full interval. The scheduler selects
         // that interval, then thinking gets a fresh interval after a decision.
         s.turn.deadline = s.approval.deadline + RESPONSE_TIMEOUT_MS;
@@ -1011,6 +1059,7 @@ function reduce(state, e, restartFor) {
         var approval = s.approval;
         var reason = approval.kind !== "held" ? (expiredApproval !== null ? "expired" : "no-hold")
             : e.gen !== approval.gen || e.id !== approval.id || e.digest !== approval.digest ? "identity"
+            : e.source === "voice" && e.op !== approval.op ? "identity"
             : ["key", "button", "voice"].indexOf(e.source) === -1 ? "source"
             : approval.shownAt === null || e.at - approval.shownAt < APPROVAL_DRAW_MS ? "early"
             : e.source === "voice" && approval.physical ? "voice-physical"
@@ -1019,13 +1068,13 @@ function reduce(state, e, restartFor) {
                 || e.idleAt < 0 || e.beganAt - e.idleAt < VOICE_QUIET_MS
                 || s.playback.kind !== "idle") ? "voice-timing" : null;
         if (reason !== null) {
-            // A refused answer clears the box, so it never carries to a
-            // later Yes.
-            if (approval.kind === "held") s.approval.always = false;
+            // Clear the box only for the call that owns this answer.
+            // A late voice transcript can still carry the previous hold.
+            var matched = approval.kind === "held" && reason !== "identity";
+            if (matched) s.approval.always = false;
             effect(s, effects, "confirm-refused", { reason: reason, id: e.id,
-                gen: approval.kind === "held" ? approval.gen : s.gen,
-                target: approval.kind === "held" ? approval.brain : null,
-                purpose: approval.kind === "held" ? approval.purpose : "action" });
+                gen: matched ? approval.gen : s.gen, target: matched ? approval.brain : null,
+                purpose: matched ? approval.purpose : "action" });
             break;
         }
         s.approval = { kind: "none" };
@@ -1047,7 +1096,8 @@ function reduce(state, e, restartFor) {
         break;
     }
     case "approval-cancel":
-        if (e.id !== s.approval.id || e.gen !== s.approval.gen) { stale(s); break; }
+        if (s.approval.kind !== "held" || e.id !== s.approval.id || e.gen !== s.approval.gen
+                || e.source === "voice" && (e.op !== s.approval.op || e.digest !== s.approval.digest)) { stale(s); break; }
         dropApproval(s, effects, "cancel", e.at);
         s.input = releasedInput(s);
         activity(s, e.at);
@@ -1095,16 +1145,29 @@ function reduce(state, e, restartFor) {
     case "speech-input-ended":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
         if (typeof e.empty !== "boolean") throw new Error("jarvis: session=input-ended");
-        // A native result can precede release. Keep real words against the
-        // same capture, so a short spoken hold is never mistaken for empty.
-        if (s.input.kind === "held" && ["opening", "open"].indexOf(s.capture.kind) !== -1 && s.capture.op === e.capture && !e.empty) {
+        // Recognition can precede either finishing gesture. Automatic input
+        // loses this evidence when its recorder closes, even across replies.
+        if ((s.input.kind === "held" || s.input.kind === "conversation") && ["opening", "open"].indexOf(s.capture.kind) !== -1
+                && s.capture.op === e.capture && !e.empty) {
             s.input.heard = true;
             activity(s, e.at);
             break;
         }
-        if (s.input.kind !== "closing-tap" || s.input.source !== e.capture) { stale(s); break; }
-        if (e.empty) end(s, effects, e.at, "tap", false);
-        else { s.input = { kind: "released" }; activity(s, e.at); }
+        if (s.input.kind !== "finishing-input" || s.input.source !== e.capture) { stale(s); break; }
+        if (e.empty) closeCall(s, effects, e.at);
+        else { s.input = releasedInput(s); activity(s, e.at); }
+        break;
+    case "speech-input-discarded":
+        if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        if (s.input.kind === "finishing-input" && s.input.source === e.capture) {
+            s.input = releasedInput(s);
+            activity(s, e.at);
+        } else if (["opening", "open"].indexOf(s.capture.kind) !== -1 && s.capture.op === e.capture) {
+            // The old recorder has committed audio but cannot get its
+            // result. Repeat on a fresh recorder under the same call.
+            s.input = releasedInput(s);
+            closeCapture(s, effects);
+        } else stale(s);
         break;
     case "speech-idle":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
@@ -1148,13 +1211,13 @@ var REGIONS = {
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
-    approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain grantable always label" },
+    approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain grantable always label verb destructive" },
     fault: { none: "", error: "reason category", "voice-connection": "reason category" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
-    input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
+    input: { released: "", held: "since heard", conversation: "heard", check: "", "finishing-input": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device", unbroken: "" },
     indicator: { gone: "", shown: "" }, barIndicator: { gone: "", present: "gen", listening: "gen" },
-    visibility: { shown: "", showing: "", hidden: "" }, duplex: { half: "", full: "" },
+    orbSize: { normal: "", small: "" }, visibility: { shown: "", showing: "", hidden: "" }, duplex: { half: "", full: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     restart: { none: "", restarted: "category", spent: "" },
     check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
@@ -1193,7 +1256,7 @@ function validate(s) {
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
-            } else if (["interruptible", "physical", "cancellable", "heard", "grantable", "always"].indexOf(f) !== -1) {
+            } else if (["interruptible", "physical", "cancellable", "heard", "grantable", "always", "destructive"].indexOf(f) !== -1) {
                 if (typeof r[f] !== "boolean") return false;
             } else if (f === "cancellation") {
                 if (!exact(r[f], ["kind"]) || ["available", "unavailable", "requested"].indexOf(r[f].kind) === -1) return false;
@@ -1218,7 +1281,8 @@ function validate(s) {
             } else if (typeof r[f] !== "string") return false;
         }
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
-        if (region === "approval" && r.kind === "held" && (r.label.length > 60 || (r.label !== "") !== r.grantable)) return false;
+        if (region === "approval" && r.kind === "held" && (r.label.length > 60 || (r.label !== "") !== r.grantable
+                || !/^[^\x00-\x1f\x7f]{1,60}$/.test(r.verb) || r.purpose === "release" && r.destructive)) return false;
         if (region === "conversation" && r.kind !== "ended" && ["conversation", "preview"].indexOf(r.purpose) === -1) return false;
         if (region === "history" && r.kind === "reset" && ["requested", "turn-limit"].indexOf(r.reason) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1

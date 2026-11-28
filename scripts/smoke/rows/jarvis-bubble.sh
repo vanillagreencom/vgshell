@@ -485,6 +485,12 @@ jarvis_bubble_orb_centre() {
   box="$(jarvis_bubble_required_box ParticleOrb active true)" || return 1
   python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2), round(y+h/2))' "$box"
 }
+# Read the displayed size of the active orb in output coordinates.
+jarvis_bubble_orb_diameter() {
+  local box
+  box="$(jarvis_bubble_required_box ParticleOrb active true)" || return 1
+  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(w) if w>0 and w==h else "invalid")' "$box"
+}
 # The open Jarvis menu's entries, [] while it is closed.
 jarvis_bubble_menu() {
   ipc smoke layerItems vgs.jarvis Bubble menuTexts | py_reply '
@@ -609,21 +615,8 @@ jarvis_bubble_click() { # LABEL
 jarvis_bubble_begin() {
   if [[ $(jarvis_key_state conversation) != ended ]]; then
     jarvis_key_talk_up
-    # Talk resumes stopped automatic input; only a second fresh press
-    # closes that still-active conversation.
-    if [[ $(jarvis_key_state holdToTalk) == false && $(jarvis_key_state input) == stopped ]]; then
-      jarvis_key_tap
-      expect_poll "Talk resumes the stopped automatic input" listening jarvis_key_state phase
-      expect_poll "the resumed automatic input is a conversation" conversation jarvis_key_state input
-      jarvis_key_wait_past "$jarvis_key_tapped_at" 300
-    fi
-    [[ $(jarvis_key_state holdToTalk) != true ]] || jarvis_key_gate silent-capture
-    jarvis_key_tap
-    expect_poll "the prior conversation closes through Talk" ended jarvis_key_state conversation
-    rm -f -- "$jarvis_key_gates/silent-capture"
-    # Session collapses presses within 250 ms; this next physical down
-    # must be distinct from the closing tap, not a fabricated admission.
-    jarvis_key_wait_past "$jarvis_key_tapped_at" 300
+    expect "Close retires the prior call" ok ipc vgs.jarvis invoke close ''
+    expect_poll "the prior call is ended" ended jarvis_key_state conversation
   fi
   jarvis_key_talk_down
   expect_poll "capture waits for its selected indicator then listens" listening jarvis_key_state phase
@@ -653,19 +646,20 @@ print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
 jarvis_bubble_request() {
   local state buttons clips fields
   state="$(ipc smoke jarvisProcess)" &&
-    buttons="$(ipc smoke layerItems vgs.jarvis Answer variant,visible)" &&
+    buttons="$(ipc smoke layerItems vgs.jarvis Answer variant,visible,text)" &&
     clips="$(ipc smoke layerItems vgs.jarvis Words text)" &&
     fields="$(ipc smoke layerItems vgs.jarvis DisplayedText role,visible)" || return 1
   "$node_bin" - "$state" "$buttons" "$clips" "$fields" "$jarvis_key_gates/effects.jsonl" "$repo/shell/plugins/vgs.jarvis/backend/ToolRouter.js" <<'JS'
 const [rawState, rawButtons, rawClips, rawFields, effects, file] = process.argv.slice(2);
 const fs = require("node:fs"), assert = require("node:assert/strict"), crypto = require("node:crypto");
-const state = JSON.parse(rawState).status.detail.state, held = state.approval;
+const status = JSON.parse(rawState).status, state = status.detail.state, held = state.approval;
 const calls = fs.readFileSync(effects, "utf8").trim().split("\n").map(JSON.parse);
 const canonical = require("node:vm").runInNewContext(fs.readFileSync(file, "utf8") + "\ncanonical",
     { require: require("node:module").createRequire(file), module: { exports: {} }, Buffer });
 try {
     assert.equal(held.kind, "held");
     assert.notEqual(held.shownAt, null);
+    if (state.voiceMute.kind === "on") assert.equal(status.replyCard ?? null, null, "the actionable card owns the held question");
     const call = calls.find(row => row.kind === "approval-call" && row.id === held.id);
     assert.ok(call);
     assert.equal(call.gen, state.gen);
@@ -683,7 +677,8 @@ try {
         assert.equal(held.physical, false);
     }
     const buttons = JSON.parse(rawButtons).filter(([, , value]) => value.visible).sort((a, b) => a[1][0] - b[1][0]);
-    assert.deepEqual(buttons.map(([, , value]) => value.variant), ["ghost", "secondary"]);
+    assert.deepEqual(buttons.map(([, , value]) => [value.text, value.variant]),
+        held.purpose === "action" ? [["Cancel", "ghost"], ["Delete", "danger"]] : [["No", "ghost"], ["Yes", "secondary"]]);
     const [left, right] = buttons.map(([, box]) => box);
     assert.ok(left[2] > 0 && right[2] > 0 && left[0] + left[2] < right[0]);
     assert.equal(left[1], right[1]);
@@ -720,7 +715,7 @@ jarvis_bubble_confirm_key() {
 }
 jarvis_bubble_answer_button() { # BUTTON
   local point x y
-  point="$(point_item vgs:layer vgs.jarvis Answer variant "$([[ $1 == Cancel || $1 == No ]] && echo ghost || echo secondary)")" || return 1
+  point="$(point_item vgs:layer vgs.jarvis Answer text "$1")" || return 1
   read -r x y <<<"$point" || return 1
   click "$x" "$y" || return 1
   jarvis_key_state approval
@@ -753,7 +748,8 @@ print("outside" if not inside(field) else "overlap" if meets(card,field) else "c
 }
 # The console's address and the position that puts its bottom edge on its
 # output's work-area bottom, inside the band the card draws in at the
-# bottom, whatever size the nested output has: `ADDRESS X Y`.
+# bottom, whatever size the nested output has: `ADDRESS X Y`. With "clear",
+# keep its left edge on that same output, beyond the centred overlay.
 jarvis_bubble_console_low() {
   local client monitors
   client="$(window_of Jarvis address at size monitor)" && monitors="$(hypr -j monitors)" || return 1
@@ -761,8 +757,9 @@ jarvis_bubble_console_low() {
 import json,sys
 (address,at,size,monitor),ms=map(json.loads,sys.argv[1:3])
 m=next(m for m in ms if m["id"]==monitor)
-print(address, at[0], int(m["y"] + m["height"] / m["scale"] - m["reserved"][3] - size[1]))
-' "$client" "$monitors"
+left = int(m["x"] + m["width"] / m["scale"] - m["reserved"][2] - 16) if sys.argv[3] == "clear" else at[0]
+print(address, left, int(m["y"] + m["height"] / m["scale"] - m["reserved"][3] - size[1]))
+' "$client" "$monitors" "${1:-}"
 }
 jarvis_bubble_console_hold() {
   local address x y
@@ -774,8 +771,23 @@ jarvis_bubble_console_hold() {
   jarvis_bubble_approval action
   expect_poll "the held request over the console is drawn" drawn jarvis_bubble_acknowledged
 }
-# The console closes while the request is still held: only the closewindow
-# read brings the card back to the bottom.
+# A floating drag within this workspace produces no workspace event. Read
+# back both the compositor's client and the actual layer after each move.
+jarvis_bubble_move_clear() {
+  local address x y
+  read -r address x y < <(jarvis_bubble_console_low clear) || { fail "the console's clear position is readable"; return; }
+  expect "move the floating console clear of the held card" ok probe dispatch "moveWindow $address $x $y"
+  geometry expect_poll "the compositor reports the console clear of the band" "[[$x, $y]]" window_of Jarvis at
+  geometry expect_poll "the held card returns directly to bottom centre after the move" bottom-centre jarvis_bubble_geometry
+}
+jarvis_bubble_console_drag() {
+  local address x y
+  read -r address x y < <(jarvis_bubble_console_low) || { fail "the overlapped console's position is readable"; return; }
+  jarvis_bubble_move_clear
+  expect "move the same floating console back into the band" ok probe dispatch "moveWindow $address $x $y"
+  geometry expect_poll "the compositor reports the console back in the band" "[[$x, $y]]" window_of Jarvis at
+  geometry expect_poll "the card moves back to the top on the same workspace" clear jarvis_bubble_console
+}
 jarvis_bubble_console_unmap() {
   expect "the Jarvis console hides" ok ipc shell hide window vgs.jarvis
   expect_poll "the Jarvis console unmaps" 0 window_count Jarvis
@@ -858,7 +870,7 @@ expect_poll "Hide explains the missing focused bar widget" blocked jarvis_bubble
 expect "Hide refuses without a presented widget" 'refused: hide=indicator' ipc vgs.jarvis invoke hide ''
 expect "a refused Hide leaves the orb choice shown" shown jarvis_key_state visibility
 
-expect "the icon row hides while the pointer is away from the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
+expect "the icon row hides while the pointer is away from the orb" 0 jarvis_bubble_buttons "Close Jarvis"
 if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
   fail "the bubble's orb is unreadable: $orb_box"
   jarvis_bubble_abandon
@@ -870,7 +882,8 @@ read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*map(roun
 # of the ring is decorative.
 jarvis_bubble_pass "$((orb_x + orb_w / 20))" "$((orb_y + orb_h / 2))"
 hover "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the pointer reaches the listening orb's centre"
-expect_poll "the pointer on the listening orb shows the icon row" 1 jarvis_bubble_buttons "Stop Jarvis"
+expect_poll "the pointer on the listening orb shows Close Jarvis" 1 jarvis_bubble_buttons "Close Jarvis"
+expect "the listening orb has no square Stop action" 0 jarvis_bubble_buttons "Stop Jarvis"
 if ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')"; then
   fail "the shown icon row is unreadable: $mute_box"
   jarvis_bubble_abandon
@@ -878,30 +891,45 @@ if ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')";
 fi
 read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*map(round, json.loads(sys.argv[1])))' "$mute_box")
 # The row's capsule stands beside what the orb draws, in the canvas's empty
-# outer rim, the microphone the middle of its three icons at the orb's
-# height. The canvas right of the hit square and above the way to the
-# capsule is decorative too: 100 px right of the orb's centre and 38 px
-# above the microphone's icon, past the 150 px square and the capsule's
-# 12 px of padding over its first icon. The capsule starts right of that
-# point.
+# outer rim. The empty space above and left of the capsule passes clicks
+# through, beyond the orb's 150 px hit square.
 if ((mute_x > orb_x + orb_w / 2 + 100)); then
   jarvis_bubble_pass "$((orb_x + orb_w / 2 + 100))" "$((mute_y - 38))"
 else
   fail "the icon capsule reaches the decorative point: orb=$orb_box mute=$mute_box"
 fi
-expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
+expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Close Jarvis"
 # A right click on the listening orb's centre opens the Jarvis menu at the
-# click, with the shared Jarvis entries; Escape closes it.
+# click, with its size and visibility actions. Escape dismisses it.
 right_click "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the right click on the listening orb is not delivered"
-expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"New conversation\", \"Hide Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on the listening orb opens its presentation menu" '["Minimize", "Hide Jarvis"]' jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu failed"
 expect_poll "Escape closes the Jarvis menu" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the Jarvis menu"
 expect "decorative clicks and the menu keep capture live" open jarvis_key_state capture
+jarvis_bubble_click "More"
+expect_poll "More opens the same size and visibility actions" '["Minimize", "Hide Jarvis"]' jarvis_bubble_menu
+type_keys -k Home && type_keys -k Return || fail "Minimize is not delivered"
+expect_poll "Minimize applies to this call" small jarvis_key_state orbSize
+geometry expect_poll "the minimized orb draws at forty percent of its normal diameter" "$(((orb_w * 2 + 2) / 5))" jarvis_bubble_orb_diameter
+expect_poll "Minimize preserves capture" open jarvis_key_state capture
+jarvis_bubble_menu_choose "Restore size" || fail "Restore size is not delivered"
+expect_poll "Restore size applies to this call" normal jarvis_key_state orbSize
+geometry expect_poll "Restore size returns the drawn orb to its normal diameter" "$orb_w" jarvis_bubble_orb_diameter
+jarvis_bubble_think
 jarvis_bubble_click "Stop Jarvis"
-jarvis_key_talk_up
 jarvis_key_stop_assertion
 expect_poll "Stop keeps the open conversation visible" presented jarvis_bubble_state
+jarvis_key_stop
+hold_barrier
+expect "another physical Stop leaves the idle call open" active jarvis_key_state conversation
+read -r orb_x orb_y < <(jarvis_bubble_orb_centre)
+hover "$orb_x" "$orb_y" || fail "the pointer reaches the idle orb"
+expect_poll "the idle controls show Close" 1 jarvis_bubble_buttons "Close Jarvis"
+expect "the idle controls hide Stop" 0 jarvis_bubble_buttons "Stop Jarvis"
+jarvis_bubble_click "Close Jarvis"
+expect_poll "Close ends the idle call" ended jarvis_key_state conversation
+expect_poll "Close releases its overlay" 0 layer_count vgs:layer
 
 # Voice mute stays on from here through the mutation controls, so Jarvis's
 # words draw; the words section turns it off and on again.
@@ -914,7 +942,7 @@ jarvis_key_talk_up
 jarvis_key_stop
 jarvis_key_stop_assertion
 
-for jarvis_bubble_answer in key Confirm Cancel Yes No; do
+for jarvis_bubble_answer in key Delete Cancel Yes No; do
   jarvis_bubble_purpose=action
   case "$jarvis_bubble_answer" in Yes|No) jarvis_bubble_purpose=release ;; esac
   jarvis_bubble_effect=tool-start
@@ -928,9 +956,9 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   expect "approval keeps the application's keyboard focus" '["smoke.other", "Other window"]' active_window
   geometry expect_poll "the held request stays inside its surface" bottom-centre jarvis_bubble_geometry
   # A confirmed action runs until the tool gate, so its look is read.
-  [[ $jarvis_bubble_answer != Confirm ]] || jarvis_key_gate hold-tool
+  [[ $jarvis_bubble_answer != Delete ]] || jarvis_key_gate hold-tool
   jarvis_bubble_accept "$jarvis_bubble_answer" "$jarvis_bubble_effect" "$((jarvis_bubble_before + 1))"
-  if [[ $jarvis_bubble_answer == Confirm ]]; then
+  if [[ $jarvis_bubble_answer == Delete ]]; then
     expect_poll "the confirmed action runs" acting jarvis_key_state phase
     expect_poll "a running action draws the acting look" acting jarvis_bubble_look
     rm -- "${jarvis_key_gates:?}/hold-tool"
@@ -942,6 +970,7 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
 done
 jarvis_bubble_console_hold
 geometry expect_poll "a held request leaves the console's message field whole" clear jarvis_bubble_console
+jarvis_bubble_console_drag
 jarvis_bubble_console_close
 expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", "Other window"]' active_window
 
@@ -987,7 +1016,7 @@ read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.
 # Jarvis's words take the pointer while they show in an active state: a
 # right click on them opens the Jarvis menu.
 hover "$words_x" "$words_y" && right_click "$words_x" "$words_y" || fail "the right click on Jarvis's words is not delivered"
-expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Unmute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"New conversation\", \"Hide Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on Jarvis's words opens its presentation menu" '["Minimize", "Hide Jarvis"]' jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu over the words failed"
 expect_poll "Escape closes the Jarvis menu over the words" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the words' menu"
@@ -1043,8 +1072,8 @@ else
   rm -f -- "${home:?}/.config/vgshell/theme.json"
 fi
 expect_poll "the theme's motion returns after the motion-off reading" "$jarvis_bubble_motion" ipc smoke themeValue motion.scale
-jarvis_key_stop
-expect_poll "Stop dismisses the device fault" none jarvis_key_state fault
+jarvis_bubble_click "Close Jarvis"
+expect_poll "Close dismisses the device fault" none jarvis_key_state fault
 jarvis_key_gate device-back
 jarvis_key_talk_up
 rm -f -- "${jarvis_key_gates:?}/device-gone" "${jarvis_key_gates:?}/device-back"
@@ -1239,8 +1268,8 @@ jarvis_bubble_menu_choose "Show Jarvis" DisplayedText role bodyStrong || fail "t
 expect_poll "Show from the required fault restores the orb choice" shown jarvis_key_state visibility
 expect "the hidden fault menu sends only the direct Show intent" '["show"]' jarvis_key_received "$jarvis_bubble_before"
 expect_poll "Show restores the fault's orb" error jarvis_bubble_look
-jarvis_key_stop
-expect_poll "Stop dismisses the hidden device fault" none jarvis_key_state fault
+jarvis_bubble_click "Close Jarvis"
+expect_poll "Close dismisses the recovered visible fault" none jarvis_key_state fault
 jarvis_key_gate device-back
 jarvis_key_talk_up
 rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"
@@ -1279,14 +1308,14 @@ jarvis_disable
 # words controls keep the caption on the wire and break one bubble rule each.
 # Row.layoutDirection reverses rendered positions (Qt Quick Row reference).
 # The position reader must reject that reversal, regardless of button copy.
-for jarvis_bubble_mutant in geometry console console-close focus words role lines head generation look approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
+for jarvis_bubble_mutant in geometry console console-drag focus words role lines head generation look idle-stop approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_select
   jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Bubble.qml"
   if [[ $jarvis_bubble_mutant == head ]]; then
     jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Words.qml"
   fi
   [[ $jarvis_bubble_mutant != look ]] || jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/ParticleOrb.qml"
-  if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown || $jarvis_bubble_mutant == console-close ]]; then
+  if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown || $jarvis_bubble_mutant == console-drag ]]; then
     jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
   fi
   if [[ $jarvis_bubble_mutant == approval-kind || $jarvis_bubble_mutant == approval-path ]]; then
@@ -1298,8 +1327,8 @@ import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
     "geometry": ("anchors.bottomMargin: root.look.layout.bottom", "anchors.bottomMargin: root.look.layout.bottom + root.look.layout.gap"),
-    "console": ("when: root.overConsole", "when: false"),
-    "console-close": ('event.name === "closewindow" || ', ""),
+    "console": ("root.overConsole && root.hold !== null", "false"),
+    "console-drag": ('root.consoleBox !== null || root.consoleKey', 'root.consoleKey'),
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.role', "false && caption.role"),
     "role": ('&& caption.role === "assistant" &&', "&&"),
@@ -1307,6 +1336,7 @@ needle,replacement={
     "head": ("y: (root.window - 1 - index) * root.lineBox + root.lift", "y: index * root.lineBox + root.lift"),
     "generation": ("caption.gen === state.gen", "true"),
     "look": ("readonly property var tone: look.state[phase]", "readonly property var tone: look.state.idle"),
+    "idle-stop": ("visible: Session.canStop(root.state)", "visible: true"),
     "approval-key": ('() => confirmApproval(displayedApproval(), "key")', '() => {}'),
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
@@ -1330,16 +1360,16 @@ PY
       jarvis_bubble_console_close
       jarvis_disable
       continue ;;
-    console-close)
+    console-drag)
       jarvis_bubble_console_hold
       geometry expect_poll "control: the held request over the console takes the top" clear jarvis_bubble_console
-      jarvis_bubble_console_unmap
       jarvis_bubble_failures="$(
         failures=0 behaviour_failures=0
-        jarvis_bubble_console_return >"$sandbox/$jarvis_bubble_mutant.log"
+        jarvis_bubble_move_clear >"$sandbox/$jarvis_bubble_mutant.log"
         echo "$failures"
       )"
-      expect "control: ignoring the close event fails the same return check" 1 printf '%s\n' "$jarvis_bubble_failures"
+      expect "control: ignoring the floating drag fails the same return check" 1 printf '%s\n' "$jarvis_bubble_failures"
+      jarvis_bubble_console_unmap
       jarvis_key_stop
       jarvis_key_stop_assertion
       jarvis_disable
@@ -1368,7 +1398,7 @@ PY
         *)
           expect_poll "control: the retained frame acknowledgment reaches Session" drawn jarvis_bubble_acknowledged
           jarvis_bubble_before="$(jarvis_key_effects tool-start)"
-          jarvis_bubble_answer=Confirm
+          jarvis_bubble_answer=Delete
           jarvis_bubble_effect=tool-start
           [[ $jarvis_bubble_mutant != approval-key ]] || jarvis_bubble_answer=key
           if [[ $jarvis_bubble_mutant == approval-cancel ]]; then
@@ -1411,6 +1441,11 @@ PY
         echo "$failures"
       )"
       expect "control: dropping the role check fails the same words assertion" 1 printf '%s\n' "$jarvis_bubble_failures" ;;
+    idle-stop)
+      read -r x y < <(jarvis_bubble_orb_centre)
+      hover "$x" "$y" || fail "the pointer reaches the listening orb in the always-Stop control"
+      expect_poll "control: always showing Stop exposes the square while listening" 1 jarvis_bubble_buttons "Stop Jarvis"
+      jarvis_key_talk_up ;;
     look)
       jarvis_bubble_failures="$(
         failures=0 behaviour_failures=0

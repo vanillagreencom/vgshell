@@ -59,11 +59,12 @@ assert.equal(Object.hasOwn(manifest.schema, "mode"), false);
 assert.deepEqual(manifest.schema.taskTerminal.options.map(option => option.value), ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain", requires: ["python3", "node"] });
 assert.deepEqual(manifest.status.tasks.type, "count");
-assert.deepEqual(manifest.hyprland.binds.filter(bind => bind.info !== undefined).map(bind => bind.shortcut), ["talk", "voice-mute", "stop", "console"]);
+assert.deepEqual(manifest.hyprland.binds.filter(bind => bind.info !== undefined).map(bind => bind.shortcut), ["talk", "voice-mute", "stop", "close", "console"]);
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:44", hold: true },
     { shortcut: "voice-mute", key: "SUPER+CTRL+M" },
     { shortcut: "stop", key: "SUPER+CTRL+X" },
+    { shortcut: "close", key: null },
     { shortcut: "confirm", key: "SUPER+CTRL+Y" },
     { shortcut: "confirm-always", key: "SUPER+CTRL+SHIFT+Y" },
     { shortcut: "deny", key: null },
@@ -659,7 +660,7 @@ for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 for (const bar of ["gone", "present", "listening"])
     assert.equal(Protocol.accept(changed(indicator, { bar }), "shell").bar, bar);
-for (const name of ["hide", "show"])
+for (const name of ["hide", "show", "minimize", "restore", "close"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 rejected(Protocol, ["hidden-restore-not-an-intent", changed(intent, { intent: "hidden" }), "shell", "intent"]);
 for (const visibility of [{ kind: "shown" }, { kind: "hidden" }]) for (const bar of ["gone", "present", "listening"]) {
@@ -868,7 +869,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift", "console-shown", "console-hidden"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "minimize", "restore", "stop", "close", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift", "console-shown", "console-hidden"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],

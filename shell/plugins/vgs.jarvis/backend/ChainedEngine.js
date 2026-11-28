@@ -1,7 +1,7 @@
 // One conversation owner: chained speech or duplex delegation to a cloud voice.
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
-// per live generation and retains a suspended brain for the next Talk.
+// per live generation. D146 retires the brain when the user ends the call.
 // Contract: docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
@@ -509,7 +509,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.results = [];
     }
     // The brains that finished a reply, for restartOf's facts.answered. A
-    // retained brain keeps its place across Talk closes.
+    // retained brain keeps its place across automatic quiet closure.
     const answered = new WeakSet();
     function historySelection() {
         return JSON.stringify([homePath(), policy(), plan.entries.map(entry =>
@@ -742,7 +742,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         try {
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
-                c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
+                c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit, answerAtStart, answerHeld,
                     usage: event => usage({ account: c.plan.speech.key.reference.account, ...event }),
                     drains: count => { if (count === 0) draining.delete(c.live); else draining.add(c.live); },
                     // Each connection has a net owner of its own: one still
@@ -942,12 +942,28 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return { begin, stop: () => finish("stop"), cancel: () => finish("cancel") };
     }
 
+    // Pin the request and observed playback idle time to physical input.
+    // A completed transcript can arrive after release or after a replacement.
+    function answerAtStart() {
+        const hold = state().approval;
+        return hold.kind === "held" ? { gen: hold.gen, op: hold.op, id: hold.id, digest: hold.digest,
+            beganAt: clock.now(), idleAt } : null;
+    }
+
+    function answerHeld(answer, text) {
+        if (answer === null) return state().approval.kind === "held";
+        const phrase = TaskVoice.phrase(text);
+        if (["yes", "confirm", "yes confirm"].includes(phrase))
+            dispatch({ type: "confirm", ...answer, source: "voice" });
+        else if (["no", "cancel", "no cancel"].includes(phrase))
+            dispatch({ type: "approval-cancel", ...answer, source: "voice" });
+        return true;
+    }
+
     // Speech to text. The capture sink exists while Audio holds the
     // recorder; one utterance yields partials and one final.
     function transcription(c, e) {
-        const approval = state().approval;
-        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest, op: approval.op,
-            gen: approval.gen, beganAt: clock.now(), idleAt } : null;
+        const answer = answerAtStart();
         let output = null;
         // running: transcribing; ending: the row's final came and the
         // dictation recording's words are awaited; concluded: final delivered
@@ -973,13 +989,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         function concluded(text) {
             utterance.state = "concluded";
             log("jarvis: info input-final=" + (text.trim() === "" ? "empty" : "text") + " gen=" + e.gen + " capture=" + e.op);
-            if (answer !== null) {
-                const phrase = TaskVoice.phrase(text);
-                if (["yes", "confirm", "yes confirm"].includes(phrase))
-                    dispatch({ type: "confirm", ...answer, source: "voice" });
-                else if (["no", "cancel", "no cancel"].includes(phrase))
-                    dispatch({ type: "approval-cancel", gen: answer.gen, id: answer.id });
-            } else utterance.collection?.done("final", text);
+            if (!answerHeld(answer, text)) utterance.collection?.done("final", text);
         }
         function failedInput(reason, error = new Error("jarvis: " + reason)) {
             // Audio reduces a stream error to provider-disconnected. Report

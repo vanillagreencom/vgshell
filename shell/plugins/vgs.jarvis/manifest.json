@@ -19,7 +19,7 @@
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito",
     "mainHost": "", "weeklyOpenaiCap": 25, "orbStyle": "glass-bead", "alwaysAllow": [] },
   "schema": {
-    "holdToTalk": {"type": "boolean", "label": "Hold to talk", "group": "Voice", "info": "With Hold to talk on, hold Talk while you speak. Release it to close the microphone and hear the reply.\nTap Talk without speaking to close the conversation.\nWith Hold to talk off, press Talk to open or close the conversation.\nThe conversation closes after 30 quiet minutes."},
+    "holdToTalk": {"type": "boolean", "label": "Hold to talk", "group": "Voice", "info": "With Hold to talk on, hold Talk while you speak. Release it to close the microphone and hear the reply.\nReleasing Talk without speech closes the call.\nWith Hold to talk off, press Talk to start. Press again while listening to submit your words or close an empty call.\nThe conversation closes after 30 quiet minutes."},
     "voiceProvider": {"type": "enum", "label": "Provider", "group": "Voice", "options": [{"value": "local", "label": "Local"}, {"value": "realtime", "label": "OpenAI Realtime"}, {"value": "gemini", "label": "Gemini Live"}, {"value": "elevenlabs", "label": "ElevenLabs"}], "info": "Local keeps your speech on this computer.\nOpenAI Realtime sends your voice to OpenAI. Gemini Live sends it to Google. Both use your key.\nElevenLabs hears you on this computer and speaks in your ElevenLabs voices.\nChanging the provider ends the conversation."},
     "voiceAccount": {"type": "string", "label": "API key", "group": "Voice", "optionsFrom": "voiceAccounts", "placeholder": "Choose a key", "shownWhen": {"setting": "voiceProvider", "in": ["realtime", "gemini", "elevenlabs"]}, "addChoice": {"label": "Add API key", "handler": true}, "info": "Choose a key for your cloud voice provider.\nJarvis selects it automatically if only one key is stored.\nAdd API key opens the key form under Providers and keys on Setup. Your key stays in your keyring."},
     "localTier": {"type": "string", "label": "Local voice model", "group": "Voice", "optionsFrom": "localTiers", "info": "Auto chooses a model for this computer.\nChoosing another model downloads it immediately.\nDictation has a separate model. Change it with Choose model in [Voice Details](page:vgs.voice/Details).", "shownWhen": {"setting": "voiceProvider", "in": ["local", "elevenlabs"]}},
@@ -48,9 +48,10 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "talk", "key": "SUPER+code:44", "hold": true, "info": "Press Talk to open or close a conversation.\nWith Hold to talk on, hold Talk while you speak, then release it to hear the reply.\nA short tap without speech closes the conversation.\nHolding Talk also interrupts a reply." },
+      { "shortcut": "talk", "key": "SUPER+code:44", "hold": true, "info": "Press Talk to start. While listening, press again to send your words. An empty recording closes the call.\nWith Hold to talk on, hold Talk while you speak, then release it to hear the reply.\nReleasing a silent hold closes the call.\nHolding Talk also interrupts a reply." },
       { "shortcut": "voice-mute", "key": "SUPER+CTRL+M", "info": "Jarvis shows replies on screen while its voice is muted.\nVoice mute stays on after a restart." },
       { "shortcut": "stop", "key": "SUPER+CTRL+X", "info": "Stops the reply or task and keeps the conversation open." },
+      { "shortcut": "close", "key": null, "info": "Ends the call and closes the orb. Your next call starts a fresh conversation." },
       { "shortcut": "confirm", "key": "SUPER+CTRL+Y" },
       { "shortcut": "confirm-always", "key": "SUPER+CTRL+SHIFT+Y" },
       { "shortcut": "deny", "key": null },

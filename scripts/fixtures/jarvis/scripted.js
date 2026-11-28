@@ -120,7 +120,9 @@ function ports(root, engine, state, input = () => {}) {
                     const file = path.join(__dirname, "ToolRouter.js");
                     const owner = require("node:vm").runInNewContext(fs.readFileSync(file, "utf8") + "\n({sentence, canonical})",
                         { require: require("node:module").createRequire(file), module: { exports: {} }, Buffer });
-                    const text = call === null ? "Send file text to Claude Code?" : owner.sentence(call, undefined);
+                    const { text, verb } = call === null ? { text: "Send file text to Claude Code?", verb: "Yes" }
+                        : owner.sentence(call, undefined);
+                    const destructive = call !== null && require("./Tools.js").TABLE[call.id].effect === "destructive";
                     const digest = call === null ? "a".repeat(64) : crypto.createHash("sha256").update(call.id + "\n" + owner.canonical(call.args)).digest("hex");
                     record("approval-call", { gen: e.gen, op: e.op, id, purpose, call });
                     // Transcript is a single-line wire value; the held summary keeps its detail lines.
@@ -129,7 +131,7 @@ function ports(root, engine, state, input = () => {}) {
                     // card line; the delete's line names its path.
                     const grant = call === null ? {} : { grantable: true, label: "Delete " + call.args.path };
                     done("approval", { purpose, id, digest, physical: purpose === "action",
-                        text, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false, ...grant });
+                        text, verb, destructive, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false, ...grant });
                 });
                 if (chained) { engine.brain.send(e, done); return; }
                 // A reply-text file names the reply's words, and a fail-brain

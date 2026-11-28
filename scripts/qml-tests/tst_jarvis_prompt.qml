@@ -11,9 +11,9 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // Jarvis's approval prompt and fault line as the overlay draws them: the
 // question and the fault's title in the shared bodyStrong role, the state
 // line in label; each line and answer in the mode's ink; and the answers
-// as two capsules of equal width at the look's height, Cancel leading and
-// quiet, the confirming answer on the theme's accent unless the request
-// needs a press, which is the destructive kind. The held request's frame
+// as two capsules of equal width at the look's height. Cancel leads and
+// uses the quiet form. The confirmation names its action and uses the
+// danger form for destructive actions. The held request's frame
 // acknowledgement and the drawn overlay on a real layer are
 // scripts/smoke/rows/jarvis-bubble.sh's.
 Item {
@@ -29,9 +29,10 @@ Item {
         property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
+        property bool callPlaced: true
         property var consoleBox: null
         property string consoleKey: ""
-        property string heldKey: ""
+        property string placementKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var shell: ({ settings: { voiceProvider: "local", orbStyle: "glass-bead" }, status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
@@ -83,20 +84,22 @@ Item {
     }
 
     function session(over) {
-        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" },
+            conversation: { kind: "active", purpose: "conversation" } });
         for (const key in over) s[key] = over[key];
         return s;
     }
     readonly property var held: session({ approval: { kind: "held", id: "a", gen: 1, digest: "d", purpose: "action", tool: "files.delete",
-        physical: true, text: "Delete draft.txt?\n/home/fixture/draft.txt" } })
+        physical: true, verb: "Delete", destructive: true, text: "Delete draft.txt?\n/home/fixture/draft.txt" } })
     // A held question, which speech can answer.
     readonly property var asked: session({ approval: { kind: "held", id: "q", gen: 1, digest: "d", purpose: "release", tool: "release",
-        physical: false, text: "Send the summary to Dana?" } })
+        physical: false, verb: "Confirm", destructive: false, text: "Send the summary to Dana?" } })
     // A held files.write of LINES numbered lines.
     function write(id, lines) {
         const body = [];
         for (let i = 1; i <= lines; i++) body.push("line " + i + " of the new notes");
-        return session({ approval: { kind: "held", id: id, gen: 1, digest: "d", purpose: "action", tool: "files.write", physical: false,
+        return session({ approval: { kind: "held", id: id, gen: 1, digest: "d", purpose: "action", tool: "files.write",
+            physical: false, verb: "Write", destructive: false,
             text: "Write notes.txt?\n/home/fixture/notes.txt\n" + body.join("\n") } });
     }
 
@@ -227,15 +230,13 @@ Item {
 
         // The answers are two capsules at the look's height that share the
         // card's row equally, Cancel or No leading, each label on its
-        // capsule's centre and neither with a border. Cancel is quiet. The
-        // confirming answer stands on the look's tint, whose fill moves
-        // under the pointer while its label keeps its ink; on a request
-        // that needs a press it is quiet too.
+        // capsule's centre and neither with a border. The answer's fill
+        // changes under the pointer while its label keeps its ink.
         function test_answers_take_the_looks_form_data() {
             return [
-                { tag: "a request that needs a press", state: root.held, cancel: "Cancel", confirm: "Confirm", tinted: false },
-                { tag: "a request speech can answer", state: root.write("w", 3), cancel: "Cancel", confirm: "Confirm", tinted: true },
-                { tag: "a question", state: root.asked, cancel: "No", confirm: "Yes", tinted: true }
+                { tag: "destructive", state: root.held, cancel: "Cancel", confirm: "Delete", form: "danger", variant: "danger", icon: "circle-alert" },
+                { tag: "a request speech can answer", state: root.write("w", 3), cancel: "Cancel", confirm: "Write", form: "tinted", variant: "secondary", icon: "" },
+                { tag: "a question", state: root.asked, cancel: "No", confirm: "Yes", form: "tinted", variant: "secondary", icon: "" }
             ];
         }
 
@@ -244,6 +245,8 @@ Item {
             const look = root.look.answer;
             const cancel = answer(data.cancel);
             const confirm = answer(data.confirm);
+            compare(confirm.variant, data.variant);
+            compare(confirm.iconName, data.icon);
             verify(look.height !== Theme.size.control.sm && look.height !== Theme.size.control.md,
                 "the look's height differs from the shared control heights");
             verify(String(Qt.color(look.tinted.fill)) !== String(Qt.color(look.quiet.fill)), "the tint differs from the quiet fill");
@@ -251,15 +254,18 @@ Item {
                 compare(item.height, look.height);
                 compare(item.background.radius, look.radius);
                 compare(item.background.border.color.a, 0, item.text + " draws no border");
-                const label = item.contentItem.children.find(child => child.role === "button");
-                const middle = label.mapToItem(item, 0, 0).x + label.width / 2;
-                verify(Math.abs(middle - item.width / 2) <= 1, item.text + "'s label at " + middle + " stands on its capsule's centre, " + item.width / 2);
+                if (item.iconName === "") {
+                    const label = item.contentItem.children.find(child => child.role === "button");
+                    const middle = label.mapToItem(item, 0, 0).x + label.width / 2;
+                    verify(Math.abs(middle - item.width / 2) <= 1, item.text + "'s label at " + middle + " stands on its capsule's centre, " + item.width / 2);
+                }
             }
             compare(cancel.width, confirm.width, "the answers share the row equally");
             compare(cancel.x, 0, "the quiet answer leads");
             compare(confirm.x - (cancel.x + cancel.width), look.gap);
             compare(confirm.x + confirm.width, cancel.parent.width, "the answers fill the card's row");
-            const form = data.tinted ? look.tinted : look.quiet;
+            const form = look[data.form];
+            verify(String(Qt.color(form.fill)) !== String(Qt.color(look.quiet.fill)), "the answers have distinct fills");
             tryVerify(() => String(cancel.background.color) === String(Qt.color(look.quiet.fill)), 1000, data.cancel + " rests on the quiet fill: " + cancel.background.color);
             tryVerify(() => String(confirm.background.color) === String(Qt.color(form.fill)), 1000, data.confirm + " rests on its fill: " + confirm.background.color);
             compare(String(cancel.foreground), String(Qt.color(look.quiet.ink)));
@@ -282,7 +288,7 @@ Item {
             compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(root.look.ink.question)));
             compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(root.look.ink.path)));
             compare(String(answer("Cancel").foreground), String(Qt.color(root.look.answer.quiet.ink)));
-            compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.quiet.ink)));
+            compare(String(answer("Delete").foreground), String(Qt.color(root.look.answer.danger.ink)));
             put(root.asked);
             compare(String(answer("Yes").foreground), String(Qt.color(root.look.answer.tinted.ink)));
             service.microphoneMute = { kind: "ready", muted: true };
@@ -292,27 +298,27 @@ Item {
 
         // On a layer whose compositor cannot report presentation, no frame
         // can show the request: a line under the answers says it cannot be
-        // accepted, Confirm takes no click and carries the same reason,
+        // accepted, Delete takes no click and carries the same reason,
         // Cancel still answers, and the request is never acknowledged.
         function test_a_request_without_presentation_cannot_be_confirmed() {
             presentedHost.presentationAvailable = false;
             put(root.held);
             const line = labelOf(bubble.unavailableReason);
             compare(line.role, "hint");
-            const confirm = answer("Confirm");
+            const confirm = answer("Delete");
             const cancel = answer("Cancel");
             verify(line.mapToItem(bubble, 0, 0).y >= confirm.mapToItem(bubble, 0, confirm.height).y, "the line stands under the answers");
             compare(confirm.disabledReason, bubble.unavailableReason);
-            compare(confirm.lock.locked, true, "Confirm is unavailable");
+            compare(confirm.lock.locked, true, "Delete is unavailable");
             compare(cancel.lock.locked, false, "Cancel stays available");
             verify(bubble.approvalWhole, "the request's column still draws whole");
             mouseClick(confirm);
-            compare(service.confirmed, null, "Confirm takes no click");
+            compare(service.confirmed, null, "Delete takes no click");
             compare(service.acknowledged.filter(entry => entry.item === bubble).length, 0, "the drawn frames acknowledge nothing");
             presentedHost.presentationAvailable = true;
             tryVerify(() => service.acknowledged.some(entry => entry.item === bubble && entry.hold.id === "a"), 2000,
                 "a presented frame acknowledges the request once presentation returns");
-            compare(confirm.lock.locked, false, "Confirm is available again");
+            compare(confirm.lock.locked, false, "Delete is available again");
             compare(displayedTextItems(bubble).filter(item => displayedText(item) === bubble.unavailableReason && shown(item)).length, 0,
                 "the line leaves with the condition");
         }
@@ -323,7 +329,7 @@ Item {
         function test_a_narrow_layer_shows_the_whole_prompt_before_acknowledging() {
             const text = "Delete the quarterly planning notes for the design review?\n/home/fixture/projects/planning/2026/quarterly/design-review-notes.txt";
             const layer = presentedOn(360, root.height, root.session({ approval: { kind: "held", id: "n", gen: 1, digest: "d", purpose: "action",
-                tool: "files.delete", physical: false, text: text } }));
+                tool: "files.delete", physical: true, verb: "Delete", destructive: true, text: text } }));
             tryVerify(() => acknowledgedOn(layer, "n"), 2000, "the narrow prompt is acknowledged");
             for (const line of text.split("\n")) {
                 const drawn = linesOf(layer, line);
@@ -353,7 +359,7 @@ Item {
         // A long file's payload scrolls in the room the layer leaves, so a
         // 60-line write on a 1040 px layer keeps its answers on the layer:
         // the request is acknowledged with the region in the pointer's
-        // reach, and Confirm answers it.
+        // reach, and Write answers it.
         function test_a_long_payload_leaves_the_prompt_answerable() {
             const layer = presentedOn(root.width, 1040, root.write("w", 60));
             tryVerify(() => acknowledgedOn(layer, "w"), 2000, "the long write is acknowledged");
@@ -362,10 +368,10 @@ Item {
             verify(area.overflowing, "the payload runs past the region");
             verify(inside(layer, area), "the region lies inside the layer");
             verify(layer.inputItems.indexOf(area) !== -1, "the region takes the pointer, so the wheel scrolls it");
-            const confirm = all(layer, []).find(item => item.quiet !== undefined && item.form !== undefined && item.text === "Confirm" && layer.drawn(item));
-            verify(confirm !== undefined && inside(layer, confirm), "Confirm lies inside the layer");
+            const confirm = all(layer, []).find(item => item.quiet !== undefined && item.form !== undefined && item.text === "Write" && layer.drawn(item));
+            verify(confirm !== undefined && inside(layer, confirm), "Write lies inside the layer");
             mouseClick(confirm);
-            verify(service.confirmed !== null && service.confirmed.id === "w", "Confirm answers the long write");
+            verify(service.confirmed !== null && service.confirmed.id === "w", "Write answers the long write");
         }
 
         // A payload at the approval bound, 16 KiB (ToolRouter.js
@@ -379,7 +385,7 @@ Item {
             while (head.length + (body.length + 1) * 2 <= 16 * 1024) body.push("x");
             const text = head + body.join("\n");
             const layer = presentedOn(root.width, 1040, root.session({ approval: { kind: "held", id: "b", gen: 1, digest: "d", purpose: "action",
-                tool: "files.write", physical: false, text: text } }));
+                tool: "files.write", physical: false, verb: "Write", destructive: false, text: text } }));
             tryVerify(() => acknowledgedOn(layer, "b"), 2000, "the write at the bound is acknowledged");
             const area = all(layer, []).find(item => item.overflowing !== undefined && layer.drawn(item));
             verify(area !== undefined, "the payload draws in a scrolled region");

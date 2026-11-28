@@ -17,7 +17,9 @@ function canonical(value) {
 
 // grant is the live-session binding a session grant request names.
 function sentence(call, scope, grant) {
-    let text = Tools.TABLE[call.id].sentence.replace(/\{(\w+)\}/g, (_, field) => {
+    const template = Tools.TABLE[call.id].sentence;
+    let verb = template.split(" ", 1)[0];
+    let text = template.replace(/\{(\w+)\}/g, (_, field) => {
         const value = call.args[field];
         // Without cwd the sandbox runs the command in a new empty folder (Sandbox.js run).
         if (value === undefined) return field === "cwd" && Tools.TABLE[call.id].executor === "sandbox" ? "a new empty folder" : "default";
@@ -36,8 +38,14 @@ function sentence(call, scope, grant) {
     case "files.write": text = "Write " + name(args.path) + "?\n" + args.path + "\nText:\n" + args.text; break;
     case "files.move": text = "Move " + name(args.from) + " to " + name(args.to) + "?\n" + args.from + " → " + args.to; break;
     case "files.delete": text = "Delete " + name(args.path) + "?\n" + args.path; break;
+    // Tools.refine admits only the catalog's actions and browser commands.
+    case "windows.fullscreen":
+    case "windows.float": verb = args.action; break;
+    case "browser": verb = args.command; break;
+    case "harness.command": verb = "Run"; break;
     case "harness.files": {
         const groups = [["write", args.write], ["move", args.move], ["remove", args.remove]].filter(([, files]) => files.length > 0);
+        verb = groups.length === 1 ? groups[0][0] : "Change files";
         const actions = groups.map(([verb, files]) => verb + " " + files.map(name).join(", ")).join("; ");
         const targets = groups.map(([verb, files]) => verb + ": " + files.join(", ")).join("; ");
         text = "Let the brain's program " + (actions || "change files") + "?\n" + targets + "\nChanges:\n" + args.diff;
@@ -51,7 +59,8 @@ function sentence(call, scope, grant) {
             + "\nFirst request:\n" + args.text;
         break;
     }
-    return scope === undefined ? text : text + "\nAllow input in " + scope + " for this conversation. Jarvis can act as you there.";
+    return { verb: verb[0].toUpperCase() + verb.slice(1), text: scope === undefined ? text
+        : text + "\nAllow input in " + scope + " for this conversation. Jarvis can act as you there." };
 }
 
 /**
@@ -329,11 +338,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         case "confirm": {
             const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)
                 + (value.binding === undefined ? "" : "\n" + canonical(value.binding))).digest("hex");
-            const text = sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined);
+            const { text, verb } = sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined);
             if (Buffer.byteLength(text) > RESULT_BYTES) { pending = null; return refuse(value, "approval-size"); }
             const written = record(value, "confirm", "pending");
             if (written.kind === "refuse") { pending = null; return refuse(value, written.reason); }
-            dispatch({ type: "approval", ...proposal, digest, text, physical: decision.physical,
+            dispatch({ type: "approval", ...proposal, digest, text, verb, destructive: decision.effect === "destructive", physical: decision.physical,
                 grantable: decision.grant !== undefined, label: decision.grant === undefined ? "" : decision.line });
             return { kind: "held", id, digest };
         }

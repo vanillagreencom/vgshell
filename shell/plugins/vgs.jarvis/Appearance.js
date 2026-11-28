@@ -211,6 +211,8 @@ var TOKENS = {
         // The canvas, 20% under the 255 px before it (owner); the hit
         // square and the shader instrument's scene follow it.
         size: length(204),
+        // Minimize keeps roughly two fifths of the full diameter.
+        smallSize: length(82),
         // Glass bead's cells per cube edge, full and reduced (the reduced
         // look draws no inner rim strand and the rim's front faces alone).
         cells: number(40, 8, 64),
@@ -299,11 +301,9 @@ var TOKENS = {
     },
     // The approval prompt's answers: two capsules of equal width that fill
     // the card's row. Cancel (No) is quiet, a faint fill on the card;
-    // Confirm (Yes) stands on the theme's accent with the ink that reads
-    // on it, and its fill moves away from that ink under the pointer and,
-    // less far, while pressed, so the label reads in every state under
-    // every accent. They are fills, not glass: a plate inside a plate
-    // draws solid.
+    // The normal confirmation uses the theme's accent with ink that reads
+    // on it. A destructive confirmation has its own red fill. The fills
+    // are solid, since a plate inside a plate draws solid.
     answer: {
         height: length(36),
         paddingX: length(16),
@@ -322,6 +322,12 @@ var TOKENS = {
             hoverFill: color("mix({palette.accent}, contrast({answer.tinted.ink}), 0.12)"),
             pressedFill: color("mix({palette.accent}, contrast({answer.tinted.ink}), 0.05)"),
             ink: color("contrast({palette.accent})")
+        },
+        danger: {
+            fill: color("#a72131"),
+            hoverFill: color("#b82739"),
+            pressedFill: color("#911d2a"),
+            ink: color("#ffffff")
         }
     },
     // The held request's Always allow box over its answers: small, muted

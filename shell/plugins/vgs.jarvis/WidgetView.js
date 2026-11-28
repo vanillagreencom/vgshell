@@ -173,7 +173,7 @@ function report(name, value, tones) {
 // enabled or disabled, before the registry holds its binds.
 function spelledKeys(keys, text) {
     var out = {};
-    var names = ["talk", "voice-mute", "stop", "confirm", "deny", "console"];
+    var names = ["talk", "voice-mute", "stop", "close", "confirm", "deny", "console"];
     for (var i = 0; i < names.length; i++) {
         var key = keys === null ? null : keys[names[i]];
         out[names[i]] = key === null || key === undefined ? null : text(key).text;
@@ -333,19 +333,40 @@ function voiceLoading(values) {
         && !!model && model.tone === "ok" && !offered(model);
 }
 
-function menuEntries(micMuted, voiceMuted, hidden, hideBlock) {
+var STOP = { label: "Stop Jarvis", icon: "square", intent: "stop" };
+var CLOSE = { label: "Close Jarvis", icon: "x", intent: "close" };
+var MORE = { label: "More", icon: "ellipsis", intent: "more" };
+
+function presentationEntries(state) {
+    var hidden = state !== null && state.visibility.kind === "hidden";
+    var hideBlock = Session.hideRefusal(state);
+    var entries = [];
+    if (Session.canClose(state) && !hidden)
+        entries.push(state.orbSize.kind === "small"
+            ? { label: "Restore size", icon: "maximize-2", intent: "restore" }
+            : { label: "Minimize", icon: "minimize-2", intent: "minimize" });
+    entries.push({ label: hidden ? "Show Jarvis" : "Hide Jarvis", icon: hidden ? "eye" : "eye-off", intent: hidden ? "show" : "hide",
+        disabledReason: hidden ? "" : hideBlock === "indicator"
+            ? "Show the Jarvis widget in the bar on the focused screen first"
+            : hideBlock === "not-ready" ? "Wait for Jarvis to start" : "" });
+    return entries;
+}
+
+function muteEntries(micMuted, voiceMuted) {
     return [
-        { label: voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice", icon: voiceMuted ? "volume-2" : "volume-x", intent: "voice-mute" },
+        { label: voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice", icon: voiceMuted ? "volume-x" : "volume-2", intent: "voice-mute" },
         { label: micMuted === true ? "Unmute microphone" : "Mute microphone", icon: micMuted === true ? "mic-off" : "mic", intent: "microphone-mute",
-            disabledReason: micMuted === null ? "Connect a microphone or choose one in Sound" : "" },
-        { label: "Stop Jarvis", icon: "square", intent: "stop" },
-        { label: "New conversation", icon: "message-circle-plus", intent: "new-conversation" },
-        { label: hidden ? "Show Jarvis" : "Hide Jarvis", icon: hidden ? "eye" : "eye-off", intent: hidden ? "show" : "hide",
-            disabledReason: hidden ? "" : hideBlock === "indicator"
-                ? "Show the Jarvis widget in the bar on the focused screen first"
-                : hideBlock === "not-ready" ? "Wait for Jarvis to start" : "" },
-        { label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }
+            disabledReason: micMuted === null ? "Connect a microphone or choose one in Sound" : "" }
     ];
+}
+
+function menuEntries(micMuted, voiceMuted, state) {
+    var entries = muteEntries(micMuted, voiceMuted);
+    if (Session.canStop(state)) entries.push(STOP);
+    if (Session.canClose(state)) entries.push(CLOSE);
+    entries.push({ label: "New conversation", icon: "message-circle-plus", intent: "new-conversation" });
+    return entries.concat(presentationEntries(state),
+        [{ label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }]);
 }
 
 function faultWords(category) {
@@ -497,6 +518,8 @@ function replyCard(log, state, session, caption, voice) {
     var rows = log.filter(function (row) { return row.session === session; });
     var last = rows.length === 0 ? null : rows[rows.length - 1];
     if (last === null || last.role !== "assistant") return null;
+    if (state.approval.kind === "held" && last.gen === state.approval.gen
+            && last.text.trim() === state.approval.text.replace(/\s+/g, " ").trim()) return null;
     var speaking = !muted && phase === "speaking" && caption !== null && caption.role === "assistant" && caption.gen === last.gen;
     return { key: last.gen + ":" + last.at, answer: { gen: last.gen, at: last.at }, mode: speaking ? "follow" : "answer",
         fault: null, settled: turnSettled(state) };
