@@ -18,7 +18,7 @@
 // A file reference travels as the page `file:<path>` with no tab, so
 // every owner that hands a page reference on hands a file reference on
 // unchanged, and the one that opens it reads the path back (file). No
-// plugin id holds a colon (PluginLogic.ID_PATTERN).
+// plugin id holds a colon (ConfigLogic.PLUGIN_ID_PATTERN).
 
 var REFERENCE = /\[([^\[\]]+)\]\((?:page:([^\s()\/]*)(?:\/((?:Settings|Setup|Details)\/[^\s()\/]+|[^\s()\/]+))?|file:((?:[A-Za-z0-9_.!~*'\-]|%[0-9A-Fa-f]{2})+))\)/;
 var FILE_SCHEME = "file:";

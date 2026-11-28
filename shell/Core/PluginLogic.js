@@ -397,8 +397,6 @@ function hasOwn(obj, key) {
     return obj !== null && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-var ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
-
 // First-party plugins carry this prefix. They are enabled unless disabled;
 // every other plugin is enabled only when the configuration names it.
 var FIRST_PARTY_PREFIX = "vgs.";
@@ -2636,7 +2634,7 @@ function requirementIdentity(requirement, at) {
     if (hasCommand) {
         if (!PackageManagers.validCommand(requirement.command))
             return { ok: false, error: at + ".command must be a bare command name looked up on PATH, got " + JSON.stringify(requirement.command) };
-        if (ID_PATTERN.test(requirement.command))
+        if (ConfigLogic.PLUGIN_ID_PATTERN.test(requirement.command))
             return { ok: false, error: at + ".command " + JSON.stringify(requirement.command) + " is spelt as a plugin id: a requirement names a command or D-Bus name, never a plugin (D005)" };
         return { ok: true, at: at + ".command", name: requirement.command };
     }
@@ -3294,7 +3292,7 @@ function installFailuresRead(text) {
     for (var i = 0; i < ids.length; i++) {
         var id = ids[i];
         var e = value[id];
-        var valid = ID_PATTERN.test(id) && isPlainObject(e) && Object.keys(e).length === 8
+        var valid = ConfigLogic.PLUGIN_ID_PATTERN.test(id) && isPlainObject(e) && Object.keys(e).length === 8
             && (e.state === "pending" || e.state === "failed")
             && ((e.state === "failed" && e.run === null) || (typeof e.run === "string" && TUI_RUN_PATTERN.test(e.run)))
             && typeof e.manager === "string" && PackageManagers.managerRow(e.manager) !== null && typeof e.primary === "boolean"
@@ -4240,7 +4238,7 @@ function tuiCore(core, coreBin, runner, name, args, owner) {
 // tuiRunFor does, so every route that opens a listed script raises the same
 // notice.
 function tuiOpen(manifests, enabledIds, sourceDir, coreBin, runner, core, missing, key) {
-    var scoped = scopedName(key);
+    var scoped = ConfigLogic.scopedName(key);
     if (scoped === null)
         return tuiRefusal(key, "undeclared");
     var owner = scoped.owner;
@@ -4429,21 +4427,10 @@ function tuiLaunchDone(completion) {
     return { code: null, reason: "launcher-failed", package: null };
 }
 
-// KEY split at its first slash as { owner, name }, NAME a
-// ConfigLogic.NAME_PATTERN name, or null for any other value. The caller
-// judges the owner: a launch key takes `core` or a plugin id, a former id
-// a plugin id.
-function scopedName(key) {
-    var slash = typeof key === "string" ? key.indexOf("/") : -1;
-    if (slash === -1 || !ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1)))
-        return null;
-    return { owner: key.slice(0, slash), name: key.slice(slash + 1) };
-}
-
 // Whether KEY is a launch key: `core/<name>` or `<plugin id>/<name>`.
 function tuiKeyValid(key) {
-    var scoped = scopedName(key);
-    return scoped !== null && (scoped.owner === "core" || ID_PATTERN.test(scoped.owner));
+    var scoped = ConfigLogic.scopedName(key);
+    return scoped !== null && (scoped.owner === "core" || ConfigLogic.PLUGIN_ID_PATTERN.test(scoped.owner));
 }
 
 // One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record,
@@ -5257,7 +5244,7 @@ function instanceCapabilities(manifest, kind) {
 
 // The rename map of a scan, MANIFESTS being its id to manifest map in
 // scan order and SOURCE_OF naming where a manifest was found, `bundled` or
-// `installed` as Registry.sourceOf names it. Returns { renames, ignored }:
+// `installed` as Registry.sourceOf names it. Returns { renames, ignored, splits }:
 // RENAMES maps each former id a bundled manifest declares in `formerIds` to
 // that manifest's id, and IGNORED holds one { id, reason, formerIds } entry
 // for each claim the map leaves out, by reason:
@@ -5270,10 +5257,10 @@ function instanceCapabilities(manifest, kind) {
 // A left-out claim does not refuse its manifest. bin/lib/check-manifests.js
 // holds the shipped manifests to one claimant per former id and no former
 // id that a shipped plugin holds. Registry logs IGNORED and hands RENAMES
-// to Config.adoptRenames, which renames the user file by it
-// (ConfigLogic.renamePlugins). SPLITS holds each bundled splitFrom claim
-// as { from, to, keys }, the target settings keys alone. An installed
-// splitFrom is included in its one ignored record, never in SPLITS.
+// and SPLITS to Config.adoptRenames for ConfigLogic.migratePlugins.
+// SPLITS holds each bundled splitFrom claim as { from, to, keys }, with
+// the target settings keys. An installed splitFrom is included in its
+// one ignored record.
 function formerIdClaims(manifests, sourceOf) {
     var renames = {}, ignored = [], splits = [];
     Object.keys(manifests).forEach(function (id) {
@@ -5324,7 +5311,7 @@ function validateManifest(raw, sourceDir) {
     }
     if (raw.schemaVersion !== 1)
         return { ok: false, error: "schemaVersion must be 1, got " + JSON.stringify(raw.schemaVersion) };
-    if (typeof raw.id !== "string" || !ID_PATTERN.test(raw.id))
+    if (typeof raw.id !== "string" || !ConfigLogic.PLUGIN_ID_PATTERN.test(raw.id))
         return { ok: false, error: "id must be dotted and author-namespaced, got " + JSON.stringify(raw.id) };
     // The ids the plugin shipped under before, each a converter step a
     // user file is renamed by (formerIdClaims, ConfigLogic.renamePlugins):
@@ -5335,8 +5322,9 @@ function validateManifest(raw, sourceDir) {
             return { ok: false, error: "formerIds must be a non-empty list of plugin ids" };
         for (var f = 0; f < raw.formerIds.length; f++) {
             var former = raw.formerIds[f];
-            var builtin = scopedName(former);
-            var formerValid = builtin !== null ? ID_PATTERN.test(builtin.owner) : typeof former === "string" && ID_PATTERN.test(former);
+            var builtin = ConfigLogic.scopedName(former);
+            var formerValid = builtin !== null ? ConfigLogic.PLUGIN_ID_PATTERN.test(builtin.owner)
+                : typeof former === "string" && ConfigLogic.PLUGIN_ID_PATTERN.test(former);
             if (!formerValid)
                 return { ok: false, error: "formerIds." + f + " must be dotted and author-namespaced, or a built-in's <plugin id>/<name>, got " + JSON.stringify(former) };
             if (former === raw.id)
@@ -5346,7 +5334,7 @@ function validateManifest(raw, sourceDir) {
         }
     }
     if (raw.splitFrom !== undefined) {
-        if (typeof raw.splitFrom !== "string" || !ID_PATTERN.test(raw.splitFrom))
+        if (typeof raw.splitFrom !== "string" || !ConfigLogic.PLUGIN_ID_PATTERN.test(raw.splitFrom))
             return { ok: false, error: "splitFrom must be dotted and author-namespaced" };
         if (raw.splitFrom === raw.id || (raw.formerIds || []).indexOf(raw.splitFrom) !== -1)
             return { ok: false, error: "splitFrom must differ from id and formerIds" };
@@ -6185,7 +6173,7 @@ function landsShown(manifest) {
 // Whether MANIFEST's formerIds name a built-in's registration id
 // `<plugin id>/<name>`: the plugin was drawn as that built-in.
 function leftBuiltin(manifest) {
-    return (manifest.formerIds || []).some(function (former) { return scopedName(former) !== null; });
+    return (manifest.formerIds || []).some(function (former) { return ConfigLogic.scopedName(former) !== null; });
 }
 
 // The ids of the plugins in MANIFESTS whose widget takes its first presence

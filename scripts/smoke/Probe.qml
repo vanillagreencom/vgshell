@@ -3014,11 +3014,6 @@ Scope {
                         }) };
                 }) });
         }
-        function builtinContentProperty(hostKey: string, id: string, key: string): string {
-            const item = root.instance(hostKey, id);
-            const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Clock");
-            return content === undefined || content[key] === undefined ? "absent" : root.json(content[key]);
-        }
         function barWidgetFrameFacts(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             return item === null || item.frame === null ? "absent" : root.json(item.frame.describe());

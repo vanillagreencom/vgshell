@@ -731,7 +731,7 @@ done
 [[ $scale == 1 || $scale == 2 ]] || { printf 'sandbox-shots: refused: scale=%s\n' "$scale" >&2; exit 2; }
 [[ -z $shot_size || $shot_size =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { printf 'sandbox-shots: refused: size=%s\n' "$shot_size" >&2; exit 2; }
 [[ $theme_card =~ ^[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: theme-card=%s\n' "$theme_card" >&2; exit 2; }
-# A plugin id has the shape of ID_PATTERN in shell/Core/PluginLogic.js.
+# A plugin id has the shape of PLUGIN_ID_PATTERN in shell/Core/ConfigLogic.js.
 plugin_id='[a-z0-9]+(\.[a-z0-9-]+)+'
 if [[ -n ${enable_arg+set} ]]; then
   [[ $enable_arg =~ ^$plugin_id(,$plugin_id)*$ ]] || { printf 'sandbox-shots: refused: enable=%s\n' "$enable_arg" >&2; exit 2; }
@@ -4834,8 +4834,8 @@ scene_ai-usage-hide() { # MODE
 usage_shot_cards() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"]] for r in json.load(sys.stdin)]))'; }
 
 # The widget chooser as the empty bar's menu summons it, at the left of
-# the first output, with its three row states at the top of the list,
-# above the fold: the widget-only Tick fixture on the bar, AI Usage, a
+# the first output, with its three row states near the top of the list:
+# the widget-only Tick fixture on the bar, AI Usage, a
 # plugin with other kinds, on and off the bar, and Displays, a plugin with
 # other kinds whose requirements are all optional, so turning it on
 # raises no notice, turned off; its link turns it on and puts its widget
@@ -4887,14 +4887,15 @@ scene_add-widget() { # MODE
   else
     fail "the click on AI Usage's control failed"
   fi
-  x=""
-  if [[ $switches == true ]]; then
-    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow Displays RowAction "Enable plugin")" || rect=""
-  else
-    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow Displays Button Settings)" || rect=""
-  fi
-  [[ $rect == \[* ]] && read -r x y < <(at_centre window:Bar "$rect") || x=""
-  if [[ ${x:-} =~ ^[0-9]+$ ]] && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+  # Displays can sit partly below the scroll viewport in the open window.
+  local shown display_control=(Button Settings)
+  if [[ $switches == true ]]; then display_control=(RowAction "Enable plugin"); fi
+  if ! shown="$(ipc smoke revealScopedText window vgs.bar ContentRow Displays "${display_control[@]}")" \
+    || [[ ! $shown =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    fail "the chooser could not reveal Displays' control (${shown:-unreadable})"
+  elif rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow Displays "${display_control[@]}")" \
+    && [[ $rect == \[* ]] && read -r x y < <(at_centre window:Bar "$rect") \
+    && [[ $x =~ ^[0-9]+$ ]] && hover "$((x - 1))" "$y" && click "$x" "$y"; then
     if [[ $switches == true ]]; then
       expect_poll "Enable plugin turns Displays on and puts it on the bar" '"remove"' add_widget_shot_action vgs.displays
       read -r x y < <(window_point window:Bar window vgs.bar Label "$title") && hover "$x" "$y" || fail "the pointer did not return to the chooser's title"
@@ -4916,7 +4917,10 @@ import json,sys
 w,m=sys.argv[1],json.loads(sys.argv[2])
 if not w.startswith("[") or not m: print("none 0 0"); raise SystemExit
 a,s,at=json.loads(w)
-print(a, s[0], m[0]["height"]-(at[1]-m[0]["y"])-40)
+monitor = m[0]
+height_px = monitor["width"] if monitor["transform"] % 2 else monitor["height"]
+logical_height = round(height_px / monitor["scale"])
+print(a, s[0], logical_height - (at[1] - monitor["y"]) - 40)
 PY
   ) && [[ $address == 0x* ]]; then
     expect "the chooser is dragged taller" ok hypr dispatch "hl.dsp.window.resize({ x = $width, y = $height, relative = false, window = \"address:$address\" })"

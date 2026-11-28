@@ -20,7 +20,8 @@
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
 # loads: scripts/smoke/rows/hyprland-consent.sh -- state another row leaves
-# loads: shell/Hosts/AppWindow.qml -- a startup file the row observes
+# loads: config/shell.json shell/Hosts/AppWindow.qml -- a startup file the row observes
+# loads: scripts/smoke/fixtures/plugins/fixed-builtin/FixedItem.qml -- copy_fixed_builtin_tree supplies the fixed builtin
 set -euo pipefail
 leak_plugin_setup acme.probe true acme.bare true || { fail "manager: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
@@ -1218,6 +1219,22 @@ expect_poll "the fixture's service is built again" True record_exists acme.probe
 expect "the Settings window hides after the refusals" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the refusals" 0 window_count Plugins
 
+# The last checks use a disposable Bar with a fixed builtin. Restore the
+# user file and stock tree after its move and cleanup cycles.
+local manager_builtin_entry="$sandbox/shell-manager-builtin-entry.json"
+manager_builtin_services() {
+  ipc shell built | py_reply 'import json,sys; print(json.dumps(sorted(r["id"] for r in json.load(sys.stdin).get("service", []))))'
+}
+local manager_services_before
+manager_services_before="$(manager_builtin_services)" || { fail "manager: the built services could not be read"; return 1; }
+cp -- "$user_file" "$manager_builtin_entry"
+copy_fixed_builtin_tree manager-builtin || { fail "manager: fixed builtin tree could not be prepared"; return 1; }
+stop_shell || return 1
+user_config_write fixed_builtin_layout "$user_file" || { fail "manager: fixed builtin profile could not be written"; return 1; }
+start_shell "$sandbox/tree-manager-builtin" "$sandbox/manager-builtin.log" || return 1
+expect_builtins "the disposable bar registers the fixed item" '["vgs.bar/fixed-item"]'
+expect_poll "the disposable shell has built the same services before cleanup checks" "$manager_services_before" manager_builtin_services
+
 # Builtin presence is the ordinary layout entry. Test writes use the same
 # section lists as external configuration edits and preserve plugin entries.
 bar_builtin_present() { # ID true|false SECTION
@@ -1233,13 +1250,12 @@ with open(path + ".tmp", "w") as out: json.dump(doc, out)
 os.replace(path + ".tmp", path)
 PYREAD
 }
-expect "a foreign builtin ID cannot move" "unknown: other.bar/center-clock" ipc shell movePluginWidget other.bar/center-clock left 0
+expect "a foreign builtin ID cannot move" "unknown: other.bar/fixed-item" ipc shell movePluginWidget other.bar/fixed-item left 0
 expect "an unadvertised builtin ID cannot move" "unknown: vgs.bar/unknown" ipc shell movePluginWidget vgs.bar/unknown left 0
-expect "the clock can move through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
-expect_builtins "moving the clock keeps its registration ID" '["vgs.bar/center-clock"]'
-read_moved_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock format; }
-expect "the moved clock still receives the bar format" '"HH:mm:ss"' read_moved_clock
-expect "the clock returns to center through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
+expect "the fixed item can move through the ordinary API" ok ipc shell movePluginWidget vgs.bar/fixed-item left 0
+expect_builtins "moving the fixed item keeps its registration ID" '["vgs.bar/fixed-item"]'
+expect "the moved fixed item still displays its catalogue label" '"Fixed item"' ipc smoke readDescendant "$(bar_key)" vgs.bar/fixed-item BarItem text
+expect "the fixed item returns to center through the ordinary API" ok ipc shell movePluginWidget vgs.bar/fixed-item center 0
 
 # Each bar stays alive while its built-ins change. The pending callbacks
 # must describe only its current capability holds and live built-ins.
@@ -1248,14 +1264,18 @@ bar_cleanup_balanced() {
 }
 builtin_builds_before="$(builds)"
 for builtin_cycle in {1..12}; do
-  bar_builtin_present vgs.bar/center-clock false center
-  expect_builtins "built-in cleanup cycle $builtin_cycle removes the clock" '[]'
+  bar_builtin_present vgs.bar/fixed-item false center
+  expect_builtins "built-in cleanup cycle $builtin_cycle removes the fixed item" '[]'
   expect_poll "built-in cleanup cycle $builtin_cycle keeps only live callbacks" True bar_cleanup_balanced
-  bar_builtin_present vgs.bar/center-clock true center
-  expect_builtins "built-in cleanup cycle $builtin_cycle restores the clock" '["vgs.bar/center-clock"]'
+  bar_builtin_present vgs.bar/fixed-item true center
+  expect_builtins "built-in cleanup cycle $builtin_cycle restores the fixed item" '["vgs.bar/fixed-item"]'
   expect_poll "built-in cleanup cycle $builtin_cycle forgets released callbacks" True bar_cleanup_balanced
   expect "built-in cleanup cycle $builtin_cycle preserves the bar lifetime" "$builtin_builds_before" builds
 done
-# The last cycle's layout change remaps the bar; the row ends once every
-# monitor holds its bar surface again, as it found them.
+# A layout change can remap the fixture bar. Wait for its last remap
+# before restoring the stock configuration and shell.
 expect_poll "every monitor holds its bar surface again after the cleanup cycles" "$monitors" bar_count
+stop_shell || return 1
+user_config_restore "$manager_builtin_entry" || { fail "manager: the stock profile could not be restored"; return 1; }
+start_shell "$repo" "$sandbox/manager-builtin-stock-restored.log" || return 1
+expect_poll "every monitor holds its stock bar surface again" "$monitors" bar_count

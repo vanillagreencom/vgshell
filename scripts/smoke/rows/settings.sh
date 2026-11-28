@@ -1447,23 +1447,23 @@ expect_poll "the saved custom device reads as Custom… with its text in the edi
 expect "the user can return to automatic selection from a custom device" chosen choose_device 0
 expect_poll "automatic selection stores the empty string again" '""' user_device
 
-# Preset fields: the Bar clock format is a datetime preset Select with a
+# Preset fields: the Clock format is a datetime preset Select with a
 # trailing Custom… entry. Presets write their stable format string. Custom…
 # opens the custom row without writing, invalid datetime formats show the
 # shared problem text and do not write, and a valid custom format writes
 # once Enter is pressed in its field.
-clock_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.bar","key":"clockFormat"}'; }
+clock_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.clock","key":"clockFormat"}'; }
 clock_state() { clock_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([len(d["model"]), d["model"][-1]["label"], d["enabled"]]))'; }
 clock_model() { clock_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["model"]))'; }
 clock_model_edges() { clock_model | py_reply 'import json,sys; m=json.load(sys.stdin); print(json.dumps([m[0]["value"], m[-1]["label"]]))'; }
-clock_previews() { ipc smoke invokeInstance window vgs.settings fieldPresetPreviews '{"id":"vgs.bar","key":"clockFormat"}'; }
-clock_custom() { ipc smoke invokeInstance window vgs.settings fieldCustom '{"id":"vgs.bar","key":"clockFormat"}'; }
+clock_previews() { ipc smoke invokeInstance window vgs.settings fieldPresetPreviews '{"id":"vgs.clock","key":"clockFormat"}'; }
+clock_custom() { ipc smoke invokeInstance window vgs.settings fieldCustom '{"id":"vgs.clock","key":"clockFormat"}'; }
 clock_custom_state() { clock_custom | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["visible"], d["text"], d["error"], d["preview"] == d["formatted"], d["previewBox"][2] > 0]))'; }
-choose_clock() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.bar\",\"key\":\"clockFormat\",\"index\":$1}"; }
-edit_clock_custom() { ipc smoke invokeInstance window vgs.settings editFieldCustom "$(python3 -c 'import json,sys; print(json.dumps({"id":"vgs.bar","key":"clockFormat","text":sys.argv[1]}))' "$1")"; }
-user_clock() { python3 -c 'import json,sys; print(json.dumps(next(r["clockFormat"] for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.bar")))' "$home/.config/vgshell/shell.json"; }
-bar_reply() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("vgs.bar", "")))'; }
-expect "the window opens the Bar page for preset field checks" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.bar
+choose_clock() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.clock\",\"key\":\"clockFormat\",\"index\":$1}"; }
+edit_clock_custom() { ipc smoke invokeInstance window vgs.settings editFieldCustom "$(python3 -c 'import json,sys; print(json.dumps({"id":"vgs.clock","key":"clockFormat","text":sys.argv[1]}))' "$1")"; }
+user_clock() { python3 -c 'import json,sys; print(json.dumps(next(r["clockFormat"] for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.clock")))' "$home/.config/vgshell/shell.json"; }
+clock_settings_reply() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("vgs.clock", "")))'; }
+expect "the window opens the Clock page for preset field checks" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.clock
 expect_poll "the clock format Select has every preset and Custom last" '[9, "Custom\u2026", true]' clock_state
 expect "the clock preset model carries the current default first and Custom last" '["ddd d MMM  HH:mm", "Custom\u2026"]' clock_model_edges
 expect_poll "every clock preset previews with Qt.formatDateTime" '[]' clock_previews
@@ -1477,7 +1477,7 @@ expect "an invalid custom clock edit is typed into the editor" edited edit_clock
 type_keys -k Return || fail "sending Return to the invalid custom clock format failed"
 expect_poll "the invalid custom clock format shows the shared problem" '[true, "'\''abc", "Close the quoted text.", true, false]' clock_custom_state
 expect "the invalid custom clock format writes nothing" "$clock_changes" config_changes
-expect "the invalid custom clock format raises no manager refusal" '""' bar_reply
+expect "the invalid custom clock format raises no manager refusal" '""' clock_settings_reply
 expect "a valid custom clock edit is typed into the editor" edited edit_clock_custom "yyyy-MM-dd HH:mm:ss"
 expect "a typed custom clock format is not written before Enter" "$clock_changes" config_changes
 type_keys -k Return || fail "sending Return to the valid custom clock format failed"
@@ -1713,43 +1713,43 @@ settings_tab_reveal() {
 expect "Tab scrolls the page to bring each focused row into view" ok settings_tab_reveal
 rest_pointer || fail "moving the pointer off the Settings window failed"
 
-# Open with, on the Bar page: the select offers the default browser and
-# each profile of the Chromium-family browsers, which the bar's service
+# Open with, on the Clock page: the select offers the default browser and
+# each profile of the Chromium-family browsers, which Clock's service
 # reads from each browser's `Local State` when the list opens. The fixture
 # configurations (scripts/smoke/fixtures/browsers/) are planted under the
 # sandbox's configuration only after the service's first read, so only a
 # read at the open can list them, and removed after. Every browser command
 # resolves to the device fakes' stand-in (scripts/smoke/devices.sh), which
 # records its argv, so the day the calendar opens in the chosen profile
-# starts no browser. The control is a copy of the bar whose service answers
+# starts no browser. The control is a copy of Clock whose service answers
 # the open without a read: the same listing then misses the profiles.
-open_with_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.bar","key":"openWith"}'; }
+open_with_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.clock","key":"openWith"}'; }
 open_with_listed() { open_with_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["list"]["open"], [c["label"] for c in d["model"]]]))'; }
 open_with_model() { open_with_field | py_reply 'import json,sys; print(json.dumps([[c["label"], c["value"]] for c in json.load(sys.stdin)["model"]]))'; }
 # Space on the select, focused as Tab focuses it, opens its list.
 open_with_open() {
-  [[ $(ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.bar","key":"openWith"}') == focused ]] || { echo unfocused; return; }
+  [[ $(ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.clock","key":"openWith"}') == focused ]] || { echo unfocused; return; }
   type_keys -k space && echo ok
 }
-choose_open_with() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.bar\",\"key\":\"openWith\",\"index\":$1}"; }
-user_open_with() { python3 -c 'import json,sys; print(json.dumps(next((r.get("openWith", "absent") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.bar"), "absent")))' "$home/.config/vgshell/shell.json"; }
+choose_open_with() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.clock\",\"key\":\"openWith\",\"index\":$1}"; }
+user_open_with() { python3 -c 'import json,sys; print(json.dumps(next((r.get("openWith", "absent") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.clock"), "absent")))' "$home/.config/vgshell/shell.json"; }
 plant_browsers() { cp -R -- "$repo/scripts/smoke/fixtures/browsers/." "$home/.config/"; }
 remove_browsers() { rm -rf -- "${home:?}/.config/chromium" "${home:?}/.config/BraveSoftware"; }
 open_with_profiles='[true, ["Default browser", "Chromium: Person 1", "Chromium: Work", "Brave: Home"]]'
-expect "the window opens the Bar page for Open with" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.bar
-expect_poll "before any open the select offers the default browser alone" '[false, ["Default browser"]]' open_with_listed
+expect "the window opens the Clock page for Open with" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.clock
+expect_poll "before any open the select shows the default browser and the unavailable saved choice" '[false, ["Default browser", "Open with (unavailable)"]]' open_with_listed
 plant_browsers
+expect "the closed select keeps the saved choice without listing profiles from disk" '[["Default browser", ""], ["Open with (unavailable)", "chromium/Default"]]' open_with_model
 expect "Space opens the Open with list" ok open_with_open
 expect_poll "the open list reads each fixture profile, the default browser first" "$open_with_profiles" open_with_listed
 expect "each profile offers its browser and directory, the default browser the unset value" '[["Default browser", ""], ["Chromium: Person 1", "chromium/Default"], ["Chromium: Work", "chromium/Profile 1"], ["Brave: Home", "brave/Profile 2"]]' open_with_model
 expect "choosing Brave: Home is allowed" chosen choose_open_with 3
 expect_poll "the file stores the browser and its profile directory" '"brave/Profile 2"' user_open_with
-# A day of this month that is not today, through Google Calendar, the
-# default the row leaves the calendar on.
+# Open a day of this month at the address from the migrated Bar settings.
 expect "the shell resolves brave to the device stand-in" "$shim/brave" shell_resolves brave
 read -r open_with_day open_with_url < <(python3 -c 'import datetime
 t=datetime.date.today(); d=14 if t.day==15 else 15
-print(d, "https://calendar.google.com/calendar/r/day/%d/%d/%d" % (t.year, t.month, d))')
+print(d, "https://example.invalid/calendar/%d/%d/%d" % (t.year, t.month, d))')
 open_with_before="$(device_calls brave | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
 open_with_calls() { device_calls brave | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$open_with_before"; }
 device_reply brave 0 "" "--profile-directory=Profile 2" "$open_with_url"
@@ -1766,16 +1766,19 @@ expect "Space opens the Open with list with no browser profile on disk" ok open_
 expect_poll "with no Chromium-family profile the open list offers the default browser alone" '[true, ["Default browser"]]' open_with_listed
 type_keys -k Escape || fail "closing the Open with list failed"
 expect_poll "Escape closes the Open with list" '[false, ["Default browser"]]' open_with_listed
-expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.bar')
-open_with_copy="$home/.config/vgshell/plugins/vgs.bar"
+expected_errors+=(
+  'plugins: hidden by a higher-precedence plugin with the same id: vgs\.clock'
+  'plugins: former id claim ignored id=vgs\.clock reason=installed formerIds=vgs\.bar/center-clock$'
+)
+open_with_copy="$home/.config/vgshell/plugins/vgs.clock"
 rm -rf -- "${open_with_copy:?}"
-cp -R -- "$repo/shell/plugins/vgs.bar" "$open_with_copy"
+cp -R -- "$repo/shell/plugins/vgs.clock" "$open_with_copy"
 if python3 -c 'import sys
 path, old, new = sys.argv[1:]
 text = open(path).read()
 if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
 open(path, "w").write(text.replace(old, new))' "$open_with_copy/Service.qml" \
-  'handleRefresh("browserProfiles", () => root.readProfiles())' 'handleRefresh("browserProfiles", () => console.info("vgs.bar: profiles read=off"))'; then
+  'handleRefresh("browserProfiles", () => root.readProfiles())' 'handleRefresh("browserProfiles", () => console.info("vgs.clock: profiles read=off"))'; then
   ok "the Open with control answers the open without a read"
 else
   fail "the Open with control could not be written"
@@ -1784,7 +1787,7 @@ rescan "a rescan picks the Open with control"
 expect_poll "control: the copy's service publishes the default browser at its start" '[false, ["Default browser"]]' open_with_listed
 plant_browsers
 expect "control: Space opens the copy's Open with list" ok open_with_open
-expect_log "control: the copy's service answers the open" 1 'vgs\.bar: profiles read=off'
+expect_log "control: the copy's service answers the open" 1 'vgs\.clock: profiles read=off'
 expect "control: with the read off the open list misses the fixture profiles" '[true, ["Default browser"]]' open_with_listed
 type_keys -k Escape || fail "control: closing the Open with list failed"
 remove_browsers

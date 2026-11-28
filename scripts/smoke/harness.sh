@@ -1056,11 +1056,11 @@ except (ValueError, KeyError, TypeError):
   fi
 }
 nested_xwayland_check
-# The shipped bar carries its clock as a built-in, so the widget rows use a
-# third-party widget placed in the user file before the shell starts. The
-# file places the workspaces in their old form, the Bar's built-in
-# vgs.bar/left-workspaces, which the shell renames to vgs.workspaces at its
-# first read (formerIds, D108); rows/bar.sh reads the renamed file. The launcher and the notifications, first-party and so
+# The widget rows use a third-party widget placed in the user file before
+# the shell starts. The file places the workspaces and clock under their
+# former Bar IDs and saves the clock's settings on the Bar. rows/bar.sh
+# reads back the renamed placements and the clock's migrated settings.
+# The launcher and the notifications, first-party and so
 # enabled by default, start disabled here: their shortcuts, IPC targets,
 # notification subscriber and server would sit in every lending record the
 # capability rows read back. rows/launcher.sh and rows/notifications.sh
@@ -1485,7 +1485,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     user_config_write cat <<'JSON'
-{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop", "vgs.local-sync"] }
+{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }, { "id": "vgs.bar", "clockFormat": "dddd HH:mm", "calendarUrl": "https://example.invalid/calendar/{year}/{month}/{day}", "openWith": "chromium/Default" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop", "vgs.local-sync"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;
@@ -2918,19 +2918,60 @@ shell_crash_consume() { # FILE
   done
   expect_poll "the expected crash's reporter window is closed" 0 shell_crash_reporters
 }
-# copy_tree NAME: a copy of the tree at $sandbox/tree-NAME, with its own
-# bin/ and shell/. edit_tree NAME FILE OLD NEW: in that copy, OLD in FILE,
-# a path under it, replaced by NEW; returns 1, with the row failed, unless
-# OLD occurs once and the file changed.
-copy_tree() { # NAME
-  local tree="$sandbox/tree-$1" dir file
-  rm -rf -- "${tree:?}"
-  mkdir -p -- "$tree"
-  cp -R -- "$repo/shell" "$tree/shell"
-  cp -R -- "$repo/bin" "$tree/bin"
-  for dir in config themes; do ln -s -- "$repo/$dir" "$tree/$dir"; done
-  for file in VERSION LICENSE README.md; do cp -- "$repo/$file" "$tree/$file"; done
+# copy_tree NAME [SOURCE]: a copy of SOURCE (the run tree by default) at
+# $sandbox/tree-NAME, with its own bin/ and shell/.
+copy_tree() { # NAME [SOURCE]
+  local tree="$sandbox/tree-$1" source="${2:-$repo}" dir file
+  rm -rf -- "${tree:?}" || return
+  mkdir -p -- "$tree" || return
+  cp -R -- "$source/shell" "$tree/shell" || return
+  cp -R -- "$source/bin" "$tree/bin" || return
+  for dir in config themes; do ln -s -- "$source/$dir" "$tree/$dir" || return; done
+  for file in VERSION LICENSE README.md; do cp -- "$source/$file" "$tree/$file" || return; done
 }
+# fixed_builtin_layout FILE: emit the given layout with the fixture in
+# place of Clock. Both shipped defaults and the row's user file take the
+# substitution so the same placement rule can restore the removed item.
+fixed_builtin_layout() { # FILE
+  python3 - "$1" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as source:
+    profile = json.load(source)
+entries = [entry for section in profile["bar"]["layout"].values()
+           for entry in section if entry["id"] == "vgs.clock"]
+if len(entries) != 1:
+    sys.exit(f"fixed-builtin: {path} has {len(entries)} Clock placements, expected one")
+entries[0]["id"] = "vgs.bar/fixed-item"
+print(json.dumps(profile))
+PY
+}
+
+# Give the ordinary Bar catalogue a fixed member in a disposable tree.
+# The production repeater, wrapper and registration still own its lifetime.
+copy_fixed_builtin_tree() { # NAME
+  local name="$1" tree="$sandbox/tree-$1"
+  copy_tree "$name" || return
+  edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
+    $'readonly property var builtinNames: []\n    readonly property var builtinLabels: ({})' \
+    $'readonly property var builtinNames: Object.keys(builtinLabels)\n    readonly property var builtinLabels: ({ "fixed-item": "Fixed item" })' || return
+  edit_tree "$name" shell/plugins/vgs.bar/Builtin.qml \
+    'Accessible.name: root.barItem.familyLabels[root.family]' \
+    'Accessible.name: root.family === "" ? root.barItem.builtinLabels[root.name] : root.barItem.familyLabels[root.family]' || return
+  edit_tree "$name" shell/plugins/vgs.bar/Builtin.qml \
+    $'frameHideText: "Remove " + root.family\n        frameHideIcon: "trash"' \
+    $'frameHideText: root.family === "" ? "Hide" : "Remove " + root.family\n        frameHideIcon: root.family === "" ? "eye-off" : "trash"' || return
+  edit_tree "$name" shell/plugins/vgs.bar/Builtin.qml \
+    'sourceComponent: root.family === "gap" ? gap : separator' \
+    $'sourceComponent: root.name === "fixed-item" ? fixedItem : root.family === "gap" ? gap : separator\n            Component { id: fixedItem; FixedItem { label: root.barItem.builtinLabels[root.name] } }' || return
+  cp -- "$repo/scripts/smoke/fixtures/plugins/fixed-builtin/FixedItem.qml" "$tree/shell/plugins/vgs.bar/" || return
+  unlink -- "$tree/config" || return
+  cp -R -- "$repo/config" "$tree/config" || return
+  fixed_builtin_layout "$repo/config/shell.json" >"$tree/config/shell.json"
+}
+
+# edit_tree NAME FILE OLD NEW: replace OLD in FILE inside the named copy.
+# Fail the row unless OLD occurs once and the file changes.
 edit_tree() { # NAME FILE OLD NEW
   local path="$sandbox/tree-$1/$2"
   cp -- "$path" "$path.orig"

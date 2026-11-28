@@ -9,9 +9,9 @@ set -euo pipefail
 
 bar_font_family() { ipc smoke readInstance "$(bar_key)" vgs.bar fontFamily; }
 expect "the bar API names the family of the bar role" '"JetBrains Mono"' bar_font_family
-# The clock's calendar, the bar's panel: a click on the clock opens it on
+# A click on Clock opens the calendar panel on
 # this month, Left and Right and its month buttons switch the month, a
-# click on a day opens that day in the default web calendar and closes it,
+# click on a day opens it at the saved calendar address and closes it,
 # and Escape or a second click on the clock closes it. The reading is the
 # drawn title, the count of day buttons and the days whose button takes
 # the primary fill: Qt's month grid holds 42 days for every month, so the
@@ -22,7 +22,7 @@ expect "the bar API names the family of the bar role" '"JetBrains Mono"' bar_fon
 # whose month names are English.
 calendar_off() {
   local rows bar_box
-  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
+  rows="$(ipc smoke descendantGeometry panel vgs.clock)" || return
   bar_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar)" || return
   py_dumps "$rows" "$bar_box" <<'PY'
 import json, sys
@@ -33,14 +33,6 @@ rows, bar = (json.loads(a) for a in sys.argv[1:])
 print(len([1 for r in rows if r["type"] == "Button" and (r["box"][0] < bar[0] or r["box"][0] + r["box"][2] > bar[0] + bar[2] or r["box"][1] < bar[1])]))
 PY
 }
-clock_click() {
-  local box x y
-  box="$(ipc smoke descendantGeometry "$(bar_key)" vgs.bar/center-clock | py_reply 'import json,sys; print(json.dumps(next(r["box"] for r in json.load(sys.stdin) if r["type"] == "BarItem")))')" || return
-  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$box") || return
-  click "$x" "$y" && echo ok
-}
-# A click at the centre of BOX, a [x, y, w, h] reading, or no click when
-# the box is absent.
 calendar_keys() { type_keys "$@" && echo ok; }
 # Each day's number sits at its square's centre both ways, one digit or
 # two: the ink box of the number inside each day button against the
@@ -49,8 +41,8 @@ calendar_keys() { type_keys "$@" && echo ok; }
 # as missing.
 calendar_off_centre() {
   local rows inks
-  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
-  inks="$(ipc smoke textInk panel vgs.bar Label)" || return
+  rows="$(ipc smoke descendantGeometry panel vgs.clock)" || return
+  inks="$(ipc smoke textInk panel vgs.clock Label)" || return
   py_dumps "$rows" "$inks" <<'PY'
 import json, sys
 if "absent" in sys.argv[1:]:
@@ -98,8 +90,8 @@ calendar_back() {
   done
   echo unmoved
 }
-# The calendar's month row: the clock's right-click menu opens the bar's
-# Settings, so the calendar draws no gear, and Previous and Next month sit
+# The calendar's month row draws no gear because Clock has a settings
+# entry in its widget menu. Previous and Next month sit
 # on the pane's edges at its padding token, within 1 px of each other, the
 # month's ink centred across the pane and the middle of its ink top and
 # its baseline, its capitals' centre within the height a lowercase
@@ -107,12 +99,12 @@ calendar_back() {
 # that miss, so [] is the pass.
 calendar_header() {
   local rows prev next gear labels inks padding
-  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
-  prev="$(ipc smoke labelledGeometry panel vgs.bar IconButton "Previous month")" || return
-  next="$(ipc smoke labelledGeometry panel vgs.bar IconButton "Next month")" || return
-  gear="$(ipc smoke labelledGeometry panel vgs.bar IconButton Settings)" || return
-  labels="$(ipc smoke itemValues panel vgs.bar Label objectName,text,baselineOffset)" || return
-  inks="$(ipc smoke textInk panel vgs.bar Label)" || return
+  rows="$(ipc smoke descendantGeometry panel vgs.clock)" || return
+  prev="$(ipc smoke labelledGeometry panel vgs.clock IconButton "Previous month")" || return
+  next="$(ipc smoke labelledGeometry panel vgs.clock IconButton "Next month")" || return
+  gear="$(ipc smoke labelledGeometry panel vgs.clock IconButton Settings)" || return
+  labels="$(ipc smoke itemValues panel vgs.clock Label objectName,text,baselineOffset)" || return
+  inks="$(ipc smoke textInk panel vgs.clock Label)" || return
   padding="$(ipc smoke themeValue surface.padding)" || return
   py_dumps "$rows" "$prev" "$next" "$gear" "$labels" "$inks" "$padding" <<'PY2'
 import json, sys
@@ -151,8 +143,8 @@ for key in ("titleDx","previousDy","nextDy"):
     if abs(m[key])>1: out.append([key, m[key]])
 print(json.dumps(out))'
 }
-calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.bar IconButton "$1")"; }
-expect "a click on the clock reaches it" ok clock_click
+calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.clock IconButton "$1")"; }
+expect "a click on the clock reaches it" ok bar_clock_click
 expect_poll "the calendar opens on this month with today marked" "$(calendar_want 0)" calendar_read
 geometry expect_poll "every day's number sits at its square's centre both ways" '[]' calendar_off_centre
 geometry expect_poll "the month row holds no gear, its buttons on the pane's padding and the month centred between them" '[]' calendar_header_off
@@ -164,32 +156,35 @@ expect "Next month is pressed" ok calendar_button "Next month"
 expect_poll "Next month returns to this month with today marked" "$(calendar_want 0)" calendar_read
 expect "Previous month is pressed" ok calendar_button "Previous month"
 expect_poll "Previous month shows the previous month" "$(calendar_want -1)" calendar_read
-expect "a second click on the clock reaches it" ok clock_click
+expect "a second click on the clock reaches it" ok bar_clock_click
 expect_poll "a second click on the clock closes the calendar" closed calendar_read
-expect "a third click on the clock reaches it" ok clock_click
+expect "a third click on the clock reaches it" ok bar_clock_click
 expect_poll "the calendar opens on this month again" "$(calendar_want 0)" calendar_read
 expect "Escape reaches the calendar" ok calendar_keys -k Escape
 expect_poll "Escape closes the calendar" closed calendar_read
-# A day opens through `gio open`, which the shell resolves to the device
-# fakes' stand-in (scripts/smoke/devices.sh), which records its argv, so no
-# browser starts; with gio resolving anywhere else the row clicks no day.
+# The migrated address and browser profile reach the browser stand-in
+# (scripts/smoke/devices.sh). Require both possible commands to resolve to
+# the fakes so a broken migration also starts no browser.
 # The day is in the next month and its number is not today's, so neither
 # today's month nor today's day stands in for the one clicked.
 expect "the shell resolves gio to the device stand-in" "$shim/gio" shell_resolves gio
-if [[ $(shell_resolves gio) == "$shim/gio" ]]; then
-  calendar_gio_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
+expect "the shell resolves chromium to the device stand-in" "$shim/chromium" shell_resolves chromium
+if calendar_gio="$(shell_resolves gio)" && calendar_browser="$(shell_resolves chromium)" \
+  && [[ $calendar_gio == "$shim/gio" && $calendar_browser == "$shim/chromium" ]]; then
+  calendar_browser_before="$(device_calls chromium | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
   read -r calendar_pick calendar_day_want < <(python3 -c 'import datetime,json
 t=datetime.date.today(); n=t.year*12+t.month; d=14 if t.day==15 else 15
-print(d, json.dumps([["open", "https://calendar.google.com/calendar/r/day/%d/%d/%d" % (n//12, n%12+1, d)]]))')
-  calendar_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$calendar_gio_before"; }
-  device_reply gio 0 "" open "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0][1])' "$calendar_day_want")"
-  expect "a click on the clock opens the calendar for a day" ok clock_click
+print(d, json.dumps([["--profile-directory=Default", "https://example.invalid/calendar/%d/%d/%d" % (n//12, n%12+1, d)]]))')
+  calendar_browser_since() { device_calls chromium | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$calendar_browser_before"; }
+  device_reply chromium 0 "" "--profile-directory=Default" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0][1])' "$calendar_day_want")"
+  expect "a click on the clock opens the calendar for a day" ok bar_clock_click
   expect_poll "the calendar is open on this month for a day" "$(calendar_want 0)" calendar_read
   expect "Right reaches the calendar for a day" ok calendar_keys -k Right
   expect_poll "the calendar shows the next month for a day" "$(calendar_want 1)" calendar_read
   expect "day $calendar_pick of the next month is pressed" ok calendar_day "$calendar_pick"
-  expect_poll "day $calendar_pick opens that day of the next month in Google Calendar" "$calendar_day_want" calendar_gio_since
+  expect_poll "the next month's day uses the migrated address and Chromium profile" "$calendar_day_want" calendar_browser_since
   expect_poll "a day that opened closes the calendar" closed calendar_read
+  device_reply_clear chromium
 fi
 # The clock at the left and at the right end of the bar, written into the
 # user file as the Settings layout editor writes a move; the file is put
@@ -204,9 +199,9 @@ path, section = sys.argv[1:]
 config = json.load(open(path))
 layout = config["bar"]["layout"]
 for name in layout:
-    layout[name] = [e for e in layout[name] if e["id"] != "vgs.bar/center-clock"]
-if section == "left": layout["left"].insert(0, {"id": "vgs.bar/center-clock"})
-else: layout["right"].append({"id": "vgs.bar/center-clock"})
+    layout[name] = [e for e in layout[name] if e["id"] != "vgs.clock"]
+if section == "left": layout["left"].insert(0, {"id": "vgs.clock"})
+else: layout["right"].append({"id": "vgs.clock"})
 with open(path + ".tmp", "w") as out: json.dump(config, out)
 os.replace(path + ".tmp", path)
 PY
@@ -216,7 +211,7 @@ clock_third() {
   local key bar_box clock
   key="$(bar_key)" || return
   bar_box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
-  clock="$(ipc smoke descendantGeometry "$key" vgs.bar/center-clock)" || return
+  clock="$(ipc smoke descendantGeometry "$key" vgs.clock)" || return
   py_dumps "$bar_box" "$clock" <<'PY'
 import json, sys
 bar, rows = (json.loads(a) for a in sys.argv[1:])
@@ -228,7 +223,7 @@ PY
 for calendar_section in left right; do
   calendar_place "$calendar_section"
   geometry expect_poll "the clock moves to the $calendar_section end" "$calendar_section" clock_third
-  expect "a click on the clock at the $calendar_section end reaches it" ok clock_click
+  expect "a click on the clock at the $calendar_section end reaches it" ok bar_clock_click
   expect_poll "at the $calendar_section end the calendar opens on this month" "$(calendar_want 0)" calendar_read
   geometry expect_poll "at the $calendar_section end every day stays on the bar's screen" 0 calendar_off
   expect "Escape reaches the calendar at the $calendar_section end" ok calendar_keys -k Escape
@@ -238,7 +233,7 @@ cp -- "$calendar_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 geometry expect_poll "the clock returns to the centre" center clock_third
 
-expect "disabling the bar names the widgets it hides" "ok hidden=acme.tick,vgs.workspaces" ipc shell setPluginEnabled vgs.bar false
+expect "disabling the bar names the widgets it hides" "ok hidden=acme.tick,vgs.clock,vgs.workspaces" ipc shell setPluginEnabled vgs.bar false
 expect_widgets "the bar host unloaded the disabled bar" '[]'
 expect_builtins "the disabled bar's built-ins left the build records" '[]'
 bars_now=-1
@@ -249,8 +244,7 @@ done
 if [[ $bars_now == 0 ]]; then ok "the bar host destroyed its surface with no bar"; else fail "bar surfaces with the bar disabled: $bars_now"; fi
 expect "no bar reserves no screen space" 0 reserved_total
 expect "re-enabling the bar is allowed" ok ipc shell setPluginEnabled vgs.bar true
-expect_widgets "the bar host rebuilt the re-enabled bar" '["acme.tick","vgs.workspaces"]'
-expect_builtins "the re-enabled bar registered its built-in clock again" '["vgs.bar/center-clock"]'
+expect_widgets "the bar host rebuilt the re-enabled bar" '["acme.tick","vgs.clock","vgs.workspaces"]'
 for _ in $(seq 1 50); do
   if bars_now="$(bar_count)" && [[ $bars_now == "$monitors" ]]; then break; fi
   sleep 0.2
@@ -306,7 +300,7 @@ fi
 
 # Declaration and effective placement use one independent expected contract.
 # Runtime reads permit first-presence additions outside the requested group.
-fresh_want='{"left":["vgs.launcher","vgs.workspaces","vgs.tray","vgs.local-sync"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
+fresh_want='{"left":["vgs.launcher","vgs.workspaces","vgs.tray","vgs.local-sync"],"center":["vgs.clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
 fresh_bar_declared() {
   py_reply 'import json,sys
 config=json.load(sys.stdin); want=json.loads(sys.argv[1])
@@ -473,27 +467,27 @@ if [[ $bar_devices_ready == true ]]; then
   geometry expect_poll "control: rendered placement rejects Launcher after workspaces" False fresh_bar_drawn
   fresh_restore
   fresh_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "the fresh identity snapshot is unreadable"
-  expect "the fresh snapshot includes the clock's builtin identity" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.workspaces","vgs.bar/center-clock"} <= set(ids))' <<<"$fresh_snapshot"
+  expect "the fresh snapshot includes the Workspaces and Clock instances" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.workspaces","vgs.clock"} <= set(ids))' <<<"$fresh_snapshot"
   python3 - "$home/.config/vgshell/shell.json" <<'PYREAD'
 import json,os,sys
 path=sys.argv[1]; config=json.load(open(path)); layout=config["bar"]["layout"]
-entry=next(e for e in layout["center"] if e["id"]=="vgs.bar/center-clock")
-layout["center"]=[e for e in layout["center"] if e["id"]!="vgs.bar/center-clock"]
+entry=next(e for e in layout["center"] if e["id"]=="vgs.clock")
+layout["center"]=[e for e in layout["center"] if e["id"]!="vgs.clock"]
 layout["right"].insert(0,entry)
 with open(path+".tmp","w") as out: json.dump(config,out)
 os.replace(path+".tmp",path)
 PYREAD
   expect_poll "control: placement rejects the clock in another section" False fresh_bar_complete
-  expect "builtin section transfer keeps every object" '[]' ipc smoke barWidgetIdentities
+  expect "Clock section transfer keeps every object" '[]' ipc smoke barWidgetIdentities
   expect "the fresh identity snapshot is released" ok ipc smoke forgetBarWidgets
   fresh_restore
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json,os,sys
-path=sys.argv[1]; config=json.load(open(path)); config["bar"]["layout"]["center"]=[e for e in config["bar"]["layout"]["center"] if e["id"]!="vgs.bar/center-clock"]
+path=sys.argv[1]; config=json.load(open(path)); config["bar"]["layout"]["center"]=[e for e in config["bar"]["layout"]["center"] if e["id"]!="vgs.clock"]
 with open(path+".tmp","w") as out: json.dump(config,out)
 os.replace(path+".tmp",path)
 PY
-  expect_poll "control: placement rejects a missing builtin clock" False fresh_bar_complete
+  expect_poll "control: placement rejects a missing Clock widget" False fresh_bar_complete
   fresh_restore
   expect "control: enabled Mouse can be placed" ok ipc shell setPluginPlaced vgs.mouse true
   expect_poll "control: placement rejects any Mouse placement" False fresh_bar_complete
@@ -818,7 +812,7 @@ for pid, values in (("vgs.sysmon", {"cpuTemperature": True, "gpuTemperature": Tr
         rows.append(row)
     row.update(values)
 config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.workspaces"}, {"id": "vgs.tray"}],
-                                             "center": [{"id": "vgs.bar/center-clock"}], "right": entries}}
+                                             "center": [{"id": "vgs.clock"}], "right": entries}}
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
 os.replace(path + ".tmp", path)
@@ -1070,7 +1064,7 @@ print(eval(sys.argv[4]))' "$bar" "$zones" "$buttons" "$1" <<<"$part"
     [[ $x =~ ^[0-9]+$ ]] || { fail "$1: no clipped widget under the clock: $pick"; return 1; }
     hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y" || { fail "$1: the right click on the clock failed"; return 1; }
   }
-  zone_menus() { echo "[$(ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameMenuOpen), $(ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen)]"; }
+  zone_menus() { echo "[$(ipc smoke readInstance "$(bar_key)" vgs.clock frameMenuOpen), $(ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen)]"; }
   zone_empty_delivered() {
     ipc smoke barEmptyObservation | py_reply 'import json,sys
 try: d=json.load(sys.stdin)
@@ -1349,7 +1343,7 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
   cp -- "$fresh_saved" "$home/.config/vgshell/shell.json.tmp"
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
-  expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick","vgs.workspaces"]'
+  expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick","vgs.clock","vgs.workspaces"]'
 fi
 
 # Exercise the shipped positive-width Network hide route and a private
@@ -1380,7 +1374,7 @@ sections=data.get("sections",[])
 center=next((s for s in sections if s["section"]=="center"),None)
 if center is None: print("missing-center"); sys.exit()
 rows=center["entries"]; ids=[r["id"] for r in rows]
-want=["vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock"]
+want=["vgs.workspaces","vgs.network","acme.tick","vgs.clock"]
 if ids!=want or any(not r["present"] or r["box"] is None for r in rows):
     print("membership"); sys.exit()
 by={r["id"]:r for r in rows}; network=by["vgs.network"]; tick=by["acme.tick"]
@@ -1421,10 +1415,10 @@ cp -- "$bar_participation_tick" "$sandbox/bar-participation-tick.qml"
 stop_shell
 python3 - "$bar_participation_saved" "$bar_participation_profile" "$bar_participation_tick" <<'PY'
 import json,pathlib,sys
-config=json.load(open(sys.argv[1])); owned={"vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock"}
+config=json.load(open(sys.argv[1])); owned={"vgs.workspaces","vgs.network","acme.tick","vgs.clock"}
 for section in config["bar"]["layout"]:
     config["bar"]["layout"][section]=[e for e in config["bar"]["layout"][section] if e["id"] not in owned]
-config["bar"]["layout"]["center"]=[{"id":i} for i in ("vgs.workspaces","vgs.network","acme.tick","vgs.bar/center-clock")]
+config["bar"]["layout"]["center"]=[{"id":i} for i in ("vgs.workspaces","vgs.network","acme.tick","vgs.clock")]
 config["disabledPlugins"]=[i for i in config["disabledPlugins"] if i!="vgs.network"]
 with open(sys.argv[2],"w") as out: json.dump(config,out)
 path=pathlib.Path(sys.argv[3]); source=path.read_text()
@@ -1438,7 +1432,7 @@ bar_participation_state shown
 start_shell "$repo" "$sandbox/bar-participation.log" || fail "the participation shell starts"
 geometry expect_poll "all shown entries occupy their exact width and gaps" '[]' bar_participation shown
 bar_participation_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "participation cannot read mounted objects"
-expect "participation remembers every test object" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"acme.tick","vgs.bar/center-clock","vgs.workspaces","vgs.network"}<=set(ids) and len(ids)==len(set(ids)))' <<<"$bar_participation_snapshot"
+expect "participation remembers every test object" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"acme.tick","vgs.clock","vgs.workspaces","vgs.network"}<=set(ids) and len(ids)==len(set(ids)))' <<<"$bar_participation_snapshot"
 for bar_participation_case in hidden zero-width zero-height; do
   bar_participation_state "$bar_participation_case"
   geometry expect_poll "$bar_participation_case leaves no width, neighbour gap or drop target" '[]' bar_participation "$bar_participation_case"
@@ -1500,7 +1494,7 @@ cp -- "$sandbox/bar-participation-tick.qml" "$bar_participation_tick"
 cp -- "$bar_participation_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
-expect_widgets "participation restores the original mounted fixture" '["acme.tick","vgs.workspaces"]'
+expect_widgets "participation restores the original mounted fixture" '["acme.tick","vgs.clock","vgs.workspaces"]'
 
 # Hide and reveal change only the bar's current visibility, on every
 # screen: shell.json keeps its bytes, a bar the saved `hidden` setting hides
@@ -1625,12 +1619,12 @@ if copy_tree bar-motion-control \
   start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
   expect_poll "control: the cold Row builds its bar surface" "$monitors" bar_count
   printf "  cold_control_log=%s\n" "$sandbox/bar-motion-control.log"
-  expect_builtins "control: the Row motion bar still registers its built-in clock" '["vgs.bar/center-clock"]'
+  expect_poll "control: the Row motion bar still mounts Clock" 1 ipc smoke pluginInstances "$(bar_key)" vgs.clock
   printf '  cold_control_alignment=%s\n' "$(bar_alignment)"
   geometry expect "control: the alignment reader rejects Row's cold transition writes" True bar_alignment_misplaced
   stop_shell
   start_shell "$repo" "$sandbox/bar-motion-restored.log" || fail "the shell starts after the Row motion control"
-  geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
+  geometry expect_poll "the restored cold bar centers Workspaces and Clock" '[]' bar_alignment
 fi
 
 # Gaps and separators: a right click on the empty bar opens the bar's own
@@ -1780,7 +1774,7 @@ done
 spacer_added='{"left": ["vgs.bar/separator-1", "vgs.bar/gap-1"], "center": ["vgs.bar/gap-2", "vgs.bar/separator-2"], "right": ["vgs.bar/gap-3", "vgs.bar/separator-3"]}'
 expect_poll "each kind lands in each section where it was added" "$spacer_added" spacer_layout
 expect "the user file holds the added spacers" "$spacer_added" spacer_user
-expect_builtins "every bar registers each spacer once beside the fixed clock" '["vgs.bar/center-clock","vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
+expect_builtins "every bar registers each spacer once" '["vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
 # The drawn order holds the same members; every section draws a spacer,
 # within left the spacers end the section, within centre and right they
 # start it.
@@ -1834,7 +1828,7 @@ for spacer_id in vgs.bar/separator-1 vgs.bar/gap-2 vgs.bar/separator-2 vgs.bar/g
 done
 expect_poll "removing every spacer leaves none in the layout" "$spacer_none" spacer_layout
 expect "the user file holds no spacer" "$spacer_none" spacer_user
-expect_builtins "removed spacers release their registrations" '["vgs.bar/center-clock"]'
+expect_builtins "removed spacers release their registrations" '[]'
 stop_shell
 if copy_tree bar-spacer-control \
   && edit_tree bar-spacer-control shell/Core/Plugins.qml 'return bar.builtinNames.concat(Logic.placedFamilyNames(Config.effective, row.id, families));' 'return bar.builtinNames;'; then
@@ -2142,12 +2136,14 @@ expect_poll "the tooltip link fixture is gone" False plugin_known acme.tiplink
 expect_poll "the tooltip link control is gone" False plugin_known acme.tiplink-control
 expect_poll "the tooltip rows leave the user file as they found it" unchanged tiplink_unchanged
 
-# The calendar's control: a calendar that marks no day fails the reading
-# that passed above.
+# This copy removes the day marker and makes the widget ignore its setting.
+# It reuses one shell start for the day and format controls.
 stop_shell
 if copy_tree calendar-unmarked \
-  && edit_tree calendar-unmarked shell/plugins/vgs.bar/Calendar.qml 'variant: today ? "primary" : "ghost"' 'variant: "ghost"'; then
+  && edit_tree calendar-unmarked shell/plugins/vgs.clock/Calendar.qml 'variant: today ? "primary" : "ghost"' 'variant: "ghost"' \
+  && edit_tree calendar-unmarked shell/plugins/vgs.clock/Widget.qml 'String(setting("clockFormat", ""))' '(false ? String(setting("clockFormat", "")) : "ddd d MMM  HH:mm")'; then
   start_shell "$sandbox/tree-calendar-unmarked" "$sandbox/calendar-unmarked.log" || fail "the unmarked calendar control starts"
+  expect_poll "control: the format reader rejects the default in place of the migrated format" False bar_clock_has_migrated_format
   expect "control: the calendar opens" ok calendar_summon
   expect_poll "control: a calendar that marks no day reads no today" "$(calendar_want 0 none)" calendar_read
   stop_shell
@@ -2158,10 +2154,10 @@ fi
 # first days. Its control drops the rule and marks that day.
 for calendar_case in first first-unguarded; do
   copy_tree "calendar-$calendar_case" \
-    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml 'readonly property int todayDay: Time.now.getDate()' 'readonly property int todayDay: 1' \
+    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.clock/Calendar.qml 'readonly property int todayDay: Time.now.getDate()' 'readonly property int todayDay: 1' \
     || continue
   if [[ $calendar_case == first-unguarded ]]; then
-    edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml 'readonly property bool today: inMonth && year' 'readonly property bool today: year' || continue
+    edit_tree "calendar-$calendar_case" shell/plugins/vgs.clock/Calendar.qml 'readonly property bool today: inMonth && year' 'readonly property bool today: year' || continue
   fi
   start_shell "$sandbox/tree-calendar-$calendar_case" "$sandbox/calendar-$calendar_case.log" || fail "the $calendar_case calendar tree starts"
   expect "$calendar_case: the calendar opens" ok calendar_summon
@@ -2185,7 +2181,7 @@ for calendar_case in left top; do
     top) calendar_old='y: Math.round(parent.height / 2 - baselineOffset - ink.tightBoundingRect.y - ink.tightBoundingRect.height / 2)'; calendar_new='y: 0'; calendar_axis=1 ;;
   esac
   copy_tree "calendar-$calendar_case" \
-    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml "$calendar_old" "$calendar_new" \
+    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.clock/Calendar.qml "$calendar_old" "$calendar_new" \
     || continue
   start_shell "$sandbox/tree-calendar-$calendar_case" "$sandbox/calendar-$calendar_case.log" || fail "the $calendar_case calendar tree starts"
   expect "$calendar_case: the calendar opens" ok calendar_summon

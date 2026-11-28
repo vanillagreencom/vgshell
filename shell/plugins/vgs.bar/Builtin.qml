@@ -9,7 +9,6 @@ Loader {
 
     required property string name
     required property Item barItem
-    // "gap" or "separator" for a spacer the user added, else "".
     readonly property string family: barItem.familyOf(name)
 
     sourceComponent: BarWidget {
@@ -17,19 +16,16 @@ Loader {
         property var release: null
 
         bar: root.barItem
-        Accessible.name: root.barItem.builtinLabel(root.name)
-        frameHideText: root.family !== "" ? "Remove " + root.family : "Hide"
-        frameHideIcon: root.family !== "" ? "trash" : "eye-off"
+        Accessible.name: root.barItem.familyLabels[root.family]
+        frameHideText: "Remove " + root.family
+        frameHideIcon: "trash"
         implicitWidth: content.implicitWidth
         implicitHeight: content.implicitHeight
 
         Loader {
             id: content
             anchors.fill: parent
-            sourceComponent: root.name === "center-clock" ? clock
-                : root.family === "gap" ? gap
-                : separator
-            Component { id: clock; Clock { bar: root.barItem } }
+            sourceComponent: root.family === "gap" ? gap : separator
             // Empty room the width of the spacer's gap token.
             Component {
                 id: gap

@@ -118,8 +118,8 @@
 # result list so far, `updates: failed exit=<n> log=<file>` and how to
 # recover, and the session's or the guard's EXIT trap drops the credential.
 #
-# Every refusal prints `updates: refused: <key>=<value>` first. A bad
-# invocation exits 2; a held lock exits 75.
+# Refusals inside the TUI leave the key in diagnostics and show a result.
+# A bad invocation exits 2; a held lock exits 75.
 
 # The ERR trap needs errtrace, so the file sets the mode its steps rely on
 # whichever entry script sources it.
@@ -293,6 +293,45 @@ _updates_scan_line='(^|[[:space:]])shell=(rescan-started|rescan-queued|not-runni
 # The characters of a package name, as the build lines below read them.
 _updates_package='[A-Za-z0-9@_+.-]+'
 
+# pacman 7.1.0 src/pacman/sync.c:850-871 prints the commit error before
+# target and filesystem conflict details. lib/libalpm/sync.c:1055-1083
+# reports the package's untrusted signer before the commit error, which
+# can report generic corruption when the handle did not set an error.
+# Read around the selected commit error only, outside makepkg's output.
+_updates_pacman_evidence() { # OUTPUT COMMIT_ERROR_LINE
+  local lines=() at="$2" line floor
+  local conflict="^($_updates_package):[[:blank:]]+(/.+)[[:blank:]]+exists in filesystem( \(owned by $_updates_package\))?[[:blank:]]*$"
+  local target_conflict="^/.+[[:blank:]]+exists in both '$_updates_package' and '$_updates_package'[[:blank:]]*$"
+  local signature="^error: ($_updates_package): signature from \"[^\"[:cntrl:]]{1,512}\" is unknown trust[[:blank:]]*$"
+  mapfile -t lines <<<"$1"
+  if [[ ${lines[at]} == "$_updates_conflict_commit" ]]; then
+    for (( ++at; at<${#lines[@]}; ++at )); do
+      line="${lines[at]}"
+      [[ ${#line} -le 4400 ]] || break
+      if [[ $line =~ $conflict && ${#BASH_REMATCH[1]} -le 128 && ${#BASH_REMATCH[2]} -le 4096 ]]; then
+        _updates_pacman_package="${BASH_REMATCH[1]}" _updates_pacman_file="${BASH_REMATCH[2]}"
+        break
+      fi
+      [[ $line =~ $target_conflict ]] || break
+    done
+    return 0
+  fi
+  # A bounded look back reaches the preceding integrity diagnostic. An
+  # unrelated error or transaction boundary closes the search.
+  floor=$(( at > 32 ? at - 32 : 0 ))
+  for (( --at; at>=floor; --at )); do
+    line="${lines[at]}"
+    if [[ ${#line} -le 700 && $line =~ $signature && ${#BASH_REMATCH[1]} -le 128 ]]; then
+      _updates_pacman_package="${BASH_REMATCH[1]}"
+      return 0
+    fi
+    case "$line" in
+      ':: File '*" is corrupted (invalid or corrupted package (PGP signature))."*|':: Do you want to delete it? '*) ;;
+      error:*|sudo:*|vgshell:*|'==>'*|':: '*|'loading packages...'|'Errors occurred, no packages were upgraded.'*) return 0 ;;
+    esac
+  done
+}
+
 # The cause of a failed step from its output in FILE, stdout and stderr in
 # the order the terminal showed them with the answers the user typed, once
 # terminal controls and carriage returns are gone. VGS prints a `vgshell:
@@ -314,12 +353,20 @@ _updates_package='[A-Za-z0-9@_+.-]+'
 # `vgshell plugin|theme update`, or a step whose own text ends on a [Y/n]
 # or [y/N] question answered no or left unanswered, as pacman and an AUR
 # helper leave one. Also sets _updates_next for the result line's action.
-_updates_cause_of() { # FILE
+_updates_cause_of() { # FILE SOURCE
+  local id="$2"
   local line rest out last="" fault="" keyed=0 value="" held="" held_fault="" tail="" after="" own="" built="" package summary="" build_state=unknown transaction_fault=""
   local makepkg_error="" unfetched=() finished=() others=0 sentence paru_summary="" tested="" block=0
+  local review_refusal="" password_refused=0 reason="" line_at=-1 transaction_at=-1
+  local _updates_pacman_package="" _updates_pacman_file=""
+  local _updates_conflict_commit='error: failed to commit transaction (conflicting files)'
+  local _updates_signature_commit='error: failed to commit transaction (invalid or corrupted package (PGP signature))'
+  local _updates_corrupt_commit='error: failed to commit transaction (invalid or corrupted package)'
+  local sudo_password='^[[:blank:]]*sudo:[[:blank:]]+([0-9]+ incorrect password attempts?|a password is required)[[:blank:]]*$'
   _updates_declined=0
   _updates_refused=0
   _updates_unworded=""
+  _updates_plain_result=0
   _updates_failed_builds=()
   _updates_build_complete=0
   out="$(_updates_plain "$1")"
@@ -338,6 +385,11 @@ _updates_cause_of() { # FILE
     if [[ $line =~ (^|[[:space:]])(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
       value="${BASH_REMATCH[3]}"
       [[ $value != declined=* ]] || _updates_declined=1
+      # The helper may report its file manager's exit and then rescan.
+      # Neither line speaks for the earlier review refusal.
+      if [[ $value == review=* && ( $id == aur || $id == vgshell-git || $id == paru ) ]]; then
+        review_refusal="$value"
+      fi
       tail="${line:0:${#line}-${#BASH_REMATCH[0]}}"
       keyed=1 held="$last" held_fault="$fault" after=""
     elif [[ -n ${line//[[:space:]]/} ]]; then
@@ -358,6 +410,7 @@ _updates_cause_of() { # FILE
   # identifies every failed base, with pkgver-pkgrel. These are diagnostic
   # facts only: PackageReview still alone decides retry-without-tests.
   while IFS= read -r line; do
+    line_at=$((line_at + 1))
     # Paru v2.1.0 install.rs resolve_targets calls build_cleanup before
     # returning do_install's status; exec.rs Status prints no diagnostic.
     # Thus the final aggregate proves no transaction outcome. Admit only
@@ -380,6 +433,7 @@ _updates_cause_of() { # FILE
     elif [[ $line == '    Aborting...' || $line =~ ^==\>\ Finished\ making:\  || $line =~ ^error:\ failed\ to\ (build|download\ sources) ]]; then block=0
     elif [[ $line =~ ^::\  || $line =~ ^($_updates_package-[^[:space:]-]+-[^[:space:]-]+):\ parsing\ pkg\ list\.\.\.$ ]]; then block=0
     fi
+    if [[ $block == 0 && $id == aur && $line =~ $sudo_password ]]; then password_refused=1; fi
     [[ ! $line =~ ^==\>\ Finished\ making:\ ($_updates_package)\  ]] || finished+=("${BASH_REMATCH[1]}")
     if [[ $line =~ ^error:\ failed\ to\ download\ sources\ for\ \'($_updates_package-[^[:space:]-]+-[^[:space:]-]+)\':[[:space:]]*$ &&
           ( $makepkg_error == '==> ERROR: Failure while downloading '* || $makepkg_error == *' was not found in the build directory and is not a URL.' ) ]]; then
@@ -394,7 +448,7 @@ _updates_cause_of() { # FILE
     elif [[ $block == 0 ]] && [[ $line =~ $_updates_error_line ||
             $line =~ ^[[:space:]]*(sudo|doas|run0|pacman|paru|yay):[[:space:]] ||
             $line =~ $_updates_refusal_question ]]; then
-      build_state=transaction transaction_fault="$line"
+      build_state=transaction transaction_fault="$line" transaction_at="$line_at"
     fi
     if [[ $line =~ ^error:\ packages\ failed\ to\ build:\ (.+)$ ]]; then
       built="${BASH_REMATCH[1]//,/ }" summary="$line"
@@ -429,10 +483,25 @@ _updates_cause_of() { # FILE
   fi
   # The step's own line, masked and cut as a failure shows it.
   [[ -z $_updates_cause ]] || _updates_cause="$(_updates_shown "$_updates_cause")"
-  # VGS's sentences replace it. VGS's theme refusal, makepkg's build errors
-  # and pacman's errors can precede a closing line such as Aborting, so map
-  # the whole output the step supplied.
-  if [[ -n $transaction_fault ]]; then
+  # The selected error and its adjacent evidence give the mapping its
+  # package and file. The failed run's transcript keeps the original lines.
+  if [[ $id == review-run ]]; then
+    reason=review-run
+    _updates_unworded="${value:-review=run-unavailable}"
+  elif [[ -n $review_refusal ]]; then
+    reason=review-refusal
+    _updates_unworded="$review_refusal"
+  elif [[ $password_refused == 1 ]]; then
+    reason=aur-password
+  elif [[ $id == pacman || $id == aur || $id == vgshell-git || $id == paru || $id == verified-file ]] &&
+       [[ $transaction_fault == "$_updates_conflict_commit" || $transaction_fault == "$_updates_signature_commit" ||
+          $transaction_fault == "$_updates_corrupt_commit" ]]; then
+    _updates_pacman_evidence "$out" "$transaction_at"
+    if [[ -n $_updates_pacman_file ]]; then reason=file-conflict
+    elif [[ -n $_updates_pacman_package ]]; then reason=signature
+    fi
+  fi
+  if [[ -n $transaction_fault || -n $reason ]]; then
     # pacman's English errors: libalpm's lock error, which `failed to init
     # transaction (%s)` carries, and which a running manager's lock and a
     # stale one a crash left both give; the download error a database sync
@@ -445,7 +514,30 @@ _updates_cause_of() { # FILE
     # /usr/bin/pacman and libalpm.so, read 2026-11-11). A version holds no
     # hyphen but the one before its release, so a name is the word without
     # its last two hyphenated parts. Another locale keeps pacman's own line.
-    case "$out" in
+    case "${reason:-$out}" in
+      review-run)
+        _updates_cause="VGS could not start the update." _updates_next="" _updates_plain_result=1
+        ;;
+      review-refusal)
+        _updates_cause="VGS could not start the AUR review." _updates_next="" _updates_plain_result=1
+        _updates_declined=0 _updates_refused=1
+        ;;
+      aur-password)
+        _updates_cause="VGS could not get permission to install the AUR packages."
+        _updates_next="update again and enter your password."
+        _updates_plain_result=1 _updates_declined=0 _updates_refused=1
+        ;;
+      file-conflict)
+        package="$(_updates_shown "$_updates_pacman_package")"
+        rest="$(_updates_shown "$_updates_pacman_file")"
+        _updates_cause="$package could not install because $rest already exists. Nothing was installed in this transaction."
+        _updates_next="fix the file conflict by hand."
+        ;;
+      signature)
+        package="$(_updates_shown "$_updates_pacman_package")"
+        _updates_cause="Pacman could not verify the signature for $package. Nothing was installed in this transaction."
+        _updates_next="update again later. If this happens again, fix the signature problem by hand."
+        ;;
       *"unable to lock database"*)
         _updates_cause="Another package manager is running, or one that stopped left its lock behind."
         _updates_next="update again when it has finished. If none is running, delete the lock file pacman names, then update again."
@@ -505,10 +597,17 @@ _updates_cause_of() { # FILE
   # has, gives none.
   [[ $keyed == 0 || -n $_updates_cause ]] || _updates_unworded="$value"
   # The package owner's review outcome names the step's cause.
-  if [[ -n $_updates_review_final ]]; then
+  if [[ -n $_updates_review_final && $reason != review-refusal ]]; then
     _updates_cause="$(_updates_shown "$_updates_review_final")"
     _updates_next="" _updates_unworded=""
   fi
+}
+
+# The review-run allocation and a running step share the same diagnostic
+# path. A key can carry a path or a command and takes the same masking as
+# the step's other evidence.
+_updates_refusal_diagnostic() { # SOURCE
+  [[ -z $_updates_unworded ]] || _updates_diagnostic "updates: unworded source=$1 refusal=$(_updates_shown "$_updates_unworded")"
 }
 
 # The package owner's lines in a step's output FILE (bin/lib/pkg-review.js):
@@ -562,9 +661,10 @@ _updates_review_of() { # FILE
 # Only a failed step's output is cut, and a paru step's (the AUR, the VGS
 # package and the helper) whatever its status, for the review's lines.
 _updates_source() { # ID LABEL ARGV...
-  local id="$1" label="$2" part="$2" status=0 reviewed=0
+  local id="$1" label="$2" part="$2" status=0 reviewed=0 cause_source="$1"
   local completed="$label installed."
   shift 2
+  [[ $id != aur || $1 != _updates_custom_run ]] || cause_source=aur-custom
   if [[ $id == aur ]]; then part="AUR packages"
   elif [[ $label == System ]]; then part="System packages"
   elif [[ $id == orphans ]]; then completed="$label removed."
@@ -586,7 +686,7 @@ _updates_source() { # ID LABEL ARGV...
   : >"$_updates_cause_file"
   if vgs_tui_interval_cut "$_updates_cause_file"; then
     _updates_review_of "$_updates_cause_file"
-    [[ $status -eq 0 ]] || _updates_cause_of "$_updates_cause_file"
+    [[ $status -eq 0 ]] || _updates_cause_of "$_updates_cause_file" "$cause_source"
   else
     _updates_diagnostic "updates: transcript=unread source=$id reason=$vgs_tui_unread"
     _updates_review_results=() _updates_review_final=""
@@ -598,6 +698,7 @@ _updates_source() { # ID LABEL ARGV...
     _updates_declined=0
     _updates_refused=0
     _updates_unworded=""
+    _updates_plain_result=0
     _updates_failed_builds=()
     _updates_build_complete=0
     _updates_cause="VGS could not read this step's output."
@@ -622,18 +723,19 @@ _updates_source() { # ID LABEL ARGV...
   fi
   _updates_outcome=failed
   _updates_diagnostic "updates: failed source=$id exit=$status"
-  if [[ -n $_updates_unworded ]]; then
-    _updates_diagnostic "updates: unworded source=$id refusal=$_updates_unworded"
+  _updates_refusal_diagnostic "$id"
+  if [[ -n $_updates_unworded && -z $_updates_cause ]]; then
     _updates_fail "$part" "$part$_updates_uncaused" "$part failed" "VGS could not find the cause. Update again."
   else
     local cause="${_updates_cause:-exit $status}"
     [[ $cause == *[.!?] ]] || cause+="."
-    local next=""
+    local next="" prefix="$part failed. "
     [[ -z $_updates_next ]] || next=" Next: $_updates_next"
-    _updates_fail "$part" "$part failed. $cause$next" "$part failed" "$cause$next"
+    [[ $_updates_plain_result == 0 ]] || prefix=""
+    _updates_fail "$part" "$prefix$cause$next" "$part failed" "$cause$next"
   fi
   _updates_results+=("${_updates_review_results[@]}")
-  vgs_tui_warn "$part failed. The rest of the update goes on."
+  [[ $_updates_plain_result == 1 ]] || vgs_tui_warn "$part failed. The rest of the update goes on."
 }
 
 # The shared TUI word wrapper owns line breaks. Reserve PREFIX's columns
@@ -1582,7 +1684,15 @@ updates_main() (
   _updates_loader="$_updates_tree/bin/lib/qml-library.js"
   _updates_facts_bin="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)/bin/facts"
 
-  _updates_run_dir="$("$_updates_vgshell" pkg review-run)" || exit 1
+  local allocation
+  if ! allocation="$("$_updates_vgshell" pkg review-run 2>&1)"; then
+    local _updates_review_final=""
+    _updates_cause_of /dev/stdin review-run <<<"$allocation"
+    _updates_refusal_diagnostic review-run
+    printf '%s\n' "$_updates_cause" >&2
+    exit 1
+  fi
+  _updates_run_dir="$allocation"
   # The outcome's one writer: this EXIT has the run's status, and the
   # credential session's traps in the run's own subshell cannot replace it.
   trap '_updates_outcome_write $?; _updates_cleanup' EXIT

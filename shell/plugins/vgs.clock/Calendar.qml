@@ -3,7 +3,7 @@ import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
-// The calendar the bar clock opens under itself, the bar's panel: the
+// The calendar the clock opens under itself: the
 // month and year, Previous and Next month buttons, and Qt's own weekday
 // row and month grid in the system locale, today filled in its own month
 // alone. It opens on this month every time; Left and Right switch the
@@ -54,7 +54,7 @@ Item {
         const url = String(shell.settings.calendarUrl).replace(/\{year\}/g, year).replace(/\{month\}/g, month + 1).replace(/\{day\}/g, day);
         const reply = shell.run.detached(DesktopLaunch.openWith(url, shell.settings.openWith));
         if (reply !== "ok") {
-            console.warn("vgs.bar: calendar open " + reply);
+            console.warn("vgs.clock: calendar open " + reply);
             return;
         }
         shell.surfaces.hide("panel");
@@ -78,8 +78,8 @@ Item {
         anchors.fill: parent
         container: "panel"
         fitToContent: true
-        // The clock's right-click menu opens the bar's Settings, so the
-        // calendar draws no gear and the month row spans the pane: Previous
+        // The clock's right-click menu opens its Settings, so the calendar
+        // draws no gear and the month row spans the pane: Previous
         // and Next month on its edges, the month between them on the
         // panel's centre, its capitals centred on the buttons.
         settingsGear: false

@@ -26,11 +26,11 @@ const { load } = require("../bin/lib/qml-library.js");
 const CORE = path.join(__dirname, "..", "shell", "Core");
 const BIN = path.join(__dirname, "..", "bin");
 const LOGIC = path.join(CORE, "PluginLogic.js");
+const CONFIG = path.join(CORE, "ConfigLogic.js");
 const ARGUMENTS = path.join(__dirname, "..", "shell", "Commons", "TuiArguments.js");
 const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join("shell", "Ui", "icons", "Lucide.js")],
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
-    [path.join(CORE, "ConfigLogic.js"), path.join("shell", "Core", "ConfigLogic.js")],
     [path.join(CORE, "PackageManagers.js"), path.join("shell", "Core", "PackageManagers.js")],
     [path.join(CORE, "PackageReview.js"), path.join("shell", "Core", "PackageReview.js")],
     [path.join(CORE, "HyprlandLayer.js"), path.join("shell", "Core", "HyprlandLayer.js")],
@@ -1780,6 +1780,10 @@ const ARGUMENT_CONTROLS = [
     ["an argument is at most 256 characters", "Array.from(arg).length <= ARG_MAX && ", ""],
     ["an argument holds no control character", " && !CONTROL_CHARACTER.test(arg);", ";"],
 ];
+const CONFIG_CONTROLS = [
+    ["a launch key has a slash", "if (slash === -1 || !NAME_PATTERN.test(key.slice(slash + 1)))", "if (!NAME_PATTERN.test(key.slice(slash + 1)))"],
+    ["a launch key's name is a name", "if (slash === -1 || !NAME_PATTERN.test(key.slice(slash + 1)))", "if (slash === -1)"],
+];
 const CONTROLS = [
     ["a gone wait is matched to its run by key and run", "return row.key === key && row.run === run;", "return row.key === key;"],
     ["a gone wait of a run still awaited is logged", "logs: awaited ? [prefix + \" reason=gone \"", "logs: false ? [prefix + \" reason=gone \""],
@@ -1882,9 +1886,7 @@ const CONTROLS = [
     ["a record that is no JSON is refused", "    try {\n        value = JSON.parse(text);\n    } catch (e) {\n        return { ok: false, error: \"record is not JSON: \" + e.message };\n    }", "    value = JSON.parse(text);"],
     ["a record is an object", "if (!isPlainObject(value))\n        return { ok: false, error: \"record is not an object\" };", "if (false)\n        return { ok: false, error: \"record is not an object\" };"],
     ["a record key is a launch key", "if (!tuiKeyValid(value.key))", "if (false)"],
-    ["a launch key has a slash", "if (slash === -1 || !ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1)))", "if (!ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1)))"],
-    ["a launch key's owner is core or a plugin id", "(scoped.owner === \"core\" || ID_PATTERN.test(scoped.owner))", "true"],
-    ["a launch key's name is a name", "if (slash === -1 || !ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1)))", "if (slash === -1)"],
+    ["a launch key's owner is core or a plugin id", "(scoped.owner === \"core\" || ConfigLogic.PLUGIN_ID_PATTERN.test(scoped.owner))", "true"],
     ["a record run matches the run pattern", "if (typeof value.run !== \"string\" || !TUI_RUN_PATTERN.test(value.run))", "if (typeof value.run !== \"string\")"],
     ["a record run is a string", "if (typeof value.run !== \"string\" || !TUI_RUN_PATTERN.test(value.run))", "if (!TUI_RUN_PATTERN.test(value.run))"],
     ["a record state is known", "if (TUI_RECORD_STATES.indexOf(value.state) === -1)", "if (false)"],
@@ -1963,15 +1965,19 @@ try {
         fs.symlinkSync(source, path.join(temp, relative));
     }
     const logicSource = fs.readFileSync(LOGIC, "utf8");
+    const configSource = fs.readFileSync(CONFIG, "utf8");
     const argumentSource = fs.readFileSync(ARGUMENTS, "utf8");
     const logicCopy = path.join(temp, "shell", "Core", "PluginLogic.js");
+    const configCopy = path.join(temp, "shell", "Core", "ConfigLogic.js");
     const argumentCopy = path.join(temp, "shell", "Commons", "TuiArguments.js");
     const controls = CONTROLS.map(row => [logicCopy, logicSource, ...row])
+        .concat(CONFIG_CONTROLS.map(row => [configCopy, configSource, ...row]))
         .concat(ARGUMENT_CONTROLS.map(row => [argumentCopy, argumentSource, ...row]));
     for (const [file, source, label, needle, replacement, loadRefusal] of controls) {
         const count = source.split(needle).length - 1;
         if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
         fs.writeFileSync(logicCopy, logicSource);
+        fs.writeFileSync(configCopy, configSource);
         fs.writeFileSync(argumentCopy, argumentSource);
         fs.writeFileSync(file, source.replace(needle, () => replacement));
         // A control whose rule the shipped CORE_TUIS table reaches when the

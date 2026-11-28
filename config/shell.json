@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "packageReviewSettingsSource": "vgs.updates",
   "conversationSettingsMigration": {
     "id": "vgs.jarvis",
@@ -9,6 +9,11 @@
     "voiceProvider": "voiceProvider",
     "voiceAccount": "voiceAccount",
     "retiredKey": "mute"
+  },
+  "builtinWidgetMigration": {
+    "formerId": "vgs.bar/center-clock",
+    "to": "vgs.clock",
+    "keys": ["clockFormat", "calendarUrl", "openWith"]
   },
   "shortcutKeyMigrations": [
     { "id": "vgs.jarvis", "shortcut": "talk", "from": "SUPER+code:108", "to": "SUPER+code:44" },
@@ -32,7 +37,7 @@
         { "id": "vgs.tray" },
         { "id": "vgs.local-sync" }
       ],
-      "center": [{ "id": "vgs.bar/center-clock" }],
+      "center": [{ "id": "vgs.clock" }],
       "right": [
         { "id": "vgs.sudo" },
         { "id": "vgs.tailscale" },

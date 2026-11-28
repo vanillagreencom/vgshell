@@ -34,18 +34,38 @@ for _ in $(seq 1 50); do
 done
 if [[ $bars == "$monitors" && $monitors != 0 && $monitors != -1 ]]; then ok "one bar surface per monitor ($bars of $monitors)"; else fail "bar surfaces: $bars for $monitors monitors"; fi
 
-expect_widgets "every bar mounted the placed plugin widgets" '["acme.tick","vgs.workspaces"]'
-expect_builtins "every bar registered its built-in clock" '["vgs.bar/center-clock"]'
-# The harness's user file placed the workspaces as the Bar's former
-# built-in, vgs.bar/left-workspaces, first in the left section. The shell's
-# first read renamed it in place to vgs.workspaces, which vgs.workspaces
-# names in its formerIds (D108), and wrote the file once.
+expect_widgets "every bar mounted the placed plugin widgets" '["acme.tick","vgs.clock","vgs.workspaces"]'
+expect_builtins "the stock layout registers no built-in widgets" '[]'
+# The first read converts the former Bar built-ins in place and transfers
+# the saved values to Clock.
 bar_saved_layout() { python3 -c 'import json,sys; l=json.load(open(sys.argv[1]))["bar"]["layout"]; print(json.dumps({s: [e["id"] for e in l.get(s, [])] for s in ("left", "center", "right")}, separators=(",", ":")))' "$home/.config/vgshell/shell.json"; }
-expect_poll "the old-form workspaces built-in is now vgs.workspaces, in the same section and place" '{"left":["vgs.workspaces"],"center":["vgs.bar/center-clock","acme.tick"],"right":[]}' bar_saved_layout
+expect_poll "migration keeps Workspaces and Clock in their original section and order" '{"left":["vgs.workspaces"],"center":["vgs.clock","acme.tick"],"right":[]}' bar_saved_layout
+bar_saved_clock() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as source:
+    rows = json.load(source)["plugins"]
+keys = ("clockFormat", "calendarUrl", "openWith")
+values = [{key: row.get(key) for key in keys} for row in rows if row["id"] == "vgs.clock"]
+print(json.dumps(values))
+PY
+}
+expect_poll "migration writes the three saved values to Clock" '[{"clockFormat": "dddd HH:mm", "calendarUrl": "https://example.invalid/calendar/{year}/{month}/{day}", "openWith": "chromium/Default"}]' bar_saved_clock
+bar_clock_format() { ipc smoke readInstance "$(bar_key)" vgs.clock format; }
+bar_clock_has_migrated_format() {
+  local format
+  format="$(bar_clock_format)" || return
+  case "$format" in
+    '"dddd HH:mm"') echo True ;;
+    \"*\") echo False ;;
+    *) echo "$format" ;;
+  esac
+}
+expect_poll "the mounted Clock receives the migrated format" True bar_clock_has_migrated_format
 
 # Preserve cold geometry before disable, placement or bar reconstruction.
 bar_initial_key="$(bar_key)"
-for bar_initial_id in vgs.bar vgs.workspaces vgs.bar/center-clock; do
+for bar_initial_id in vgs.bar vgs.workspaces vgs.clock; do
   printf '  cold_geometry id=%s value=%s\n' "$bar_initial_id" "$(ipc smoke descendantGeometry "$bar_initial_key" "$bar_initial_id")"
 done
 for bar_initial_section in left center right; do
@@ -53,7 +73,7 @@ for bar_initial_section in left center right; do
 done
 printf '  cold_profile value=%s\n' "$(ipc shell listShellConfig)"
 
-# The workspaces widget and the built-in clock share one vertical centre,
+# Workspaces and Clock share one vertical centre,
 # the bar's, and draw in the `text.bar` role alone. A workspace pill is a BarItem: its label plus
 # `bar.item.paddingX` a side, never narrower than it is tall, and
 # `bar.item.height` tall, with the label at its centre; pills stand
@@ -66,7 +86,7 @@ bar_alignment() {
   key="$(bar_key)" || return
   bar_box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
   ws="$(ipc smoke descendantGeometry "$key" vgs.workspaces)" || return
-  clock="$(ipc smoke descendantGeometry "$key" vgs.bar/center-clock)" || return
+  clock="$(ipc smoke descendantGeometry "$key" vgs.clock)" || return
   pad="$(ipc smoke themeValue bar.item.paddingX)" || return
   gap="$(ipc smoke themeValue bar.item.gap)" || return
   floor="$(ipc smoke themeValue bar.item.height)" || return
@@ -124,7 +144,7 @@ PY
 }
 geometry expect_poll "the workspace pills and the clock share the bar's centre" '[]' bar_alignment
 
-expect "the core built the bar, its two placed widgets and the vgs.themes background per screen, the vgs.bar, vgs.themes, vgs.windows and always-on vgs.settings and vgs.system services once each, and no built-in" "$((4 * monitors + 5))" builds
+expect "the core built the bar, its three placed widgets and the vgs.themes background per screen, the vgs.bar, vgs.clock, vgs.themes, vgs.windows and always-on vgs.settings and vgs.system services once each, and no built-in" "$((5 * monitors + 6))" builds
 calendar_want() { # OFFSET [TODAY]
   python3 -c 'import datetime,sys
 t=datetime.date.today(); n=t.year*12+t.month-1+int(sys.argv[1])
@@ -134,8 +154,8 @@ print("%s %d cells=42 today=%s" % (names[n%12], n//12, mark))' "$@"
 }
 calendar_read() {
   local labels days fill
-  labels="$(ipc smoke descendantGeometry panel vgs.bar)" || return
-  days="$(ipc smoke itemValues panel vgs.bar Button text,fill)" || return
+  labels="$(ipc smoke descendantGeometry panel vgs.clock)" || return
+  days="$(ipc smoke itemValues panel vgs.clock Button text,fill)" || return
   fill="$(ipc smoke themeValue button.variant.primary.background)" || return
   python3 - "$labels" "$days" "$fill" <<'PY'
 import json, sys
@@ -157,8 +177,13 @@ calendar_click_box() {
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$1") || return
   click "$x" "$y" && echo ok
 }
-calendar_summon() { ipc shell summon panel vgs.bar '{}'; }
-calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.bar Button "$1")"; }
+bar_clock_click() {
+  local box
+  box="$(ipc smoke descendantGeometry "$(bar_key)" vgs.clock | py_reply 'import json,sys; print(json.dumps(next(r["box"] for r in json.load(sys.stdin) if r["type"] == "BarItem")))')" || return
+  calendar_click_box "$box"
+}
+calendar_summon() { ipc shell summon panel vgs.clock '{}'; }
+calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.clock Button "$1")"; }
 
 # Later rows read the private device world even when bar controls do not run.
 bar_devices_ready=false

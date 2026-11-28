@@ -88,7 +88,7 @@ print(len(rows)==1 and rows[0][0]==sys.argv[1] and rows[0][1]["present"] and row
 capture_bar_placed() { ipc smoke barParticipationGeometry "$(bar_key)" | capture_bar_placed_read; }
 capture_bar_pair_order() { ipc shell listShellConfig | py_reply 'import json,sys
 rows=json.load(sys.stdin)["bar"]["layout"][sys.argv[1]]
-print(json.dumps([row["id"] for row in rows if row["id"] in ("vgs.capture","vgs.bar/center-clock")]))' "$capture_bar_default_section"; }
+print(json.dumps([row["id"] for row in rows if row["id"] in ("vgs.capture","vgs.clock")]))' "$capture_bar_default_section"; }
 capture_bar_counts() { bar_widget_ids | py_reply 'import json,sys; print(json.dumps([rows.count("vgs.capture") for rows in json.load(sys.stdin)]))'; }
 capture_bar_drop_candidate() { ipc smoke barParticipationGeometry "$(bar_key)" | py_reply 'import json,sys; print(any(widget["locator"]["id"]=="vgs.capture" for section in json.load(sys.stdin)["sections"] for widget in section["drop"]["widgets"]))'; }
 capture_bar_identity_kept() { ipc smoke barWidgetIdentities | py_reply 'import json,sys; print("vgs.capture" not in json.load(sys.stdin))'; }
@@ -736,19 +736,19 @@ capture_setting delay 0
 # the lifecycle checks. Restoring Capture must leave it after the drawn
 # clock, a valid placement that the former cached full tuple rejects.
 capture_bar_peer_origin="$(ipc shell listShellConfig | py_reply 'import json,sys
-rows=[(section,index) for section,entries in json.load(sys.stdin)["bar"]["layout"].items() for index,entry in enumerate(entries) if entry["id"]=="vgs.bar/center-clock"]
+rows=[(section,index) for section,entries in json.load(sys.stdin)["bar"]["layout"].items() for index,entry in enumerate(entries) if entry["id"]=="vgs.clock"]
 print("%s %d" % rows[0] if len(rows)==1 else "absent")')"
-expect "the placement control shows its clock peer" ok ipc shell setPluginPlaced vgs.bar/center-clock true
-expect "the placement control moves the clock peer to Capture's default section" ok ipc shell movePluginWidget vgs.bar/center-clock "$capture_bar_default_section" 0
+expect "the placement control shows its clock peer" ok ipc shell setPluginPlaced vgs.clock true
+expect "the placement control moves the clock peer to Capture's default section" ok ipc shell movePluginWidget vgs.clock "$capture_bar_default_section" 0
 expect "the placement control saves Capture before its peer" ok ipc shell movePluginWidget vgs.capture "$capture_bar_default_section" 0
-expect_poll "the saved control order is Capture then its clock peer" '["vgs.capture", "vgs.bar/center-clock"]' capture_bar_pair_order
+expect_poll "the saved control order is Capture then its clock peer" '["vgs.capture", "vgs.clock"]' capture_bar_pair_order
 capture_bar_leftmost="$(python3 -c 'import json,sys; print(json.dumps([1,sys.argv[1],True,True]))' "$capture_bar_default_section")"
 expect_poll "the placement control starts with one leftmost visible Capture" "$capture_bar_leftmost" capture_bar_mount
 capture_bar_before_restore="$(capture_bar_mount)"
 ipc smoke barParticipationGeometry "$(bar_key)" >"$capture_state/placement-before.json"
 expect "the placement control removes Capture" ok ipc shell setPluginPlaced vgs.capture false
 expect "the placement control restores Capture" ok ipc shell setPluginPlaced vgs.capture true
-expect_poll "the restored saved control order is clock peer then Capture" '["vgs.bar/center-clock", "vgs.capture"]' capture_bar_pair_order
+expect_poll "the restored saved control order is clock peer then Capture" '["vgs.clock", "vgs.capture"]' capture_bar_pair_order
 capture_bar_after_peer="$(python3 -c 'import json,sys; print(json.dumps([1,sys.argv[1],True,False]))' "$capture_bar_default_section")"
 expect_poll "the restored Capture is visible after its drawn peer" "$capture_bar_after_peer" capture_bar_mount
 capture_bar_after_restore="$(capture_bar_mount)"
@@ -781,10 +781,10 @@ while IFS= read -r capture_mount_control; do
   expect "control: the placed contract rejects $capture_mount_control geometry" False capture_bar_placed_read <"$capture_state/placement-$capture_mount_control.json"
 done <"$capture_state/placement-controls.list"
 if [[ $capture_bar_peer_origin == absent ]]; then
-  expect "the placement control returns its clock peer to unplaced" ok ipc shell setPluginPlaced vgs.bar/center-clock false
+  expect "the placement control returns its clock peer to unplaced" ok ipc shell setPluginPlaced vgs.clock false
 else
   read -r capture_peer_section capture_peer_index <<<"$capture_bar_peer_origin"
-  expect "the placement control restores its clock peer's saved position" ok ipc shell movePluginWidget vgs.bar/center-clock "$capture_peer_section" "$capture_peer_index"
+  expect "the placement control restores its clock peer's saved position" ok ipc shell movePluginWidget vgs.clock "$capture_peer_section" "$capture_peer_index"
 fi
 # The service and the widget remain the same objects while saved placement
 # changes. Only the existing recorder fixture holds finalization open.
@@ -2932,8 +2932,8 @@ expect_poll "Capture builds for its Settings link" True record_exists vgs.captur
 capture_settings_case shared raised || fail "the shared Settings raise case could not complete"
 # The calendar uses the panel route already read by this row. A refused
 # window open must preserve it; a successful same-screen open must yield it.
-expect "the calendar opens before the refused window route" ok ipc shell summon panel vgs.bar '{}'
-expect_poll "the calendar panel presents before the refused window route" drawn ipc smoke windowDrawn panel vgs.bar
+expect "the calendar opens before the refused window route" ok ipc shell summon panel vgs.clock '{}'
+expect_poll "the calendar panel presents before the refused window route" drawn ipc smoke windowDrawn panel vgs.clock
 expect "an unknown window route is refused" 'unknown: vgs.capture-missing' ipc shell summon window vgs.capture-missing '{}'
 expect "the refused window route keeps the calendar mapped" 1 layer_count vgs:panel
 expect "Settings opens over the calendar on the same screen" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'

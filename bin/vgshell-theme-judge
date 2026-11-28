@@ -913,7 +913,7 @@ let configLogic;
 function shellConfig(configDir, key) {
     configLogic ??= load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
     const shipped = readConfig(configLogic, SHIPPED_CONFIG, key);
-    const user = readUserConfig(configLogic, path.join(configDir, "shell.json"), key, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration);
+    const user = readUserConfig(configLogic, path.join(configDir, "shell.json"), key, shipped);
     return configLogic.effectiveConfig(shipped, user);
 }
 
