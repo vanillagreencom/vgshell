@@ -885,7 +885,8 @@ scene_ships() {
     focus) ships_plugin vgs.gallery vgs.settings ;;
     focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
     flyout-titles) ships_plugin vgs.sysmon vgs.settings vgs.network vgs.sound vgs.updates ;;
-    launcher|notifications) ships_plugin "vgs.$1" ;;
+    launcher) ships_plugin vgs.launcher ;;
+    notifications) ships_plugin vgs.notifications vgs.themes ;;
     automations) ships_plugin vgs.automations ;;
     automation-failure) ships_plugin vgs.automations vgs.notifications ;;
     notification-limits) ships_plugin vgs.notifications ;;
@@ -13379,6 +13380,7 @@ TIPLINK
         cp -R -- "$checkout/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
         printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/secret-tool"
         chmod 755 "$shim/secret-tool"
+        expect "enabling vgs.themes for the notification backgrounds is allowed" ok ipc shell setPluginEnabled vgs.themes true
       fi
       expect "enabling vgs.$scene is allowed" ok ipc shell setPluginEnabled "vgs.$scene" true
       expect_poll "vgs.$scene is built" True record_exists "vgs.$scene" ;;
