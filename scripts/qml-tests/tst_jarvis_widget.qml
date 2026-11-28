@@ -5,6 +5,7 @@ import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
+import "../../shell/plugins/vgs.jarvis/JarvisProtocol.js" as Protocol
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // The Jarvis bar widget: the icon and tone it draws for the status values a
@@ -162,6 +163,17 @@ Item {
                     compare(String(dot.item.color), String(Qt.color(Theme.color[dotRole])));
                 }
                 compare(collect(button(), n => n instanceof Badge).length, dotRole === "" ? 0 : 1, "no second dot or private badge");
+            }
+        }
+
+        function test_owner_asks_accepts_fractional_observation_time() {
+            const page = { v: 1, homeId: "fixture-home", revision: "fixture-revision",
+                observedAt: "", activeCount: 0, snoozedCount: 0,
+                rows: [], nextCursor: null, complete: true };
+            for (const fraction of ["990240", "990240123456789012345678"]) {
+                const observedAt = "2026-11-28T03:34:38." + fraction + "+00:00";
+                page.observedAt = observedAt;
+                compare(Protocol.ownerAsksPage(page, "active", null).observedAt, observedAt);
             }
         }
 

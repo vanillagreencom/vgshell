@@ -179,6 +179,8 @@ function client(extra = {}) {
     const mixed = { v: 1, homeId: "home", revision: "1", observedAt: new Date().toISOString(), activeCount: 2, snoozedCount: 0,
         rows: [linked, { ...linked, id: "unposted", link: null }], nextCursor: null, complete: true };
     assert.doesNotThrow(() => Protocol.ownerAsksPage(mixed, "active", null), "an ask never posted on a tracker has no link");
+    assert.doesNotThrow(() => Protocol.ownerAsksPage({ ...mixed, observedAt: "2026-11-28T03:34:38.990240+00:00" }, "active", null),
+        "the package can report an observation time with microsecond precision");
     // A synthetic bug report with the decision and Markdown example an ask can carry.
     const what = [
         "Choose a shorter title for the reading shelf card.",

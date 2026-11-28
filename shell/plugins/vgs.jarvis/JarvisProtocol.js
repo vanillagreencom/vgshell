@@ -81,8 +81,10 @@ var OWNER_ASK_ROWS = 32;
 var OWNER_ASK_BYTES = 16 * 1024;
 
 function instant(value) {
-    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.test(value)
-        && Number.isFinite(Date.parse(value));
+    // Qt's ISO parser reads the fraction as an integer. Keep only the
+    // milliseconds Date.parse needs so a longer fraction cannot overflow it.
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(value)
+        && Number.isFinite(Date.parse(value.replace(/(\.\d{3})\d+/, "$1")));
 }
 
 function ownerAskRows(rows, view) {
