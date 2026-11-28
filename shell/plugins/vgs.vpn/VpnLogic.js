@@ -434,7 +434,7 @@ function sentence(words) {
 // already names it, so the arm wait passes on its holding line and nmcli
 // runs (profileCommand, meantOnPlan).
 var KILL_WIREGUARD_ONLY = "The kill switch works only with WireGuard. " + sentence(KILL_OFF) + " to connect this profile.";
-function rowView(row, profiles, missing, killOn, held) {
+function rowView(row, profiles, missing, killOn, held, paused) {
     const type = typeName(row.type, row.service);
     function view(key, words, extra) {
         return Object.assign({ key: key, type: type, secondary: type + " · " + words, danger: false, busy: false,
@@ -447,6 +447,7 @@ function rowView(row, profiles, missing, killOn, held) {
     if (moving === "disconnecting") return view(moving, "Disconnecting…", { busy: true, connected: true, reason: BUSY_REASON });
     if (moving === "removing")
         return view(moving, "Removing…", { busy: true, connected: row.state === "activated", switchOn: row.state === "activated", reason: BUSY_REASON });
+    if (paused === row.uuid) return view("paused", PORTAL_PAUSED, { switchOn: true });
     if (row.state === "activated") return view("connected", "Connected", { connected: true, switchOn: true });
     if (held === row.uuid) return view("dropped", "Dropped", { switchOn: true, reconnect: true });
     // The list arrives before its separate detail read. An empty service
@@ -672,8 +673,7 @@ function stateText(fields) {
 }
 
 // The text a change of FILE, the last read of the state file, writes:
-// PATCH's meantOn and mode over the read, every other key kept, the
-// portal time included, which VGS-2401 writes. A missing file reads as
+// PATCH's keys over the read, every other key kept. A missing file reads as
 // off. A file outside the grammar takes what `vgs-kill-switch off` writes
 // for one, kill-switch=block and portal-until=0, so its owner's later
 // change fails closed. Null while the file is unread or unreadable: a
@@ -687,8 +687,37 @@ function stateChange(file, patch) {
     return stateText({
         meantOn: patch.meantOn === undefined ? base.meantOn : patch.meantOn,
         mode: patch.mode === undefined ? base.mode : patch.mode,
-        portalUntil: base.portalUntil
+        portalUntil: patch.portalUntil === undefined ? base.portalUntil : patch.portalUntil
     });
+}
+
+// D129's root sync enforces this same ceiling in the kernel. A persisted
+// expired marker keeps a shell restart from reopening the same pause.
+var PORTAL_SECONDS = 300;
+var PORTAL_CLOSED = "1";
+var PORTAL_PAUSED = "Paused for network sign-in";
+function portalProfile(file) {
+    return file.kind === "valid" ? file.meantOn.toLowerCase() : "";
+}
+function portalOpen(file, status, link, connectivity, now) {
+    const uuid = portalProfile(file);
+    if (uuid === "" || file.mode === "off" || file.portalUntil !== "0" || !link || connectivity !== "portal"
+        || status === null || status.profile !== uuid || !["tunnel-down", "tunnel-up"].includes(status.reason)) return null;
+    return { uuid: uuid, until: String(now + PORTAL_SECONDS), link: link };
+}
+function portalShouldClose(lease, link, connectivity, now) {
+    return now >= Number(lease.until) || (link !== null && link !== lease.link) || connectivity === "full";
+}
+function portalClosed(file, status) {
+    if (status === null) return false;
+    if (file.mode === "off") return status.state === "off" && status.reason === "disarmed";
+    return status.profile === portalProfile(file) && ["tunnel-down", "tunnel-up"].includes(status.reason);
+}
+function portalCommand(kind, uuid) {
+    if (kind === "disable" || kind === "enable") {
+        return autoconnectArgv(kind === "disable" ? "profile-down" : "profile-up", { uuid: uuid, type: "wireguard" }, true);
+    }
+    return ["nmcli", "connection", kind, "uuid", uuid];
 }
 
 // What a profile change KIND of UUID, of NetworkManager TYPE, writes
@@ -917,6 +946,11 @@ function killSwitchOn(state) {
     return isPlain(state) && state.step === "ready" && (state.mode === "block" || state.mode === "block-lan");
 }
 
+function pausedProfile(state) {
+    return killSwitchOn(state) && isPlain(state.status) && state.status.reason === "portal-open"
+        && state.status.profile === String(state.meantOn).toLowerCase() ? state.status.profile : "";
+}
+
 // The blocked-traffic notice over the profiles, from STATE, the published
 // `killSwitchState`, and PROFILES: null unless the kill switch is set up
 // and on, the state file names a profile and the status read says
@@ -928,6 +962,7 @@ function killSwitchOn(state) {
 // off is the way out.
 function blockedNotice(state, profiles) {
     if (!killSwitchOn(state) || state.file !== "valid" || state.meantOn === "") return null;
+    if (pausedProfile(state) !== "") return null;
     const named = state.meantOn.toLowerCase();
     if (!isPlain(state.status) || state.status.state !== "holding" || state.status.profile !== named) return null;
     const rows = isPlain(profiles) && Array.isArray(profiles.rows) ? profiles.rows : [];
@@ -940,6 +975,14 @@ function blockedNotice(state, profiles) {
 
 var KILL_COUNT_INFO = "Counts blocked traffic attempts since you started the VPN or kill switch in VGS, or started this computer.\nChanging VPN profiles while connected keeps the count. A VGS update can reset it.\nOne app can make many attempts. This is not a count of apps or sites.";
 var KILL_LAN_HINT = "Printers, shared folders, containers and virtual machines work only with this on";
+// These reports take precedence over the profile and the local file read.
+// The root status names the rule and what the service can do with it.
+var KILL_RULE_WARNINGS = {
+    "rule-missing": "The firewall rule is missing. Turn the kill switch off and back on to restore it.",
+    "state-unusable": "The kill switch is blocking traffic because it could not use its setting. See the VPN setup instructions to clear the block.",
+    "watcher-failed": "The kill switch stopped applying changes. Open VPN Setup to repair it.",
+    "watcher-unread": "VGS could not check whether the kill switch can apply changes. Check VPN Setup."
+};
 // What the kill switch row draws from STATE, the published
 // `killSwitchState`, and PROFILES, for the profile names: whether it
 // shows, Set up in place of the switch, the switch and Allow local
@@ -950,25 +993,29 @@ function killSwitchView(state, profiles) {
     const view = { shown: true, setup: false, switchOn: false, lanShown: false, lanOn: false, reason: "", hint: "", tone: "", countInfo: "" };
     if (!isPlain(state) || state.step === "absent") return Object.assign(view, { shown: false });
     const fill = extra => Object.assign(view, extra);
+    const status = isPlain(state.status) ? state.status : null;
+    const warning = status !== null && Object.prototype.hasOwnProperty.call(KILL_RULE_WARNINGS, status.reason)
+        ? { hint: KILL_RULE_WARNINGS[status.reason], tone: "danger" } : null;
     switch (state.step) {
     case "checking": return fill({ reason: "Wait until VGS checks the kill switch setup." });
-    case "setup": return fill({ setup: true, hint: "Set up installs a firewall service that keeps the block in place when VGS is not running" });
+    case "setup": return fill(Object.assign({ setup: true, hint: "Set up installs a firewall service that keeps the block in place when VGS is not running" }, warning));
     case "denied": return fill({ reason: deniedWords(state.reason), hint: deniedWords(state.reason) });
     case "unknown": return fill({ reason: "VGS could not check the kill switch setup.", hint: "VGS could not check the kill switch setup. VGS checks again each time you open Settings." });
     }
     if (state.file === "reading") return fill({ reason: "Wait until VGS reads the kill switch setting." });
     if (state.file === "unreadable")
-        return fill({ reason: "VGS could not read the kill switch setting.", hint: "VGS could not read the kill switch setting.", tone: "danger" });
+        return fill(Object.assign({ reason: "VGS could not read the kill switch setting.", hint: "VGS could not read the kill switch setting.", tone: "danger" }, warning));
     const on = state.mode === "block" || state.mode === "block-lan";
     fill({ switchOn: on, lanShown: on, lanOn: state.mode === "block-lan", reason: state.busy ? "Wait until VGS saves this setting." : "" });
+    if (warning !== null) return fill(warning);
     if (state.problem !== "") return fill({ hint: state.problem, tone: "danger" });
     if (state.file === "malformed")
         return fill({ hint: "VGS could not read the kill switch setting. Turn it on or off to save it again.", tone: "danger" });
     if (!on) return view;
+    if (pausedProfile(state) !== "") return fill({ hint: "Web traffic and DNS can pass outside the VPN during sign-in" });
     const rows = isPlain(profiles) && Array.isArray(profiles.rows) ? profiles.rows : [];
     const meant = rows.find(row => row.uuid === String(state.meantOn).toLowerCase());
     const name = meant !== undefined ? meant.name : "the VPN";
-    const status = isPlain(state.status) ? state.status : null;
     if (status === null) return view;
     switch (status.state) {
     case "passing": return fill({ hint: "Active for " + name });
@@ -1249,11 +1296,11 @@ function insights(code, text) {
 // refuses --dns-interface ("the installed libcurl version does not
 // support this", run 2026-11-11), so a lookup the judge cannot place in
 // the tunnel is never made.
-function publicPlan(readings) {
+function publicPlan(readings, portalInProgress) {
     if (readings.link.kind !== "active") return { kind: "failed", reason: readings.link.kind === "unreadable" ? "link" : "inactive" };
-    const dns = leakCheck(Object.assign({}, readings, { public: null }), null, INSIGHTS_HOST).dns.verdict;
+    const dns = leakCheck(Object.assign({}, readings, { public: null }), null, INSIGHTS_HOST, portalInProgress).dns.verdict;
     if (dns === "tunnel" || dns === "blocked") return { kind: "ask", link: readings.link.link };
-    return { kind: "failed", reason: dns === "leak" ? "lookups-leak" : "lookups-unknown" };
+    return { kind: "failed", reason: dns === "leak" || dns === "portal" ? "lookups-leak" : "lookups-unknown" };
 }
 
 // The links every armed kill switch passes besides its tunnel (D129).
@@ -1288,8 +1335,9 @@ function killReading(status, before) {
 // leaves by, or `unknown` with its reason, and the command to install
 // for `missing`, for any reading that could not be taken or read: never
 // a pass.
-function leakCheck(readings, before, host) {
+function leakCheck(readings, before, host, portalInProgress) {
     const kill = killReading(readings.status, before);
+    const reason = readings.status?.reason;
     const tunnel = readings.link.kind === "active" ? readings.link.link : "";
     const passes = kill.tunnel === "" ? KILL_PASSES : KILL_PASSES.concat([kill.tunnel]);
     const unknown = (reason, install) => ({ verdict: "unknown", link: "", reason: reason, install: install || "" });
@@ -1303,7 +1351,14 @@ function leakCheck(readings, before, host) {
         if (outside.length === 0) return verdict("tunnel", "");
         const passed = outside.find(name => passes.indexOf(name) !== -1);
         if (passed !== undefined) return verdict("leak", passed);
-        if (kill.state === "holding" || kill.state === "on") return verdict("blocked", "");
+        if (reason === "portal-open") return verdict("portal", outside[0]);
+        if (kill.state === "holding" || kill.state === "on") {
+            // These reports outrank portal-open in the root status. An
+            // outside lookup cannot rely on the block while one stands.
+            if (portalInProgress || ["watcher-failed", "watcher-unread", "cache-unreadable", "device-uncovered"].includes(reason))
+                return unknown("kill");
+            return verdict("blocked", "");
+        }
         return kill.state === "unknown" ? unknown("kill") : verdict("leak", outside[0]);
     }
     const unread = reading => reading.kind === "missing" ? unknown("missing", reading.command) : unknown("read");
@@ -1386,6 +1441,7 @@ function familyLine(key, family) {
     case "tunnel": return checkLine("In the VPN");
     case "none": return checkLine("Not used");
     case "blocked": return checkLine("Blocked by the kill switch");
+    case "portal": return checkLine(dns ? "Name lookups allowed during network sign-in" : "Web traffic allowed during network sign-in");
     case "leak":
         if (family.link === GLOBAL_DNS) return checkLine("Leaks", "Name lookups can go to DNS servers outside the VPN");
         return checkLine("Leaks", (dns ? "Name lookups can go through " : "Traffic goes out through ") + family.link + ", outside the VPN");

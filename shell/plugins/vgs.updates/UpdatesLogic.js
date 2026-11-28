@@ -413,7 +413,7 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["lastRun", "pending", "lastCheck", "checkState", "sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
+    var keys = ["restartReading", "lastRun", "pending", "lastCheck", "checkState", "sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
     // Readers see each write. Mask before entry and unmask only after all
     // fields belong to the complete accepted result or qualified history.
     if (next.checking === true) keys.unshift("checking");
@@ -443,6 +443,11 @@ function parseBootTime(text) {
         if (m !== null) return Number(m[1]) * 1000;
     }
     return null;
+}
+
+function bootIdentifier(text) {
+    var id = text.trim();
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id) ? id : "";
 }
 
 // Only a snapshot read from the cache at start can come from an earlier
@@ -552,20 +557,36 @@ function tuiRunEnded(previous, current) {
     return false;
 }
 
-// The last completed transaction in pacman's log as { at, line }: where its
-// line starts and the line, or { at: -1, line: "" } for a log with none.
-// libalpm, whichever front end runs it, logs "[<time>] [ALPM] transaction
-// completed" as each transaction commits: its "[%s] [%s] " prefix, "%FT%T%z"
-// time and that text are in libalpm.so.16. The line's time and place
-// together tell a later commit from it, in a replaced log or within the
-// same second.
-var PACKAGE_LOG_COMPLETED = "] [ALPM] transaction completed\n";
-function packageLogMark(text) {
-    var log = String(text);
-    var end = log.lastIndexOf(PACKAGE_LOG_COMPLETED);
-    if (end < 0) return { at: -1, line: "" };
-    var at = log.lastIndexOf("\n", end) + 1;
-    return { at: at, line: log.slice(at, end + PACKAGE_LOG_COMPLETED.length - 1) };
+// libalpm log.c supplies the %FT%T%z prefix. trans.c logs the completed
+// transaction and add.c/remove.c log each package change, including changes
+// committed before a later package fails. hook.c treats any replacement
+// of an installed package as Upgrade, even for a reinstall or downgrade.
+var PACKAGE_LOG_KINDS = {
+    "transaction completed": "completed",
+    "installed": "install",
+    "upgraded": "upgrade",
+    "downgraded": "upgrade",
+    "reinstalled": "upgrade",
+    "removed": "remove"
+};
+
+function packageLogFacts(text, bootedAt) {
+    var mark = { at: -1, line: "" };
+    var changes = new Set();
+    var lines = new RegExp("^\\[([^\\]\\n]+)\\] \\[ALPM\\] (" + Object.keys(PACKAGE_LOG_KINDS).join("|")
+        + ")(?: (\\S+) \\([^\\n]*\\))?\\n", "gm");
+    var match;
+    while ((match = lines.exec(text)) !== null) {
+        var kind = PACKAGE_LOG_KINDS[match[2]];
+        if (kind === "completed" && match[3] === undefined) {
+            // The line and its offset distinguish two commits in the same second.
+            mark = { at: match.index, line: match[0].slice(0, -1) };
+        } else if (bootedAt !== null && match[3] !== undefined && kind !== "completed") {
+            var at = Date.parse(match[1].replace(/([+-]\d\d)(\d\d)$/, "$1:$2"));
+            if (at >= bootedAt) changes.add(kind + " " + match[3]);
+        }
+    }
+    return { mark: mark, changes: bootedAt === null ? null : Array.from(changes) };
 }
 
 // Whether MARK names a transaction completed after PREVIOUS, the mark an

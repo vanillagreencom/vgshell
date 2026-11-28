@@ -129,10 +129,13 @@ exec env PATH="$updates_state/git-bin:\$PATH" UPDATES_SMOKE_CHECKOUTS="$repo:$up
 EOF
 chmod 755 "$updates_vgshell"
 
-# The copy's two changes, each checked to apply once.
-python3 - "$updates_dir" "$updates_vgshell" <<'PY'
+# This row tests refresh with no completed package-log transactions. Use a
+# fixture log so the restart judge never reads the host's update history.
+updates_package_log="$updates_state/pacman.log"
+: >"$updates_package_log"
+python3 - "$updates_dir" "$updates_vgshell" "$updates_package_log" <<'PY'
 import json, pathlib, sys
-plugin, vgshell = pathlib.Path(sys.argv[1]), sys.argv[2]
+plugin, vgshell, package_log = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 manifest = plugin / "manifest.json"
 doc = json.loads(manifest.read_text())
 assert "finish" not in doc["tui"], doc["tui"]
@@ -142,9 +145,11 @@ assert sorted(doc["tui"]) == ["finish", "log", "update", "update-source"], sorte
 service = plugin / "Service.qml"
 text = service.read_text()
 lines = text.splitlines()
-hits = [i for i, line in enumerate(lines) if line.startswith("    readonly property string vgshellPath:")]
-assert len(hits) == 1, hits
-lines[hits[0]] = "    readonly property string vgshellPath: " + json.dumps(vgshell)
+for key, value in (("vgshellPath", vgshell), ("packageLogPath", package_log)):
+    member = f"    readonly property string {key}:"
+    hits = [i for i, line in enumerate(lines) if line.startswith(member)]
+    assert len(hits) == 1, (key, hits)
+    lines[hits[0]] = member + " " + json.dumps(value)
 service.write_text("\n".join(lines) + "\n")
 PY
 mkdir -p "$updates_dir/tui"

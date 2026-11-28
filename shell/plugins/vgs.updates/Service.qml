@@ -46,11 +46,13 @@ Item {
     readonly property string statusPath: stateDir + "/status.json"
     readonly property string outcomePath: stateDir + "/outcome.json"
     readonly property string bootPath: "/proc/stat"
+    readonly property string bootIdPath: "/proc/sys/kernel/random/boot_id"
+    readonly property string restartMarkerPath: stateDir + "/restart-owed"
     readonly property string packageLogPath: "/var/log/pacman.log"
     // The last completed transaction this instance read in the package log
-    // (UpdatesLogic.packageLogMark), null before the first read.
+    // (UpdatesLogic.packageLogFacts), null before the first read.
     property var packageLogMark: null
-    // Whether the next read takes the log as it stands and judges nothing:
+    // Whether the next read takes the refresh mark without asking a check:
     // the check asked with it covers the transactions already there. Any
     // answer ends it; after a failed read the next read judges them, which
     // costs at most one more check and loses none.
@@ -58,7 +60,15 @@ Item {
     // Whether a read was asked while one was in flight, which may predate
     // what the ask is for: that result is dropped and the log read again.
     property bool packageLogAgain: false
+    // Restore the boot's confirmed reading before judging the current log.
+    property string bootId: ""
+    property bool restartMarkerRead: false
+    property bool restartMarkerUnread: false
+    property bool restartOwed: false
+    property bool restartUnread: false
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
+    readonly property var factsCommand: [String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, ""),
+        Quickshell.shellDir + "/../bin/lib/qml-library.js"]
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
     readonly property string connectivityPath: Quickshell.shellDir + "/../bin/lib/connectivity.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
@@ -147,8 +157,8 @@ Item {
         cacheReader.path = statusPath;
         readOutcome();
         bootReader.path = bootPath;
+        bootIdReader.path = bootIdPath;
         packageLogWatch.path = packageLogPath;
-        readPackageLog(false);
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
     }
@@ -327,6 +337,7 @@ Item {
 
     function readPackageLog(rebase) {
         if (rebase === true) packageLogRebase = true;
+        if (!bootRead || !restartMarkerRead) return;
         if (packageLogReader.path !== "") {
             packageLogAgain = true;
             return;
@@ -334,8 +345,9 @@ Item {
         packageLogReader.path = packageLogPath;
     }
 
-    // MARK is undefined for an unreadable log, which keeps the last mark.
-    function takePackageLog(mark) {
+    // An unreadable log keeps the last refresh mark but makes the restart
+    // reading unavailable.
+    function takePackageLog(reading) {
         // An empty path unloads the view (FileView.path,
         // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView),
         // so the service holds the mark and none of the log between reads.
@@ -347,15 +359,51 @@ Item {
         }
         const rebase = packageLogRebase;
         packageLogRebase = false;
-        if (mark === undefined) return;
+        judgeRestart(reading === null ? null : reading.changes);
+        if (reading === null) return;
+        const mark = reading.mark;
         const completed = !rebase && Logic.packageLogCompleted(packageLogMark, mark);
         packageLogMark = mark;
         if (completed && !installing) requestCheck("log");
     }
 
+    function judgeRestart(changes) {
+        if (rebootReader.running) {
+            rebootReader.queued = changes;
+            return;
+        }
+        if (changes === null || changes.length === 0) {
+            takeRestartReading(changes === null);
+            return;
+        }
+        rebootReader.input = changes.join("\n") + "\n";
+        rebootReader.command = factsCommand.concat(["reboot"]);
+        rebootReader.stdinEnabled = true;
+        rebootReader.running = true;
+    }
+
+    function takeRestartReading(unread) {
+        restartUnread = unread;
+        publishNow();
+    }
+
+    function restoreRestartMarker(savedBoot, unread) {
+        if (savedBoot !== "" && savedBoot === bootId) restartOwed = true;
+        restartMarkerRead = true;
+        restartMarkerUnread = unread;
+        publishNow();
+        readPackageLog(false);
+    }
+
+    function rememberRestartOwed() {
+        const write = !restartOwed || restartMarkerUnread;
+        restartOwed = true;
+        if (write && bootId !== "") restartMarker.setText(bootId + "\n");
+    }
+
     function readOutcome() {
         if (outcomeReader.running) { outcomeReader.queued = true; return; }
-        outcomeReader.command = [String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, ""), Quickshell.shellDir + "/../bin/lib/qml-library.js", "outcome", outcomePath];
+        outcomeReader.command = factsCommand.concat(["outcome", outcomePath]);
         outcomeReader.running = true;
     }
 
@@ -363,7 +411,8 @@ Item {
         if (shell === null) return false;
         const notice = Logic.rebootNoticeValue(rebootStep);
         const values = Object.assign(Logic.publishValues(snapshot, completed === true ? false : checking, Date.now(), currentIntervalMs, checkFailure, aurCommand, admission),
-            { admission: admission, lastRun: Logic.pendingOutcome(lastRun, shellStartedAt, bootedAt) },
+            { admission: admission, lastRun: Logic.pendingOutcome(lastRun, shellStartedAt, bootedAt),
+                restartReading: { owed: restartOwed, unread: restartUnread || restartMarkerUnread } },
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         const next = Object.assign({}, reported);
@@ -428,13 +477,58 @@ Item {
             root.bootRead = true;
             if (root.bootedAt === null) console.warn("updates: boot time unreadable");
             root.publishNow();
+            root.readPackageLog(false);
             root.maybeCheck();
         }
         onLoadFailed: error => {
             root.bootedAt = null;
             root.bootRead = true;
             console.warn("updates: boot time unreadable: " + error);
+            root.readPackageLog(false);
             root.maybeCheck();
+        }
+    }
+
+    // Linux's random/boot_id is stable for the boot even if the clock moves
+    // (kernel documentation, sysctl/kernel § random).
+    FileView {
+        id: bootIdReader
+        printErrors: false
+        onLoaded: {
+            root.bootId = Logic.bootIdentifier(text());
+            if (root.bootId !== "") restartMarker.path = root.restartMarkerPath;
+            else {
+                console.warn("updates: boot id malformed");
+                root.restoreRestartMarker("", true);
+            }
+        }
+        onLoadFailed: error => {
+            console.warn("updates: boot id unreadable: " + error);
+            root.restoreRestartMarker("", true);
+        }
+    }
+
+    FileView {
+        id: restartMarker
+        printErrors: false
+        // The marker reaches disk before an owed reading is published.
+        // Quickshell 0.3.1 FileView's atomic writer also creates missing parents.
+        blockWrites: true
+        atomicWrites: true
+        onLoaded: {
+            const savedBoot = Logic.bootIdentifier(text());
+            if (savedBoot === "") console.warn("updates: restart marker malformed");
+            root.restoreRestartMarker(savedBoot, savedBoot === "");
+        }
+        onLoadFailed: error => {
+            const unread = error !== FileViewError.FileNotFound;
+            if (unread) console.warn("updates: restart marker unreadable: " + error);
+            root.restoreRestartMarker("", unread);
+        }
+        onSaved: root.restartMarkerUnread = false
+        onSaveFailed: error => {
+            root.restartMarkerUnread = true;
+            console.warn("updates: restart marker unwritten: " + error);
         }
     }
 
@@ -466,10 +560,55 @@ Item {
     FileView {
         id: packageLogReader
         printErrors: false
-        onLoaded: root.takePackageLog(Logic.packageLogMark(text()))
+        onLoaded: root.takePackageLog(Logic.packageLogFacts(text(), root.bootedAt))
         onLoadFailed: error => {
-            if (error !== FileViewError.FileNotFound) console.warn("updates: package log unreadable: " + error);
-            root.takePackageLog(error === FileViewError.FileNotFound ? Logic.packageLogMark("") : undefined);
+            if (error === FileViewError.FileNotFound) {
+                // A system without pacman has no transaction log to read.
+                const reading = Logic.packageLogFacts("", root.bootedAt);
+                reading.changes = root.shell.requirements.missing.includes("pacman-conf") ? [] : null;
+                root.takePackageLog(reading);
+            } else {
+                console.warn("updates: package log unreadable: " + error);
+                root.takePackageLog(null);
+            }
+        }
+    }
+
+    // Process.started opens the channel for write(). Turning stdinEnabled
+    // off closes it so facts can read to EOF. The collectors finish before
+    // exited and the running change (Quickshell.Io/Process in 0.3.1).
+    Process {
+        id: rebootReader
+        property string input: ""
+        property var queued: undefined
+        property var code: null
+        stdout: StdioCollector { id: rebootOut }
+        stderr: StdioCollector { id: rebootErr }
+        onStarted: {
+            write(input);
+            input = "";
+            stdinEnabled = false;
+        }
+        onExited: exitCode => { code = exitCode; }
+        onRunningChanged: {
+            if (running) return;
+            const done = code;
+            code = null;
+            input = "";
+            // An earlier positive still holds if another read found a
+            // rotated or unreadable log while this one was being judged.
+            const owed = done === 0 && rebootOut.text !== "";
+            if (owed) root.rememberRestartOwed();
+            if (queued !== undefined) {
+                const latest = queued;
+                queued = undefined;
+                root.judgeRestart(latest);
+                if (owed) root.publishNow();
+                return;
+            }
+            if (done !== 0)
+                console.warn("updates: reboot-packages=unread " + (done === null ? "start=failed" : "exit=" + done) + " " + rebootErr.text.trim());
+            root.takeRestartReading(done !== 0);
         }
     }
 

@@ -1350,6 +1350,44 @@ if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   expect "off: a down that finds nothing active leaves no problem line" false vpn_kill_problem
   expect "off: the state file no longer names Lab tunnel" "$(vpn_kill_text "" block 0)" vpn_kill_file
   expect "off: NetworkManager's rule leaves Lab tunnel off" "" vpn_nm_autoconnect "$vpn_lab" "$vpn_reconnect_from"
+
+  vpn_portal_bounded() {
+    local deadline now
+    deadline="$(sed -n 's/^portal-until=//p' "$vpn_kill_state")" || return 1
+    printf -v now '%(%s)T' -1
+    [[ $deadline =~ ^[0-9]+$ ]] && ((deadline > now && deadline - now <= 300)) && echo bounded
+  }
+  vpn_portal_reason() {
+    vpn_kill_read status | py_reply 'import json,sys; print((json.load(sys.stdin) or {}).get("reason", ""))'
+  }
+  vpn_plant "$vpn_lab=" "$vpn_wifi=activated"
+  expect "portal: the private Wi-Fi link is active" ok vpn_net_event wifi-up
+  expect "portal: a full connection alone opens no pause" ok vpn_net_event full
+  vpn_kill_write "$vpn_lab" block 0
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+  device_reply nmcli 0 "" connection modify uuid "$vpn_lab" connection.autoconnect no
+  expect "portal: refresh from the full Wi-Fi reading" ok vpn_refresh
+  expect_poll "portal: Lab tunnel is meant on" "\"$vpn_lab\"" vpn_kill_read meantOn
+  expect "portal: the full link keeps the state closed" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  read_count vpn_before "portal: nmcli calls are unreadable" vpn_call_count
+  expect "portal: NetworkManager reports Sign in is required" ok vpn_net_event portal
+  expect_poll "portal: the service writes a bounded opening" bounded vpn_portal_bounded
+  expect "portal: the tunnel is undisturbed before the kernel opens" '[]' vpn_reconnect_calls "$vpn_before"
+  device_reply vgs-kill-switch 0 "state=holding reason=portal-open blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+  expect "portal: refresh reads the applied kernel exception" ok vpn_refresh
+  vpn_portal_paused="[[\"connection\", \"modify\", \"uuid\", \"$vpn_lab\", \"connection.autoconnect\", \"no\"], [\"connection\", \"down\", \"uuid\", \"$vpn_lab\"]]"
+  expect_poll "portal: after the kernel opens, NetworkManager takes the VPN down and holds it" "$vpn_portal_paused" vpn_reconnect_calls "$vpn_before"
+  expect "portal: a manual connect cannot interrupt sign-in" 'refused: profile=network-sign-in' vpn_act profile-up "$vpn_lab"
+  expect "portal: NetworkManager reports the same connection full" ok vpn_net_event full
+  expect_poll "portal: full connectivity clears the active deadline" "$(vpn_kill_text "$vpn_lab" block 1)" vpn_kill_file
+  expect "portal: clearing the file alone does not authorize reconnect" "$vpn_portal_paused" vpn_reconnect_calls "$vpn_before"
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+  expect "portal: refresh reads the closed kernel exception" ok vpn_refresh
+  expect_poll "portal: reconnect is automatic after the kernel closes" \
+    "${vpn_portal_paused%]}, [\"connection\", \"modify\", \"uuid\", \"$vpn_lab\", \"connection.autoconnect\", \"yes\"], [\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" \
+    vpn_reconnect_calls "$vpn_before"
+  expect_poll "portal: the full link returns the state to idle" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  expect "portal: restore private connectivity configuration" ok vpn_net_event checks-off
   devices_vpn_kill_tree remove
   expect "a pane open after the step is undone reads VPN" ok vpn_refresh
   expect_poll "the pane open reads the kill switch step not set up, with no rescan" false ipc smoke readInstance service vgs.vpn killReady

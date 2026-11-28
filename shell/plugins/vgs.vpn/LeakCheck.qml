@@ -29,6 +29,9 @@ Item {
     // (VpnLogic.checkStale).
     property var rows: null
     property var action: null
+    // A status sampled before an opening does not prove outside DNS
+    // blocked when the final reading reaches the provider decision.
+    property bool portalInProgress: false
     // The check in flight: { uuid, active, readings, waiting, dropped },
     // WAITING the readings not yet in, DROPPED once a list outdated it.
     property var run: null
@@ -140,7 +143,7 @@ Item {
     function finish() {
         if (run.waiting.length > 0) return;
         if (run.active && run.readings.public === null) {
-            const plan = run.dropped ? { kind: "failed", reason: "inactive" } : Logic.publicPlan(run.readings);
+            const plan = run.dropped ? { kind: "failed", reason: "inactive" } : Logic.publicPlan(run.readings, portalInProgress);
             if (plan.kind === "ask") {
                 run = Object.assign({}, run, { waiting: ["public"] });
                 deadline.restart();
@@ -151,7 +154,7 @@ Item {
             return;
         }
         deadline.stop();
-        const result = Logic.leakCheck(run.readings, lastKill);
+        const result = Logic.leakCheck(run.readings, lastKill, undefined, portalInProgress);
         lastKill = result.kill;
         value = { uuid: run.uuid, busy: false, active: run.active, result: run.dropped ? null : result };
         run = null;

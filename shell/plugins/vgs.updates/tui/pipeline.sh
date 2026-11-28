@@ -127,10 +127,6 @@ set -Eeuo pipefail
 # Character classes spelled out: the user's locale collates a range.
 _updates_digits='^[0123456789]+$'
 _updates_usage="usage: update.sh [-y] | update-source.sh <source> [-y]"
-# The CachyOS reboot hook, in the system hook directory pacman reads under
-# its RootDir; a link of that name in /etc/pacman.d/hooks, which the
-# reboot-notice system step makes, turns the hook off but not this read.
-_updates_reboot_hook=usr/share/libalpm/hooks/cachyos-reboot-required.hook
 # The result of a part that failed without words VGS could use, after its
 # label.
 _updates_uncaused=" failed, and VGS could not find the cause. Next: update again."
@@ -1011,12 +1007,10 @@ _updates_recheck() {
   fi
 }
 
-# Logs DIAGNOSTIC, a read the reboot question needs that failed, and warns
-# once per run. Its advisory result does not fail a package step.
+# Logs and warns when a read the reboot question needs fails. Each of its
+# reads runs only if the previous one succeeded.
 _updates_reboot_unread() { # DIAGNOSTIC
   _updates_diagnostic "$1"
-  [[ $_updates_reboot_warned == 0 ]] || return 0
-  _updates_reboot_warned=1
   vgs_tui_warn "VGS could not check whether a restart is needed."
   _updates_results+=("VGS could not check whether a restart is needed.")
 }
@@ -1029,27 +1023,9 @@ _updates_reboot_unread() { # DIAGNOSTIC
 # _updates_reboot_unread, and a failed judgement leaves the list empty, so
 # the run still ends with its result.
 _updates_reboot_packages() { # CHANGE...
-  local root hook=- mounts="" facts key value status=0 unread=0
+  local facts key value status=0
   _updates_core=()
-  if root="$(pacman-conf RootDir 2>&1)"; then
-    [[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"
-  else
-    _updates_reboot_unread "updates: reboot-hook=unread exit=$?"
-    _updates_diagnostic "$root"
-    unread=1
-  fi
-  if mounts="$(findmnt -rno FSTYPE 2>&1)"; then
-    :
-  else
-    _updates_reboot_unread "updates: mounts=unread exit=$?"
-    _updates_diagnostic "$mounts"
-    unread=1
-  fi
-  [[ $unread == 0 ]] || return 0
-  facts="$({
-    printf '%s\n' "$@"
-    while read -r value; do [[ -z $value ]] || printf 'mounted %s\n' "$value"; done <<<"$mounts"
-  } | _updates_facts reboot "$hook" /proc/version 2>&1)" || status=$?
+  facts="$(printf '%s\n' "$@" | _updates_facts reboot 2>&1)" || status=$?
   if [[ $status -ne 0 ]]; then
     _updates_diagnostic "$facts"
     _updates_reboot_unread "updates: reboot-packages=failed exit=$status"
@@ -1130,10 +1106,10 @@ _updates_main() {
   mv -f -- "$UPDATES_LOG_PART" "$_updates_log"
   _updates_pid=$BASHPID
   # The result list, the failed parts and the first one's result, the part
-  # now running, whether a reboot read warned, and the file a failed source
-  # step's output is cut into: one file, since the lock holds one run at a
-  # time.
-  _updates_results=() _updates_failed_parts=() _updates_part_now="" _updates_reboot_warned=0 _updates_rebooted=0
+  # now running, whether the computer is rebooting, and the file a failed
+  # source step's output is cut into: one file, since the lock holds one
+  # run at a time.
+  _updates_results=() _updates_failed_parts=() _updates_part_now="" _updates_rebooted=0
   _updates_failed_title="" _updates_failed_text="" _updates_failed_remedy=""
   _updates_cause_file="$state/.step-output"
   trap '_updates_failed $?' ERR

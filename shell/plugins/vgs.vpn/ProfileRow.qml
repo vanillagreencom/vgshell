@@ -29,10 +29,11 @@ Disclosure {
     // The profile the blocked-traffic notice names, or "": it reads
     // Dropped with its switch on, which turns it off.
     property string held: ""
+    property string paused: ""
     property bool removable: false
     // The published `leakCheck`, or null.
     property var check: null
-    readonly property var view: Logic.rowView(modelData, profiles, missingRequirements, killOn, held)
+    readonly property var view: Logic.rowView(modelData, profiles, missingRequirements, killOn, held, paused)
     readonly property var checkView: Logic.checkView(check, modelData, held)
     readonly property Item removeAction: remove
     readonly property Item switchAction: toggle

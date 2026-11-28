@@ -60,6 +60,7 @@ pkgbase = vgshell
 	depends = xdg-desktop-portal-hyprland
 	depends = xdg-terminal-exec
 	depends = xdg-utils
+	optdepends = pacman: read Arch restart rules
 	optdepends = hyprpm: turn layer glass on or off in the Windows plugin
 	optdepends = cpio: install layer glass in the Windows plugin
 	optdepends = cmake: install layer glass in the Windows plugin

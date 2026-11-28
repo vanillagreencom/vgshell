@@ -58,7 +58,7 @@ Item {
         id: nord
         controller: root
     }
-    function nordRequest(request) { return nord.request(request); }
+    function nordRequest(request) { return request.kind === "city" && portalSignIn.blocksConnect ? "busy" : nord.request(request); }
     function nordStatusRead(status, started) { nord.statusRead(Logic.checkKillStatus(killReady, status, started)); }
     // The password connect's stdin closure until its run starts or ends.
     property var connectFeed: null
@@ -108,7 +108,11 @@ Item {
     readonly property bool killBusy: stateWrite !== null || stage !== null || killArm !== null
     // Any change in flight, since one runs at a time: a profile change, a
     // Nord change, which holds profileAction, or a kill switch change.
-    readonly property bool changeBusy: profileAction !== null || killBusy
+    readonly property bool changeBusy: profileAction !== null || killBusy || portalSignIn.actuating
+    PortalSignIn {
+        id: portalSignIn
+        controller: root
+    }
     // From a write's end until the next poll's status read ends: the grace
     // a sync takes to follow the write (VpnLogic.killSwitchState).
     property bool killSettling: false
@@ -173,7 +177,10 @@ Item {
     onKillSetupChanged: publish()
     // The step's first reading decides whether a connect writes the state
     // file first, so a change that waited on it is decided again.
-    onKillStepChanged: autoRetry()
+    onKillStepChanged: {
+        autoRetry();
+        if (killStep?.reason === "units-failed") readKillStatus();
+    }
     onKillReadyChanged: {
         if (!killReady) killStatus = null;
         readKillSwitch();
@@ -339,7 +346,7 @@ Item {
     Timer {
         interval: root.pollInterval
         repeat: true
-        running: root.registered && (!root.profilesMissing || root.killReady)
+        running: root.registered && (!root.profilesMissing || root.killReady || root.killStep?.reason === "units-failed")
         onTriggered: {
             root.readProfiles();
             // One poll of grace after a write: a read this poll starts ends it.
@@ -519,7 +526,7 @@ Item {
         }
         if (networks.state === "available" && networks.activeWired.length > 0 && trusted.wired.length > 0 && wiredIdentity.value === null) wiredIdentity.read(networks.activeWired);
         const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
-            changeBusy || killStep === undefined || (unknown && autoProbe !== "done"),
+            changeBusy || portalSignIn.blocksConnect || killStep === undefined || (unknown && autoProbe !== "done"),
             wiredIdentity.value);
         let memory = plan.memory;
         if (plan.why === "waiting" && unknown && autoProbe === "" && !changeBusy) {
@@ -615,6 +622,7 @@ Item {
     // before the change (VpnLogic.autoconnectArgv), an off's whether or not
     // the step is set up; the change shows in flight meanwhile.
     function startAction(kind, uuid, argv, feed) {
+        if (kind === "profile-up" && portalSignIn.blocksConnect) return "refused: profile=network-sign-in";
         if (changeBusy) return "busy";
         const row = profiles.rows.find(candidate => candidate.uuid === uuid);
         profileAction = { kind: kind, uuid: row.uuid, name: row.name, password: feed !== null };
@@ -852,14 +860,16 @@ Item {
     // The state file and the status line, on the profile poll. A read
     // waits while a write is in flight.
     function readKillSwitch() {
-        if (!registered || !killReady) return;
-        if (stateWrite === null) stateFile.reload();
+        if (!registered) return;
+        if (killReady && stateWrite === null) stateFile.reload();
         readKillStatus();
     }
     // A status read the leak check asked for runs while the step is not
     // set up too (VpnLogic.checkKillPlan).
     function readKillStatus() {
-        if (!registered || !(killReady || checkWantsStatus || root.nordWantsStatus === true)) return;
+        // A failed path unit stops changes even though the existing rule
+        // and status socket can still be in place (probe_vpn_kill_switch).
+        if (!registered || !(killReady || killStep?.reason === "units-failed" || checkWantsStatus || root.nordWantsStatus === true)) return;
         if (killReader.running) { killReader.again = true; return; }
         killReader.forCheck = checkWantsStatus;
         checkWantsStatus = false;
@@ -1207,9 +1217,9 @@ Item {
             const code = root.codeOf(completion);
             const next = Logic.killStatus(code, killText.text, killErrors.text);
             if (root.nordWantsStatus === true) root.nordStatusRead(next, completion !== null);
-            // A read the leak check asked for while the step is not set up
-            // is the check's alone; the kill switch row keeps its own.
-            if (root.killReady) {
+            // Reads requested by the leak check or Nord alone do not
+            // publish the rule unless the installed step owns this read.
+            if (root.killReady || root.killStep?.reason === "units-failed") {
                 const failed = next.state === "unreachable" || next.state === "unreadable";
                 if (failed && (root.killStatus === null || root.killStatus.state !== next.state))
                     console.warn("vpn: operation=kill-switch-status completion=" + next.state + " code=" + code);
@@ -1258,6 +1268,7 @@ Item {
     // A status read the next start of the status reader hands the check;
     // while the step rules out a table, there is none to read.
     property bool checkWantsStatus: false
+    readonly property bool leakCheckRunning: leakCheck.run !== null
     function checkStatus() {
         if (Logic.checkKillPlan(killStep) === "none") {
             leakCheck.statusRead(null);
@@ -1272,6 +1283,7 @@ Item {
         missing: root.shell === null ? [] : root.shell.requirements.missing
         rows: root.listing.state === "available" ? root.listing.rows : null
         action: root.profileAction
+        portalInProgress: portalSignIn.blocksConnect
         onStatusWanted: root.checkStatus()
         onValueChanged: {
             if (root.shell === null || value === null) return;

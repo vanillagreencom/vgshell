@@ -148,7 +148,7 @@ trap laptop_cleanup EXIT
 # Waits up to five seconds for COMMAND to succeed.
 await() { # COMMAND...
   local tenth
-  for ((tenth = 0; tenth < 50; tenth++)); do
+  for ((tenth = 0; tenth < ${await_tenths:-50}; tenth++)); do
     "$@" && return 0
     sleep 0.1
   done
@@ -190,6 +190,12 @@ mkdir -p "$tmp/nm"
 cat >/usr/local/sbin/nmcli <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/nmcli.log"
+case "\$*" in
+  "connection modify uuid $uuid connection.autoconnect yes") : >"$tmp/portal-autoconnect"; exit ;;
+  "connection up uuid $uuid")
+    [ -e "$tmp/portal-autoconnect" ] || exit 2
+    exec ip link add wgnord type wireguard ;;
+esac
 [ "\$1 \$2 \$3" = "--escape no -g" ] && [ "\$5 \$6 \$7" = "connection show uuid" ] && [ \$# = 8 ] || exit 2
 if [ -s "$tmp/nm-writes" ] && [ "\$4" = connection.type,connection.interface-name ]; then
   IFS='|' read -r meant kill <"$tmp/nm-writes"
@@ -650,7 +656,7 @@ delete_tables
 check "the egress-less control arms both tables" table_armed
 check "the egress-less control's macvlan guest reaches the hotel" test "$(guest_frames l2macvlan)" -gt 0
 check "with no device holding the egress hook the status reads device-uncovered" status_is "state=unavailable reason=device-uncovered" "tunnel=wgnord" "profile=$uuid"
-mutant device-blind '    [[ -z $uncovered ]] || state=unavailable why=device-uncovered' '    true'
+mutant device-blind '      [[ $hooked == *" $name "* ]] || uncovered=1' '      [[ $hooked == *" $name "* ]] || :'
 check "the device-blind control reads an uncovered device as holding" test "$("$mutant" status 2>&1 | cut -d' ' -f1-2)" == "state=holding reason=tunnel-down"
 mutant mark-unscoped ' meta mark & 0xff0000 == 0x80000 meta skuid >= 0 accept' ' meta mark & 0xff0000 == 0x80000 accept'
 delete_tables
@@ -932,19 +938,110 @@ check "the user's off left a file of the state grammar, mode 0644" test "$(stat 
 
 # A sign-in page opens DNS, HTTP and HTTPS for at most five minutes; a time
 # further ahead or past opens nothing.
+cat >"$tmp/portal.js" <<'JS'
+"use strict";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const [repo, script, stateFile, stage, connectivity, clock] = process.argv.slice(2);
+const { load } = require(path.join(repo, "bin/lib/qml-library.js"));
+const logic = load(path.join(repo, "shell/plugins/vgs.vpn/VpnLogic.js"), { "qs.Commons 1.0": {} });
+const state = logic.readState(fs.readFileSync(stateFile, "utf8"));
+const run = argv => spawnSync(argv[0], argv.slice(1), { encoding: "utf8" });
+const shown = run([script, "status"]);
+const status = logic.killStatus(shown.status, shown.stdout, shown.stderr);
+const link = "wlan0";
+const now = Number(clock);
+switch (stage) {
+case "open": {
+    const plan = logic.portalOpen(state, status, link, connectivity, now);
+    assert.ok(plan, "the armed captive link opens a window");
+    process.stdout.write(logic.stateChange(state, { portalUntil: plan.until }));
+    break;
+}
+case "close":
+    assert.ok(logic.portalShouldClose({ until: state.portalUntil, link }, link, connectivity, now), "the full probe or deadline closes the window");
+    process.stdout.write(logic.stateChange(state, { portalUntil: logic.PORTAL_CLOSED }));
+    break;
+case "resume":
+    assert.ok(logic.portalClosed(state, status), "reconnect waits for the kernel's closed reading");
+    for (const kind of ["enable", "up"]) {
+        const result = run(logic.portalCommand(kind, state.meantOn));
+        assert.equal(result.status, 0, result.stderr);
+    }
+    break;
+default:
+    assert.fail(stage);
+}
+JS
+portal_step() { "$NODE_BIN" "$tmp/portal.js" "$repo" "$script" "$state" "$@"; }
+portal_write() {
+  portal_step "$@" >"$tmp/portal-state" && cat -- "$tmp/portal-state" >"$state"
+}
+portal_http() { curl --noproxy '*' --silent --fail --max-time 2 http://203.0.113.10/sign-in; }
+portal_reached() { test "$(portal_http)" == "Hotel sign-in"; }
+
+# Only this private mount namespace reads the planted boot time. A future
+# deadline can come from the previous boot even if it is under the cap.
 printf -v now '%(%s)T' -1
-write_state "$uuid" block $((now + 300))
+printf 'btime %s\n' "$((now - 60))" >"$tmp/portal-proc-stat"
+mount --bind "$tmp/portal-proc-stat" /proc/stat
+write_state "$uuid" block $((now + 200))
+touch "$tmp/nm-inactive"
 run_sync
-check "a sign-in time five minutes ahead arms" synced armed
-for port in 53 80 443; do
-  check "a sign-in time opens port $port with a timeout" set_holds portal "$port timeout"
-done
-probe_round portal 3 tcp4 tcp4-443 dns-udp ping4
-expect_round portal "
+check "a prior boot's sign-in deadline stays closed before NetworkManager starts" set_empty portal
+rm -f -- "$tmp/nm-inactive"
+run_sync
+check "NetworkManager starting cannot revive the prior boot's exception" set_empty portal
+mutant old-boot-portal '! portal_current_boot' 'false'
+"$mutant" sync >/dev/null
+check "control: omitting the boot check revives the prior boot's exception" set_holds portal "80 timeout"
+printf 'unreadable boot time\n' >"$tmp/portal-proc-stat"
+run_sync
+check "a missing boot time leaves the sign-in window closed" set_empty portal
+printf 'btime %s\n' "$((now - 600))" >"$tmp/portal-proc-stat"
+
+for portal_end in full expiry; do
+  write_state "$uuid" block
+  run_sync
+  check "$portal_end: the block holds before the sign-in window opens" status_is "state=holding reason=tunnel-down" "tunnel=wgnord" "profile=$uuid"
+  check "$portal_end: the sign-in page is refused with the window closed" fails portal_http
+  probe_round "portal-$portal_end-closed" 1 tcp4
+  expect_round "portal-$portal_end-closed" "tcp4 fail 0"
+  printf -v now '%(%s)T' -1
+  # Advance the planner's clock for the expiry arm so that the same kernel
+  # timeout runs here without a five-minute sleep.
+  portal_clock=$now
+  [[ $portal_end != expiry ]] || portal_clock=$((now - 285))
+  check "$portal_end: NetworkManager's portal result opens the window" portal_write open portal "$portal_clock"
+  run_sync
+  check "$portal_end: the kernel acknowledges the open window" status_is "state=holding reason=portal-open" "tunnel=wgnord" "profile=$uuid"
+  check "$portal_end: HTTP reaches the hotel sign-in page while the window is open" portal_reached
+  check "$portal_end: an open kernel window cannot authorize reconnect" fails portal_step resume portal "$now"
+  probe_round "portal-$portal_end-open" 3 tcp4 tcp4-443 dns-udp ping4
+  expect_round "portal-$portal_end-open" "
 tcp4 pass some
 tcp4-443 pass some
 dns-udp pass some
 ping4 fail 0"
+  if [[ $portal_end == expiry ]]; then
+    await_tenths=200 check "expiry: the kernel closes the window without a sync" await set_empty portal
+    printf -v now '%(%s)T' -1
+    check "expiry: VGS closes the expired intent while the link is still a portal" portal_write close portal "$now"
+  else
+    check "full: the same link's full probe closes the window early" portal_write close full "$now"
+  fi
+  run_sync
+  check "$portal_end: the sign-in page is refused after closure" fails portal_http
+  probe_round "portal-$portal_end-after" 1 tcp4
+  expect_round "portal-$portal_end-after" "tcp4 fail 0"
+  check "$portal_end: the reconnect runs through NetworkManager's stand-in" portal_step resume "$portal_end" "$now"
+  check "$portal_end: the tunnel comes up with sign-in traffic still closed" status_is "state=passing reason=tunnel-up" "tunnel=wgnord"
+  ip link del wgnord 2>/dev/null || true
+done
+umount /proc/stat
+printf -v now '%(%s)T' -1
 write_state "$uuid" block $((now + 3600))
 run_sync
 check "a sign-in time more than five minutes ahead opens nothing" set_empty portal
@@ -1136,8 +1233,8 @@ check "the next sync arms the flushed rule again" synced armed
 echo failed >"$tmp/watcher"
 check "with the watcher failed the status says so in place of tunnel-up" status_is "state=passing reason=watcher-failed" "tunnel=wgnord" "profile=$uuid"
 mutant watcher-blind '    watcher_reason
-    why="${watcher_why:-$why}"' '    watcher_why=""
-    why="${watcher_why:-$why}"'
+    if [[ -n $uncovered ]]; then state=unavailable why=device-uncovered' '    watcher_why=""
+    if [[ -n $uncovered ]]; then state=unavailable why=device-uncovered'
 check "the watcher-blind control reads tunnel-up" test "$("$mutant" status 2>&1 | cut -d' ' -f1-2)" == "state=passing reason=tunnel-up"
 touch "$tmp/watcher-unread"
 check "a watcher systemctl cannot read is named, never passed" status_is "state=passing reason=watcher-unread" "tunnel=wgnord" "profile=$uuid"

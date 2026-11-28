@@ -51,6 +51,7 @@ FocusScope {
     // it names, which its row and the flyout header read as dropped.
     readonly property var notice: Logic.blockedNotice(shell === null ? null : shell.status.values.killSwitchState, profiles)
     readonly property string held: notice === null ? "" : notice.uuid
+    readonly property string paused: shell === null ? "" : Logic.pausedProfile(shell.status.values.killSwitchState)
     readonly property bool answering: profiles.state === "available"
     readonly property bool listed: answering && profileRows.length > 0
     readonly property var pollChoices: [10, 30, 60]
@@ -317,6 +318,7 @@ FocusScope {
                     missingRequirements: root.shell === null ? [] : root.shell.requirements.missing
                     killOn: root.killOn
                     held: root.held
+                    paused: root.paused
                     check: root.leakCheck
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)

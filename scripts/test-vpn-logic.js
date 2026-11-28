@@ -26,6 +26,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugi
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
 const bodySource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/VpnBody.qml"), "utf8");
 const leakSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/LeakCheck.qml"), "utf8");
+const portalSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/PortalSignIn.qml"), "utf8");
 const wiredSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/WiredIdentity.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 // A checkout with CRLF endings reads as nmcli's LF output.
@@ -849,6 +850,7 @@ function suite(logic, service = serviceSource) {
     // stale: a feed and an open stdin a change before this one left behind.
     const actionOwner = (stale = false) => {
         const owner = { profiles, shell: { requirements: { missing: [] } }, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
+            portalSignIn: { actuating: false, blocksConnect: false },
             profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } },
             stateWrite: null, stage: null, killArm: null, killReady: false, killFile: { kind: "reading" }, killSwitch: null };
         for (const name of ["killBusy", "changeBusy"]) bindProperty(service, owner, name);
@@ -1438,7 +1440,7 @@ function killSwitchSuite(logic, service, profiles) {
         const owner = Object.assign({
             events, disk: textOf("", "block"), lost: false, saveFails: false, stall: "",
             profiles, profileAction: null, profileProblem: null, connectFeed: null, actionNext: null, killReady: true, killWritable: true, killFile: file("", "block"),
-            autoMemory: { seen: "", pending: true, problem: null }, autoAction: "",
+            autoMemory: { seen: "", pending: true, problem: null }, autoAction: "", portalSignIn: { actuating: false, blocksConnect: false },
             killStep: { state: "ready", reason: "granted" }, probeStep: null,
             // The fresh probe answers at once, with probeStep when set.
             shell: { system: { refresh(done) {
@@ -2100,10 +2102,18 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const domains = (...names) => names.map(name => ({ name, routeOnly: true }));
     const tailnetDomains = domains("tail0000.ts.net", "ts.net", "0.e.1.a.c.5.1.1.a.7.d.f.ip6.arpa", "64.100.in-addr.arpa", "127.100.in-addr.arpa");
     const GLOBAL = "leak:" + logic.GLOBAL_DNS;
+    const portalStatus = reason => logic.killStatus(0,
+        reason === "cache-unreadable" ? "state=unavailable reason=cache-unreadable blocked=7 tunnel= profile= peers=\n"
+            : "state=" + (reason === "device-uncovered" ? "unavailable" : "passing") + " reason=" + reason + " blocked=7 tunnel=wg-portal profile=" + LAB + " peers=\n");
     const LEAK_TABLE = [
         ["DNS on the tunnel, with Tailscale's split DNS on its own domains, passes", {}, ["tunnel", "none", "tunnel", "off"]],
         ["a Wi-Fi link's DHCP domain is a DNS leak beside the tunnel's ~.", { dns: wifiDomain }, ["tunnel", "none", "leak:wlan0", "off"]],
         ["the same with the kill switch armed is blocked", { dns: wifiDomain, status: status("passing", 7) }, ["tunnel", "none", "blocked", "on"]],
+        ["a kernel portal exception passes outside DNS and web traffic", { ipv4: wlan, ipv6: wlan, dns: wifiRoute, status: portalStatus("portal-open") },
+            ["portal", "portal", "portal", "on"]],
+        ...["watcher-failed", "watcher-unread", "cache-unreadable", "device-uncovered"].map(reason =>
+            ["a status of " + reason + " does not prove the exception closed", { ipv4: wlan, dns: wifiRoute, status: portalStatus(reason) },
+                ["unknown:kill", "none", "unknown:kill", "on"]]),
         ["a domain the tunnel holds too still goes to the Wi-Fi", { dns: dnsWith({ wlan0: { searchDomains: [{ name: "corp.example" }] },
             "wg-home": { searchDomains: root.concat([{ name: "corp.example" }]) } }) }, ["tunnel", "none", "leak:wlan0", "off"]],
         ["a non-tunnel link holding the DNS default route is a DNS leak",
@@ -2179,6 +2189,10 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     for (const [name, changes, expected] of [
         ["lookups in the tunnel", {}, asked],
         ["lookups the armed kill switch blocks outside it", { dns: wifiRoute, status: status("passing", 7) }, asked],
+        ["a portal can pass the provider lookup outside", { dns: wifiRoute, status: portalStatus("portal-open") }, leaks],
+        ["an open portal does not affect an entirely tunnel-local lookup", { status: portalStatus("portal-open") }, asked],
+        ...["watcher-failed", "watcher-unread"].map(reason => ["a watcher warning cannot prove the provider lookup stays in the tunnel",
+            { dns: wifiRoute, status: portalStatus(reason) }, { kind: "failed", reason: "lookups-unknown" }]),
         ["a lookup that can leave by the Wi-Fi", { dns: wifiRoute }, leaks],
         ["a lookup that can go to global servers", { dns: dnsWith({ global: { servers, searchDomains: root } }) }, leaks],
         ["the Wi-Fi's DHCP domain, which the provider's name is not under", { dns: wifiDomain }, asked],
@@ -2404,7 +2418,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     // nothing, since curl's lookup of the provider's name could then leave
     // by another network, and a question already out is ended.
     const leakChecker = () => {
-        const owner = { run: null, value: null, lastKill: null, rows: null, action: null, missing: [], signalled: [],
+        const owner = { run: null, value: null, lastKill: null, rows: null, action: null, portalInProgress: false, missing: [], signalled: [],
             deadline: { restart() {}, stop() {} }, statusWanted() {}, console: { log() {} }, resolvFile: { path: "" } };
         owner.root = owner;
         for (const key of ["link", "ipv4", "ipv6", "dns", "dns-route", "public"])
@@ -2414,10 +2428,10 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
             "nextDnsRoute", "resolvEnded", "linked", "settle", "finish"]) sourceFn(leak, owner, name);
         return owner;
     };
-    const readLocal = (owner, beforeDns, dnsFixture = "dns-tunnel.json") => {
+    const readLocal = (owner, beforeDns, dnsFixture = "dns-tunnel.json", kernel = null) => {
         owner.start(HOME, true);
         owner.ended("link", 0, text("link.txt"), "", "");
-        owner.statusRead(null);
+        owner.statusRead(kernel);
         owner.ended("ipv4", 0, text("route-tunnel.json"), "", "");
         owner.ended("ipv6", 0, text("route-tunnel.json"), "", "");
         beforeDns(owner);
@@ -2430,6 +2444,13 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const asking = leakChecker();
     readLocal(asking, () => {});
     assert.deepEqual(plain([asking.publicReader.running, asking.publicReader.command]), [true, plain(logic.insightsArgv("wg-home"))], "a connected check asks through the tunnel");
+    const portalRace = leakChecker();
+    readLocal(portalRace, owner => { owner.portalInProgress = true; }, "dns-wifi-route.json", status("passing", 7));
+    assert.equal(portalRace.publicReader.running, false, "a portal opening after the status read rules out an outside provider lookup");
+    assert.equal(portalRace.value.result.public.reason, "lookups-unknown");
+    const portalTunnel = leakChecker();
+    readLocal(portalTunnel, owner => { owner.portalInProgress = true; }, "dns-tunnel.json", status("passing", 7));
+    assert.equal(portalTunnel.publicReader.running, true, "an independently tunnel-local lookup can run during a portal transition");
     const foreignCheck = leakChecker();
     readLocal(foreignCheck, () => {}, "dns-foreign.json");
     assert.equal(foreignCheck.resolvFile.path, "/etc/resolv.conf");
@@ -2731,7 +2752,7 @@ function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
         const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", autoProbe: "", trusted: { wifi: [WIFI], wired: [] },
             wiredCapturing: false, wiredProblem: "", launched: [],
             networks: hotelRead.networks, profiles: hotelRead.profiles, profileAction: null, stateWrite: null, stage: null, killArm: null, killStep: { state: "absent", reason: "" },
-            killSwitch: null, asked: [], probes: [], reply, probeReply: "ok",
+            killSwitch: null, portalSignIn: { actuating: false, blocksConnect: false }, asked: [], probes: [], reply, probeReply: "ok",
             shell: { requirements: { missing: [] }, system: { refresh(done) { owner.probes.push(done); return owner.probeReply; } } },
             actProfile(request) { owner.asked.push(plain(request)); return owner.reply; } }, fields);
         owner.root = owner;
@@ -2844,13 +2865,146 @@ function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
     assert.deepEqual(wiredRace.asked, [{ kind: "profile-up", id: LAB }], "the fresh read alone decides the change");
 }
 
+function killRuleWarningSuite(logic) {
+    const step = { state: "ready", reason: "granted" };
+    const valid = { kind: "valid", meantOn: HOME, mode: "block", portalUntil: "0" };
+    const files = [valid, { kind: "malformed" }, { kind: "unreadable" }];
+    const older = [
+        ["off", "disarmed"], ["holding", "tunnel-down"], ["passing", "tunnel-up"],
+        ...["profile-not-wireguard", "profile-missing", "profile-unread", "interface-invalid", "endpoint-hostname",
+            "endpoint-invalid", "cache-unreadable", "device-uncovered"].map(reason => ["unavailable", reason])
+    ];
+    const reasons = [
+        ["rule-missing", ["off"], [valid]],
+        ["state-unusable", ["unavailable"], files],
+        ["watcher-failed", ["off", "holding", "passing"], [valid]],
+        ["watcher-unread", ["off", "holding", "passing"], [valid]]
+    ];
+    const hints = new Set();
+    for (const [reason, states, readings] of reasons) {
+        const reasonHints = new Set();
+        for (const state of states) for (const setting of readings) for (const profileState of ["activated", "", null]) {
+            const profiles = { rows: profileState === null ? [] : [{ uuid: HOME, name: "Home tunnel", state: profileState }] };
+            const render = (kind, because, profile) => {
+                const status = logic.killStatus(0, `state=${kind} reason=${because} blocked=0 tunnel= profile=${profile} peers=`);
+                return logic.killSwitchView(logic.killSwitchState(step, setting, status, false, "", false), profiles);
+            };
+            const view = render(state, reason, state === "off" || reason === "state-unusable" ? "" : HOME);
+            assert.equal(view.tone, "danger", reason + " warns with " + setting.kind + " and profile " + profileState);
+            assert.notEqual(view.hint, "");
+            assert.ok(!older.some(([kind, because]) => render(kind, because, kind === "off" ? "" : HOME).hint === view.hint), reason);
+            assert.notEqual(render("unreachable", "", "").hint, view.hint);
+            reasonHints.add(view.hint);
+        }
+        assert.equal(reasonHints.size, 1, reason + " describes the same fault");
+        const [hint] = reasonHints;
+        assert.ok(!hints.has(hint), reason + " has its own line");
+        hints.add(hint);
+    }
+}
+
+function portalLifetimeSuite(logic, source = portalSource) {
+    const captive = "wlan0:hotel", nextHotel = "wlan0:other";
+    const held = logic.killStatus(0, "state=holding reason=tunnel-down blocked=2 tunnel=wg-home profile=" + HOME + " peers=");
+    const open = Object.assign({}, held, { reason: "portal-open" });
+    function fixture(fields) {
+        const makeTimer = () => ({ running: false, start() { this.running = true; }, stop() { this.running = false; } });
+        const owner = Object.assign({
+            file: { kind: "valid", mode: "block", meantOn: HOME, portalUntil: "1300" },
+            session: { link: captive, uuid: HOME, until: "1300", phase: "open" },
+            ready: true, busy: false, connectivity: "portal", outerKey: captive, status: open,
+            time: 1000, requests: 0, patches: [], commands: [], expiry: makeTimer(), statusRetry: makeTimer()
+        }, fields);
+        owner.controller = {
+            killBusy: false, profiles: { state: "available", rows: [{ uuid: HOME, type: "wireguard" }] },
+            writeState(patch, done) {
+                const change = patch(owner.file);
+                owner.patches.push(plain(change));
+                if (change !== null && !owner.refuse) owner.file = logic.readState(logic.stateChange(owner.file, change));
+                done(!owner.refuse);
+                return "ok";
+            }
+        };
+        owner.requestRead = () => { owner.requests++; };
+        owner.run = kind => { owner.commands.push(kind); };
+        for (const name of ["advance", "phase", "startExpiry", "waitForClosed"]) {
+            const part = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(source);
+            assert.ok(part, name);
+            owner[name] = new Function("Logic", "Date", "Qt", "owner", ...part[1].split(",").filter(Boolean),
+                "with (owner) {" + part[2] + "}").bind(null, logic, { now: () => owner.time * 1000 }, { callLater() {} }, owner);
+        }
+        return owner;
+    }
+
+    const unread = fixture({ outerKey: null });
+    unread.advance();
+    assert.deepEqual([unread.session.phase, unread.patches], ["open", []], "one unread list leaves the current lease alone");
+    unread.outerKey = nextHotel;
+    unread.advance();
+    assert.deepEqual(unread.patches, [{ portalUntil: "1" }], "a confirmed change closes the earlier link's lease");
+
+    const leakOut = fixture({ session: null, status: held });
+    leakOut.file.portalUntil = "0";
+    leakOut.controller.leakCheckRunning = true;
+    leakOut.advance();
+    assert.deepEqual(leakOut.patches, [], "a check relying on the closed rule holds a new exception");
+    leakOut.controller.leakCheckRunning = false;
+    leakOut.advance();
+    assert.deepEqual(leakOut.patches, [{ portalUntil: "1300" }], "the opening proceeds when the check releases the rule");
+
+    const expired = fixture({ status: held, time: 1300 });
+    expired.session.phase = "done";
+    expired.file.portalUntil = "1";
+    expired.advance();
+    assert.deepEqual(expired.patches, [], "the same captive link cannot renew its expired lease");
+    expired.outerKey = nextHotel;
+    expired.advance();
+    expired.advance();
+    assert.deepEqual(expired.patches, [{ portalUntil: "0" }, { portalUntil: "1600" }], "a different captive link can have a fresh lease");
+
+    const readonlyClose = fixture({ connectivity: "full", refuse: true });
+    readonlyClose.advance();
+    readonlyClose.advance();
+    readonlyClose.advance();
+    assert.deepEqual([readonlyClose.session.phase, readonlyClose.patches, readonlyClose.commands],
+        ["wait-expiry", [{ portalUntil: "1" }], []], "a failed close ignores the writer's own completion");
+    readonlyClose.time = 1300;
+    readonlyClose.advance();
+    assert.deepEqual(readonlyClose.commands, [], "expiry alone does not authorize the reconnect");
+    readonlyClose.status = held;
+    readonlyClose.advance();
+    assert.deepEqual(readonlyClose.commands, ["enable"], "a fresh closed status authorizes restoring autoconnect after expiry");
+
+    const readonlyReset = fixture({ connectivity: "full", refuse: true, status: held, time: 1300 });
+    readonlyReset.session.phase = "done";
+    readonlyReset.file.portalUntil = "1";
+    readonlyReset.advance();
+    readonlyReset.advance();
+    assert.deepEqual([readonlyReset.session.phase, readonlyReset.patches], ["reset-failed", [{ portalUntil: "0" }]],
+        "a failed reset gets no immediate retry");
+}
+
 suite(load(file, commons));
+killRuleWarningSuite(load(file, commons));
+portalLifetimeSuite(load(file, commons));
 editorSuite(load(file, commons));
 leakCheckSuite(load(file, commons));
 nordLocationSuite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
+    const expiryTransition = 'phase("wait-expiry");';
+    assert.equal(portalSource.split(expiryTransition).length - 1, 1);
+    assert.throws(() => portalLifetimeSuite(load(file, commons), portalSource.replace(expiryTransition, 'phase("closing");')),
+        { code: "ERR_ASSERTION" }, "control: returning a failed close to the writer retries it");
+    console.log("vpn-logic: control=failed portal close retries itself red");
+    const warnings = /    const warning = status !== null && Object\.prototype\.hasOwnProperty\.call\(KILL_RULE_WARNINGS, status\.reason\)\n        \? [^\n]+ : null;/;
+    const mainWarnings = source.replace(warnings, "    const warning = null;");
+    assert.notEqual(mainWarnings, source);
+    const warningControl = path.join(scratch, "warning-control.js");
+    fs.writeFileSync(warningControl, mainWarnings);
+    assert.throws(() => killRuleWarningSuite(load(warningControl, commons)), { code: "ERR_ASSERTION" }, "control: main's warnings miss the absent rule");
+    console.log("vpn-logic: control=main kill-switch warning behavior red");
     const endpointGuard = "status.peers.indexOf(target.endpoint) !== -1";
     assert.equal(source.split(endpointGuard).length - 1, 1);
     const nordControl = path.join(scratch, "nord-control.js");
@@ -2940,7 +3094,8 @@ try {
         ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"],
         ["a missing key is malformed", "if (Object.keys(fields).length !== 4) return malformed;", ""],
         ["a repeated key is malformed", "if (Object.prototype.hasOwnProperty.call(fields, key)) return malformed;", ""],
-        ["the portal time is kept", "portalUntil: base.portalUntil", 'portalUntil: "0"'],
+        ["the portal time is kept", "portalUntil: patch.portalUntil === undefined ? base.portalUntil : patch.portalUntil",
+            'portalUntil: patch.portalUntil === undefined ? "0" : patch.portalUntil'],
         ["a missing file reads as off", 'file.kind === "missing" ? { meantOn: "", mode: "off"', 'file.kind === "missing" ? { meantOn: "", mode: "block"'],
         ["a malformed file fails closed", 'file.kind === "malformed" ? { meantOn: "", mode: "block"', 'file.kind === "malformed" ? { meantOn: "", mode: "off"'],
         ["an unread file is not written", "if (base === null) return null;", 'if (base === null) return stateText({ meantOn: "", mode: "off", portalUntil: "0" });'],
@@ -2967,7 +3122,7 @@ try {
         ["the temporary file is dot-prefixed", 'return STATE_DIR + "/.state." + name;', 'return STATE_DIR + "/state." + name;'],
         ["an unreadable status is its own reading", "const unreadable = code === 1 &&", "const unreadable = false &&"],
         ["an unsupported profile reads in the danger colour", '" to end the block.", tone: "danger" });', '" to end the block.", tone: "" });'],
-        ["a step to apply shows Set up", 'case "setup": return fill({ setup: true,', 'case "setup": return fill({ setup: false,'],
+        ["a step to apply shows Set up", 'case "setup": return fill(Object.assign({ setup: true,', 'case "setup": return fill(Object.assign({ setup: false,'],
         ["Allow local network shows only while on", "lanShown: on,", "lanShown: true,"],
         ["a write in flight disables the switches", 'reason: state.busy ? "Wait until VGS saves this setting." : ""', 'reason: ""'],
         ["only a holding read shows the blocked notice", '|| state.status.state !== "holding" ||', '|| state.status.state === "off" ||'],
@@ -3085,7 +3240,8 @@ try {
         ["each list read decides Connect automatically", "rows, failures);\n        autoConnect();\n", "rows, failures);\n"],
         ["the read's networks are in place before the list decides", "root.networks = Logic.networkList(code, profilesText.text);", ""],
         ["the switch's answer reaches Connect automatically", "memory = Logic.autoConnectReply(memory, reply, row,", "memory = Logic.autoConnectOff(memory, reply, row,"],
-        ["Connect automatically waits on any change in flight", "changeBusy || killStep === undefined ||", "killStep === undefined ||"],
+        ["Connect automatically waits on any change in flight", "changeBusy || portalSignIn.blocksConnect || killStep === undefined ||",
+            "portalSignIn.blocksConnect || killStep === undefined ||"],
         ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined ||", "||"],
         ["an unknown kill switch step waits on a fresh probe", ' || (unknown && autoProbe !== "done")', ""],
         ["a pending change asks for one probe", 'if (!memory.pending) autoProbe = "";', 'if (plan.why !== "waiting") autoProbe = "";'],
@@ -3200,7 +3356,7 @@ try {
         ["a domain matches whole labels", 'name !== domain && !name.endsWith("." + domain)', "!name.endsWith(domain)"],
         ["a question VGS did not ask reads as not checked", 'NOT_ASKED.indexOf(reason) !== -1 ? "Not checked" : "Could not check"', '"Could not check"'],
         ["an unreadable route is unknown", 'reading.kind === "none" ? [] : unread(reading);', 'reading.kind === "none" ? [] : [];'],
-        ["the armed kill switch blocks", 'if (kill.state === "holding" || kill.state === "on") return verdict("blocked"', 'if (false) return verdict("blocked"'],
+        ["the armed kill switch blocks", 'return verdict("blocked", "");', 'return verdict("leak", outside[0]);'],
         ["an unread kill switch is unknown", 'return kill.state === "unknown" ? unknown("kill") :', "return false ? unknown(\"kill\") :"],
         ["the links the kill switch passes leak", 'if (passed !== undefined) return verdict("leak", passed);', ""],
         ["the provider is asked only with lookups in the tunnel", 'if (dns === "tunnel" || dns === "blocked") return', "if (true) return"],
@@ -3225,9 +3381,9 @@ try {
     }
     for (const [name, needle, replacement] of [
         ["a connect's check starts for WireGuard alone", "if (!Logic.checkReads(profiles.rows.find", "if (false && !Logic.checkReads(profiles.rows.find"],
-        ["the check's status read runs while the step is not set up", "if (!registered || !(killReady || checkWantsStatus || root.nordWantsStatus === true)) return;", "if (!registered || !(killReady || root.nordWantsStatus === true)) return;"],
+        ["the check's status read runs while the step is not set up", 'if (!registered || !(killReady || killStep?.reason === "units-failed" || checkWantsStatus || root.nordWantsStatus === true)) return;', 'if (!registered || !(killReady || killStep?.reason === "units-failed" || root.nordWantsStatus === true)) return;'],
         ["a step that rules out a table hands none", 'if (Logic.checkKillPlan(killStep) === "none") {', "if (!killReady) {"],
-        ["the check's own read leaves the switch's reading", "            if (root.killReady) {\n                const failed", "            if (true) {\n                const failed"],
+        ["the check's own read leaves the switch's reading", '            if (root.killReady || root.killStep?.reason === "units-failed") {\n                const failed', "            if (true) {\n                const failed"],
         ["the status read hands the check its reading", "leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));", "leakCheck.statusRead(next);"],
         ["a wait whose again starts no read decides at this end", '            if (!running) {\n                if (root.stage', '            if (false) {\n                if (root.stage']
     ]) {
@@ -3236,7 +3392,8 @@ try {
         console.log("vpn-logic: control=" + name + " red");
     }
     for (const [name, needle, replacement] of [
-        ["a dropped check asks the provider nothing", 'run.dropped ? { kind: "failed", reason: "inactive" } : Logic.publicPlan(run.readings)', "Logic.publicPlan(run.readings)"],
+        ["a dropped check asks the provider nothing", 'run.dropped ? { kind: "failed", reason: "inactive" } : Logic.publicPlan(run.readings, portalInProgress)', "Logic.publicPlan(run.readings, portalInProgress)"],
+        ["a pending exception invalidates an earlier closed status", "Logic.publicPlan(run.readings, portalInProgress)", "Logic.publicPlan(run.readings)"],
         ["a dropped check ends the question already out", "if (publicReader.running) publicReader.signal(9);", ""]
     ]) {
         assert.equal(leakSource.split(needle).length - 1, 1, name);

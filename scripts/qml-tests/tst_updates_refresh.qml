@@ -21,6 +21,7 @@ Item {
     property string refuseKey: ""
     property var facade: ({
         settings: {}, screens: { current: null }, system: { state: {} }, tui: { state: {} },
+        requirements: { missing: [] },
         shortcut: { register: () => "ok" }, surfaces: { hide: () => "ok" },
         ipc: { handle: (name, run) => { root.handlers[name] = run; return "ok"; },
             call: (name, arg) => root.handlers[name] === undefined ? "unknown: " + name : root.handlers[name](arg) },
@@ -41,6 +42,7 @@ Item {
         when: windowShown
         property var service: null
         property var view: null
+        readonly property string fixtureBootId: "11111111-1111-4111-8111-111111111111"
         function snapshot(count) {
             return JSON.stringify({ checkedAt: Date.now(), error: null,
                 sources: [{ source: "pacman", label: "System", count: count, error: null,
@@ -60,9 +62,13 @@ Item {
             return ProcessRegistry.processes.filter(row => row.running && row.command[0].endsWith("bin/check"));
         }
         function admission(value) { process("connectivity.js").finish(0, 0, JSON.stringify({ connectivity: value }), ""); }
-        function startup() {
+        function startup(bootSeconds, bootId, savedRestart) {
             reader(service.statusPath).finishRead(snapshot(97));
-            reader(service.bootPath).finishRead("btime 1\n");
+            reader(service.bootPath).finishRead("btime " + (bootSeconds ?? 1) + "\n");
+            reader(service.bootIdPath).finishRead((bootId ?? fixtureBootId) + "\n");
+            const marker = reader(service.restartMarkerPath);
+            if (savedRestart === undefined) marker.failRead(FileViewError.FileNotFound);
+            else marker.finishRead(savedRestart);
             process("outcome").finish(0, 0, "null", "");
         }
         function init() {
@@ -406,9 +412,135 @@ Item {
             return ProcessRegistry.processes.filter(row => row.running && row.command.some(arg => String(arg).endsWith("connectivity.js"))).length;
         }
         function completed(second) { return "[2026-11-21T05:50:" + second + "-0800] [ALPM] transaction completed\n"; }
+        function mesaUpgrade() {
+            return "[2026-11-21T05:50:20-0800] [ALPM] transaction started\n"
+                + "[2026-11-21T05:50:21-0800] [ALPM] upgraded mesa (24.1-1 -> 24.1-2)\n" + completed(22);
+        }
+        function finishRestartJudge(input, output, code) {
+            const judge = process("reboot");
+            const writes = judge.written.length;
+            verify(judge.stdinEnabled);
+            judge.started();
+            compare(judge.written.slice(writes), [input]);
+            compare(judge.stdinEnabled, false, "the facts reader can finish its read");
+            judge.finish(code ?? 0, 0, output, "");
+        }
+        function compareRestart(owed, unread) {
+            const reading = root.values.restartReading;
+            compare([reading.owed, reading.unread], [owed, unread]);
+            const callout = findChild(view, "updates-restart");
+            verify(callout !== null);
+            compare(callout.visible, owed || unread);
+        }
+
+        function test_package_log_restart_reading_data() {
+            const oldBoot = Date.UTC(2026, 10, 21, 13, 50, 20) / 1000;
+            return [
+                { tag: "upgrade after this boot", boot: oldBoot, log: mesaUpgrade(), judge: true, owed: true, unread: false },
+                { tag: "no package changed", boot: oldBoot, log: completed(22), owed: false, unread: false },
+                { tag: "boot after the upgrade", boot: oldBoot + 3, log: mesaUpgrade(), owed: false, unread: false },
+                { tag: "unreadable log", boot: oldBoot, error: FileViewError.PermissionDenied, owed: false, unread: true },
+                { tag: "log missing on Arch", boot: oldBoot, error: FileViewError.FileNotFound, owed: false, unread: true },
+                { tag: "no pacman on this host", boot: oldBoot, error: FileViewError.FileNotFound, nonArch: true, owed: false, unread: false },
+                { tag: "missing-history-reading-control", boot: oldBoot, log: mesaUpgrade(), control: true, owed: true, unread: false }
+            ];
+        }
+        // expected-log: updates: package log unreadable: -- the permission-denied case
+        function test_package_log_restart_reading(data) {
+            if (data.control) {
+                const url = Qt.resolvedUrl("../../shell/plugins/vgs.updates/Service.qml");
+                const request = new XMLHttpRequest();
+                request.open("GET", url, false);
+                request.send();
+                const judgement = "judgeRestart(reading === null ? null : reading.changes);";
+                const source = request.responseText;
+                compare(source.split(judgement).length, 2, "the control reaches the package-log judgement");
+                service.destroy();
+                wait(0);
+                service = Qt.createQmlObject(source.replace(judgement, ""), root, url);
+                service.shell = root.facade;
+            }
+            if (data.nonArch) service.shell = Object.assign({}, root.facade, { requirements: { missing: ["pacman-conf"] } });
+            startup(data.boot);
+            if (data.error === undefined) readPackageLog(data.log);
+            else packageLogView(false).failRead(data.error);
+            if (data.judge) finishRestartJudge("upgrade mesa\n", "reboot mesa\n");
+            else verify(!ProcessRegistry.processes.some(row => row.running && row.command.includes("reboot")));
+            compare(requests(), 0, "the first read still starts no update check");
+            if (data.control) {
+                expectFailContinue("", "the original refresh-only read shows no owed restart");
+                compare(root.values.restartReading.owed, data.owed);
+                return;
+            }
+            compareRestart(data.owed, data.unread);
+        }
+        function rebuildService() {
+            service.destroy();
+            wait(0);
+            root.values = {}; root.handlers = {};
+            service = createTemporaryObject(serviceComponent, root);
+            service.shell = root.facade;
+        }
+
+        // An outside update reaches the existing watch. The log rotates
+        // before the shell restarts, so only the boot's saved result survives.
+        function test_package_log_restart_survives_shell_restart() {
+            const boot = Date.UTC(2026, 10, 21, 13, 50, 20) / 1000;
+            startup(boot);
+            readPackageLog("");
+            compareRestart(false, false);
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(mesaUpgrade());
+            finishRestartJudge("upgrade mesa\n", "reboot mesa\n");
+            compareRestart(true, false);
+            const saved = reader(service.restartMarkerPath).disk;
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog("");
+            compareRestart(true, false);
+            rebuildService();
+            startup(boot, fixtureBootId, saved);
+            readPackageLog("");
+            compareRestart(true, false);
+            rebuildService();
+            startup(boot + 3, "22222222-2222-4222-8222-222222222222", saved);
+            readPackageLog("");
+            compareRestart(false, false);
+        }
+        // expected-log: updates: reboot-packages=unread exit=1 -- the facts reader is refused
+        function test_reboot_read_failure_keeps_an_owed_restart() {
+            startup();
+            readPackageLog(mesaUpgrade());
+            finishRestartJudge("upgrade mesa\n", "reboot mesa\n");
+            packageLogView(true).change();
+            settle(true);
+            readPackageLog(mesaUpgrade());
+            finishRestartJudge("upgrade mesa\n", "", 1);
+            compareRestart(true, true);
+        }
+
         function startTui(name) {
             service.shell = Object.assign({}, root.facade, { tui: { state: { [name]: { running: true, endedAt: null } } } });
         }
+        // Later leaves the completed run to send its normal end-of-run
+        // check. That read must also carry the restart into the window.
+        function test_restart_reading_survives_the_runs_own_check() {
+            startup();
+            readPackageLog("");
+            startTui("update");
+            compare(root.facade.ipc.call("check", "run"), "started");
+            readPackageLog(mesaUpgrade());
+            finishRestartJudge("upgrade mesa\n", "reboot mesa\n");
+            admission(4);
+            process("bin/check").finish(0, 0, snapshot(1), "");
+            endRun(1);
+            const outcome = { version: 1, ended: "finished", title: "", text: "", remedy: "", endedAt: 1000 };
+            process("outcome").finish(0, 0, JSON.stringify(outcome), "");
+            compare(root.values.lastRun, outcome);
+            compareRestart(true, false);
+        }
+
         // An install outside the window reaches the count; the log's
         // content at the first read is history and starts nothing.
         function test_package_log_transaction_requests_one_check_data() {

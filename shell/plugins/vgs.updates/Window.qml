@@ -36,6 +36,7 @@ FocusScope {
     readonly property var rows: Logic.windowRows(values)
     // How the last update run ended (UpdatesLogic.runOutcome), or null.
     readonly property var outcome: values.lastRun ?? null
+    readonly property var restartReading: values.restartReading ?? ({})
     // The refusal the last action was answered with, "" for none.
     property string problem: ""
     property Item initialFocus: sections.firstFocus
@@ -167,6 +168,16 @@ FocusScope {
                     title: visible ? root.outcome.title : ""
                     text: visible ? root.outcome.text : ""
                     plain: true
+                }
+                Callout {
+                    objectName: "updates-restart"
+                    level: "raised"
+                    width: parent.width
+                    visible: title !== "" || text !== ""
+                    tone: "warning"
+                    title: root.restartReading.owed && root.restartReading.unread ? "Restart the computer" : ""
+                    text: root.restartReading.unread ? "VGS could not check whether a restart is needed."
+                        : root.restartReading.owed ? "Restart the computer to finish applying updates." : ""
                 }
                 Label {
                     width: parent.width

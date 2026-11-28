@@ -873,6 +873,7 @@ f share/vgshell/shell/plugins/vgs.vpn/NordLocation.qml
 f share/vgshell/shell/plugins/vgs.vpn/NordSection.qml
 f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
 f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
+f share/vgshell/shell/plugins/vgs.vpn/PortalSignIn.qml
 f share/vgshell/shell/plugins/vgs.vpn/ProfileRow.qml
 f share/vgshell/shell/plugins/vgs.vpn/Service.qml
 f share/vgshell/shell/plugins/vgs.vpn/VpnBody.qml

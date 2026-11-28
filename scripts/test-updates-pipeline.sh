@@ -943,17 +943,20 @@ row_cause_output() {
 # The owner sees the item's sentence once as a warning and once in the
 # result list, where it is advisory rather than a failed package part.
 row_reboot_unread() {
-  reset_fix
-  reboot_hook
-  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
-  touch "$fix/fail-findmnt" "$fix/fail-rootdir"
-  pipeline update.sh
-  assert "a failed RootDir read stays in the developer log" diag_has "updates: reboot-hook=unread exit=1"
-  assert "a failed mounts read stays in the developer log" diag_has "updates: mounts=unread exit=1"
-  assert "two failed reboot reads warn once and add one result" test "$(grep -cF "VGS could not check whether a restart is needed." "$tmp/out")" == 2
-  assert "an unread reboot check stands in the result list" result_has "VGS could not check whether a restart is needed."
-  assert "a failed reboot read leaves the run successful" test "$status" == 0
-  local fault when
+  local fault when command
+  for command in pacman-conf findmnt; do
+    reset_fix
+    reboot_hook
+    printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+    fault=$command
+    [[ $command != pacman-conf ]] || fault=rootdir
+    touch "$fix/fail-$fault"
+    pipeline update.sh
+    assert "a failed $command read stays in the developer log" diag_has "updates-facts: refused: reboot=unreadable operation=$command cause=1"
+    assert "an unread reboot check warns once and adds one result" test "$(grep -cF "VGS could not check whether a restart is needed." "$tmp/out")" == 2
+    assert "an unread reboot check stands in the result list" result_has "VGS could not check whether a restart is needed."
+    assert "an unread reboot check leaves the run successful" test "$status" == 0
+  done
   for fault in fail-pacman-q fail-pacman-q-after; do
     reset_fix
     touch "$fix/$fault"
@@ -2409,7 +2412,6 @@ control stop-cause-unnamed '_updates_cause="$tested failed its own tests." _upda
 control others-installed-unsaid '[[ $others == 0 ]] || _updates_cause+=" The other AUR packages installed."' ':' row_aur_rebuild_stopped
 control reboot-read-silent '  vgs_tui_warn "VGS could not check whether a restart is needed."' '  :' row_reboot_unread
 control reboot-read-result-missing '  _updates_results+=("VGS could not check whether a restart is needed.")' '  :' row_reboot_unread
-control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
 control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_cause
 control failure-exits-0 '  [[ $ended == finished ]] || exit 1' '  :' row_failure
 control no-failure-next-step ' Next: $_updates_next' '' row_failed_end
@@ -2419,10 +2421,10 @@ control failed-summary-at-left '  _updates_result "$width" '"'"'Failed parts: '"
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
 control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
 control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core
-control reboot-ignores-hook '[[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"' ':' row_reboot_core
+control reboot-ignores-hook 'const hook = read(path.join(root, "usr/share/libalpm/hooks/cachyos-reboot-required.hook"), true);' 'const hook = null;' row_reboot_core bin/facts
 control reboot-ignores-targets '&& targetsMatch(trigger.targets, change.name);' ';' row_reboot_core UpdatesLogic.js
-control reboot-ignores-mounts "printf 'mounted %s\\n' \"\$value\"" ':' row_reboot_core
-control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version 2>&1)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version 2>&1)"' row_reboot_core
+control reboot-ignores-mounts 'const mounted = probe("findmnt", ["-rno", "FSTYPE"]).split("\n");' 'const mounted = [];' row_reboot_core bin/facts
+control reboot-facts-stops-run '_updates_facts reboot 2>&1)" || status=$?' '_updates_facts reboot 2>&1)"' row_reboot_core
 control reboot-new-as-upgrade 'then changes+=("install $name")' 'then changes+=("upgrade $name")' row_reboot_core
 control log-clobbers 'vgs_tui_log --build-progress "$_updates_log" "$UPDATES_LOG_PART"' 'vgs_tui_log --build-progress "$_updates_log" "$_updates_log"' row_busy
 control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true || status=$?' row_declined

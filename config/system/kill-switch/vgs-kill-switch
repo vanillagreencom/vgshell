@@ -46,7 +46,9 @@
 # table; a kernel that cannot, as Linux before 6.16, gets the inet table
 # alone, sync prints `vgs-kill-switch: egress=refused` and nft's message on
 # stderr, and status names it. A missing file reads as
-# off. A portal-until more than 300 s ahead reads as 0. sync and the root
+# off. A portal-until more than 300 s ahead or issued before this boot
+# reads as 0. A read of NetworkManager and a usable profile are required
+# for the exception. sync and the root
 # form of off read and write the file with its owner's credentials, through
 # setpriv, so a link planted in that directory reaches nothing its owner
 # cannot already read.
@@ -107,6 +109,9 @@
 #                blocked=0, tunnel= and profile= are empty.
 #   holding      armed, the tunnel interface absent: reason tunnel-down
 #   passing      armed, the tunnel interface present: reason tunnel-up
+#                Both report portal-open while the kernel allows sign-in
+#                traffic. VGS waits for the exception to close before it
+#                brings the tunnel back.
 #   unavailable  armed with no tunnel and no peer: reason
 #                profile-not-wireguard, profile-missing, profile-unread,
 #                interface-invalid, endpoint-hostname, endpoint-invalid,
@@ -488,7 +493,7 @@ cached_profile() { # UUID
 # after this service and a D-Bus activation would wait on it.
 read_profile() { # UUID
   local out status=0 lines=() kind name
-  tunnel="" reason="" peers4=() peers6=()
+  tunnel="" reason="" nm_ready="" peers4=() peers6=()
   if ! systemctl is-active --quiet NetworkManager.service; then cached_profile "$1"; return; fi
   out="$(timeout 10 nmcli --escape no -g connection.type,connection.interface-name connection show uuid "$1" 2>/dev/null)" || status=$?
   case "$status" in
@@ -509,8 +514,23 @@ read_profile() { # UUID
     out="$(timeout 10 nmcli --escape no -g wireguard.peers connection show uuid "$1" 2>/dev/null)" || status=$?
     if ((status != 0)); then cached_profile "$1"; return; fi
     # A refused peer list arms no tunnel, as every unavailable reading does.
-    parse_peers "$out" || { reason="$peer_reason" tunnel=""; }
+    if parse_peers "$out"; then nm_ready=1; else reason="$peer_reason" tunnel=""; fi
   fi
+}
+
+# The shell issues an absolute deadline exactly portal_max seconds
+# ahead. /proc/stat's btime (proc_stat(5)) is the boot second in the
+# same epoch. Treat a missing reading or a deadline issued in the boot
+# second itself as closed, since that second can contain the old boot.
+portal_current_boot() {
+  local key stamp rest
+  while read -r key stamp rest; do
+    [[ $key == btime ]] || continue
+    [[ $stamp =~ ^$digit{1,12}$ && -z $rest ]] &&
+      ((10#$portal_until - portal_max > 10#$stamp))
+    return
+  done 2>/dev/null </proc/stat
+  return 1
 }
 
 # ---------------------------------------------------------------- the table
@@ -791,7 +811,7 @@ absent_status() {
 # watcher. The inet table alone decides whether the rule is armed; a netdev
 # table left without it only drops more.
 kernel_status() {
-  local packets=0 links line name state why found="" uncovered="" peer host port endpoints=()
+  local packets=0 links line name state why found="" uncovered="" portal peer host port endpoints=()
   tables_listed
   if [[ -z $inet_listed ]] || ! add_counter inet; then
     absent_status
@@ -814,8 +834,18 @@ kernel_status() {
     done <<<"$links"
     if [[ -n $found ]]; then state=passing why=tunnel-up; else state=holding why=tunnel-down; fi
     watcher_reason
-    why="${watcher_why:-$why}"
-    [[ -z $uncovered ]] || state=unavailable why=device-uncovered
+    if [[ -n $uncovered ]]; then state=unavailable why=device-uncovered
+    elif [[ -n $watcher_why ]]; then why="$watcher_why"
+    else
+      # nft(8) lists the set's elements. The kernel's
+      # nf_tables_dump_setelem skips expired elements even before GC.
+      if ! portal="$(nft list set inet "$table" portal 2>&1)"; then
+        tables_listed
+        if [[ -z $inet_listed ]]; then absent_status; return; fi
+        refuse "nft=failed verb=status" "$portal"
+      fi
+      [[ $portal != *"elements = {"* ]] || why=portal-open
+    fi
   fi
   if [[ $state != unavailable ]]; then
     for peer in "${peers4[@]}"; do split_peer "$peer" && endpoints+=("$host:$port"); done
@@ -871,6 +901,9 @@ verb_sync() {
       result=disarmed
     else
       read_profile "$meant_on"
+      if [[ $portal_until != 0 ]] && { [[ -z $nm_ready || -n $reason ]] || ! portal_current_boot; }; then
+        portal_until=0
+      fi
       arm_and_cache "$meant_on"
       result=armed
     fi

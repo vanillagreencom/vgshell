@@ -69,6 +69,7 @@ depends=(
   'xdg-utils'
 )
 optdepends=(
+  'pacman: read Arch restart rules'
   'hyprpm: turn layer glass on or off in the Windows plugin'
   'cpio: install layer glass in the Windows plugin'
   'cmake: install layer glass in the Windows plugin'

@@ -4,7 +4,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 
 ![The VPN section of System Settings with saved VPN and WireGuard profiles](../../../docs/images/plugins/vgs.vpn-pane.webp)
 
-![The VPN section continued, with import, the connection editor, the kill switch and Updates](../../../docs/images/plugins/vgs.vpn-pane-end.webp)
+![The VPN section continued, with the kill switch, Connect automatically, Trusted networks and Updates](../../../docs/images/plugins/vgs.vpn-pane-end.webp)
 
 ## Features
 
@@ -17,7 +17,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - NetworkManager's connection editor to add or edit a profile.
 - NordVPN locations, by country, region or state, then city, for one saved WireGuard profile.
 - Remove profile deletes a profile after you confirm.
-- A kill switch that blocks traffic outside the VPN when the VPN drops.
+- A kill switch that blocks traffic outside the VPN when the VPN drops and lets you sign in to hotel and airport Wi-Fi.
 - Reconnect: a WireGuard VPN you turned on comes back by itself after a drop and after this computer wakes.
 - Connect automatically: on a network not on your trusted list, the chosen profile connects by itself.
 
@@ -96,6 +96,8 @@ The kill switch does not cover a network card that a container moves into its ow
 While the block holds after a drop, the flyout and the VPN section show a red notice at their top, and the profile reads Dropped with its switch on. The notice's Turn VPN off button, or that switch, turns the VPN off on purpose and ends the block. The kill switch row then shows how many times the kill switch refused traffic since it last started.
 
 Reconnect, in the dropped profile's opened row, connects the profile again and keeps the block in place while it retries. Turn VPN off or the profile's switch ends the block.
+
+When your network asks you to sign in, the VPN pauses. Use **Sign in** in Network to open the network's page. The kill switch allows DNS, HTTP and HTTPS outside the VPN for up to five minutes. The VPN reconnects when NetworkManager confirms internet access or the five minutes end, whichever comes first.
 
 Only the profile's switch in VGS, Turn VPN off in that notice and the kill switch's own off command turn the VPN off on purpose. A drop, nmcli in a terminal or nm-applet's switch leaves the block in place. So does a connect that NetworkManager does not complete: the block holds until the VPN connects or you turn it off in VGS.
 

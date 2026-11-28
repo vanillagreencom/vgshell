@@ -33,13 +33,10 @@
 //       `error <text>` naming each checkout whose probe failed
 //   facts <loader> settings         `vgshell plugin settings vgs.updates`
 //       `aur-command <text>`, `snapshot auto|off`, `trust true|false`
-//   facts <loader> reboot <hook> <version>
-//                                   the run's changes, `upgrade <name>` or
-//                                   `install <name>`, and `mounted <type>`
-//                                   per mounted file system, one a line
-//       `reboot <name>` per changed package UpdatesLogic.rebootPackages
-//       keeps by the reboot hook at path HOOK, `-` when there is none,
-//       and the running kernel VERSION, a /proc/version path
+//   facts <loader> reboot            the run's or package log's changes,
+//                                   `upgrade|install|remove <name>` per line
+//       `reboot <name>` per package kept by UpdatesLogic.rebootPackages,
+//       with the distribution's reboot hook, current mounts and kernel
 //   facts <loader> outcome <file>   the last run's outcome JSON; converts
 //       older saved outcomes in place before judging the current format
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
@@ -49,6 +46,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
+const FACTS_CHILD_TIMEOUT_MS = 15000;
 
 function refuse(first, status) {
     process.stderr.write("updates-facts: refused: " + first + "\n");
@@ -100,7 +98,7 @@ case "outcome": {
     // The pipeline publishes under this same short lock. A startup
     // migration must never replace an outcome a finishing run just wrote.
     const result = cp.spawnSync("flock", ["-w", "10", "-E", "75", path.join(path.dirname(source), "outcome.lock"), process.execPath, __filename, loaderPath, "outcome-held", source],
-        { stdio: "inherit", timeout: 15000 });
+        { stdio: "inherit", timeout: FACTS_CHILD_TIMEOUT_MS });
     if (result.error || result.signal) refuse("outcome=lock-unavailable", 1);
     if (result.status === 75) refuse("outcome=busy", 1);
     process.exit(result.status);
@@ -213,26 +211,42 @@ case "settings": {
     break;
 }
 case "reboot": {
-    if (process.argv.length !== 6) refuse("reboot=want-hook-version", 2);
-    const read = file => {
+    if (source !== undefined) refuse("reboot=unexpected-arguments", 2);
+    const read = (file, optional = false) => {
         try {
             return fs.readFileSync(file, "utf8");
         } catch (e) {
+            if (optional && e.code === "ENOENT") return null;
             refuse("reboot=unreadable path=" + file + " error=" + e.code, 1);
         }
     };
+    const probe = (command, args) => {
+        // spawnSync waits for the child after sending the timeout signal.
+        // These read-only helpers have nothing to flush before they exit.
+        const result = cp.spawnSync(command, args, { encoding: "utf8", timeout: FACTS_CHILD_TIMEOUT_MS, killSignal: "SIGKILL" });
+        if (result.error || result.status !== 0) {
+            const cause = result.error?.code ?? result.signal ?? result.status;
+            refuse("reboot=unreadable operation=" + command + " cause=" + cause, 1);
+        }
+        return result.stdout.trim();
+    };
     const changes = [];
-    const mounted = [];
     for (const entry of text().split("\n")) {
-        const m = /^(upgrade|install|mounted) (\S+)$/.exec(entry);
+        const m = /^(upgrade|install|remove) (\S+)$/.exec(entry);
         if (m === null) {
             if (entry !== "") refuse("reboot=malformed", 1);
-        } else if (m[1] === "mounted") mounted.push(m[2]);
-        else changes.push({ operation: m[1] === "upgrade" ? "Upgrade" : "Install", name: m[2] });
+        } else changes.push({ operation: m[1][0].toUpperCase() + m[1].slice(1), name: m[2] });
     }
+    // pacman-conf(8) prints the resolved RootDir. Read the distribution
+    // hook even when the user's higher-priority hook disables it.
+    const root = probe("pacman-conf", ["RootDir"]);
+    if (!path.isAbsolute(root) || root.includes("\n")) refuse("reboot=rootdir-malformed", 1);
+    const hook = read(path.join(root, "usr/share/libalpm/hooks/cachyos-reboot-required.hook"), true);
+    if (hook === null) break;
+    // findmnt(8): raw, no headings, one file system type per mount.
+    const mounted = probe("findmnt", ["-rno", "FSTYPE"]).split("\n");
     const table = logic();
-    const hook = process.argv[4] === "-" ? null : read(process.argv[4]);
-    for (const name of table.rebootPackages(hook, changes, table.kernelPackage(read(process.argv[5])), mounted)) line("reboot", name);
+    for (const name of table.rebootPackages(hook, changes, table.kernelPackage(read("/proc/version")), mounted)) line("reboot", name);
     break;
 }
 default:

@@ -182,13 +182,27 @@ def serve_tcp(sock, queries):
                 pass
 
 
+def serve_sign_in(sock):
+    body = b"Hotel sign-in"
+    response = b"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+    while True:
+        conn, _ = sock.accept()
+        with conn, conn.makefile("rb") as request:
+            conn.settimeout(2)
+            try:
+                if request.readline(4096).startswith(b"GET /sign-in HTTP/"):
+                    conn.sendall(response)
+            except OSError:
+                pass
+
+
 def serve(iface, log, queries, ready):
     names = open(queries, "a", buffering=1)
     workers = [
         capture(iface, log),
         lambda sock=listener(socket.SOCK_DGRAM, 53): serve_udp(sock, names),
         lambda sock=listener(socket.SOCK_STREAM, 53): serve_tcp(sock, names),
-        lambda sock=listener(socket.SOCK_STREAM, 80): serve_tcp(sock, None),
+        lambda sock=listener(socket.SOCK_STREAM, 80): serve_sign_in(sock),
         lambda sock=listener(socket.SOCK_STREAM, 443): serve_tcp(sock, None),
     ]
     for work in workers:

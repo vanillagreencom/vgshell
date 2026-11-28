@@ -9,7 +9,7 @@
   "icon": "refresh-cw",
   "kinds": ["service", "bar-widget", "window", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml", "panel": "RebootNotice.qml" },
-  "capabilities": ["configure", "ipc", "run", "screens", "shortcut", "status", "surfaces", "system", "tui"],
+  "capabilities": ["configure", "ipc", "requirements", "run", "screens", "shortcut", "status", "surfaces", "system", "tui"],
   "capabilityKinds": { "run": ["window"] },
   "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
@@ -17,6 +17,8 @@
     {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Reads internet connectivity before checking for updates"},
     {"dbus": {"bus": "system", "name": "org.freedesktop.NetworkManager", "label": "NetworkManager"}, "packages": {"pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager"}, "optional": false, "purpose": "Reports internet connectivity before checking for updates"},
     {"command": "checkupdates", "packages": {"pacman": "pacman-contrib"}, "optional": false, "purpose": "Checks Arch system updates"},
+    {"command": "pacman-conf", "packages": {"pacman": "pacman"}, "optional": true, "purpose": "Finds Arch's restart rules"},
+    {"command": "findmnt", "packages": {"pacman": "util-linux"}, "optional": true, "purpose": "Checks which file systems are in use for restart notices"},
     {"command": "snapper", "packages": {"pacman": "snapper", "apt": "snapper"}, "optional": true, "purpose": "Saves a system snapshot before updates"},
     {"command": "timeshift", "packages": {"pacman": "timeshift", "apt": "timeshift"}, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable"},
     {"command": "less", "packages": {"pacman": "less", "apt": "less", "dnf": "less", "nix": "less"}, "optional": false, "purpose": "Shows the last update log"}
@@ -62,6 +64,7 @@
     "admission": {"type": "data", "label": "Internet access"},
     "sources": {"type": "data", "label": "Sources"},
     "lastRun": {"type": "data", "label": "Last update"},
+    "restartReading": {"type": "data", "label": "Restart needed"},
     "rebootNotices": {"type": "choices", "label": "Reboot notices"},
     "rebootNoticeOwner": {"type": "state", "label": "Reboot notice"},
     "rebootNotice": {"type": "state", "label": "Reboot notice", "hidden": true, "actions": {"vgsOnly": {"label": "Turn off CachyOS notices", "system": "reboot-notice"}, "both": {"label": "Turn on CachyOS notices", "undo": "reboot-notice"}}}
